@@ -46,7 +46,7 @@ Generics + Traits + Associated Types + GATs + Const Generics + Lightweight Refin
 
 - Higher-kinded types (capabilities replace most monad use cases)
 - Full dependent types (no proof tactics)
-- SMT-backed refinement (inscrutible errors)
+- SMT-backed refinement (inscrutable errors)
 - Implicit conversions (source of bugs)
 - Structural trait satisfaction (undermines capability safety)
 - Runtime type reflection (conflicts with cost model)
@@ -84,7 +84,7 @@ the logical constraints; the codegen layer maps to machine types.
 ### The Never Type
 
 `Never` is the return type of functions that do not return (diverging functions) and
-the type of expressions like `panic` or infinite loops. It is a subtype of every type,
+the type of expressions like `panic` or non-terminating recursion. It is a subtype of every type,
 enabling:
 
 ```spore
@@ -111,7 +111,6 @@ from `Never` (which signals non-termination) and from the absence of a return ty
 
 ```spore
 fn log_event(event: Event) -> Unit
-with [idempotent]
 uses [FileWrite, Clock]
 {
     write_log(event.to_string())
@@ -203,7 +202,6 @@ compatible by field shape, not by declaration site.
 
 ```spore
 fn greet(person: { name: String, age: Int }) -> String
-with [pure]
 {
     "Hello, " ++ person.name ++ " (age " ++ show(person.age) ++ ")"
 }
@@ -232,7 +230,6 @@ type Transformer<A, B> = Fn(input: A) -> B ! [TransformError]
 -- Higher-order function accepting a function argument:
 fn apply_twice<T>(f: Fn(x: T) -> T, value: T) -> T
 where T: Clone
-with [pure]
 {
     f(x: f(x: value))
 }
@@ -242,7 +239,6 @@ Closures capture their environment:
 
 ```spore
 fn make_adder(n: Int) -> Fn(x: Int) -> Int
-with [pure]
 {
     |x: Int| -> Int { x + n }
 }
@@ -313,7 +309,6 @@ Trait bounds constrain generic type parameters in `where` clauses:
 ```spore
 fn sort<T>(list: List<T>) -> List<T>
 where T: Ord
-with [pure]
 cost <= 500
 {
     -- implementation
@@ -321,7 +316,6 @@ cost <= 500
 
 fn serialize_all<T>(items: Vec<T>) -> Vec<Bytes> ! [SerializeError]
 where T: Serialize + Display
-with [pure]
 {
     items.map(|item| item.serialize())
 }
@@ -358,10 +352,8 @@ requires an execution context that provides the `FileRead` capability." The Plat
 ```spore
 -- These two are conceptually identical:
 fn read_config(path: Path) -> Config ! [IoError]
-with [FileRead]
 
 fn read_config(path: Path) -> Config ! [IoError]
-with [FileRead]    -- capability as trait bound on context
 ```
 
 **Composite capabilities**:
@@ -371,7 +363,6 @@ capability DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
 capability Analytics = [Compute, StateRead]
 
 fn generate_report(org_id: OrgId, period: DateRange) -> Report ! [ConnectionLost]
-with [deterministic]
 uses [DatabaseAccess, Analytics]
 cost <= 12000
 {
@@ -532,13 +523,11 @@ Type parameters are declared in angle brackets and constrained in `where` clause
 
 ```spore
 fn identity<T>(value: T) -> T
-with [pure]
 {
     value
 }
 
 fn map<A, B>(list: List<A>, f: Fn(item: A) -> B) -> List<B>
-with [pure]
 {
     -- implementation
 }
@@ -548,7 +537,6 @@ where
     T: Eq + Hash
     U: Eq + Hash
     V: Serialize
-with [pure]
 cost <= 800
 {
     -- implementation
@@ -568,7 +556,6 @@ type Vec<T, max: Int> = {
 
 fn take<T, N: Int>(list: List<T>, count: N) -> Vec<T, max: N>
 where N <= list.max
-with [pure]
 {
     -- implementation
 }
@@ -588,7 +575,6 @@ fn concat<T, M: Int, N: Int>(
     a: Vec<T, max: M>,
     b: Vec<T, max: N>,
 ) -> Vec<T, max: M + N>
-with [pure]
 {
     -- implementation
 }
@@ -596,7 +582,6 @@ with [pure]
 fn transpose<T, R: Int, C: Int>(
     matrix: Matrix<T, rows: R, cols: C>,
 ) -> Matrix<T, rows: C, cols: R>
-with [pure]
 {
     -- implementation
 }
@@ -604,7 +589,6 @@ with [pure]
 fn flatten<T, N: Int, M: Int>(
     nested: Vec<Vec<T, max: M>, max: N>,
 ) -> Vec<T, max: N * M>
-with [pure]
 {
     -- implementation
 }
@@ -622,7 +606,6 @@ on its const generic parameters:
 ```spore
 fn linear_search<T, N: Int>(items: Vec<T, max: N>, target: T) -> Option<Int>
 where T: Eq
-with [pure]
 cost <= N * 5
 {
     -- O(N) search, cost scales linearly
@@ -630,7 +613,6 @@ cost <= N * 5
 
 fn sort_bounded<T, N: Int>(items: Vec<T, max: N>) -> Vec<T, max: N>
 where T: Ord
-with [pure]
 cost <= N * N * 2   -- O(N²) worst case
 {
     -- implementation
@@ -678,14 +660,12 @@ type HttpStatusCode = Int if 100 <= self <= 599
 
 ```spore
 fn connect(host: String, port: Port) -> Connection ! [ConnectionError]
-with [deterministic]
 uses [NetRead, NetWrite]
 {
     -- `port` is guaranteed to be in [1, 65535]
 }
 
 fn compute_discount(rate: Percentage, price: Float) -> Float
-with [pure]
 {
     price * (rate / 100.0)
 }
@@ -729,7 +709,6 @@ fn process_port(raw: Int) -> Port ! [InvalidPort] {
 
 ```spore
 fn categorize_age(age: Int) -> String
-with [pure]
 {
     if age < 0 {
         panic("negative age")
@@ -826,7 +805,6 @@ that every possible variant is handled. This is non-negotiable for:
 
 ```spore
 fn describe(shape: Shape) -> String
-with [pure]
 {
     match shape {
         Circle { radius }           => "circle with radius " ++ show(radius),
@@ -859,7 +837,6 @@ type Expr =
     | UnaryOp { op: Op, operand: Expr }
 
 fn simplify(expr: Expr) -> Expr
-with [pure]
 {
     match expr {
         BinOp { op: Add, left: Literal { value: 0 }, right: e } => simplify(e),
@@ -884,7 +861,6 @@ Guards add boolean conditions to pattern branches:
 
 ```spore
 fn classify_temperature(temp: Float) -> String
-with [pure]
 {
     match temp {
         t if t < -40.0  => "extreme cold",
@@ -907,7 +883,6 @@ Or-patterns match multiple alternatives with the same arm:
 
 ```spore
 fn is_weekend(day: Day) -> Bool
-with [pure]
 {
     match day {
         Saturday | Sunday => true,
@@ -916,7 +891,6 @@ with [pure]
 }
 
 fn area(shape: Shape) -> Float
-with [pure]
 {
     match shape {
         Circle { radius }           => pi * radius * radius,
@@ -933,7 +907,6 @@ Or-patterns can combine with nested patterns:
 
 ```spore
 fn is_origin(point: Point) -> Bool
-with [pure]
 {
     match point {
         Point { x: 0.0, y: 0.0 } => true,
@@ -942,7 +915,6 @@ with [pure]
 }
 
 fn is_simple_shape(shape: Shape) -> Bool
-with [pure]
 {
     match shape {
         Circle { .. } | Rectangle { .. } => true,
@@ -957,7 +929,6 @@ Pattern matching is not limited to `match` — destructuring works in `let` bind
 
 ```spore
 fn distance(a: Point, b: Point) -> Float
-with [pure]
 {
     let Point { x: x1, y: y1 } = a
     let Point { x: x2, y: y2 } = b
@@ -972,7 +943,6 @@ handling:
 
 ```spore
 fn handle_result(result: Invoice ! [TaxError, ValidationError]) -> String
-with [pure]
 {
     match result {
         Ok(invoice) => "Invoice #" ++ show(invoice.id),
@@ -1020,7 +990,6 @@ call boundaries and return expressions.
 ```spore
 fn process_items<T>(items: Vec<T>) -> Vec<String> ! [FormatError]
 where T: Display
-with [pure]
 cost <= 1000
 {
     -- Check mode (top-down): return type Vec<String> ! [FormatError] pushes down
@@ -1045,7 +1014,6 @@ Holes participate in bidirectional checking: the expected type flows into the ho
 
 ```spore
 fn example(x: Int, y: String) -> Bool ! []
-with [pure]
 {
     let a: Int = ?h1          -- check mode: ?h1 must produce Int
     let b = if a > 0 {
@@ -1118,7 +1086,6 @@ type Celsius = Float       -- nominal: Celsius ≠ Fahrenheit
 type Fahrenheit = Float    -- nominal: Fahrenheit ≠ Celsius
 
 fn format_temp(temp: Celsius) -> String
-with [pure]
 {
     show(temp) ++ "°C"
 }
@@ -1136,7 +1103,6 @@ format_temp(temp: 98.6) -- ERROR: expected Celsius, got Float
 ```spore
 -- Anonymous record type in signature:
 fn summarize(data: { count: Int, total: Float }) -> String
-with [pure]
 {
     "Count: " ++ show(data.count) ++ ", Avg: " ++ show(data.total / data.count)
 }
@@ -1180,7 +1146,6 @@ Every capability is a trait, and `uses [Cap]` is a trait bound on the execution 
 
 ```spore
 fn fetch_and_save(url: Url, path: Path) -> Unit ! [NetworkError, IoError]
-with [deterministic]
 uses [NetRead, FileWrite]
 cost <= 5000
 {
@@ -1197,7 +1162,6 @@ Cost bounds interact with the type system through const generics:
 ```spore
 fn batch_process<T, N: Int>(items: Vec<T, max: N>) -> Vec<T, max: N>
 where T: Processable
-with [pure]
 cost <= N * 50
 {
     items.map(|item| item.process())   -- each process() costs <= 50
@@ -1215,7 +1179,6 @@ without affecting the type system's soundness.
 
 ```spore
 fn process_payment(amount: Money, card: Card) -> Receipt ! [PaymentFailed]
-with [deterministic]
 uses [PaymentGateway, AuditLog]
 cost <= 2000
 {
@@ -1240,7 +1203,6 @@ to a trusted subset, expressing architectural intent.
 
 ```spore
 fn build_dashboard(org: Org) -> Dashboard ! [DataError]
-with [deterministic]
 uses [Database, Cache, Analytics]
 cost <= 20000
 {
@@ -1277,7 +1239,6 @@ import core.math { round, ceil }
 import billing.types { Money, TaxRegion, TaxRate }
 
 fn compute_tax(amount: Money, region: TaxRegion) -> Money ! [TaxError]
-with [pure]
 cost <= 200
 {
     let rate = lookup_rate(region)
@@ -1322,7 +1283,6 @@ fn validate(ast: Ast) -> ValidAst ! [TypeError, RangeError]
 
 -- Error sets union automatically via `?` propagation:
 fn compile(input: String) -> ValidAst ! [SyntaxError, EncodingError, TypeError, RangeError]
-with [pure]
 {
     let ast = parse(input)?
     validate(ast)?
@@ -1370,7 +1330,7 @@ fn safe_unwrap<T>(opt: Option<T>) -> T {
 
 `Never` is the natural type for:
 - `panic(...)` and `abort(...)` calls
-- Infinite loops (`loop { ... }`)
+- Diverging expressions (non-terminating recursion)
 - Exhaustive match arms that provably never execute
 - Error-only functions that always raise
 
@@ -1387,7 +1347,6 @@ type Seconds = Float
 
 -- These are all distinct types:
 fn send_email(to: Email, subject: String) -> Unit ! [DeliveryError]
-with [EmailService]
 
 let uid: UserId = "user-123"
 let email: Email = "alice@example.com"
@@ -1532,7 +1491,7 @@ Spore rejects this because:
 1. **SMT is unpredictable.** Slight changes to code can cause the solver to time out
    or produce different results, violating Spore's predictability principle.
 
-2. **SMT errors are inscrutible.** When a refinement fails to verify, the error message
+2. **SMT errors are inscrutable.** When a refinement fails to verify, the error message
    is often "could not prove P" with no actionable guidance.
 
 3. **L0 + L1 cover practical needs.** Decidable predicates (numeric bounds, size limits)
@@ -1694,7 +1653,6 @@ capability TaxTable {
 }
 
 fn compute_tax(amount: Money, region: TaxRegion) -> Money ! [TaxError]
-with [pure]
 uses [TaxTable]
 cost <= 200
 {
@@ -1713,7 +1671,6 @@ import billing.types { Money, LineItem, Invoice, Customer, TaxRegion,
 import billing.tax { compute_tax }
 
 fn validate_items(items: Vec<LineItem>) -> Vec<LineItem> ! [ValidationError]
-with [pure]
 cost <= 500
 {
     if items.is_empty() {
@@ -1732,7 +1689,6 @@ fn generate_invoice(
     items: Vec<LineItem>,
     tax_region: TaxRegion,
 ) -> Invoice ! [TaxError, ValidationError]
-with [pure, deterministic]
 uses [TaxTable]
 cost <= 5000
 {

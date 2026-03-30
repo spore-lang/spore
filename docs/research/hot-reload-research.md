@@ -44,13 +44,13 @@ Based on extensive research across multiple systems, here's the definitive compa
 **Release upgrade flow** (systools/release_handler):
 ```erlang
 % Application upgrade file (myapp.appup)
-{"2.0", 
-  [{"1.0", 
+{"2.0",
+  [{"1.0",
     [{load_module, myapp_server},
      {load_module, myapp_lib},
      {update, myapp_server, {advanced, []}},
      {load_module, myapp_client}]}],
-  [{"1.0", 
+  [{"1.0",
     [{update, myapp_server, {advanced, []}},
      {load_module, myapp_client},
      {load_module, myapp_lib},
@@ -72,7 +72,7 @@ Based on extensive research across multiple systems, here's the definitive compa
 code_change("1.0", {counter, Value}, _Extra) ->
   % Transform old tuple format to new record format
   {ok, #counter_state{value=Value, timestamp=erlang:now()}};
-  
+
 code_change(_OldVsn, State, _Extra) ->
   % Fallback: if no migration defined, keep state as-is
   {ok, State}.
@@ -391,7 +391,7 @@ Counter allInstances do: [:each | each timestamp: now]
 2. Edit method code
 3. Accept (Cmd+S)
 4. Method is immediately live
-5. Test in workspace: 
+5. Test in workspace:
    c := MyClass new.
    c myMethod
 ```
@@ -453,7 +453,7 @@ Counter class >> newWithValue: v [
 ```unison
 -- Define function (stored by content hash, not name)
 fibonacci : Nat -> Nat
-fibonacci n = 
+fibonacci n =
   if n < 2 then n
   else fibonacci (n-1) + fibonacci (n-2)
 
@@ -463,8 +463,8 @@ fibonacci n =
 
 -- Change implementation
 fibonacci : Nat -> Nat
-fibonacci n = 
-  if n < 2 then n 
+fibonacci n =
+  if n < 2 then n
   else fibonacci (n-2) + fibonacci (n-1)  -- bug: wrong order
 
 -- New definition has different hash
@@ -498,13 +498,13 @@ effect Store where
   read : '{Store} String
 
 -- v2.0 (same hash, so no migration needed)
-effect Store where  
+effect Store where
   read : '{Store} String
 
 -- v3.0 (different API - different hash)
 effect Store where
   read : Key -> '{Store} Value
-  
+
 -- Unison detects all dependents need updates
 -- Shows you which functions depend on old Store
 -- You decide how to migrate each
@@ -543,7 +543,7 @@ old.fibonacci : Nat -> Nat
 old.fibonacci n = slow-impl n
 
 -- New version
-fibonacci : Nat -> Nat  
+fibonacci : Nat -> Nat
 fibonacci n = fast-impl n
 
 -- Codebase tracks both
@@ -701,7 +701,7 @@ example.core=> (increment-counter {:counter 5})
 ```clojure
 ;; Figwheel can hot-reload these independently:
 ;; - example.core
-;; - example.components  
+;; - example.components
 ;; - example.utils
 
 ;; CSS files hot-loaded
@@ -808,7 +808,7 @@ if (import.meta.hot) {
     // Update accepted
     console.log('Module updated:', mod)
   })
-  
+
   import.meta.hot.dispose((data) => {
     // Cleanup before reload
     cleanup()
@@ -824,7 +824,7 @@ if (import.meta.hot) {
 function Counter() {
   const [count, setCount] = useState(0);  // ← State persists across reload
   const [name, setName] = useState("");
-  
+
   return <>
     <p>Count: {count}</p>
     <input value={name} onChange={e => setName(e.target.value)} />
@@ -848,7 +848,7 @@ function Bad({ showCounter }) {
   const [name, setName] = useState("");     // Sometimes 2nd, sometimes 1st
 }
 
-// ✅ WORKS - hooks always called in same order  
+// ✅ WORKS - hooks always called in same order
 function Good({ showCounter }) {
   const [count, setCount] = useState(0);
   const [name, setName] = useState("");
@@ -995,7 +995,7 @@ class Counter extends StatefulWidget {
 
 class _CounterState extends State<Counter> {
   int count = 0;
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1028,13 +1028,13 @@ class _CounterState extends State<Counter> {
 class _CounterState extends State<Counter> {
   int count = 0;  // ← This value preserved
   late String name;
-  
+
   @override
   void initState() {
     super.initState();
     name = "Counter";  // ← Not re-run after hot reload
   }
-  
+
   @override
   Widget build(BuildContext context) {
     // ← Re-run after hot reload, using preserved count & name
@@ -1204,7 +1204,7 @@ flutter run              # Start app in dev mode
 (defun process-number (x)
   (+ x 10))
 
-(process-number "hello")  
+(process-number "hello")
 ; => Error: illegal to + a character and a fixnum
 ; Can use debugger to continue with different value
 ```
@@ -1491,7 +1491,7 @@ data Maybe a = Nothing | Just a
 {
   networking.hostName = "myhost";
   # Type: string
-  
+
   # Type error if you assign number:
   networking.hostName = 123;  # Error
 }
@@ -1502,7 +1502,7 @@ data Maybe a = Nothing | Just a
 {
   services.postgresql.enable = true;
   services.postgresql.version = 13;
-  
+
   # Can change to incompatible version
   # nixos-rebuild will rebuild, but may break
 }
@@ -1539,7 +1539,7 @@ $ sudo nixos-rebuild switch
 # If broken, can quickly rollback
 ```
 
-**Reproducible:** 
+**Reproducible:**
 - Every package built from exact same source
 - Bit-for-bit reproducible outputs
 - Full system version history available
@@ -1868,11 +1868,11 @@ code_change(OldVsn, State, Extra) ->
 1. **`OldVsn`**: Version string of old code
    - From `.appup` file
    - Can be `undefined` for initial load
-   
+
 2. **`State`**: Current state of process
    - Must match old record/tuple structure
    - Developer interprets format
-   
+
 3. **`Extra`**: Context from `.appup`
    - Custom data passed by release handler
    - Can encode migration instructions
@@ -1883,13 +1883,13 @@ code_change(OldVsn, State, Extra) ->
 -record(old_user, {id, name, email}).
 -record(new_user, {id, name, email, created_at, updated_at}).
 
-code_change("1.0", 
-            #old_user{id=Id, name=Name, email=Email}, 
+code_change("1.0",
+            #old_user{id=Id, name=Name, email=Email},
             _Extra) ->
   Now = erlang:now(),
   {ok, #new_user{
-    id=Id, 
-    name=Name, 
+    id=Id,
+    name=Name,
     email=Email,
     created_at=Now,
     updated_at=Now
@@ -1981,12 +1981,12 @@ process x = x * 3
 Codebase {
   [abc123def456]: Term "lambda x . (* x 2)"
   [xyz789def012]: Term "lambda x . (* x 3)"
-  
+
   Names {
     "process" -> [xyz789def012]
     "process.v1" -> [abc123def456]
   }
-  
+
   Dependents {
     [xyz789def012]: [result]  // result depends on new process
   }
@@ -2036,7 +2036,7 @@ reload_module(Mod) ->
   end.
 ```
 
-**Better approach:** 
+**Better approach:**
 - Make certain processes "reloadable" by design
 - Use type system (Gleam) to enforce safety
 - Unison's hash-based identity provides natural capability boundary
@@ -2070,7 +2070,7 @@ reload_module(Mod) ->
 
 ### Pattern 1: State Preservation Requires Explicit Design
 
-**Observation:** 
+**Observation:**
 - Systems that preserve state (Erlang, Elixir, React, Smalltalk) required explicit architectural patterns
 - Systems that lose state (Haskell, traditional REPL) use implicit approaches
 
@@ -2097,7 +2097,7 @@ reload_module(Mod) ->
 - Module-level reloads (Erlang, Gleam): seconds but larger scope
 - System-level reloads (NixOS): minutes but complete control
 
-**Trade-off:** 
+**Trade-off:**
 ```
 Granularity vs Speed:
 - Expression level: Fast reload, limited changes
@@ -2218,7 +2218,7 @@ Stateless ───────────────────────�
   ↓                                            ↓
 Haskell GHCi         Erlang/OTP         Smalltalk/Pharo
 (State lost)         (Explicit migration)    (Auto-preserved)
-  
+
 Fast ────────────────────────────────────── Slow
   ↓                                          ↓
 Smalltalk           React/Vue/Svelte        NixOS

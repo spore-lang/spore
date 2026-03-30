@@ -76,18 +76,18 @@ Based on extensive analysis of 400+ compiler projects across GitHub, here's the 
 - **Funding**: Mozilla + Rust Foundation
 
 ### Strengths for This Use Case
-✅ **Algebraic data types** — enums with pattern matching (native language feature)  
-✅ **Persistent data structures** — im-rs crate for efficient immutable collections  
-✅ **Effect handlers** — via libraries like `radish` or custom trait-based implementations  
-✅ **Content-addressed storage** — blake3, sha2 crates (2,000+ stars), IPFS integration ready  
-✅ **Incremental compilation** — built-in via salsa, hashcons patterns  
-✅ **WASM targets** — mature ecosystem  
-✅ **LSP** — production-ready frameworks  
-✅ **FFI to C/Rust** — seamless (`unsafe` blocks, FFI modules)  
+✅ **Algebraic data types** — enums with pattern matching (native language feature)
+✅ **Persistent data structures** — im-rs crate for efficient immutable collections
+✅ **Effect handlers** — via libraries like `radish` or custom trait-based implementations
+✅ **Content-addressed storage** — blake3, sha2 crates (2,000+ stars), IPFS integration ready
+✅ **Incremental compilation** — built-in via salsa, hashcons patterns
+✅ **WASM targets** — mature ecosystem
+✅ **LSP** — production-ready frameworks
+✅ **FFI to C/Rust** — seamless (`unsafe` blocks, FFI modules)
 
 ### Weaknesses
-❌ Compile times (mitigated with incremental compilation)  
-❌ Larger binary sizes  
+❌ Compile times (mitigated with incremental compilation)
+❌ Larger binary sizes
 
 ---
 
@@ -154,18 +154,18 @@ Based on extensive analysis of 400+ compiler projects across GitHub, here's the 
 - **Smaller community**: ~50K developers
 
 ### Strengths for This Use Case
-✅ **ADTs with pattern matching** — language native  
-✅ **Persistent data structures** — purely functional by default  
-✅ **Effect handlers** — via algebraic effects libraries (`eff`, `effects`)  
-✅ **Immutable by default** — content-addressed storage natural  
-✅ **Type safety** — better than Rust for some patterns  
+✅ **ADTs with pattern matching** — language native
+✅ **Persistent data structures** — purely functional by default
+✅ **Effect handlers** — via algebraic effects libraries (`eff`, `effects`)
+✅ **Immutable by default** — content-addressed storage natural
+✅ **Type safety** — better than Rust for some patterns
 
 ### Weaknesses
-❌ **Slower bytecode interpretation** (ocamlc)  
-❌ **GC pauses** — problematic for real-time/interactive compilers  
-❌ **LLVM integration** — unmaintained  
-❌ **WASM support** — limited  
-❌ **Smaller ecosystem** — fewer libraries for crypto, etc.  
+❌ **Slower bytecode interpretation** (ocamlc)
+❌ **GC pauses** — problematic for real-time/interactive compilers
+❌ **LLVM integration** — unmaintained
+❌ **WASM support** — limited
+❌ **Smaller ecosystem** — fewer libraries for crypto, etc.
 
 ---
 
@@ -224,10 +224,10 @@ Based on extensive analysis of 400+ compiler projects across GitHub, here's the 
 - **Packages**: Hackage (20K+ packages, but quality varies)
 
 ### Strengths for This Use Case
-✅ **Type-driven development** — compiler assists  
-✅ **Algebraic effects** — `Control.Effect` libraries  
-✅ **Lazy evaluation** — natural fit for symbolic computation  
-✅ **Strong theory** — dependently-typed patterns available  
+✅ **Type-driven development** — compiler assists
+✅ **Algebraic effects** — `Control.Effect` libraries
+✅ **Lazy evaluation** — natural fit for symbolic computation
+✅ **Strong theory** — dependently-typed patterns available
 
 ### Weaknesses
 ❌ **Steep learning curve** — monads, type classes required
@@ -291,10 +291,10 @@ Based on extensive analysis of 400+ compiler projects across GitHub, here's the 
 - **Packages**: 1M+ modules on pkg.go.dev
 
 ### Strengths for This Use Case
-✅ **Fast compilation** — quick iteration  
-✅ **Simple, readable code** — team onboarding easy  
-✅ **Excellent WASM support** (TinyGo)  
-✅ **Large ecosystem** — most libraries available  
+✅ **Fast compilation** — quick iteration
+✅ **Simple, readable code** — team onboarding easy
+✅ **Excellent WASM support** (TinyGo)
+✅ **Large ecosystem** — most libraries available
 
 ### Weaknesses
 ❌ **No algebraic data types** — pattern matching awkward
@@ -345,17 +345,17 @@ Based on extensive analysis of 400+ compiler projects across GitHub, here's the 
 - **Productivity**: High initially, degrades at scale
 
 ### Weaknesses
-❌ **No algebraic data types**  
-❌ **Dynamic typing** — errors caught at runtime  
-❌ **Garbage collection pauses**  
-❌ **Slow execution** — JIT compilation overhead  
-❌ **No immutability guarantees**  
+❌ **No algebraic data types**
+❌ **Dynamic typing** — errors caught at runtime
+❌ **Garbage collection pauses**
+❌ **Slow execution** — JIT compilation overhead
+❌ **No immutability guarantees**
 ❌ **Not suitable for production compilers**
 
 ### Use Cases
-✅ **Rapid prototyping** (proof of concept)  
-✅ **Browser-based IDE** (with wasm backend)  
-✅ **Transpilers for web** (Babel, TypeScript)  
+✅ **Rapid prototyping** (proof of concept)
+✅ **Browser-based IDE** (with wasm backend)
+✅ **Transpilers for web** (Babel, TypeScript)
 
 ---
 
@@ -396,9 +396,9 @@ Based on extensive analysis of 400+ compiler projects across GitHub, here's the 
 ❌ **Not suitable for bootstrap** — becomes bottleneck
 
 ### Use Cases
-✅ **Initial prototype** (before rewriting)  
-✅ **ML-guided compilation** (TVM)  
-✅ **Quick scripts** for tooling  
+✅ **Initial prototype** (before rewriting)
+✅ **ML-guided compilation** (TVM)
+✅ **Quick scripts** for tooling
 
 ---
 
@@ -410,10 +410,10 @@ Based on extensive analysis of 400+ compiler projects across GitHub, here's the 
 - **JetBrains IDE compilers** — production-grade
 
 ### Strengths
-✅ **Full JVM ecosystem** — all Java libraries  
-✅ **Compiler plugins** — via Arrow-Meta  
-✅ **Algebraic data types** — sealed classes  
-✅ **Pattern matching** (Kotlin 1.7+)  
+✅ **Full JVM ecosystem** — all Java libraries
+✅ **Compiler plugins** — via Arrow-Meta
+✅ **Algebraic data types** — sealed classes
+✅ **Pattern matching** (Kotlin 1.7+)
 
 ### Weaknesses
 ❌ **JVM startup overhead** — slow REPL iteration
@@ -434,10 +434,10 @@ For **JVM-only** targets (Kotlin Native is limited)
 - **TinyJIT** (66⭐) — JIT compiler for ARM64
 
 ### Strengths
-✅ **Comptime** (compile-time evaluation) — powerful code generation  
-✅ **No hidden control flow** — explicit, predictable  
-✅ **Direct LLVM access** — zig build system  
-✅ **Cross-compilation** — first-class  
+✅ **Comptime** (compile-time evaluation) — powerful code generation
+✅ **No hidden control flow** — explicit, predictable
+✅ **Direct LLVM access** — zig build system
+✅ **Cross-compilation** — first-class
 
 ### Weaknesses
 ❌ **Very immature** — language changing rapidly
@@ -455,9 +455,9 @@ For **JVM-only** targets (Kotlin Native is limited)
 - **Needle** (1,983⭐) — DI framework
 
 ### Strengths
-✅ **Powerful enums** — algebraic data types  
-✅ **Pattern matching** — robust  
-✅ **LLVM backed** — good codegen  
+✅ **Powerful enums** — algebraic data types
+✅ **Pattern matching** — robust
+✅ **LLVM backed** — good codegen
 
 ### Weaknesses
 ❌ **Apple-only ecosystem** — limited libraries
@@ -475,14 +475,14 @@ For **JVM-only** targets (Kotlin Native is limited)
 - **acwj** (13,168⭐) — "A Compiler Writing Journey"
 
 ### Strengths
-✅ **Maximum control** — direct code generation  
-✅ **Minimal overhead** — extremely fast  
+✅ **Maximum control** — direct code generation
+✅ **Minimal overhead** — extremely fast
 
 ### Weaknesses
-❌ **Manual memory management** — error-prone  
-❌ **No algebraic types** — struct-based hacks  
-❌ **No pattern matching** — verbose  
-❌ **Unsafe** — buffer overflows, etc.  
+❌ **Manual memory management** — error-prone
+❌ **No algebraic types** — struct-based hacks
+❌ **No pattern matching** — verbose
+❌ **Unsafe** — buffer overflows, etc.
 ❌ **Not recommended for new projects** — Rust replaces this
 
 ---

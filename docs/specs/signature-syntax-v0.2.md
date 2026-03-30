@@ -2,7 +2,7 @@
 
 ## 设计原则
 1. 错误是特殊返回类型 → 紧跟 `->` 用 `!` 分隔
-2. 泛型约束 → `where`（Rust 风格）；效果 → `with`；资源 → `uses`；代价 → `cost`，各自独立子句
+2. 泛型约束 → `where`（Rust 风格）；资源 → `uses`；代价 → `cost`，各自独立子句；效果属性由编译器从 `uses` 自动推断
 3. 简单纯函数零开销 → 无 where、无 `!`
 4. 编译器推断并显示所有省略的元数据
 
@@ -13,7 +13,6 @@
 ```
 fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
 [where <GenericName>: <Constraint>, ...]
-[with [<effect1>, <effect2>, ...]]
 [uses [<Capability>, ...]]
 [cost ≤ <N>]
 {
@@ -35,9 +34,9 @@ fn add(a: Int, b: Int) -> Int {
 
 编译器推断输出：
 ```
-  with [pure, deterministic, total]
   cost = 1
   uses []
+  -- 编译器自动推断: pure, deterministic, total (基于 uses [])
 ```
 
 ---
@@ -52,9 +51,9 @@ fn parse_int(input: String) -> Int ! [InvalidFormat] {
 
 编译器推断输出：
 ```
-  with [pure, deterministic]
   cost = 12
   uses [Compute]
+  -- 编译器自动推断: deterministic (基于 uses [Compute])
 ```
 
 ---
@@ -64,7 +63,6 @@ fn parse_int(input: String) -> Int ! [InvalidFormat] {
 ```
 fn serialize<T>(value: T) -> Bytes ! [SerializeError]
 where T: Serialize
-with [pure, deterministic]
 uses [Compute]
 cost ≤ 500
 {
@@ -78,8 +76,7 @@ cost ≤ 500
 
 ```
 fn parse_config(raw: String, strict: Bool) -> Config ! [MalformedInput, MissingField]
-with [pure, deterministic]
-uses [Compute, Module<toml>]
+uses [Compute]
 cost ≤ 200
 {
     ...
@@ -91,9 +88,9 @@ cost ≤ 200
 ### 5. 有副作用的函数
 
 ```
+/// @idempotent
 fn sync_user_data(user_id: UserId, source: DataSource) -> SyncReport ! [NetworkTimeout, AuthExpired, DataConflict]
-with [idempotent]
-uses [NetRead, NetWrite, StateRead, Module<auth>, FuncCall<merge_records>]
+uses [NetRead, NetWrite, StateRead]
 cost ≤ 8500
 {
     ...
@@ -106,11 +103,10 @@ cost ≤ 8500
 
 ```
 capability DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
-capability Analytics = [Compute, FuncCall<aggregate>, Module<stats>]
+capability Analytics = [Compute]
 
 fn generate_report(org_id: OrgId, period: DateRange) -> Report ! [ConnectionLost, QueryTimeout, InsufficientData]
-with [deterministic]
-uses [DatabaseAccess, Analytics, Module<formatter>]
+uses [DatabaseAccess, Analytics]
 cost ≤ 12000
 {
     ...
@@ -126,8 +122,7 @@ fn merge<T, U, V>(left: List<T>, right: List<U>, resolver: Fn(T, U) -> V) -> Lis
 where T: Eq + Hash
 where U: Eq + Hash
 where V: Serialize
-with [pure, deterministic]
-uses [Compute, FuncCall<resolver>]
+uses [Compute]
 cost ≤ 800
 {
     ...
@@ -139,9 +134,9 @@ cost ≤ 800
 ### 8. Hole（部分定义，可模拟执行）
 
 ```
+/// @idempotent
 fn validate_payment(amount: Money, method: PaymentMethod) -> Receipt ! [Declined, InsufficientFunds]
-with [idempotent]
-uses [NetRead, Module<payment_gateway>]
+uses [NetRead]
 {
     ?validate_logic
 }
@@ -156,7 +151,7 @@ uses [NetRead, Module<payment_gateway>]
     "amount": "Money",
     "method": "PaymentMethod"
   },
-  "available_capabilities": ["NetRead", "Module<payment_gateway>"],
+  "available_capabilities": ["NetRead"],
   "candidate_functions": [
     "payment_gateway.charge(amount: Money, method: PaymentMethod) -> Receipt ! [Declined, InsufficientFunds]"
   ],
@@ -169,8 +164,8 @@ uses [NetRead, Module<payment_gateway>]
 ### 9. 无错误但有副作用
 
 ```
+/// @idempotent
 fn log_event(event: Event) -> Unit
-with [idempotent]
 uses [FileWrite, Clock]
 {
     ...
@@ -193,11 +188,11 @@ fn fetch_data(url: Url) -> Data ! [NetworkError] {
 ```
 ERROR [incomplete-function] fetch_data 是不完整函数：
   检测到能力依赖但未声明 `uses`。
-  推断能力集: [NetRead, Module<http>]
-  
+  推断能力集: [NetRead]
+
   建议添加:
-    uses [NetRead, Module<http>]
-  
+    uses [NetRead]
+
   当前状态: 可模拟执行，不可真实执行
 ```
 
@@ -210,13 +205,10 @@ ERROR [incomplete-function] fetch_data 是不完整函数：
 where T: Serialize + Eq
 where U: Display
 
--- 2. 效果标注
-with [pure, deterministic]
+-- 2. 资源/能力集
+uses [Compute]
 
--- 3. 资源/能力集
-uses [Compute, Module<parser>]
-
--- 4. 代价上界
+-- 3. 代价上界
 cost ≤ 500
 ```
 
@@ -224,16 +216,19 @@ cost ≤ 500
 
 ---
 
-## 效果标注可选值
+## 效果属性（编译器自动推断）
 
-| 标注 | 含义 | 编译器验证 |
-|------|------|-----------|
-| `pure` | 无任何副作用 | uses 中不能有 IO/State 类能力 |
-| `deterministic` | 相同输入总返回相同输出 | uses 中不能有 Random/Clock |
-| `idempotent` | 多次调用效果等同于一次 | 静态检查 + 运行时契约 |
-| `total` | 对所有输入都终止 | 编译器验证终止性 |
+编译器根据 `uses` 声明自动推断以下属性，无需手动标注：
 
-效果之间的蕴含关系：`pure` ⊃ `deterministic`（pure 必然 deterministic）
+| 属性 | 推断规则 |
+|------|---------|
+| `pure` | `uses []` → 自动推断为 pure |
+| `deterministic` | `uses` 中不含 Random/Clock → 自动推断 |
+| `total` | 编译器验证终止性 → 自动推断 |
+
+`idempotent` 无法从 `uses` 自动推断，需通过文档注释标注：`/// @idempotent`
+
+蕴含关系：`pure` ⊃ `deterministic`（pure 必然 deterministic）
 
 ---
 
@@ -249,7 +244,6 @@ cost ≤ 500
 | 参数类型 | `String` → `Bytes` |
 | 返回类型 | `Config` → `Settings` |
 | 错误类型集合 | 增删任一错误类型 |
-| 效果标注 | `pure` → `idempotent` |
 | 代价上界 | `≤ 200` → `≤ 300` |
 | 能力集 | 增删任一能力 |
 | 泛型约束 | `T: Eq` → `T: Eq + Hash` |

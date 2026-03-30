@@ -322,7 +322,7 @@ help: filter `records` before scanning, or increase budget to `cost ≤ 10000`
     line 55: full_table_scan(records)             → 8200 op  ← violation
     total: 9400 / budget 5000
 
-  capability context: [Compute, Module<analytics>]
+  capability context: [Compute]
   cost at this point: 1200 / budget 5000
 ```
 
@@ -613,7 +613,7 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
   ],
   "candidates": [],
   "context": {
-    "capabilities": ["Compute", "Module<analytics>"],
+    "capabilities": ["Compute"],
     "cost_used": 1200,
     "cost_budget": 5000,
     "enclosing_function": "summarize",
@@ -843,11 +843,11 @@ error[C0103]: callee requires capabilities not available to caller
   --> src/handler.spore:25:5
    |
 25 |     send_email(user, message)
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^ `send_email` requires [NetWrite, Module<smtp>]
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^ `send_email` requires [NetWrite]
    |
    = note: `process_request` declares `uses [Compute, NetRead]`
-   = note: missing capabilities: [NetWrite, Module<smtp>]
-help: add `NetWrite, Module<smtp>` to the `uses` of `process_request`
+   = note: missing capabilities: [NetWrite]
+help: add `NetWrite` to the `uses` of `process_request`
 ```
 
 #### C0301 — effects-capability-conflict

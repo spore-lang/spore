@@ -1,9 +1,9 @@
 [package]
 name = "spore-lsp"
-description = "Spore Language Server Protocol implementation"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Spore Language Server Protocol implementation"
 license.workspace = true
 
 [dependencies]

@@ -1,7 +1,7 @@
 # Spore Platform System 规范 v0.1
 
-**版本**: 0.1  
-**日期**: 2025-01-03  
+**版本**: 0.1
+**日期**: 2025-01-03
 **状态**: Draft
 
 ---
@@ -82,10 +82,10 @@ Spore 与 Roc 的设计哲学一致：**没有内置 Platform**，所有 Platfor
 platform CliPlatform {
     // 1. 声明处理的 capability
     handles [FileRead, FileWrite, NetRead, NetWrite, Clock, Spawn, Exit]
-    
+
     // 2. Entry point 类型约束
     entry: fn(args: List[Str]) -> I32 ! [Exit]
-    
+
     // 3. Handler 实现（由 Platform 提供）
     handler FileReadHandler { ... }
     handler FileWriteHandler { ... }
@@ -100,7 +100,7 @@ CLI Platform 提供标准命令行应用所需的所有 capability：
 ```spore
 platform CliPlatform {
     version: "1.0.0"
-    
+
     handles [
         FileRead,      // 读文件
         FileWrite,     // 写文件
@@ -112,28 +112,28 @@ platform CliPlatform {
         StdErr,        // 标准错误
         Exit,          // 退出程序
     ]
-    
+
     entry: fn(args: List[Str]) -> I32 ! [Exit]
-    
+
     // Platform 实现细节（应用代码看不到）
     handler FileReadHandler {
         File.read(path: Path) -> Result[Bytes, IoError] {
             // FFI 调用 Rust/C 实现
             resume(ffi_read_file(path))
         }
-        
+
         File.read_to_string(path: Path) -> Result[Str, IoError] {
             let bytes = File.read(path)?
             Str.from_utf8(bytes)
         }
     }
-    
+
     handler SpawnHandler {
         Task.spawn<T>(f: fn() -> T) -> Task[T] {
             // 使用 Platform 的 runtime（如 tokio）
             resume(runtime_spawn(f))
         }
-        
+
         Task.await<T>(task: Task[T]) -> T {
             resume(runtime_await(task))
         }
@@ -148,7 +148,7 @@ Web Platform 用于构建 HTTP 服务，提供不同的 capability 集合：
 ```spore
 platform WebPlatform {
     version: "1.0.0"
-    
+
     handles [
         HttpServer,    // HTTP 服务器
         NetRead,
@@ -157,10 +157,10 @@ platform WebPlatform {
         Spawn,
         DbQuery,       // 数据库查询
     ]
-    
+
     // Entry point 是一个 HTTP handler
     entry: fn(req: Request) -> Response ! [HttpServer, DbQuery]
-    
+
     handler HttpServerHandler {
         Server.listen(port: U16, handler: fn(Request) -> Response) {
             resume(ffi_listen_http(port, handler))
@@ -176,7 +176,7 @@ Lambda Platform 用于 AWS Lambda 函数：
 ```spore
 platform LambdaRlatform {
     version: "1.0.0"
-    
+
     handles [
         NetRead,
         NetWrite,
@@ -185,10 +185,10 @@ platform LambdaRlatform {
         DynamoRead,    // DynamoDB 操作
         DynamoWrite,
     ]
-    
+
     // Lambda 的 entry point
     entry: fn(event: JsonValue) -> JsonValue ! [S3Read, DynamoWrite]
-    
+
     handler S3Handler {
         S3.get(bucket: Str, key: Str) -> Result[Bytes, S3Error] {
             resume(aws_s3_get(bucket, key))
@@ -210,13 +210,13 @@ Platform 是一种特殊的 Spore 包，使用 `platform` 关键字定义：
 platform MyPlatform {
     // 版本信息
     version: "1.0.0"
-    
+
     // 声明处理的 capability
     handles [Cap1, Cap2, Cap3]
-    
+
     // Entry point 类型
     entry: fn(Input) -> Output ! [Effects]
-    
+
     // 可选：平台特定的配置
     config: {
         max_threads: U32,
@@ -237,12 +237,12 @@ handler FileReadHandler {
         // resume(value) 将结果返回给应用代码
         resume(native_read_file(path))
     }
-    
+
     // 可以有多个相关的 effect
     File.exists(path: Path) -> Bool {
         resume(native_file_exists(path))
     }
-    
+
     File.list_dir(path: Path) -> Result[List[Path], IoError] {
         resume(native_list_dir(path))
     }
@@ -263,13 +263,13 @@ handler HttpClientHandler uses [NetRead, NetWrite] {
     Http.get(url: Url) -> Result[Response, HttpError] {
         // 1. 建立 TCP 连接（发出 NetRead/NetWrite effect）
         let socket = TcpSocket.connect(url.host, url.port)?
-        
+
         // 2. 发送 HTTP 请求
         socket.write(format_http_request(url))?
-        
+
         // 3. 读取响应
         let response = socket.read_until_eof()?
-        
+
         // 4. 返回给应用代码
         resume(parse_http_response(response))
     }
@@ -317,9 +317,9 @@ pub extern "C" fn ffi_read_file(path: SporeBytes) -> FfiResult<SporeBytes> {
 // file: platform.spore
 platform SimplePlatform {
     version: "1.0.0"
-    
+
     handles [FileRead, StdOut, Exit]
-    
+
     entry: fn(args: List[Str]) -> I32 ! [Exit]
 }
 
@@ -434,7 +434,7 @@ error[E4201]: Effect handler conflict
    | FileRead can be handled by multiple platforms:
    |   - cli (priority 1)
    |   - backup (priority 2)
-   | 
+   |
    | help: Remove one of the platforms or use explicit handler selection
 ```
 
@@ -492,13 +492,13 @@ platform GpuPlatform {
 fn main(args: List[Str]) -> I32 ! [FileRead, GpuCompute, Exit] {
     // FileRead → CliPlatform
     let matrix = load_matrix_from_file("matrix.dat")
-    
+
     // GpuCompute → GpuPlatform
     let result = Gpu.multiply(matrix, matrix)
-    
+
     // StdOut → CliPlatform
     println(format("Result: {}", result))
-    
+
     0
 }
 ```
@@ -535,16 +535,16 @@ s3 = { git = "https://github.com/spore-platform/aws", priority = 3 }
 fn main(args: List[Str]) -> I32 ! [FileRead, GpuCompute, S3Write, Exit] {
     // 1. 从本地读取配置（CLI Platform）
     let config = File.read("config.toml") |> parse_config
-    
+
     // 2. 从 S3 加载训练数据（S3 Platform）
     let data = S3.get("ml-datasets", "train.parquet")
-    
+
     // 3. 在 GPU 上训练模型（GPU Platform）
     let model = train_model_on_gpu(data, config)
-    
+
     // 4. 保存模型到 S3（S3 Platform）
     S3.put("ml-models", "model-v1.bin", model)
-    
+
     println("Training complete!")
     0
 }
@@ -552,12 +552,12 @@ fn main(args: List[Str]) -> I32 ! [FileRead, GpuCompute, S3Write, Exit] {
 fn train_model_on_gpu(data: Tensor, config: Config) -> Model ! [GpuCompute] {
     let gpu_mem = Gpu.alloc(data.size())
     Gpu.transfer_to(gpu_mem, data)
-    
+
     for epoch in 0..config.epochs {
         Gpu.matmul(gpu_mem, config.weights)
         // ...
     }
-    
+
     let result = Gpu.transfer_from(gpu_mem)
     Gpu.free(gpu_mem)
     result
@@ -601,7 +601,7 @@ error[E4202]: Missing effect handler
  2 |     let rows = Db.query("SELECT * FROM users")
    |                ^^^^^^^^^
    | Effect 'DatabaseQuery' is not handled by any platform
-   | 
+   |
    | help: Add a platform that provides DatabaseQuery:
    |   [platforms]
    |   db = { git = "https://github.com/spore-platform/postgres" }
@@ -753,7 +753,7 @@ handler ConsoleLogger uses [StdOut, StdErr] {
         println("[INFO] {}", msg)
         resume(())
     }
-    
+
     log_error(msg: Str) {
         eprintln("[ERROR] {}", msg)
         resume(())
@@ -786,7 +786,7 @@ uses [NetRead, NetWrite, StdOut]
 
 fn main(args: List[Str]) -> I32 ! [Exit] {
     let url = "https://api.github.com/users/octocat"
-    
+
     match fetch_user(url) {
         Ok(user) -> {
             println("User: {}", user.name)
@@ -802,11 +802,11 @@ fn main(args: List[Str]) -> I32 ! [Exit] {
 
 fn fetch_user(url: Str) -> Result[GithubUser, HttpError] ! [NetRead, NetWrite] {
     let response = Http.get(url)?
-    
+
     if response.status != 200 {
         return Err(HttpError.BadStatus(response.status))
     }
-    
+
     let user = Json.parse(response.body)?
     Ok(user)
 }
@@ -836,7 +836,7 @@ type GithubUser {
 // test_platform.spore
 platform TestPlatform {
     handles [FileRead, FileWrite, NetRead, NetWrite, Clock]
-    
+
     entry: fn() -> TestResult
 }
 
@@ -844,14 +844,14 @@ platform TestPlatform {
 handler MockFileSystem {
     // 内存中的虚拟文件系统
     var fs: Map[Path, Bytes] = Map.new()
-    
+
     File.read(path: Path) -> Result[Bytes, IoError] {
         match fs.get(path) {
             Some(content) -> resume(Ok(content))
             None -> resume(Err(IoError.NotFound))
         }
     }
-    
+
     File.write(path: Path, content: Bytes) -> Result[Unit, IoError] {
         fs.set(path, content)
         resume(Ok(()))
@@ -861,7 +861,7 @@ handler MockFileSystem {
 // Mock 网络
 handler MockNetwork {
     var responses: Map[Url, Response] = Map.new()
-    
+
     Http.get(url: Url) -> Result[Response, HttpError] {
         match responses.get(url) {
             Some(resp) -> resume(Ok(resp))
@@ -873,11 +873,11 @@ handler MockNetwork {
 // 确定性时钟
 handler MockClock {
     var current_time: U64 = 0
-    
+
     Clock.now() -> Timestamp {
         resume(Timestamp(current_time))
     }
-    
+
     // Test helper: 推进时间
     fn advance(millis: U64) {
         current_time += millis
@@ -901,10 +901,10 @@ test "read_and_parse with valid config" {
         host = "localhost"
         port = 8080
     """)
-    
+
     // 运行测试
     let result = read_and_parse("config.toml")
-    
+
     // 断言
     assert result.is_ok()
     assert result.unwrap().host == "localhost"
@@ -913,7 +913,7 @@ test "read_and_parse with valid config" {
 test "read_and_parse with missing file" {
     // 不设置文件 → File.read 返回 NotFound
     let result = read_and_parse("missing.toml")
-    
+
     assert result.is_err()
     assert result.unwrap_err() == Error.FileNotFound
 }
@@ -927,22 +927,22 @@ test "read_and_parse with missing file" {
 // 1. 在真实 Platform 上运行，记录 IO
 platform RecordingPlatform {
     handles [FileRead, FileWrite, NetRead, NetWrite]
-    
+
     handler RecordingHandler {
         var log: List[IoEvent] = []
-        
+
         File.read(path: Path) -> Result[Bytes, IoError] {
             let result = real_file_read(path)
             log.push(IoEvent.FileRead(path, result))
             resume(result)
         }
-        
+
         Http.get(url: Url) -> Result[Response, HttpError] {
             let result = real_http_get(url)
             log.push(IoEvent.HttpGet(url, result))
             resume(result)
         }
-        
+
         fn save_log(path: Path) {
             File.write(path, serialize(log))
         }
@@ -952,15 +952,15 @@ platform RecordingPlatform {
 // 2. 在测试中重放
 platform ReplayPlatform {
     handles [FileRead, NetRead]
-    
+
     handler ReplayHandler {
         var log: List[IoEvent] = load_log("test_recording.log")
         var index: U32 = 0
-        
+
         File.read(path: Path) -> Result[Bytes, IoError] {
             let event = log[index]
             index += 1
-            
+
             match event {
                 IoEvent.FileRead(p, result) if p == path -> resume(result)
                 _ -> panic("Unexpected IO: expected FileRead({})", path)
@@ -992,10 +992,10 @@ test "fetch_weather returns valid data" {
             body = """{"temp": 15, "condition": "Sunny"}""",
         }
     )
-    
+
     // 运行测试
     let weather = fetch_weather("Beijing").unwrap()
-    
+
     // 断言
     assert weather.temp == 15
     assert weather.condition == "Sunny"
@@ -1007,7 +1007,7 @@ test "fetch_weather handles network error" {
         url = "https://api.weather.com/v1/current?city=Invalid",
         error = HttpError.ConnectionFailed
     )
-    
+
     let result = fetch_weather("Invalid")
     assert result.is_err()
 }
@@ -1020,7 +1020,7 @@ test "fetch_weather handles malformed JSON" {
             body = "not json",
         }
     )
-    
+
     let result = fetch_weather("London")
     assert result.is_err()
     match result.unwrap_err() {
@@ -1078,7 +1078,7 @@ Created platform package: embedded-platform/
 // platform.spore
 platform EmbeddedPlatform {
     version: "0.1.0"
-    
+
     // 嵌入式设备的 capability
     handles [
         GpioRead,      // 读 GPIO
@@ -1087,10 +1087,10 @@ platform EmbeddedPlatform {
         SerialRead,    // 串口读
         SerialWrite,   // 串口写
     ]
-    
+
     // Entry point：设备初始化 + 主循环
     entry: fn() -> Never ! [GpioRead, GpioWrite, Timer]
-    
+
     config: {
         cpu_freq: U32,        // CPU 频率
         gpio_pins: U8,        // GPIO 引脚数量
@@ -1107,12 +1107,12 @@ handler GpioHandler {
         // FFI 调用底层硬件
         resume(ffi_gpio_read(pin))
     }
-    
+
     Gpio.write(pin: U8, value: Bool) -> Unit {
         ffi_gpio_write(pin, value)
         resume(())
     }
-    
+
     Gpio.set_mode(pin: U8, mode: GpioMode) -> Unit {
         ffi_gpio_set_mode(pin, mode as U8)
         resume(())
@@ -1125,7 +1125,7 @@ handler TimerHandler {
         ffi_delay_ms(ms)
         resume(())
     }
-    
+
     Timer.millis() -> U32 {
         resume(ffi_timer_millis())
     }
@@ -1197,7 +1197,7 @@ main = { git = "https://github.com/you/embedded-platform" }
 fn main() -> Never ! [GpioWrite, Timer] {
     // LED 引脚
     Gpio.set_mode(13, GpioMode.Output)
-    
+
     loop {
         Gpio.write(13, true)   // LED 亮
         Timer.delay_ms(500)
@@ -1248,11 +1248,11 @@ handler ComposedHandler uses [LowerLevel] {
 ```spore
 handler StatefulHandler {
     var state: Map[K, V] = Map.new()
-    
+
     Cache.get(key: K) -> Option[V] {
         resume(state.get(key))
     }
-    
+
     Cache.set(key: K, value: V) {
         state.insert(key, value)
         resume(())
@@ -1270,7 +1270,7 @@ test "gpio write and read" {
     // 使用真实硬件或模拟器
     Gpio.set_mode(5, GpioMode.Output)
     Gpio.write(5, true)
-    
+
     // 回读（如果硬件支持）
     let value = Gpio.read(5)
     assert value == true
@@ -1305,7 +1305,7 @@ handler SpawnHandler {
         let task_id = runtime_spawn(f)
         resume(Task(task_id))
     }
-    
+
     await<T>(task: Task[T]) -> T {
         let result = runtime_await(task.id)
         resume(result)
@@ -1400,7 +1400,7 @@ platform CliPlatform {
 
 handler FileReadHandler {
     File.read(path: Path) -> Result[Bytes, IoError]
-        @cost(io=call, mem=result.size()) 
+        @cost(io=call, mem=result.size())
     {
         resume(ffi_read_file(path))
     }
@@ -1772,14 +1772,14 @@ fn list_todos(req: Request) -> Response ! [DbQuery] {
 
 fn create_todo(req: Request) -> Response ! [DbQuery, Clock] {
     let todo: TodoInput = Json.parse(req.body)?
-    
+
     let now = Clock.now()
     let id = Db.execute("""
         INSERT INTO todos (title, completed, created_at)
         VALUES (?, ?, ?)
         RETURNING id
     """, [todo.title, false, now])?
-    
+
     Response.json({ id, title: todo.title, completed: false })
 }
 
@@ -1822,18 +1822,18 @@ test "create todo" {
         sql = "INSERT INTO todos ...",
         result = Ok(1)  // 返回 ID = 1
     )
-    
+
     TestPlatform.mock_clock(timestamp = 1672531200)
-    
+
     let req = Request {
         method = POST,
         path = "/todos",
         body = """{"title": "Buy milk"}""",
     }
-    
+
     let resp = main(req)
     assert resp.status == 200
-    
+
     let todo: Todo = Json.parse(resp.body)
     assert todo.id == 1
     assert todo.title == "Buy milk"

@@ -22,19 +22,23 @@ Codebase Manager: `spore`（有状态）
 ```
 fn name(params) -> ReturnType ! [Errors]
     where T: Constraint
-    with [pure, deterministic]
-    cost ≤ N
     uses [Capabilities]
+    cost ≤ N
 { body }
 ```
 
 > **v0.2→v0.3 变更**: 原 `where { ... }` 统一块拆分为独立子句：
 > - `where T: Constraint` — 泛型约束（保留 where 关键字）
-> - `with [Effect1, Effect2]` — 效果声明（新关键字）
-> - `cost ≤ N` — 代价上界（独立子句）
 > - `uses [Capabilities]` — 能力集声明（独立子句）
+> - `cost ≤ N` — 代价上界（独立子句）
 >
 > 细化类型谓词语法同步变更: `where |n| n > 0` → `if |n| n > 0`
+>
+> **v0.3→v0.4 变更**: 移除 `with [...]` 子句。函数属性（pure, deterministic, total）从 `uses` 自动推断：
+> - `uses []` → pure + deterministic + total
+> - `uses [Compute]` → deterministic（纯计算，无副作用）
+> - 含 IO/State capability → 非 pure
+> - 编译器自动验证一致性，无需手动声明
 
 ### 能力集系统
 - 内置: Compute, FileRead, FileWrite, NetRead, NetWrite, Clock, Random, StateRead, StateWrite, Spawn
@@ -132,7 +136,7 @@ fn name(params) -> ReturnType ! [Errors]
 - trait 实现内联: `implements [...]`（Roc 风格）
 - `struct` 记录 + `type` 枚举/ADT
 - `capability` 关键字（= trait）
-- `with` 关键字 — 效果声明（`with [Effect1, Effect2]`）
+- 函数属性（pure, deterministic, total）— 从 `uses` 自动推断，无需关键字
 - `if` 子句用于细化类型谓词（`if |n| n > 0`），不再使用 `where`
 - `where` 关键字仅保留用于泛型约束（`where T: Constraint`）
 - 基本类型: I32/I64/U32/U64/F32/F64/Bool/Str + List[T]/Map[K,V]/Set[T]

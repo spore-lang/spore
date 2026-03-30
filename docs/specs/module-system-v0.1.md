@@ -279,7 +279,7 @@ $ sporec check src/api/handler.spore
 [error] visibility violation at src/api/handler.spore:15
   billing.invoice.compute_totals is private
   ─── it is only visible within module billing.invoice
-  
+
   help: if this function should be accessible to other modules,
         add `pub` or `pub(pkg)` to its definition in src/billing/invoice.spore
 ```
@@ -293,7 +293,7 @@ $ sporec check
   billing.invoice.validate is pub(pkg)
   ─── it is only visible within the 'my-billing-lib' package
   ─── your module 'handler' is in the 'my-api' package
-  
+
   help: use the public API instead — billing.invoice.generate_invoice
         handles validation internally
 ```
@@ -427,7 +427,7 @@ import billing.invoice.generate_invoice
 [error] invalid import at line 1
   billing.invoice.generate_invoice is a function, not a module
   ─── `import` works on modules only
-  
+
   help: use `alias gen = billing.invoice.generate_invoice` instead
 ```
 
@@ -439,7 +439,7 @@ alias billing.invoice.generate_invoice as gen
 ```
 [error] syntax error at line 1
   `as` is only valid with `import` (module-level renaming)
-  
+
   help: use `alias gen = billing.invoice.generate_invoice`
 ```
 
@@ -452,7 +452,7 @@ alias bill = billing.invoice
 [error] invalid alias at line 1
   billing.invoice is a module, not an item
   ─── `alias` works on specific items (functions, types) only
-  
+
   help: use `import billing.invoice as bill` instead
 ```
 
@@ -465,7 +465,7 @@ import billing.*
 [error] syntax error at line 1
   wildcard imports are not supported in Spore
   ─── import modules explicitly: `import billing.invoice`
-  
+
   rationale: wildcard imports make dependency tracking ambiguous
              and hinder Agent-based code analysis
 ```
@@ -592,11 +592,11 @@ $ sporec check
   old sig: d91e4b
   new sig: 7a2f33
   change: added error type [RegionNotSupported]
-  
+
   affected modules:
     billing.invoice (depends on billing.tax.calculate sig=d91e4b)
     api.handler     (depends on billing.tax.calculate sig=d91e4b)
-  
+
   run `spore --permit billing.tax.calculate` to accept this change
   and update all downstream lock entries
 ```
@@ -611,7 +611,7 @@ Accepted signature change for billing.tax.calculate
   updated .spore-lock entries:
     billing.invoice: billing.tax.calculate sig d91e4b → 7a2f33
     api.handler:     billing.tax.calculate sig d91e4b → 7a2f33
-  
+
   ⚠ billing.invoice may need code changes to handle [RegionNotSupported]
   ⚠ api.handler may need code changes to handle [RegionNotSupported]
 ```
@@ -646,7 +646,7 @@ $ spore snapshot --show billing.invoice
 
 Module: billing.invoice
   interface hash: 4c8e2a (from 1 pub function, 0 pub(pkg) functions)
-  
+
   pub generate_invoice  sig=a3f7c2  impl=d8e1b4
     (Order) -> Invoice ! [TaxError, ValidationError]
 ```
@@ -658,7 +658,7 @@ $ spore snapshot --show billing.invoice
 
 Module: billing.invoice (partial)
   interface hash: 4c8e2a (from 1 pub function, 0 pub(pkg) functions)
-  
+
   pub generate_invoice  sig=a3f7c2  impl=None (partial — contains holes)
     (Order) -> Invoice ! [TaxError, ValidationError]
 ```
@@ -702,7 +702,7 @@ pub fn export_to_file(invoice: Invoice) -> Unit ! [IoError]
   function export_to_file uses [FileWrite]
   module billing.invoice allows [PaymentGateway, AuditLog]
   ─── FileWrite is not in the module's capability set
-  
+
   help: either add FileWrite to the module declaration:
           module billing.invoice uses [PaymentGateway, AuditLog, FileWrite]
         or move this function to a module that allows FileWrite
@@ -730,7 +730,7 @@ $ sporec check src/billing/invoice.spore
 
 [ok] billing.invoice
   exports: generate_invoice, void_invoice
-  
+
   [info] inferred module capabilities: [PaymentGateway, AuditLog]
     ─── derived from union of pub function capabilities
     ─── consider adding: module billing.invoice uses [PaymentGateway, AuditLog]
@@ -968,13 +968,13 @@ $ spore audit billing-lib
 
 Package: billing-lib v1.2.0
   required capabilities: [PaymentGateway, AuditLog]
-  
+
   Module capability breakdown:
     billing.invoice:  [PaymentGateway, AuditLog]
     billing.tax:      []  (pure)
     billing.types:    []  (pure)
     billing.shortcuts: []  (pure)
-  
+
   ✓ No RawSyscall usage
   ✓ No undeclared capabilities
   ✓ All capability requirements are in spore.toml
@@ -1004,7 +1004,7 @@ import billing.invoice       -- ERROR: circular dependency
       → imports billing.invoice  ← cycle!
 
   cycle path: billing.invoice → billing.payment → billing.invoice
-  
+
   help: extract shared types or functions into a third module
         e.g., create billing.types with items used by both modules
 ```
@@ -1022,7 +1022,7 @@ The compiler detects cycles of any length:
         → imports billing.invoice  ← cycle!
 
   cycle path: billing.invoice → billing.payment → billing.reconciliation → billing.invoice
-  
+
   help: extract shared types or functions into a new module
         that all three can depend on without forming a cycle
 ```
@@ -1189,11 +1189,11 @@ Spore does not enforce module-level cost budgets. Cost is a per-function propert
 $ spore cost-report billing.invoice
 
 Module: billing.invoice
-  
+
   Function costs:
     generate_invoice    cost ≤ 3000  (measured: 2800)
     void_invoice        cost ≤ 500   (measured: 320)
-  
+
   Module aggregate:
     max single-call cost: 3000 ops (generate_invoice)
     total declared budget: 3500 ops
@@ -1458,7 +1458,7 @@ pub alias api_gen = billing.shortcuts.gen            -- ERROR: alias to alias
 [error] alias chain detected at src/api/shortcuts.spore:3
   api_gen → billing.shortcuts.gen → billing.invoice.generate_invoice
   ─── aliases must point directly to original definitions, not to other aliases
-  
+
   help: use `pub alias api_gen = billing.invoice.generate_invoice` instead
 ```
 
@@ -1517,7 +1517,7 @@ import billing.inventory as inv    -- ERROR: 'inv' already used as module alias
 ```
 [error] duplicate module alias at line 2
   'inv' is already used as an alias for billing.invoice (line 1)
-  
+
   help: choose a different alias, e.g., `import billing.inventory as inventory`
 ```
 
@@ -1531,7 +1531,7 @@ alias invoice = billing.types.Invoice    -- ERROR: 'invoice' conflicts with modu
 ```
 [error] name conflict at line 2
   'invoice' conflicts with imported module billing.invoice (line 1)
-  
+
   help: choose a different alias name, e.g., `alias Inv = billing.types.Invoice`
 ```
 

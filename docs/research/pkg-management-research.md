@@ -319,7 +319,7 @@ require github.com/user/dep v0.0.0-20231225123456-abcdef123456  // Pseudo-versio
 **Decentralized (default):**
 - **No central registry**: Modules can be hosted anywhere (GitHub, GitLab, Gitea, etc.)
 - **Module path = import path**: `github.com/user/repo` is fetched from that URL
-- **Module Proxy (optional)**: 
+- **Module Proxy (optional)**:
   - `proxy.golang.org`: Official proxy (caches modules, provides security)
   - Private proxies available (Artifactory, Nexus, etc.)
 - **VCS Integration**: Go directly queries git, hg, svn repositories
@@ -453,14 +453,14 @@ replace github.com/user/external => ./patches/external
   "version": "0.1.0",
   "description": "My Deno app",
   "exports": "./src/mod.ts",
-  
+
   "imports": {
     "std/": "https://deno.land/std@0.208.0/",
     "oak": "https://deno.land/x/oak@v12.6.1/mod.ts",
     "jsr:@std/assert": "jsr:@std/assert@^0.208.0",
     "./lib/": "./src/lib/"
   },
-  
+
   "tasks": {
     "dev": "deno run --allow-net src/server.ts"
   }
@@ -813,7 +813,7 @@ main = Stdout.line! "Hello, world!"
 {
   "type": "application",
   "source-directories": ["src"],
-  
+
   "elm-version": "0.19.1",
   "dependencies": {
     "direct": {
@@ -887,7 +887,7 @@ main = Stdout.line! "Hello, world!"
 
 **Strategy:**
 - **No version ranges**: Forces explicit, reproducible pinning
-- **Semantic versioning enforcement**: 
+- **Semantic versioning enforcement**:
   - All versions must be valid semver (MAJOR.MINOR.PATCH)
   - All breaking changes require major version bump (enforced by tooling)
   - Prevents range explosion problem
@@ -1002,7 +1002,7 @@ The `elm.json` itself is the lockfile because:
     .name = "my-project",
     .version = "0.1.0",
     .minimum_zig_version = "0.12.0",
-    
+
     .dependencies = .{
         .zstd = .{
             .url = "https://github.com/ziglang/zig-zstd/archive/refs/tags/v0.1.0.tar.gz",
@@ -1016,7 +1016,7 @@ The `elm.json` itself is the lockfile because:
             .path = "../local-lib",
         },
     },
-    
+
     .paths = .{
         .@"local-lib" = "local_lib",
     },
@@ -1449,7 +1449,7 @@ Poetry's `Pipfile.lock`:
 ```nix
 {
   description = "My project flake";
-  
+
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-23.11";
     flake-utils.url = "github:numtide/flake-utils";
@@ -1458,7 +1458,7 @@ Poetry's `Pipfile.lock`:
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
-  
+
   outputs = { self, nixpkgs, flake-utils, rust-overlay }:
     flake-utils.lib.eachDefaultSystem (system: let
       pkgs = import nixpkgs {
@@ -1473,7 +1473,7 @@ Poetry's `Pipfile.lock`:
           rustfmt
         ];
       };
-      
+
       packages.default = pkgs.rustPlatform.buildRustPackage {
         name = "my-app";
         src = ./.;
@@ -1538,7 +1538,7 @@ inputs = {
   - GitHub-hosted
   - Curated by community
   - One package tree per Nixpkgs revision
-  
+
 - **Flakes**: Can reference any Git repository
   - Each project can be a flake (with flake.nix)
   - Can depend on any GitHub repo
@@ -1736,7 +1736,7 @@ remote.github.org.user.lib.data.List
   ```unison
   -- Dependency by hash
   #abc123def456...
-  
+
   -- Dependency by stable name
   @github/user/lib@1.0.0  -- stable release
   @github/user/lib@latest -- current development

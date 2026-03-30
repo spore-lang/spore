@@ -457,21 +457,22 @@ fn event_loop(
 ) -> Unit ! [ChannelClosed]
 uses [ChanRecv[Command], ChanRecv[Event], ChanRecv[Unit], Spawn]
 {
-    loop {
-        select {
-            cmd from commands => {
-                execute(cmd)
-            },
-            evt from events => {
-                log_event(evt)
-            },
-            _ from shutdown => {
-                break
-            },
-            timeout(30.seconds) => {
-                heartbeat()
-            },
-        }
+    select {
+        cmd from commands => {
+            execute(cmd)
+            event_loop(commands, events, shutdown)
+        },
+        evt from events => {
+            log_event(evt)
+            event_loop(commands, events, shutdown)
+        },
+        _ from shutdown => {
+            Unit
+        },
+        timeout(30.seconds) => {
+            heartbeat()
+            event_loop(commands, events, shutdown)
+        },
     }
 }
 ```
@@ -490,28 +491,23 @@ uses [Spawn, NetRead]
     parallel_scope {
         -- 分发者
         spawn {
-            for url in urls {
-                tx.send(url)
-            }
+            urls.each(|url| tx.send(url))
             tx.close()
         }
 
         -- N 个 worker（fan-out）
-        for _ in 0..4 {
+        (0..4).each(|_| {
             spawn {
-                for url in rx {
+                rx.each(|url| {
                     let resp = fetch(url)
                     result_tx.send(resp)
-                }
+                })
             }
-        }
+        })
 
         -- 收集（fan-in）
         spawn {
-            let mut results = []
-            for _ in 0..urls.len {
-                results.push(result_rx.recv())
-            }
+            let results = (0..urls.len).map(|_| result_rx.recv())
             result_tx.close()
             results
         }
@@ -535,12 +531,7 @@ uses [Spawn, NetRead, FileRead]
 
         -- 单个 consumer（fan-in）
         spawn {
-            let mut events = []
-            for event in rx {
-                events.push(event)
-                if events.len >= 1000 { break }
-            }
-            events
+            rx.take(1000).collect()
         }
     }
 }

@@ -33,8 +33,6 @@ pub struct FnDef {
     pub errors: Vec<TypeExpr>,
     /// Generic type constraints: `where T: Display, U: Clone`
     pub where_clause: Option<WhereClause>,
-    /// Capability / effect requirements: `with [IO, Async]`
-    pub with_clause: Option<WithClause>,
     /// Cost upper-bound: `cost ≤ O(n log n)`
     pub cost_clause: Option<CostClause>,
     /// Resource dependencies: `uses [Memory, FileSystem]`
@@ -66,14 +64,6 @@ pub enum Visibility {
 #[derive(Debug, Clone)]
 pub struct WhereClause {
     pub constraints: Vec<TypeConstraint>,
-}
-
-/// Capability / effect requirements introduced by `with`.
-///
-/// Example: `with [IO, Async, Net]`
-#[derive(Debug, Clone)]
-pub struct WithClause {
-    pub effects: Vec<String>,
 }
 
 /// Cost upper-bound introduced by `cost`.

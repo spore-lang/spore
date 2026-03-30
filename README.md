@@ -49,6 +49,11 @@ spore (stateful codebase manager — handles IO)
 | [Package Management](docs/specs/package-management-v0.1.md) | Content-addressed packages |
 | [Platform System](docs/specs/platform-system-v0.1.md) | IO through effect handlers |
 | [Incremental Compilation](docs/specs/incremental-compilation-v0.1.md) | Watch mode & incremental builds |
+| [Effect Algebra](docs/specs/effect-algebra-v0.1.md) | Capability set algebra & composition |
+| [Recursion Analysis](docs/specs/recursion-analysis-v0.1.md) | Three-tier recursive cost analysis |
+| [Cost Decidability](docs/specs/cost-decidability-v0.1.md) | CostExpr grammar & decidability proof |
+| [Hole Report v0.3](docs/specs/hole-report-v0.3.md) | Extended HoleReport & Agent protocol |
+| [Hole Dependency Graph](docs/specs/hole-dependency-graph-v0.1.md) | Hole DAG & parallel fill algorithm |
 
 ### Design Overview
 See [docs/DESIGN.md](docs/DESIGN.md) for the master design document with all confirmed decisions.
@@ -58,13 +63,13 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the master design document with all con
 ```spore
 /// Fetch multiple URLs in parallel and return their bodies.
 fn fetch_all(urls: List[Str]) -> List[Str] ! [NetError, Timeout]
-where
-    effects: Spawn, NetRead
-    cost ≤ urls.len * per_fetch_cost
     uses [NetRead, Spawn]
+    cost ≤ urls.len * per_fetch_cost
 {
-    urls |> map(|url| spawn { fetch(url) })
-         |> map(|task| task.await?)
+    parallel_scope {
+        urls |> map(|url| spawn { fetch(url) })
+             |> map(|task| task.await?)
+    }
 }
 ```
 

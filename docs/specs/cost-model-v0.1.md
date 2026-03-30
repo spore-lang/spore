@@ -132,7 +132,7 @@ cost(x |> f |> g |> h) = cost(x) + cost(f) + cost(g) + cost(h)
 
 这是最关键也最困难的部分。
 
-### 5.1 有界迭代（for-in）
+### 5.1 有界迭代（fold/map/filter）
 
 ```
 fn sum_list(items: List<Int>) -> Int {
@@ -163,9 +163,8 @@ cost(sum_list) = N × 2 + 5    -- 其中 N = len(items)
 
 ```
 fn process_batch(items: List<Order, max: 500>) -> BatchResult ! [TooLarge]
-    with [deterministic]
     cost ≤ 25000
-    uses [Compute, Module<validator>]
+    uses [Compute]
 {
     ...
 }
@@ -209,7 +208,7 @@ fn fibonacci(n: Int) -> Int {
 WARNING [unbounded-cost] fibonacci 的代价无法静态确定。
   递归模式: 非结构递归
   推断复杂度: O(2^n)
-  
+
   选项:
   (a) 添加 `cost ≤ K` + 参数约束 `n: Int if n ≤ 30`
   (b) 标记为 `unbounded`（放弃代价约束）
@@ -219,7 +218,6 @@ WARNING [unbounded-cost] fibonacci 的代价无法静态确定。
 标记为 `unbounded` 的函数：
 ```
 fn fibonacci(n: Int) -> Int
-    with [pure, deterministic]
     cost: unbounded
 {
     ...
@@ -230,7 +228,7 @@ fn fibonacci(n: Int) -> Int
 ```
 fn safe_fib(n: Int) -> Int ! [CostExceeded]
     cost ≤ 10000
-    uses [Compute, FuncCall<fibonacci>]
+    uses [Compute]
 {
     with_cost_limit(10000) {
         fibonacci(n)
@@ -247,7 +245,6 @@ fn safe_fib(n: Int) -> Int ! [CostExceeded]
 ```
 fn sort<T>(items: List<T, max: N>) -> List<T, max: N>
     where T: Ord
-    with [pure, deterministic]
     cost ≤ N × log(N) × 3 + N
     uses [Compute]
 {
@@ -284,7 +281,7 @@ fn sort<T>(items: List<T, max: N>) -> List<T, max: N>
     ├── 构建控制流图（CFG）
     ├── 对每个基本块计算代价
     ├── 对分支取 max
-    ├── 对循环/递归分析上界
+    ├── 对迭代/递归分析上界
     └── 生成符号代价表达式
   ↓
 [4] 代价验证
@@ -334,7 +331,7 @@ $ langc --query-cost sort
 ```
 fn process(data: Data) -> Result ! [ProcessError]
     cost ≤ 1000
-    uses [Compute, Module<parser>]
+    uses [Compute]
 {
     parsed = parser.parse(data)     -- cost: 600
     ?process_logic                  -- hole: 剩余预算 400
@@ -363,8 +360,8 @@ fn process(data: Data) -> Result ! [ProcessError]
 - `uses [Compute]` → W 维度必须为 0（Compute 不含 IO）
 - `uses [NetRead]` → W 维度可 > 0
 
-如果函数声明 `with [pure]` 但代价分析发现 W > 0 → 编译错误。
-这形成了一个交叉验证网络：**效果 ↔ 能力 ↔ 代价 三者互相约束**。
+如果编译器推断函数为 `pure`（基于 `uses`）但代价分析发现 W > 0 → 编译错误。
+这形成了一个交叉验证网络：**能力 ↔ 代价 互相约束**。
 
 ---
 

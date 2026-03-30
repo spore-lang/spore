@@ -1,7 +1,7 @@
 # Spore Hole System — Design Document v0.2
 
-> **Status**: Draft  
-> **Scope**: `sporec` compiler, `spore` Codebase Manager, Agent workflow  
+> **Status**: Draft
+> **Scope**: `sporec` compiler, `spore` Codebase Manager, Agent workflow
 > **Depends on**: Cost system, Capability system, Snapshot system, Error system
 
 ---

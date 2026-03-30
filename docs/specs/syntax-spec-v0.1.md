@@ -1,7 +1,7 @@
 # Spore 语言语法规范 v0.1
 
-**版本**: 0.1  
-**日期**: 2024  
+**版本**: 0.1
+**日期**: 2024
 **状态**: Draft
 
 ---
@@ -12,55 +12,55 @@ Spore 是一门**表达式为中心**（expression-based）的编程语言，设
 
 ### 1.1 核心设计原则
 
-1. **一切皆表达式** (Expression-based)  
+1. **一切皆表达式** (Expression-based)
    控制流结构（`if`、`match`）都返回值，代码块的最后一个表达式即为块的值。
 
-2. **花括号块作用域** (Braces for blocks)  
+2. **花括号块作用域** (Braces for blocks)
    使用 `{}` 明确定义代码块和作用域。
 
-3. **分号语义** (Semicolon semantics)  
+3. **分号语义** (Semicolon semantics)
    采用 Rust 语义：
    - 有分号 `;` → 语句（statement），丢弃值
    - 无分号 → 表达式（expression），返回值
 
-4. **管道操作符** (Pipe operator)  
+4. **管道操作符** (Pipe operator)
    使用 `|>` 进行数据流链式调用，提高可读性。
 
-5. **固定操作符集** (No custom operators)  
+5. **固定操作符集** (No custom operators)
    不允许自定义操作符，确保代码可预测性。
 
-6. **字符串插值** (String interpolation)  
+6. **字符串插值** (String interpolation)
    - `f"Hello {name}"` — 格式化字符串（f-string）
    - `t"Hello {name}"` — 模板对象（t-string）
 
-7. **错误传播** (Error propagation)  
+7. **错误传播** (Error propagation)
    - 函数签名中使用 `! [ErrorType]` 声明可能抛出的错误
    - 函数体内使用 `?` 操作符快速传播错误
 
-8. **Lambda 表达式** (Lambda)  
+8. **Lambda 表达式** (Lambda)
    Rust 风格闭包语法：`|x, y| x + y`
 
-9. **注释** (Comments)  
+9. **注释** (Comments)
    - `//` 行注释
    - `///` 文档注释
    - `/* ... */` 块注释（可嵌套）
 
-10. **不可变绑定 + 遮蔽** (Immutable bindings + shadowing)  
+10. **不可变绑定 + 遮蔽** (Immutable bindings + shadowing)
     使用 `let` 声明不可变绑定，支持遮蔽（shadowing）。可变性通过 `Ref[T]` 容器实现（需要 `StateWrite` capability）。
 
-11. **模式匹配** (Pattern matching)  
+11. **模式匹配** (Pattern matching)
     使用 `match` 关键字，必须穷尽（exhaustive），支持嵌套、守卫、或模式。
 
-12. **无循环** (No loops)  
+12. **无循环** (No loops)
     通过递归 + 高阶函数（`map`/`fold`/`filter`）替代 `for`/`while` 循环。
 
-13. **尾调用优化** (Tail-call optimization)  
+13. **尾调用优化** (Tail-call optimization)
     编译器保证尾调用优化（TCO），递归无栈溢出风险。
 
-14. **后缀类型注解** (Postfix type annotations)  
+14. **后缀类型注解** (Postfix type annotations)
     使用 `name: Type` 语法。
 
-15. **内联 trait 实现** (Inline trait implementation)  
+15. **内联 trait 实现** (Inline trait implementation)
     在类型声明处使用 `implements [...]` 声明 trait 实现（Roc 风格）。
 
 ---
@@ -76,8 +76,7 @@ fn          let         if          else        match
 struct      type        capability  pub         import
 alias       module      spawn       select      parallel_scope
 where       with        uses        effects     cost
-return      break       continue    loop        for
-while
+return
 trait       impl        as          in          mut
 const       static      async       await       move
 ref         self        super       crate       enum
@@ -286,12 +285,12 @@ type Callback = fn(I32) -> Str;
 
 ```spore
 /// 选项类型 (Option type)
-type Option[T] = 
+type Option[T] =
     | Some(T)
     | None;
 
 /// 结果类型 (Result type)
-type Result[T, E] = 
+type Result[T, E] =
     | Ok(T)
     | Err(E);
 
@@ -326,7 +325,7 @@ capability Serialize {
 /// 带关联类型的 capability (Capability with associated type)
 capability Collection {
     type Item;
-    
+
     fn len(self) -> U64;
     fn is_empty(self) -> Bool {
         self.len() == 0  // 默认实现 (Default implementation)
@@ -337,7 +336,7 @@ capability Collection {
 /// 可比较 capability (Comparable capability)
 capability Comparable {
     fn compare(self, other: Self) -> Ordering;
-    
+
     fn less_than(self, other: Self) -> Bool {
         match self.compare(other) {
             Ordering.Less => true,
@@ -362,8 +361,8 @@ struct SortedList[T] where T: Comparable {
 }
 
 /// 多约束泛型 (Multiple constraints)
-struct Cache[K, V] 
-where 
+struct Cache[K, V]
+where
     K: Hashable + Comparable,
     V: Clone
 {
@@ -658,7 +657,7 @@ counter.set(current + 1);
 counter.update(|x| x + 1);
 
 /// 在函数中使用 Ref (Using Ref in functions)
-fn increment_counter(counter: Ref[I32]) with [StateRead, StateWrite] {
+fn increment_counter(counter: Ref[I32]) {
     let current = counter.get();
     counter.set(current + 1);
 }
@@ -677,7 +676,6 @@ fn function_name[TypeParam1, TypeParam2](
     param2: Type2,
 ) -> ReturnType ! [Error1, Error2]
 where TypeParam1: Constraint1, TypeParam2: Constraint2
-with [Effect1, Effect2]
 uses [resource1, resource2]
 cost ≤ 1000
 {
@@ -719,7 +717,7 @@ fn identity[T](x: T) -> T {
 }
 
 /// 带约束的泛型函数 (Generic with constraints)
-fn max[T](a: T, b: T) -> T 
+fn max[T](a: T, b: T) -> T
 where T: Comparable
 {
     if a.compare(b) == Ordering.Greater { a } else { b }
@@ -744,7 +742,7 @@ fn map[A, B](list: List[A], f: fn(A) -> B) -> List[B] {
 ```spore
 /// 声明 I/O 效应 (Declaring I/O effects)
 fn read_file(path: Str) -> Str ! [IoError]
-with [FileRead]
+uses [FileRead]
 {
     // 实现代码 (Implementation)
     ?implementation
@@ -752,14 +750,14 @@ with [FileRead]
 
 /// 声明网络效应 (Declaring network effects)
 fn fetch_data(url: Str) -> Data ! [NetworkError]
-with [Network]
+uses [Network]
 {
     ?implementation
 }
 
 /// 声明状态效应 (Declaring state effects)
 fn increment(ref: Ref[I32])
-with [StateRead, StateWrite]
+uses [StateRead, StateWrite]
 {
     let current = ref.get();
     ref.set(current + 1);
@@ -796,16 +794,14 @@ cost ≤ n * 10
 ```spore
 /// 声明资源依赖 (Declaring resource dependencies)
 fn query_database(sql: Str) -> Result[Data] ! [DbError]
-with [Database]
-uses [db_connection]
+uses [Database, db_connection]
 {
     ?implementation
 }
 
 /// 多资源依赖 (Multiple resource dependencies)
 fn process_request(req: Request) -> Response ! [Error]
-with [Network, Database, FileRead]
-uses [db_pool, cache, logger]
+uses [Network, Database, FileRead, db_pool, cache, logger]
 {
     ?implementation
 }
@@ -896,7 +892,7 @@ match tree {
 
 /// 命名字段构造器 (Named-field constructor)
 match shape {
-    Circle(center: Point { x, y }, radius) => 
+    Circle(center: Point { x, y }, radius) =>
         f"Circle at ({x}, {y}) radius {radius}",
     _ => "Other shape",
 }
@@ -958,11 +954,11 @@ match number {
 
 /// 复杂守卫 (Complex guard)
 match user {
-    User { age, is_verified: true, .. } if age >= 18 => 
+    User { age, is_verified: true, .. } if age >= 18 =>
         "verified adult",
-    User { age, .. } if age >= 18 => 
+    User { age, .. } if age >= 18 =>
         "unverified adult",
-    _ => 
+    _ =>
         "minor",
 }
 ```
@@ -989,13 +985,13 @@ match status {
 ```spore
 /// 深层嵌套 (Deep nesting)
 match result {
-    Ok(Some(User { name, age })) => 
+    Ok(Some(User { name, age })) =>
         f"User {name}, age {age}",
-    Ok(Some(_)) => 
+    Ok(Some(_)) =>
         "User with incomplete data",
-    Ok(None) => 
+    Ok(None) =>
         "No user found",
-    Err(e) => 
+    Err(e) =>
         f"Error: {e}",
 }
 
@@ -1043,7 +1039,7 @@ match color {
 module math uses [] {
     pub fn add(a: I32, b: I32) -> I32 { a + b }
     pub fn multiply(a: I32, b: I32) -> I32 { a * b }
-    
+
     // 私有函数（默认）(Private function - default)
     fn helper() -> I32 { 42 }
 }
@@ -1054,7 +1050,7 @@ module geometry uses [] {
         pub struct Circle { radius: F64 }
         pub struct Rectangle { width: F64, height: F64 }
     }
-    
+
     pub fn area(shape: shapes.Circle) -> F64 {
         3.14 * shape.radius * shape.radius
     }
@@ -1100,7 +1096,6 @@ alias HashMap = std.collections.HashMap;
 /// 声明模块需要的 capability (Declare required capabilities)
 module http_client uses [Network, Allocate] {
     pub fn fetch(url: Str) -> Result[Str] ! [NetworkError]
-    with [Network]
     {
         ?implementation
     }
@@ -1133,7 +1128,7 @@ let results = parallel_scope {
     let a = spawn { compute_a() };
     let b = spawn { compute_b() };
     let c = spawn { compute_c() };
-    
+
     [a.await, b.await, c.await]  // 收集结果 (Collect results)
 };
 ```
@@ -1150,7 +1145,7 @@ parallel_scope {
         tx.send(42);
         tx.send(100);
     };
-    
+
     spawn {
         let value1 = rx.recv();  // 接收数据 (Receive data)
         let value2 = rx.recv();
@@ -1164,15 +1159,15 @@ let (tx, rx) = Channel.new[Str](buffer: 5);
 parallel_scope {
     let tx1 = tx.clone();
     let tx2 = tx.clone();
-    
+
     spawn {
         tx1.send("from producer 1");
     };
-    
+
     spawn {
         tx2.send("from producer 2");
     };
-    
+
     spawn {
         let msg1 = rx.recv();
         let msg2 = rx.recv();
@@ -1189,23 +1184,27 @@ let (tx1, rx1) = Channel.new[I32](buffer: 1);
 let (tx2, rx2) = Channel.new[Str](buffer: 1);
 
 parallel_scope {
-    spawn {
-        loop {
-            select {
-                value from rx1 => {
-                    print(f"Got integer: {value}");
-                },
-                message from rx2 => {
-                    print(f"Got string: {message}");
-                },
-            }
+    /// 递归事件循环 (Recursive event loop with TCO)
+    fn event_loop(rx1: Channel.Receiver[I32], rx2: Channel.Receiver[Str]) {
+        select {
+            value from rx1 => {
+                print(f"Got integer: {value}");
+            },
+            message from rx2 => {
+                print(f"Got string: {message}");
+            },
         }
+        event_loop(rx1, rx2)  // 尾递归 (Tail recursion - TCO guaranteed)
+    }
+
+    spawn {
+        event_loop(rx1, rx2);
     };
-    
+
     spawn {
         tx1.send(42);
     };
-    
+
     spawn {
         tx2.send("Hello");
     };
@@ -1230,10 +1229,10 @@ parallel_scope {
     let task = spawn {
         expensive_computation()
     };
-    
+
     // 做其他工作 (Do other work)
     do_something_else();
-    
+
     // 等待结果 (Wait for result)
     let result = task.await;
     print(f"Result: {result}");
@@ -1244,7 +1243,7 @@ parallel_scope {
     let task1 = spawn { fetch("https://api1.com") };
     let task2 = spawn { fetch("https://api2.com") };
     let task3 = spawn { fetch("https://api3.com") };
-    
+
     let results = [task1.await, task2.await, task3.await];
     results
 }
@@ -1344,7 +1343,7 @@ fn complex_operation() {
         Ok(data) => process(data),
         Err(NetworkError.Timeout) => retry(),
         Err(NetworkError.ConnectionRefused) => use_fallback(),
-        Err(NetworkError.InvalidResponse(code)) => 
+        Err(NetworkError.InvalidResponse(code)) =>
             log_error(f"HTTP {code}"),
         Err(ParseError.SyntaxError(line, col, msg)) =>
             log_error(f"Syntax error at {line}:{col}: {msg}"),
@@ -1366,17 +1365,18 @@ fn get_config() -> Config {
 
 /// 重试逻辑 (Retry logic)
 fn fetch_with_retry(url: Str, max_retries: I32) -> Data ! [NetworkError] {
-    let mut attempts = 0;
-    loop {
+    /// 递归重试 (Recursive retry with TCO)
+    fn retry(url: Str, attempts: I32, max_retries: I32) -> Data ! [NetworkError] {
         match fetch(url) {
-            Ok(data) => return data,
+            Ok(data) => data,
             Err(NetworkError.Timeout) if attempts < max_retries => {
-                attempts = attempts + 1;
                 sleep(1000);
+                retry(url, attempts + 1, max_retries)  // 尾递归 (Tail recursion)
             },
             Err(e) => throw e,
         }
     }
+    retry(url, 0, max_retries)
 }
 ```
 
@@ -1650,31 +1650,31 @@ type HttpError =
 /// 路由匹配 (Route matching)
 fn route(req: Request) -> Response ! [HttpError] {
     match (req.method, req.path) {
-        ("GET", "/") => 
+        ("GET", "/") =>
             Ok(Response {
                 status: 200,
                 headers: Map.from([("Content-Type", "text/html")]),
                 body: "<h1>Welcome</h1>",
             }),
-        
+
         ("GET", path) if path.starts_with("/api/") =>
             handle_api(req),
-        
+
         ("POST", "/submit") =>
             handle_submit(req),
-        
+
         (_, path) =>
             Err(HttpError.NotFound(path)),
     }
 }
 
 /// API 处理器 (API handler)
-fn handle_api(req: Request) -> Response ! [HttpError] 
-with [Network, Database]
+fn handle_api(req: Request) -> Response ! [HttpError]
+uses [Network, Database]
 {
     let data = query_database()?;
     let json = serialize(data)?;
-    
+
     Ok(Response {
         status: 200,
         headers: Map.from([("Content-Type", "application/json")]),
@@ -1684,13 +1684,14 @@ with [Network, Database]
 
 /// 启动服务器 (Start server)
 fn start_server(port: I32) ! [IoError]
-with [Network]
+uses [Network]
 {
     let listener = TcpListener.bind(f"127.0.0.1:{port}")?;
-    
-    loop {
+
+    /// 递归接受连接 (Recursive accept loop with TCO)
+    fn accept_loop(listener: TcpListener) ! [IoError] {
         let connection = listener.accept()?;
-        
+
         parallel_scope {
             spawn {
                 match route(connection.request) {
@@ -1699,7 +1700,11 @@ with [Network]
                 }
             };
         }
+
+        accept_loop(listener)  // 尾递归 (Tail recursion - TCO guaranteed)
     }
+
+    accept_loop(listener)
 }
 ```
 
@@ -1736,18 +1741,18 @@ cost ≤ expr_size(expr) * 10
 {
     match expr {
         Literal(n) => n,
-        
+
         Variable(name) => match env.get(name) {
             Some(value) => value,
             None => throw EvalError.UndefinedVariable(name),
         },
-        
+
         BinOp(op, left, right) => {
             let left_val = eval(left, env)?;
             let right_val = eval(right, env)?;
             eval_binop(op, left_val, right_val)?
         },
-        
+
         UnaryOp(op, e) => {
             let val = eval(e, env)?;
             match op {
@@ -1755,13 +1760,13 @@ cost ≤ expr_size(expr) * 10
                 Not => if val == 0 { 1 } else { 0 },
             }
         },
-        
+
         Let(name, value_expr, body) => {
             let value = eval(value_expr, env)?;
             let new_env = env.insert(name, value);
             eval(body, new_env)?
         },
-        
+
         If(cond, then_branch, else_branch) => {
             let cond_val = eval(cond, env)?;
             if cond_val != 0 {
@@ -1801,9 +1806,9 @@ fn example() {
             Expr.BinOp(Op.Add, Expr.Variable("x"), Expr.Variable("y"))
         )
     );
-    
+
     let env = Map.empty();
-    
+
     match eval(expr, env) {
         Ok(result) => print(f"Result: {result}"),  // 输出: Result: 30
         Err(e) => print(f"Error: {e}"),
@@ -1815,7 +1820,7 @@ fn example() {
 
 ```spore
 /// 任务类型 (Task type)
-type Task = 
+type Task =
     | Process(id: I32, data: Str)
     | Stop;
 
@@ -1823,12 +1828,12 @@ type Task =
 fn producer(
     tx: Channel.Sender[Task],
     task_count: I32
-) with [Concurrency]
+)
 {
     let tasks = (1..=task_count).map(|i| {
         Task.Process(i, f"Task data {i}")
     });
-    
+
     tasks.for_each(|task| tx.send(task));
     tx.send(Task.Stop);  // 发送停止信号 (Send stop signal)
 }
@@ -1838,56 +1843,57 @@ fn consumer(
     id: I32,
     rx: Channel.Receiver[Task],
     result_tx: Channel.Sender[Str]
-) with [Concurrency]
+)
 {
-    loop {
+    /// 递归处理消息 (Recursive message processing with TCO)
+    fn process(id: I32, rx: Channel.Receiver[Task], result_tx: Channel.Sender[Str]) {
         match rx.recv() {
             Task.Process(task_id, data) => {
                 // 模拟处理 (Simulate processing)
                 let result = f"Consumer {id} processed task {task_id}: {data}";
                 result_tx.send(result);
+                process(id, rx, result_tx)  // 尾递归 (Tail recursion)
             },
             Task.Stop => {
-                break;
+                // 停止接收 (Stop receiving)
             },
         }
     }
+    process(id, rx, result_tx)
 }
 
 /// 结果收集器 (Result collector)
 fn collector(
     rx: Channel.Receiver[Str],
     expected_count: I32
-) with [Concurrency]
+)
 {
-    let collected = Ref.new(0);
-    
-    loop {
+    /// 递归收集结果 (Recursive result collection with TCO)
+    fn collect(rx: Channel.Receiver[Str], remaining: I32) {
+        if remaining <= 0 {
+            return;
+        }
         let result = rx.recv();
         print(result);
-        
-        collected.update(|n| n + 1);
-        
-        if collected.get() >= expected_count {
-            break;
-        }
+        collect(rx, remaining - 1)  // 尾递归 (Tail recursion)
     }
+    collect(rx, expected_count)
 }
 
 /// 主函数 (Main function)
-fn main() with [Concurrency] {
+fn main() {
     let task_count = 10;
     let consumer_count = 3;
-    
+
     let (task_tx, task_rx) = Channel.new[Task](buffer: 5);
     let (result_tx, result_rx) = Channel.new[Str](buffer: 10);
-    
+
     parallel_scope {
         // 启动生产者 (Start producer)
         spawn {
             producer(task_tx, task_count);
         };
-        
+
         // 启动多个消费者 (Start multiple consumers)
         (1..=consumer_count).for_each(|i| {
             let rx_clone = task_rx.clone();
@@ -1896,13 +1902,13 @@ fn main() with [Concurrency] {
                 consumer(i, rx_clone, tx_clone);
             };
         });
-        
+
         // 启动结果收集器 (Start result collector)
         spawn {
             collector(result_rx, task_count);
         };
     }
-    
+
     print("All tasks completed!");
 }
 ```
@@ -1928,7 +1934,7 @@ fn main() with [Concurrency] {
 | `import` | 导入模块 (Import module) |
 | `alias` | 类型/项别名 (Type/item alias) |
 | `where` | 泛型类型约束 (Generic type constraints) |
-| `with` | 效应/能力声明 (Effect/capability declaration) |
+| `with` | （已移除）属性由编译器从 `uses` 集合自动推断 (Removed - properties auto-inferred from `uses` set) |
 | `uses` | 依赖声明 (Dependency declaration) |
 | `effects` | 效应声明（保留关键字）(Effect declaration - reserved) |
 | `cost` | 成本约束 (Cost constraint) |
@@ -1938,8 +1944,6 @@ fn main() with [Concurrency] {
 | `const` | 常量定义 (Constant definition) |
 | `return` | 提前返回 (Early return) |
 | `throw` | 抛出错误 (Throw error) |
-| `loop` | 无限循环（仅内部使用）(Infinite loop - internal only) |
-| `break` / `continue` | 循环控制（仅内部使用）(Loop control - internal only) |
 
 ### 14.2 操作符优先级 (Operator precedence)
 
@@ -1996,8 +2000,8 @@ Channel[T]    // 并发通道 (Concurrent channel)
 ```ebnf
 Program       = { Module | Function | Struct | Type | Capability }
 Module        = "module" Ident "uses" "[" [ Ident { "," Ident } ] "]" Block
-Function      = "fn" Ident [ TypeParams ] "(" [ Params ] ")" [ "->" Type ] 
-                [ "!" "[" Types "]" ] [ WhereClause ] [ WithClause ] [ UsesClause ] [ CostClause ] Block
+Function      = "fn" Ident [ TypeParams ] "(" [ Params ] ")" [ "->" Type ]
+                [ "!" "[" Types "]" ] [ WhereClause ] [ UsesClause ] [ CostClause ] Block
 Struct        = "struct" Ident [ TypeParams ] StructBody [ "implements" "[" Capabilities "]" ]
 Type          = "type" Ident [ TypeParams ] "=" TypeDef
 Capability    = "capability" Ident [ TypeParams ] "{" { CapabilityItem } "}"
@@ -2068,6 +2072,6 @@ Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
 
 ---
 
-**文档维护**: Spore Language Team  
-**许可证**: MIT License  
+**文档维护**: Spore Language Team
+**许可证**: MIT License
 **反馈**: https://github.com/spore-lang/spore/issues

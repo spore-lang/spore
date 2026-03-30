@@ -1,20 +1,20 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/sporec",
-    "crates/spore-cli",
-    "crates/spore-parser",
-    "crates/spore-typeck",
-    "crates/spore-codegen",
-    "crates/spore-lsp",
+  "crates/spore-cli",
+  "crates/spore-codegen",
+  "crates/spore-lsp",
+  "crates/spore-parser",
+  "crates/spore-typeck",
+  "crates/sporec",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
-license = "MIT OR Apache-2.0"
 repository = "https://github.com/zrr1999/spore"
+license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 # Parsing

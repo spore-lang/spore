@@ -1,7 +1,7 @@
 # Spore Package Management Specification v0.1
 
-**版本**: 0.1.0  
-**状态**: Draft  
+**版本**: 0.1.0
+**状态**: Draft
 **日期**: 2024-01
 
 ---
@@ -130,7 +130,7 @@ stability = "experimental"
 **Git 源**:
 ```toml
 [dependencies]
-mylib = { 
+mylib = {
     git = "https://github.com/user/repo",
     branch = "main",  # 可选: 分支
     tag = "v1.2.3",   # 可选: tag
@@ -143,7 +143,7 @@ mylib = {
 **本地路径**:
 ```toml
 [dependencies]
-mylib = { 
+mylib = {
     path = "../mylib",
     sig = "a1b2c3d4",
     impl = "e5f6a7b8"
@@ -154,7 +154,7 @@ mylib = {
 ```toml
 [dependencies]
 # alias 用于在锁文件中引用已知的"发布版本"
-mylib = { 
+mylib = {
     alias = "mylib-stable-2023",
     sig = "a1b2c3d4",
     impl = "e5f6a7b8"
@@ -268,7 +268,7 @@ location = ".spore-store/git/github.com/std/io/def5678"
 # 哈希验证表
 [verification]
 # 包名 -> 完整性校验信息
-"http" = { 
+"http" = {
     sig-algo = "blake3",
     sig-hash = "a3f9c2e1d8b7a6f5",
     impl-algo = "blake3",
@@ -445,7 +445,7 @@ Spore 依赖解析**不需要 SAT solver**,因为不存在版本范围协商:
 def resolve_dependencies(manifest: SporeToml) -> DepGraph:
     graph = DepGraph()
     queue = [(manifest.package, manifest.dependencies)]
-    
+
     while queue:
         (pkg, deps) = queue.pop()
         for dep in deps:
@@ -455,7 +455,7 @@ def resolve_dependencies(manifest: SporeToml) -> DepGraph:
                 verify_hash(source, dep.sig, dep.impl)
                 graph.add(dep)
                 queue.append((dep, source.dependencies))
-    
+
     return graph
 ```
 
@@ -569,7 +569,7 @@ pub trait StorageBackend {
 
 ```toml
 [dependencies]
-mylib = { 
+mylib = {
     git = "https://github.com/user/repo",
     rev = "abc123",
     sig = "...",
@@ -600,7 +600,7 @@ mylib = { path = "../mylib", sig = "...", impl = "..." }
 
 ```toml
 [dependencies]
-mylib = { 
+mylib = {
     ipfs = "QmYwAPJzv5CZsnA625s3Xf2nemtYgPpHdWEz79ojWnPbdG",
     sig = "...",
     impl = "..."
@@ -616,7 +616,7 @@ mylib = {
 
 ```toml
 [dependencies]
-mylib = { 
+mylib = {
     registry = "https://pkgs.example.com",
     alias = "mylib-v2",
     sig = "...",
@@ -813,7 +813,7 @@ Add to your `spore.toml`:
 
 ​```toml
 [dependencies]
-mylib = { 
+mylib = {
     git = "https://github.com/user/mylib",
     alias = "mylib-stable-2024",
     sig = "a3f9c2e1d8b7a6f5",
@@ -892,14 +892,14 @@ spore search "http server"
 **之后 (spore.toml)**:
 ```toml
 [dependencies]
-lodash = { 
+lodash = {
     git = "https://github.com/lodash/lodash",
     tag = "4.17.21",  # 对应 Git tag
     alias = "lodash-4.17",
     sig = "...",  # 运行 spore hash 计算
     impl = "..."
 }
-express = { 
+express = {
     git = "https://github.com/expressjs/express",
     tag = "4.18.0",
     alias = "express-4.18",
@@ -1204,7 +1204,7 @@ http = { git = "https://github.com/std/http" }  # 缺失哈希
 
 # spore.toml (after)
 [dependencies]
-http = { 
+http = {
     git = "https://github.com/std/http",
     sig = "a3f9c2e1d8b7a6f5",  # ✓ 自动推断
     impl = "7b8d4f2a1e9c3d5b"  # ✓ 自动推断
@@ -1251,7 +1251,7 @@ http = {
 
 依赖声明:
 [dependencies]
-http-server = { 
+http-server = {
     git = "https://github.com/user/repo",
     module = "http/server",
     sig = "...",
@@ -1422,7 +1422,7 @@ spore-version = ">=0.5.0"
 
 [dependencies]
 # 核心依赖
-http = { 
+http = {
     git = "https://github.com/spore-std/http",
     tag = "v2.0.0",
     alias = "std-http-v2",
@@ -1430,7 +1430,7 @@ http = {
     impl = "7b8d4f2a1e9c3d5b"
 }
 
-router = { 
+router = {
     git = "https://github.com/spore-std/router",
     rev = "abc1234567890def",
     sig = "b4e7d3c2a1f9e8d7",
@@ -1438,48 +1438,48 @@ router = {
 }
 
 # 仅接口依赖
-json = { 
+json = {
     git = "https://github.com/spore-std/json",
     alias = "std-json",
     sig = "c5d6e7f8a9b0c1d2"
 }
 
 # 本地开发依赖
-logger = { 
+logger = {
     path = "../logger",
     sig = "d1c2b3a4e5f6a7b8",
     impl = "8e9f0a1b2c3d4e5f"
 }
 
 # 可选依赖
-tls = { 
+tls = {
     git = "https://github.com/crypto/tls",
     sig = "e2f3a4b5c6d7e8f9",
     impl = "9f0a1b2c3d4e5f6a",
     optional = true
 }
 
-metrics = { 
+metrics = {
     git = "https://github.com/observability/metrics",
     sig = "f3e4d5c6b7a8f9e0",
     optional = true
 }
 
 [dev-dependencies]
-test-framework = { 
+test-framework = {
     git = "https://github.com/spore-std/test",
     alias = "spore-test-v1",
     sig = "a1b2c3d4e5f6a7b8",
     impl = "1a2b3c4d5e6f7a8b"
 }
 
-benchmark = { 
+benchmark = {
     git = "https://github.com/perf/benchmark",
     sig = "b2c3d4e5f6a7b8c9",
     impl = "2b3c4d5e6f7a8b9c"
 }
 
-mock-server = { 
+mock-server = {
     path = "../testing/mock-server",
     sig = "c3d4e5f6a7b8c9d0",
     impl = "3c4d5e6f7a8b9c0d"
@@ -1527,14 +1527,14 @@ stability = "stable"
 minimum-rust-version = "1.70"
 
 [target.linux.dependencies]
-epoll = { 
+epoll = {
     git = "https://github.com/linux/epoll",
     sig = "1a2b3c4d5e6f7a8b",
     impl = "a1b2c3d4e5f6a7b8"
 }
 
 [target.wasm32.dependencies]
-wasm-bindgen = { 
+wasm-bindgen = {
     git = "https://github.com/wasm/bindgen",
     sig = "2b3c4d5e6f7a8b9c",
     impl = "b2c3d4e5f6a7b8c9"
@@ -1617,7 +1617,7 @@ checksum = "blake3:e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8f4a5b6c7d8e9f0a1b2c3d4e5f6a7b
 "io" = []
 
 [verification]
-"http" = { 
+"http" = {
     sig-algo = "blake3",
     sig-hash = "a3f9c2e1d8b7a6f5e4d3c2b1a0f9e8d7",
     impl-algo = "blake3",
@@ -1789,7 +1789,7 @@ cat >> README.md <<EOF
 
 \`\`\`toml
 [dependencies]
-my-lib = { 
+my-lib = {
     git = "https://github.com/user/my-lib",
     tag = "v1.0.0",
     alias = "my-lib-v1",
@@ -1840,7 +1840,7 @@ git push
 
 ---
 
-**文档版本**: v0.1.0  
-**最后更新**: 2024-01-15  
-**贡献者**: Spore Language Team  
+**文档版本**: v0.1.0
+**最后更新**: 2024-01-15
+**贡献者**: Spore Language Team
 **许可证**: CC BY 4.0

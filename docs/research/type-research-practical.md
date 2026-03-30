@@ -992,7 +992,7 @@ Zero-cost type wrappers:
 ```scala
 object Quantity:
   opaque type Kilograms = Double
-  
+
   def apply(value: Double): Kilograms = value
   extension (kg: Kilograms)
     def value: Double = kg

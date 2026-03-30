@@ -323,8 +323,8 @@ Cranelift: Function → IR → Code emission
 ```rust
 // LLVM API usage - requires extensive unsafe code
 let context = unsafe { llvm_sys::core::LLVMContextCreate() };
-let module = unsafe { 
-    llvm_sys::core::LLVMModuleCreateWithNameInContext("test", context) 
+let module = unsafe {
+    llvm_sys::core::LLVMModuleCreateWithNameInContext("test", context)
 };
 let builder = unsafe { llvm_sys::core::LLVMCreateBuilderInContext(context) };
 

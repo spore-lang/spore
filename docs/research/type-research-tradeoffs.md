@@ -503,7 +503,7 @@ Traditional language design assumes human-only users and optimizes for annotatio
 
 ```
 // v0: Machine-readable (for Agent)
-{"error": "type_mismatch", "expected": "Int", "got": "String", 
+{"error": "type_mismatch", "expected": "Int", "got": "String",
  "location": "main.spore:42:15", "context": "argument 'count' of fn process"}
 
 // v1: Terse human-readable

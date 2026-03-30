@@ -1,12 +1,12 @@
 [package]
 name = "sporec"
-description = "Spore language compiler (stateless, pure function: source → compiled output)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Spore language compiler (stateless, pure function: source → compiled output)"
 license.workspace = true
 
 [dependencies]
+spore-codegen = { path = "../spore-codegen" }
 spore-parser = { path = "../spore-parser" }
 spore-typeck = { path = "../spore-typeck" }
-spore-codegen = { path = "../spore-codegen" }
