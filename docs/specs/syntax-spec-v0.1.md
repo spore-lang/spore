@@ -75,8 +75,9 @@ Spore 语言的保留关键字列表：
 fn          let         if          else        match
 struct      type        capability  pub         import
 alias       module      spawn       select      parallel_scope
-where       uses        effects     cost        return
-break       continue    loop        for         while
+where       with        uses        effects     cost
+return      break       continue    loop        for
+while
 trait       impl        as          in          mut
 const       static      async       await       move
 ref         self        super       crate       enum
@@ -393,16 +394,16 @@ let identity: Matrix[F64, 3, 3] = Matrix.identity();
 
 ```spore
 /// 非空字符串 (Non-empty string)
-type NonEmptyStr = Str where |s| s.len() > 0;
+type NonEmptyStr = Str if |s| s.len() > 0;
 
 /// 正整数 (Positive integer)
-type PositiveInt = I32 where |n| n > 0;
+type PositiveInt = I32 if |n| n > 0;
 
 /// 范围约束 (Range constraint)
-type Percentage = F64 where |p| p >= 0.0 && p <= 100.0;
+type Percentage = F64 if |p| p >= 0.0 && p <= 100.0;
 
 /// 偶数 (Even number)
-type EvenInt = I32 where |n| n % 2 == 0;
+type EvenInt = I32 if |n| n % 2 == 0;
 ```
 
 ---
@@ -645,7 +646,7 @@ fn pipeline(data: Data) -> Output ! [Error] {
 
 ```spore
 /// 创建可变引用 (Create mutable reference)
-let counter = Ref.new(0) where { effects: [StateWrite] };
+let counter = Ref.new(0);
 
 /// 读取值 (Read value)
 let current = counter.get();
@@ -657,7 +658,7 @@ counter.set(current + 1);
 counter.update(|x| x + 1);
 
 /// 在函数中使用 Ref (Using Ref in functions)
-fn increment_counter(counter: Ref[I32]) where { effects: [StateRead, StateWrite] } {
+fn increment_counter(counter: Ref[I32]) with [StateRead, StateWrite] {
     let current = counter.get();
     counter.set(current + 1);
 }
@@ -675,13 +676,10 @@ fn function_name[TypeParam1, TypeParam2](
     param1: Type1,
     param2: Type2,
 ) -> ReturnType ! [Error1, Error2]
-where {
-    effects: [Effect1, Effect2],
-    cost ≤ 1000,
-    uses [resource1, resource2],
-    TypeParam1: Constraint1,
-    TypeParam2: Constraint2,
-}
+where TypeParam1: Constraint1, TypeParam2: Constraint2
+with [Effect1, Effect2]
+uses [resource1, resource2]
+cost ≤ 1000
 {
     // 函数体 (Function body)
     body_expression
@@ -722,9 +720,7 @@ fn identity[T](x: T) -> T {
 
 /// 带约束的泛型函数 (Generic with constraints)
 fn max[T](a: T, b: T) -> T 
-where {
-    T: Comparable,
-}
+where T: Comparable
 {
     if a.compare(b) == Ordering.Greater { a } else { b }
 }
@@ -748,9 +744,7 @@ fn map[A, B](list: List[A], f: fn(A) -> B) -> List[B] {
 ```spore
 /// 声明 I/O 效应 (Declaring I/O effects)
 fn read_file(path: Str) -> Str ! [IoError]
-where {
-    effects: [FileRead],
-}
+with [FileRead]
 {
     // 实现代码 (Implementation)
     ?implementation
@@ -758,18 +752,14 @@ where {
 
 /// 声明网络效应 (Declaring network effects)
 fn fetch_data(url: Str) -> Data ! [NetworkError]
-where {
-    effects: [Network],
-}
+with [Network]
 {
     ?implementation
 }
 
 /// 声明状态效应 (Declaring state effects)
 fn increment(ref: Ref[I32])
-where {
-    effects: [StateRead, StateWrite],
-}
+with [StateRead, StateWrite]
 {
     let current = ref.get();
     ref.set(current + 1);
@@ -781,27 +771,21 @@ where {
 ```spore
 /// O(1) 常数时间操作 (O(1) constant time)
 fn array_get[T](arr: Array[T, N], index: U64) -> Option[T]
-where {
-    cost ≤ 10,  // 常数成本上界
-}
+cost ≤ 10
 {
     if index < N { Some(arr.data[index]) } else { None }
 }
 
 /// O(n) 线性时间操作 (O(n) linear time)
 fn sum_list(list: List[I32]) -> I32
-where {
-    cost ≤ list.len() * 5,  // 线性成本
-}
+cost ≤ list.len() * 5
 {
     list.fold(0, |acc, x| acc + x)
 }
 
 /// 递归函数的成本 (Recursive function cost)
 fn factorial(n: I32) -> I32
-where {
-    cost ≤ n * 10,  // 与递归深度成正比
-}
+cost ≤ n * 10
 {
     if n <= 1 { 1 } else { n * factorial(n - 1) }
 }
@@ -812,20 +796,16 @@ where {
 ```spore
 /// 声明资源依赖 (Declaring resource dependencies)
 fn query_database(sql: Str) -> Result[Data] ! [DbError]
-where {
-    effects: [Database],
-    uses [db_connection],
-}
+with [Database]
+uses [db_connection]
 {
     ?implementation
 }
 
 /// 多资源依赖 (Multiple resource dependencies)
 fn process_request(req: Request) -> Response ! [Error]
-where {
-    effects: [Network, Database, FileRead],
-    uses [db_pool, cache, logger],
-}
+with [Network, Database, FileRead]
+uses [db_pool, cache, logger]
 {
     ?implementation
 }
@@ -851,9 +831,7 @@ where {
 /// let result = gcd(48, 18);  // result == 6
 /// ```
 fn gcd(a: I32, b: I32) -> I32
-where {
-    cost ≤ log2(min(a, b)) * 20,
-}
+cost ≤ log2(min(a, b)) * 20
 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
@@ -1122,9 +1100,7 @@ alias HashMap = std.collections.HashMap;
 /// 声明模块需要的 capability (Declare required capabilities)
 module http_client uses [Network, Allocate] {
     pub fn fetch(url: Str) -> Result[Str] ! [NetworkError]
-    where {
-        effects: [Network],
-    }
+    with [Network]
     {
         ?implementation
     }
@@ -1146,14 +1122,14 @@ module database uses [Database, FileRead, FileWrite, Allocate] {
 
 ```spore
 /// 基本并发作用域 (Basic parallel scope)
-parallel_scope where { effects: [Concurrency] } {
+parallel_scope {
     spawn { task1() };
     spawn { task2() };
     spawn { task3() };
 }  // 等待所有 spawn 任务完成 (Waits for all spawned tasks)
 
 /// 带返回值的并发 (Parallel with return values)
-let results = parallel_scope where { effects: [Concurrency] } {
+let results = parallel_scope {
     let a = spawn { compute_a() };
     let b = spawn { compute_b() };
     let c = spawn { compute_c() };
@@ -1166,10 +1142,10 @@ let results = parallel_scope where { effects: [Concurrency] } {
 
 ```spore
 /// 创建 channel (Create channel)
-let (tx, rx) = Channel.new[I32](buffer: 10) where { effects: [Concurrency] };
+let (tx, rx) = Channel.new[I32](buffer: 10);
 
 /// 发送数据 (Send data)
-parallel_scope where { effects: [Concurrency] } {
+parallel_scope {
     spawn {
         tx.send(42);
         tx.send(100);
@@ -1183,9 +1159,9 @@ parallel_scope where { effects: [Concurrency] } {
 }
 
 /// 多生产者单消费者 (Multiple producers single consumer)
-let (tx, rx) = Channel.new[Str](buffer: 5) where { effects: [Concurrency] };
+let (tx, rx) = Channel.new[Str](buffer: 5);
 
-parallel_scope where { effects: [Concurrency] } {
+parallel_scope {
     let tx1 = tx.clone();
     let tx2 = tx.clone();
     
@@ -1212,7 +1188,7 @@ parallel_scope where { effects: [Concurrency] } {
 let (tx1, rx1) = Channel.new[I32](buffer: 1);
 let (tx2, rx2) = Channel.new[Str](buffer: 1);
 
-parallel_scope where { effects: [Concurrency] } {
+parallel_scope {
     spawn {
         loop {
             select {
@@ -1250,7 +1226,7 @@ select {
 
 ```spore
 /// 等待异步任务完成 (Wait for async task completion)
-parallel_scope where { effects: [Concurrency] } {
+parallel_scope {
     let task = spawn {
         expensive_computation()
     };
@@ -1264,7 +1240,7 @@ parallel_scope where { effects: [Concurrency] } {
 }
 
 /// 同时等待多个任务 (Await multiple tasks)
-parallel_scope where { effects: [Concurrency] } {
+parallel_scope {
     let task1 = spawn { fetch("https://api1.com") };
     let task2 = spawn { fetch("https://api2.com") };
     let task3 = spawn { fetch("https://api3.com") };
@@ -1694,9 +1670,7 @@ fn route(req: Request) -> Response ! [HttpError] {
 
 /// API 处理器 (API handler)
 fn handle_api(req: Request) -> Response ! [HttpError] 
-where {
-    effects: [Network, Database],
-}
+with [Network, Database]
 {
     let data = query_database()?;
     let json = serialize(data)?;
@@ -1710,16 +1684,14 @@ where {
 
 /// 启动服务器 (Start server)
 fn start_server(port: I32) ! [IoError]
-where {
-    effects: [Network],
-}
+with [Network]
 {
     let listener = TcpListener.bind(f"127.0.0.1:{port}")?;
     
     loop {
         let connection = listener.accept()?;
         
-        parallel_scope where { effects: [Concurrency] } {
+        parallel_scope {
             spawn {
                 match route(connection.request) {
                     Ok(response) => connection.send(response),
@@ -1760,9 +1732,7 @@ type EvalError =
 
 /// 求值器 (Evaluator)
 fn eval(expr: Expr, env: Env) -> I32 ! [EvalError]
-where {
-    cost ≤ expr_size(expr) * 10,
-}
+cost ≤ expr_size(expr) * 10
 {
     match expr {
         Literal(n) => n,
@@ -1853,9 +1823,7 @@ type Task =
 fn producer(
     tx: Channel.Sender[Task],
     task_count: I32
-) where {
-    effects: [Concurrency],
-}
+) with [Concurrency]
 {
     let tasks = (1..=task_count).map(|i| {
         Task.Process(i, f"Task data {i}")
@@ -1870,9 +1838,7 @@ fn consumer(
     id: I32,
     rx: Channel.Receiver[Task],
     result_tx: Channel.Sender[Str]
-) where {
-    effects: [Concurrency],
-}
+) with [Concurrency]
 {
     loop {
         match rx.recv() {
@@ -1892,11 +1858,9 @@ fn consumer(
 fn collector(
     rx: Channel.Receiver[Str],
     expected_count: I32
-) where {
-    effects: [Concurrency],
-}
+) with [Concurrency]
 {
-    let collected = Ref.new(0) where { effects: [StateWrite] };
+    let collected = Ref.new(0);
     
     loop {
         let result = rx.recv();
@@ -1911,14 +1875,14 @@ fn collector(
 }
 
 /// 主函数 (Main function)
-fn main() where { effects: [Concurrency] } {
+fn main() with [Concurrency] {
     let task_count = 10;
     let consumer_count = 3;
     
     let (task_tx, task_rx) = Channel.new[Task](buffer: 5);
     let (result_tx, result_rx) = Channel.new[Str](buffer: 10);
     
-    parallel_scope where { effects: [Concurrency] } {
+    parallel_scope {
         // 启动生产者 (Start producer)
         spawn {
             producer(task_tx, task_count);
@@ -1963,9 +1927,10 @@ fn main() where { effects: [Concurrency] } {
 | `module` | 模块定义 (Module definition) |
 | `import` | 导入模块 (Import module) |
 | `alias` | 类型/项别名 (Type/item alias) |
-| `where` | 约束子句 (Constraint clause) |
+| `where` | 泛型类型约束 (Generic type constraints) |
+| `with` | 效应/能力声明 (Effect/capability declaration) |
 | `uses` | 依赖声明 (Dependency declaration) |
-| `effects` | 效应声明 (Effect declaration) |
+| `effects` | 效应声明（保留关键字）(Effect declaration - reserved) |
 | `cost` | 成本约束 (Cost constraint) |
 | `spawn` | 生成并发任务 (Spawn concurrent task) |
 | `select` | 多路复用 (Multiplex channels) |
@@ -2032,7 +1997,7 @@ Channel[T]    // 并发通道 (Concurrent channel)
 Program       = { Module | Function | Struct | Type | Capability }
 Module        = "module" Ident "uses" "[" [ Ident { "," Ident } ] "]" Block
 Function      = "fn" Ident [ TypeParams ] "(" [ Params ] ")" [ "->" Type ] 
-                [ "!" "[" Types "]" ] [ WhereClause ] Block
+                [ "!" "[" Types "]" ] [ WhereClause ] [ WithClause ] [ UsesClause ] [ CostClause ] Block
 Struct        = "struct" Ident [ TypeParams ] StructBody [ "implements" "[" Capabilities "]" ]
 Type          = "type" Ident [ TypeParams ] "=" TypeDef
 Capability    = "capability" Ident [ TypeParams ] "{" { CapabilityItem } "}"
@@ -2081,7 +2046,7 @@ Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
 - **词法结构**：关键字、操作符、字面量、注释、标识符
 - **类型系统**：struct、type、capability、泛型、refinement 类型
 - **表达式系统**：if、match、lambda、pipe、block、error propagation
-- **函数定义**：完整签名、where 子句、效应、成本、资源依赖
+- **函数定义**：完整签名、where/with/uses/cost 子句、效应、成本、资源依赖
 - **模式匹配**：穷尽性、守卫、或模式、嵌套模式
 - **模块系统**：可见性、导入、别名
 - **并发机制**：parallel_scope、spawn、channel、select

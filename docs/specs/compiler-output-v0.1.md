@@ -169,7 +169,7 @@ error[C0101]: undeclared capability
    |
    = note: enclosing function `fetch_data` has `uses []`
    = note: module ceiling for `report` allows [Compute, FileRead]
-help: add `uses [NetRead]` to the `where` block of `fetch_data`
+help: add a `uses [NetRead]` clause to `fetch_data`
 ```
 
 #### Cost Violation (K0101)
@@ -282,7 +282,7 @@ error[C0101]: undeclared capability
    |
    = note: enclosing function `fetch_data` has `uses []`
    = note: module ceiling for `report` allows [Compute, FileRead]
-help: add `uses [NetRead]` to the `where` block of `fetch_data`
+help: add a `uses [NetRead]` clause to `fetch_data`
 
   inference chain:
     http.get : Fn(Url) -> Response ! [NetworkError]   (from module http, sig@e4a1f9)
@@ -1035,7 +1035,7 @@ Every diagnostic includes a `help:` line. Beyond textual suggestions, the compil
 | **Replacement** | Replace a span with new text | `"fifty dollars"` → `Money.from_string("fifty dollars")` |
 | **Insertion** | Insert text at a position | Adding `currency: Currency.USD` to a struct literal |
 | **Deletion** | Remove a span | Removing a redundant match arm |
-| **Multi-edit** | Multiple edits in one file | Adding a `where` clause and updating `uses` |
+| **Multi-edit** | Multiple edits in one file | Adding a `with` clause and a `uses` clause |
 | **Multi-file** | Edits across files | Adding `pub` in the defining module and updating the import in the consuming module |
 
 ### 6.4 Auto-Apply Workflow

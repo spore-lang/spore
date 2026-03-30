@@ -2,7 +2,7 @@
 
 ## 设计原则
 1. 错误是特殊返回类型 → 紧跟 `->` 用 `!` 分隔
-2. 泛型约束、效果、代价、能力集 → `where` 块
+2. 泛型约束 → `where`（Rust 风格）；效果 → `with`；资源 → `uses`；代价 → `cost`，各自独立子句
 3. 简单纯函数零开销 → 无 where、无 `!`
 4. 编译器推断并显示所有省略的元数据
 
@@ -12,12 +12,10 @@
 
 ```
 fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
-[where
-    [<GenericName>: <Constraint>, ...]
-    [effects: <effect1>, <effect2>, ...]
-    [cost ≤ <N>]
-    [uses [<Capability>, ...]]
-]
+[where <GenericName>: <Constraint>, ...]
+[with [<effect1>, <effect2>, ...]]
+[uses [<Capability>, ...]]
+[cost ≤ <N>]
 {
     <body>
 }
@@ -37,9 +35,9 @@ fn add(a: Int, b: Int) -> Int {
 
 编译器推断输出：
 ```
-  effects: pure, deterministic, total
+  with [pure, deterministic, total]
   cost = 1
-  uses: []
+  uses []
 ```
 
 ---
@@ -54,9 +52,9 @@ fn parse_int(input: String) -> Int ! [InvalidFormat] {
 
 编译器推断输出：
 ```
-  effects: pure, deterministic
+  with [pure, deterministic]
   cost = 12
-  uses: [Compute]
+  uses [Compute]
 ```
 
 ---
@@ -65,11 +63,10 @@ fn parse_int(input: String) -> Int ! [InvalidFormat] {
 
 ```
 fn serialize<T>(value: T) -> Bytes ! [SerializeError]
-where
-    T: Serialize
-    effects: pure, deterministic
-    cost ≤ 500
-    uses [Compute]
+where T: Serialize
+with [pure, deterministic]
+uses [Compute]
+cost ≤ 500
 {
     ...
 }
@@ -81,10 +78,9 @@ where
 
 ```
 fn parse_config(raw: String, strict: Bool) -> Config ! [MalformedInput, MissingField]
-where
-    effects: pure, deterministic
-    cost ≤ 200
-    uses [Compute, Module<toml>]
+with [pure, deterministic]
+uses [Compute, Module<toml>]
+cost ≤ 200
 {
     ...
 }
@@ -96,10 +92,9 @@ where
 
 ```
 fn sync_user_data(user_id: UserId, source: DataSource) -> SyncReport ! [NetworkTimeout, AuthExpired, DataConflict]
-where
-    effects: idempotent
-    cost ≤ 8500
-    uses [NetRead, NetWrite, StateRead, Module<auth>, FuncCall<merge_records>]
+with [idempotent]
+uses [NetRead, NetWrite, StateRead, Module<auth>, FuncCall<merge_records>]
+cost ≤ 8500
 {
     ...
 }
@@ -114,10 +109,9 @@ capability DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
 capability Analytics = [Compute, FuncCall<aggregate>, Module<stats>]
 
 fn generate_report(org_id: OrgId, period: DateRange) -> Report ! [ConnectionLost, QueryTimeout, InsufficientData]
-where
-    effects: deterministic
-    cost ≤ 12000
-    uses [DatabaseAccess, Analytics, Module<formatter>]
+with [deterministic]
+uses [DatabaseAccess, Analytics, Module<formatter>]
+cost ≤ 12000
 {
     ...
 }
@@ -129,13 +123,12 @@ where
 
 ```
 fn merge<T, U, V>(left: List<T>, right: List<U>, resolver: Fn(T, U) -> V) -> List<V> ! [ConflictError]
-where
-    T: Eq + Hash
-    U: Eq + Hash
-    V: Serialize
-    effects: pure, deterministic
-    cost ≤ 800
-    uses [Compute, FuncCall<resolver>]
+where T: Eq + Hash
+where U: Eq + Hash
+where V: Serialize
+with [pure, deterministic]
+uses [Compute, FuncCall<resolver>]
+cost ≤ 800
 {
     ...
 }
@@ -147,9 +140,8 @@ where
 
 ```
 fn validate_payment(amount: Money, method: PaymentMethod) -> Receipt ! [Declined, InsufficientFunds]
-where
-    effects: idempotent
-    uses [NetRead, Module<payment_gateway>]
+with [idempotent]
+uses [NetRead, Module<payment_gateway>]
 {
     ?validate_logic
 }
@@ -178,9 +170,8 @@ where
 
 ```
 fn log_event(event: Event) -> Unit
-where
-    effects: idempotent
-    uses [FileWrite, Clock]
+with [idempotent]
+uses [FileWrite, Clock]
 {
     ...
 }
@@ -205,30 +196,28 @@ ERROR [incomplete-function] fetch_data 是不完整函数：
   推断能力集: [NetRead, Module<http>]
   
   建议添加:
-    where
-        uses [NetRead, Module<http>]
+    uses [NetRead, Module<http>]
   
   当前状态: 可模拟执行，不可真实执行
 ```
 
 ---
 
-## where 块内的排列顺序（约定）
+## 签名子句的排列顺序（约定）
 
 ```
-where
-    -- 1. 泛型约束（如果有）
-    T: Serialize + Eq
-    U: Display
+-- 1. 泛型约束（Rust 风格，每条独立一行）
+where T: Serialize + Eq
+where U: Display
 
-    -- 2. 效果标注
-    effects: pure, deterministic
+-- 2. 效果标注
+with [pure, deterministic]
 
-    -- 3. 代价上界
-    cost ≤ 500
+-- 3. 资源/能力集
+uses [Compute, Module<parser>]
 
-    -- 4. 能力集
-    uses [Compute, Module<parser>]
+-- 4. 代价上界
+cost ≤ 500
 ```
 
 顺序不强制，但编译器格式化输出会遵循此约定。

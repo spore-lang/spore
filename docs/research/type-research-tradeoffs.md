@@ -17,7 +17,7 @@ Before analyzing options, note what is already decided—these form hard constra
 | Typed holes `?name` | Type-directed synthesis is a first-class concern |
 | No positional parameters | Structural matching of argument records by name |
 | Closed enum errors `! [Err1, Err2]` | Row-typed error sets; must compose across call boundaries |
-| `where` block constraints | Unified constraint language needed |
+| `where`/`with`/`cost`/`uses` clauses | Structured signature clauses needed |
 | Bounded types `List<T, max: 500>` | Value-level type parameters already exist |
 
 **Key insight**: Spore has *already* committed to several features that push it beyond "basic generics + traits." The question isn't *whether* to have rich types, but *how far to go* and *how to keep them ergonomic*.
@@ -54,7 +54,7 @@ Before analyzing options, note what is already decided—these form hard constra
 - `! [Err1, Err2]` — closed error sets are row-typed refinements
 
 Rather than bolting on full Liquid Haskell-style refinement (which requires SMT solvers and creates inscrutible errors), Spore should support **lightweight, enumerated refinement predicates**:
-- Numeric bounds: `Int where 0 < self ≤ 100`
+- Numeric bounds: `Int if 0 < self ≤ 100`
 - Size bounds: `List<T, max: N>`
 - Cost bounds: `cost ≤ N`
 - Effect sets: `uses [Cap1, Cap2]`
@@ -150,9 +150,9 @@ The key insight: Structural typing is an *implementation detail of the Agent's s
 Spore's `uses [FileRead, NetWrite]` is fundamentally the same mechanism as trait bounds:
 
 ```spore
-// These are conceptually identical:
+// Capabilities can be declared with either syntax:
 fn read_file(path: Path) -> Bytes  uses [FileRead]
-fn read_file(path: Path) -> Bytes  where ctx: FileRead  // capability as context
+fn read_file(path: Path) -> Bytes  with [FileRead]  // capability as context
 ```
 
 This means Spore's trait system and capability system should be **unified**:
@@ -170,12 +170,11 @@ trait Printable {
     cost display ≤ 10
 }
 
-// Both appear in `where` blocks
+// Constraints split across where, with, uses, and cost clauses
 fn process<T>(item: T) -> String ! [IoError]
-where
-    T: Printable,
-    uses: [FileRead],
-    cost ≤ 200
+where T: Printable
+with [FileRead]
+cost ≤ 200
 ```
 
 ### Orphan Rule Design
@@ -209,7 +208,7 @@ This avoids the orphan instance problem while preserving extensibility. The `ada
 - Cost annotations on trait methods
 - Capability = trait on execution context
 - Rust-like coherence + explicit `adapter` for cross-crate extension
-- Traits compose via `where` blocks alongside effects and costs
+- Traits compose via `where` (type constraints), `with` (effects/capabilities), `cost`, and `uses` clauses
 
 ---
 
@@ -345,10 +344,9 @@ where T: U  // T is a subtype of U
 **Generic constraints in `where` blocks (already the plan):**
 ```spore
 fn process<T>(items: List<T>) -> Summary
-where
-    T: Serializable + Printable,
-    effects: pure,
-    cost ≤ items.len * 10
+where T: Serializable + Printable
+with [pure]
+cost ≤ items.len * 10
 ```
 
 #### P2: Design Now, Implement Later
@@ -551,7 +549,7 @@ Error: Type mismatch
 |---|---|---|
 | **Adapter mechanism** | Scoped, explicit cross-crate trait impl | Solves orphan problem without unsafety |
 | **Structural anonymous records** | `{ name: String, age: Int }` | Agent flexibility, FFI convenience |
-| **Generic `where` block** | Unified constraints for types, effects, cost | Already committed; needs full impl |
+| **Signature clauses (`where`/`with`/`cost`/`uses`)** | Type constraints in `where`, effects in `with`, cost/uses standalone | Already committed; needs full impl |
 | **Dual-channel error messages** | JSON (Agent) + Elm-style (human) | Core to Human–Agent collaboration |
 
 ### Tier 3: Post-v1.0 (Design direction, explicit deferral)
@@ -560,7 +558,7 @@ Error: Type mismatch
 |---|---|---|
 | **Variadic generics** | `fn zip<...Ts>(...)` | Useful but implementation-heavy; use macros for now |
 | **Higher-kinded types** | Opt-in language extension | Only if ecosystem proves need; capabilities replace most monad use |
-| **Richer refinement predicates** | `Int where self > 0`, sortedness, etc. | Extend the lightweight system gradually |
+| **Richer refinement predicates** | `Int if self > 0`, sortedness, etc. | Extend the lightweight system gradually |
 | **Effect polymorphism** | `fn map<E>(f: A -> B uses E)` | Useful for generic combinators; design carefully |
 | **Subtyping / variance** | Covariant/contravariant annotations | Needed for collections but adds complexity |
 
@@ -580,7 +578,7 @@ Error: Type mismatch
 Phase 1 (Bootstrap):  Generics + Traits + Enums + Pattern Matching + Basic Inference
 Phase 2 (Alpha):      Const Generics + Error Rows + Capability-as-Trait + Hole Reports
 Phase 3 (Beta):       Refinement Bounds + Adapters + Structural Records + Dual Errors
-Phase 4 (v1.0):       Where-block Unification + Effect Verification + Full Cost Checking
+Phase 4 (v1.0):       Signature Clause Unification + Effect Verification + Full Cost Checking
 Phase 5 (Post-v1.0):  Variadics + HKT Extension + Richer Refinements
 ```
 

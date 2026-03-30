@@ -277,9 +277,9 @@ fn add(a: Int, b: Int) -> Int {
 fn parse_config(raw: String, strict: Bool) -> Config
 where
     errors: [MalformedInput, MissingField]
-    effects: pure, deterministic
-    cost: ≤ 200
-    uses: [Compute, Module<toml>]
+with [pure, deterministic]
+cost ≤ 200
+uses [Compute, Module<toml>]
 {
     ...
 }
@@ -288,9 +288,9 @@ where
 fn sync_user_data(user_id: UserId, source: DataSource) -> SyncReport
 where
     errors: [NetworkTimeout, AuthExpired, DataConflict]
-    effects: idempotent
-    cost: ≤ 8500
-    uses: [NetRead, NetWrite, StateRead, Module<auth>, FuncCall<merge_records>]
+with [idempotent]
+cost ≤ 8500
+uses [NetRead, NetWrite, StateRead, Module<auth>, FuncCall<merge_records>]
 {
     ...
 }
@@ -299,21 +299,21 @@ where
 fn validate_payment(amount: Money, method: PaymentMethod) -> Receipt
 where
     errors: [Declined, InsufficientFunds]
-    effects: idempotent
-    uses: [NetRead, Module<payment_gateway>]
+with [idempotent]
+uses [NetRead, Module<payment_gateway>]
 {
     ?validate_logic
 }
 ```
 
 **优点：**
-- `where` 块有明确的开始标记，结构更紧凑
-- 熟悉 Haskell/Rust 的开发者直觉上理解
-- key: value 格式对机器解析友好
+- 效果用 `with [...]`、代价用 `cost ≤ N`、能力用 `uses [...]`，各自独立一行
+- `where` 仅保留给类型约束和错误声明，语义更清晰
+- 熟悉 Haskell/Rust 的开发者对 `where` 约束直觉上理解
 
 **缺点：**
-- `where` 在 Agda/Haskell 里是局部定义，语义冲突
-- 多了一个缩进层级
+- 复杂函数签名仍可能占多行
+- 多种关键字（`where`/`with`/`cost`/`uses`）需要记忆
 - 纯函数和复杂函数之间的结构差异较大
 
 ---
@@ -330,36 +330,32 @@ fn add(a: Int, b: Int) -> Int {
 
 -- 有效函数（! sigil + 错误在返回类型后）
 fn parse_config!(raw: String, strict: Bool) -> Config ![MalformedInput, MissingField]
-where
-    cost ≤ 200
-    uses [Compute, Module<toml>]
+cost ≤ 200
+uses [Compute, Module<toml>]
 {
     ...
 }
 
 -- 纯但有错误的函数（无 ! 但有 !错误）
 fn validate(input: String) -> Bool ![ValidationError]
-where
-    cost ≤ 50
+cost ≤ 50
 {
     ...
 }
 
 -- 完整复杂函数
 fn sync_user_data!(user_id: UserId, source: DataSource) -> SyncReport ![NetworkTimeout, AuthExpired, DataConflict]
-where
-    idempotent
-    cost ≤ 8500
-    uses [NetRead, NetWrite, StateRead, Module<auth>, FuncCall<merge_records>]
+with [idempotent]
+cost ≤ 8500
+uses [NetRead, NetWrite, StateRead, Module<auth>, FuncCall<merge_records>]
 {
     ...
 }
 
 -- Hole
 fn validate_payment!(amount: Money, method: PaymentMethod) -> Receipt ![Declined, InsufficientFunds]
-where
-    idempotent
-    uses [NetRead, Module<payment_gateway>]
+with [idempotent]
+uses [NetRead, Module<payment_gateway>]
 {
     ?validate_logic
 }
@@ -368,7 +364,7 @@ where
 **优点：**
 - `!` 在函数名上一眼可见纯/不纯（Roc 验证过的 UX）
 - 错误类型 `![...]` 紧跟返回类型，是签名最核心的信息
-- 只有附加约束才用 where，纯简单函数零开销
+- 效果用 `with [...]`、代价用 `cost ≤ N`、能力用 `uses [...]`，无需 where 包裹
 - 信息密度最高——最重要的信息在最显眼的位置
 
 **缺点：**

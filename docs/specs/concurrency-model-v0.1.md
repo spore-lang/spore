@@ -50,16 +50,15 @@ Cost Budgets             ← parallel(lane) 与标量代价约束（Spore 独有
 Bob Nystrom 的 *"What Color is Your Function?"*（2015）指出：`async` 把函数分为两种颜色，
 红色（async）只能从红色上下文调用，导致整个调用链病毒式传染。
 
-Spore 的解决路径：**并发是一种 effect，effect 在签名的 `where` 块中声明，
+Spore 的解决路径：**并发是一种 effect，effect 在签名的 `uses` 子句中声明，
 函数体内的代码完全不需要 `await` 关键字**。effect-polymorphic 函数天然无色。
 
 ```spore
 -- 无需 async 标注——并发通过 Spawn effect 声明
 fn fetch_all(urls: List[Url]) -> List[Response] ! [NetError]
-where
-    effects: idempotent
-    cost ≤ urls.len * per_fetch
-    uses [Spawn, NetRead]
+effects: idempotent
+cost ≤ urls.len * per_fetch
+uses [Spawn, NetRead]
 {
     parallel_scope {
         urls.map(|url| spawn { fetch(url) })
@@ -69,9 +68,8 @@ where
 
 -- 纯函数：无 Spawn、无 IO，编译器保证单线程
 fn transform(data: List[Item]) -> List[Item]
-where
-    effects: pure, deterministic
-    cost ≤ data.len * 3
+effects: pure, deterministic
+cost ≤ data.len * 3
 {
     data.map(|item| item.process())
 }
@@ -210,8 +208,7 @@ parallel_scope(on_error: .collect) {
 
 ```spore
 fn load_dashboard(user_id: UserId) -> Dashboard ! [DbError, NetError]
-where
-    uses [Spawn, NetRead, DbRead]
+uses [Spawn, NetRead, DbRead]
 {
     -- parallel_scope 的返回值直接作为函数返回值
     parallel_scope {
@@ -246,8 +243,7 @@ effect Spawn {
 
 ```spore
 fn concurrent_work() -> (Int, Int)
-where
-    uses [Spawn]
+uses [Spawn]
 {
     parallel_scope {
         let a = spawn { heavy_compute_1() }
@@ -297,8 +293,7 @@ Platform 提供以下 Spawn handler：
 ```spore
 -- 待测试函数
 fn fetch_and_merge(urls: List[Url]) -> MergedData ! [NetError]
-where
-    uses [Spawn, NetRead]
+uses [Spawn, NetRead]
 {
     parallel_scope {
         let tasks = urls.map(|url| spawn { fetch(url) })
@@ -340,8 +335,7 @@ effect RateLimit {
 
 -- 使用
 fn throttled_fetch(url: Url) -> Response ! [NetError, RateLimitExceeded]
-where
-    uses [Spawn, NetRead, RateLimit]
+uses [Spawn, NetRead, RateLimit]
 {
     acquire_permit()
     defer { release_permit() }
@@ -417,8 +411,7 @@ effect ChanRecv[T] {
 
 ```spore
 fn producer(tx: Sender[Int]) -> Unit ! [ChannelClosed]
-where
-    uses [ChanSend[Int]]
+uses [ChanSend[Int]]
 {
     for i in 0..100 {
         tx.send(i)
@@ -426,8 +419,7 @@ where
 }
 
 fn consumer(rx: Receiver[Int]) -> List[Int] ! [ChannelClosed]
-where
-    uses [ChanRecv[Int]]
+uses [ChanRecv[Int]]
 {
     let mut results = []
     for msg in rx {
@@ -463,8 +455,7 @@ fn event_loop(
     events: Receiver[Event],
     shutdown: Receiver[Unit],
 ) -> Unit ! [ChannelClosed]
-where
-    uses [ChanRecv[Command], ChanRecv[Event], ChanRecv[Unit], Spawn]
+uses [ChanRecv[Command], ChanRecv[Event], ChanRecv[Unit], Spawn]
 {
     loop {
         select {
@@ -491,8 +482,7 @@ where
 
 ```spore
 fn fan_out_example(urls: List[Url]) -> List[Response] ! [NetError]
-where
-    uses [Spawn, NetRead]
+uses [Spawn, NetRead]
 {
     let (tx, rx) = Channel.new[Url](buffer: urls.len)
     let (result_tx, result_rx) = Channel.new[Response](buffer: urls.len)
@@ -533,8 +523,7 @@ where
 
 ```spore
 fn fan_in_example() -> List[Event]
-where
-    uses [Spawn, NetRead, FileRead]
+uses [Spawn, NetRead, FileRead]
 {
     let (tx, rx) = Channel.new[Event](buffer: 100)
 
@@ -617,8 +606,7 @@ cost(spawn { body }) = spawn_overhead + cost(body)
 ```spore
 -- 开发者只需写：
 fn fetch_all(urls: List[Url]) -> List[Response] ! [NetError]
-where
-    uses [Spawn, NetRead]
+uses [Spawn, NetRead]
 {
     parallel_scope {
         urls.map(|url| spawn { fetch(url) })
@@ -638,9 +626,8 @@ where
 
 ```spore
 fn bounded_fetch(urls: List[Url, max: 100]) -> List[Response] ! [NetError]
-where
-    cost ≤ 100 * per_fetch + 500
-    uses [Spawn, NetRead]
+cost ≤ 100 * per_fetch + 500
+uses [Spawn, NetRead]
 {
     parallel_scope(lanes: 10) {
         -- 最多 10 个并行任务，剩余排队
@@ -659,9 +646,8 @@ where
 
 ```spore
 fn pipeline(data: Data) -> Result
-where
-    cost ≤ 5000
-    uses [Spawn, FileRead, NetWrite]
+cost ≤ 5000
+uses [Spawn, FileRead, NetWrite]
 {
     -- 阶段 1：使用 4 个 lane
     let prepared = parallel_scope(lanes: 4) {
@@ -730,9 +716,8 @@ $ sporec --query-cost pipeline
 
 ```spore
 fn concurrent_pipeline(data: Data) -> Result
-where
-    cost ≤ 3000
-    uses [Spawn, NetRead]
+cost ≤ 3000
+uses [Spawn, NetRead]
 {
     parallel_scope(lanes: 2) {
         let a = spawn { fetch(data.url) }     -- cost: 800
@@ -794,8 +779,7 @@ Spore 使用**协作式**取消——任务不会被强制终止，
 
 ```spore
 fn long_running_download(url: Url) -> Data ! [NetError, Cancelled]
-where
-    uses [Spawn, NetRead]
+uses [Spawn, NetRead]
 {
     let chunks = []
     for chunk_url in split_download(url) {
@@ -811,8 +795,7 @@ where
 
 ```spore
 fn cpu_bound_work(data: List[Item]) -> List[Item]
-where
-    uses [Spawn]
+uses [Spawn]
 {
     let mut results = []
     for (i, item) in data.enumerate() {
@@ -832,8 +815,7 @@ where
 
 ```spore
 fn with_temp_file() -> Data ! [IoError, Cancelled]
-where
-    uses [Spawn, FileRead, FileWrite]
+uses [Spawn, FileRead, FileWrite]
 {
     let file = create_temp_file()
     defer { delete_file(file) }  -- 取消时也会执行
@@ -862,8 +844,7 @@ where
 
 ```spore
 fn fetch_with_timeout(url: Url, limit: Duration) -> Response ! [NetError, Timeout]
-where
-    uses [Spawn, NetRead, Clock]
+uses [Spawn, NetRead, Clock]
 {
     with_timeout(limit) {
         fetch(url)
@@ -1167,8 +1148,7 @@ effect MyEffect {
 
 -- 使用 effect（在 uses 中声明）
 fn my_func() -> Result
-where
-    uses [MyEffect]
+uses [MyEffect]
 {
     operation(value)
 }
@@ -1191,11 +1171,10 @@ handler my_handler for MyEffect {
 ```spore
 -- 完整形式
 fn name(params) -> ReturnType ! [Errors]
-where
-    T: Constraints
-    effects: <annotations>
-    cost ≤ <N>
-    uses [Spawn, Channel, ...]
+where T: Constraints
+effects: <annotations>
+cost ≤ <N>
+uses [Spawn, Channel, ...]
 {
     <body>
 }
@@ -1214,10 +1193,9 @@ where
 capability HttpHandler = [Spawn, NetRead, NetWrite, DbRead, Clock]
 
 fn handle_request(req: Request) -> Response ! [DbError, Timeout]
-where
-    effects: idempotent
-    cost ≤ 5000
-    uses [HttpHandler]
+effects: idempotent
+cost ≤ 5000
+uses [HttpHandler]
 {
     with_timeout(10.seconds) {
         parallel_scope(lanes: 3) {
@@ -1246,9 +1224,8 @@ fn etl_pipeline(
     sink: DataSink,
     batch_size: Int,
 ) -> EtlReport ! [ExtractError, TransformError, LoadError]
-where
-    cost ≤ batch_size * 200
-    uses [Spawn, NetRead, DbRead, DbWrite]
+cost ≤ batch_size * 200
+uses [Spawn, NetRead, DbRead, DbWrite]
 {
     let (raw_tx, raw_rx)     = Channel.new[RawRecord](buffer: batch_size)
     let (clean_tx, clean_rx) = Channel.new[CleanRecord](buffer: batch_size)

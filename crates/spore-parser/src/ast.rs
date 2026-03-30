@@ -18,6 +18,12 @@ pub enum Item {
 }
 
 /// Function definition with full Spore signature.
+///
+/// Clauses are separate syntactic constructs:
+/// - `where T: Bound`  — generic type constraints
+/// - `with [IO, Async]` — capability / effect requirements
+/// - `cost ≤ O(n)`      — cost upper-bound
+/// - `uses [Memory]`    — resource dependencies
 #[derive(Debug, Clone)]
 pub struct FnDef {
     pub name: String,
@@ -25,7 +31,14 @@ pub struct FnDef {
     pub params: Vec<Param>,
     pub return_type: Option<TypeExpr>,
     pub errors: Vec<TypeExpr>,
+    /// Generic type constraints: `where T: Display, U: Clone`
     pub where_clause: Option<WhereClause>,
+    /// Capability / effect requirements: `with [IO, Async]`
+    pub with_clause: Option<WithClause>,
+    /// Cost upper-bound: `cost ≤ O(n log n)`
+    pub cost_clause: Option<CostClause>,
+    /// Resource dependencies: `uses [Memory, FileSystem]`
+    pub uses_clause: Option<UsesClause>,
     /// None means this is a hole (?name)
     pub body: Option<Expr>,
 }
@@ -44,13 +57,39 @@ pub enum Visibility {
     Pub,
 }
 
-/// Where clause: effects, cost, capabilities.
+/// Generic type constraints introduced by `where`.
+///
+/// Example: `where T: Display, U: Clone + Debug`
+///
+/// This only covers type-parameter bounds. Effects, cost, and resources
+/// are expressed with their own dedicated clauses (`with`, `cost`, `uses`).
 #[derive(Debug, Clone)]
 pub struct WhereClause {
-    pub type_constraints: Vec<TypeConstraint>,
+    pub constraints: Vec<TypeConstraint>,
+}
+
+/// Capability / effect requirements introduced by `with`.
+///
+/// Example: `with [IO, Async, Net]`
+#[derive(Debug, Clone)]
+pub struct WithClause {
     pub effects: Vec<String>,
-    pub cost: Option<CostExpr>,
-    pub uses: Vec<String>,
+}
+
+/// Cost upper-bound introduced by `cost`.
+///
+/// Example: `cost ≤ O(n log n)` or `cost ≤ 100`
+#[derive(Debug, Clone)]
+pub struct CostClause {
+    pub bound: CostExpr,
+}
+
+/// Resource dependencies introduced by `uses`.
+///
+/// Example: `uses [Memory, FileSystem]`
+#[derive(Debug, Clone)]
+pub struct UsesClause {
+    pub resources: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +112,10 @@ pub enum TypeExpr {
     Generic(String, Vec<TypeExpr>),
     Tuple(Vec<TypeExpr>),
     Function(Vec<TypeExpr>, Box<TypeExpr>),
+    /// Refinement type using `if`: `{ x: Int if x > 0 }`
+    ///
+    /// Fields: base type, binding name, predicate expression.
+    Refinement(Box<TypeExpr>, String, Box<Expr>),
 }
 
 /// Expression — everything in Spore is an expression.

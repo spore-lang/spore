@@ -104,8 +104,7 @@ import billing.types
 import billing.tax
 
 pub fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
-where
-    effects: deterministic
+    with [deterministic]
     cost ≤ 3000
     uses [PaymentGateway, AuditLog]
 {
@@ -115,16 +114,14 @@ where
 }
 
 fn build_line_items(items: Vec<Item>, tax: TaxResult) -> Vec<LineItem>
-where
-    effects: pure
+    with [pure]
     cost ≤ 500
 {
     items |> map(fn(item) -> to_line_item(item, tax))
 }
 
 fn finalize(customer: Customer, items: Vec<LineItem>) -> Invoice ! [ValidationError]
-where
-    effects: deterministic
+    with [deterministic]
     cost ≤ 1000
     uses [AuditLog]
 {
@@ -520,8 +517,7 @@ The `sig` hash `a3f7c2` (truncated for display; full hash is 32 hex characters) 
 
 ```
 fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
-where
-    effects: deterministic
+    with [deterministic]
     cost ≤ 3000
     uses [PaymentGateway, AuditLog]
 ```
@@ -694,8 +690,7 @@ module billing.invoice uses [PaymentGateway, AuditLog]
 
 -- ERROR: FileWrite is not in the module's capability ceiling
 pub fn export_to_file(invoice: Invoice) -> Unit ! [IoError]
-where
-    effects: deterministic
+    with [deterministic]
     uses [FileWrite]
 {
     ...
@@ -722,12 +717,10 @@ If a module omits the `uses` declaration, the compiler **infers** the capability
 -- no module header
 
 pub fn generate_invoice(order: Order) -> Invoice ! [TaxError]
-where
     uses [PaymentGateway, AuditLog]
 { ... }
 
 pub fn void_invoice(id: InvoiceId) -> Unit ! [NotFound]
-where
     uses [AuditLog]
 { ... }
 ```
@@ -771,26 +764,23 @@ Private functions are **also** bound by the module's capability ceiling (if decl
 module billing.invoice uses [PaymentGateway, AuditLog]
 
 pub fn generate_invoice(order: Order) -> Invoice ! [TaxError]
-where
     uses [PaymentGateway, AuditLog]
 { ... }
 
 -- Private function: OK, uses subset of module ceiling
 fn log_audit(action: String, id: InvoiceId) -> Unit
-where
     uses [AuditLog]
 { ... }
 
 -- Private function: ERROR, exceeds module ceiling
 fn send_email(to: Email, body: String) -> Unit ! [SmtpError]
-where
     uses [EmailService]    -- not in module ceiling
 { ... }
 ```
 
 ### 6.6 Capability Inheritance via Import
 
-Importing a module does **not** grant its capabilities to the importer. Capabilities are per-function, declared in `where uses [...]`:
+Importing a module does **not** grant its capabilities to the importer. Capabilities are per-function, declared in `uses [...]`:
 
 ```spore
 -- src/api/handler.spore
@@ -800,8 +790,7 @@ import billing.invoice
 -- [PaymentGateway, AuditLog]. Those capabilities must be available
 -- in the platform, but handler itself only needs what IT directly uses.
 pub fn handle_create_invoice(req: Request) -> Response ! [ApiError]
-where
-    effects: deterministic
+    with [deterministic]
     uses [PaymentGateway, AuditLog]   -- must declare because generate_invoice needs them
 {
     let order = parse_order(req.body)
@@ -911,8 +900,7 @@ module platform.main
 
 -- Platform-provided capability: Stdout
 pub fn stdout_write(message: String) -> Unit ! [IoError]
-where
-    effects: idempotent
+    with [idempotent]
     uses [RawSyscall]       -- only platforms have RawSyscall
 {
     -- This is the only place where raw system calls happen
@@ -921,8 +909,7 @@ where
 
 -- Platform-provided capability: FileRead
 pub fn file_read(path: FilePath) -> Bytes ! [IoError, FileNotFound]
-where
-    effects: deterministic
+    with [deterministic]
     uses [RawSyscall]
 {
     let fd = syscall.open(path.to_string(), OpenMode.Read)
@@ -933,8 +920,7 @@ where
 
 -- Platform-provided capability: Clock
 pub fn clock_now() -> Timestamp
-where
-    effects: nondeterministic
+    with [nondeterministic]
     uses [RawSyscall]
 {
     syscall.clock_gettime()
@@ -951,8 +937,7 @@ import billing.invoice
 import std.io
 
 pub fn main(args: Vec<String>) -> Unit ! [AppError]
-where
-    effects: deterministic
+    with [deterministic]
     uses [Stdout, FileRead, PaymentGateway, AuditLog]
 {
     let order = load_order(args.get(1))
@@ -961,8 +946,7 @@ where
 }
 
 fn load_order(path: String) -> Order ! [IoError, ParseError]
-where
-    effects: deterministic
+    with [deterministic]
     uses [FileRead]
 {
     let content = std.io.read_file(FilePath.new(path))
@@ -1177,7 +1161,6 @@ A module that calls a partial function becomes **transitively partial**. The com
 import billing.invoice
 
 pub fn handle(req: Request) -> Response ! [ApiError]
-where
     uses [PaymentGateway, AuditLog]
 {
     -- generate_invoice is partial (contains holes)
@@ -1200,7 +1183,7 @@ $ sporec check src/api/handler.spore
 
 #### Module-Level Cost Budgets
 
-Spore does not enforce module-level cost budgets. Cost is a per-function property declared in the `where` clause. However, the `spore` tool can report aggregate cost information per module:
+Spore does not enforce module-level cost budgets. Cost is a per-function property declared via `cost ≤ N`. However, the `spore` tool can report aggregate cost information per module:
 
 ```
 $ spore cost-report billing.invoice
@@ -1283,8 +1266,7 @@ import billing.invoice
 import billing.errors
 
 pub fn handle_create(req: Request) -> Response ! [billing.errors.BillingError, ParseError]
-where
-    effects: deterministic
+    with [deterministic]
     uses [PaymentGateway, AuditLog]
 {
     let order = parse_request(req)    -- may raise ParseError
@@ -1779,7 +1761,12 @@ visibility    ::= 'pub' | 'pub(pkg)'
 
 -- Declarations
 fn_decl       ::= visibility? 'fn' IDENT generics? '(' params ')' '->' type ('!' error_list)?
-                   where_clause? block
+                   with_clause? cost_clause? where_clause? uses_clause? block
+with_clause   ::= 'with' effect_list
+cost_clause   ::= 'cost' '≤' NUMBER
+where_clause  ::= 'where' constraint (',' constraint)*
+uses_clause   ::= 'uses' capability_list
+effect_list   ::= '[' IDENT (',' IDENT)* ']'
 type_decl     ::= visibility? 'type' IDENT generics? type_body
 alias_item    ::= visibility? 'alias' IDENT '=' qualified_item
 

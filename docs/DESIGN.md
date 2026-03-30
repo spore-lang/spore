@@ -18,16 +18,23 @@ Codebase Manager: `spore`（有状态）
 
 ## 已确定的设计
 
-### 函数签名语法（混合式 v0.2）
+### 函数签名语法（混合式 v0.3）
 ```
 fn name(params) -> ReturnType ! [Errors]
-where
-    T: Constraint
-    effects: pure, deterministic
+    where T: Constraint
+    with [pure, deterministic]
     cost ≤ N
     uses [Capabilities]
 { body }
 ```
+
+> **v0.2→v0.3 变更**: 原 `where { ... }` 统一块拆分为独立子句：
+> - `where T: Constraint` — 泛型约束（保留 where 关键字）
+> - `with [Effect1, Effect2]` — 效果声明（新关键字）
+> - `cost ≤ N` — 代价上界（独立子句）
+> - `uses [Capabilities]` — 能力集声明（独立子句）
+>
+> 细化类型谓词语法同步变更: `where |n| n > 0` → `if |n| n > 0`
 
 ### 能力集系统
 - 内置: Compute, FileRead, FileWrite, NetRead, NetWrite, Clock, Random, StateRead, StateWrite, Spawn
@@ -66,7 +73,7 @@ where
 - Capability = Trait（统一机制，capability 是 trait 语法糖）
 - 关联类型 + GAT 支持
 - 无 HKT（关联类型 + GAT 已足够，避免错误信息灾难）
-- 细化类型: L0 可判定谓词 + L1 抽象解释传播（无 SMT）
+- 细化类型: L0 可判定谓词（`if |n| n > 0`）+ L1 抽象解释传播（无 SMT）
 - Sealed enum（穷尽匹配）
 - 签名必须完整注解，函数体内推断
 - Const generics（值级类型参数）
@@ -109,7 +116,7 @@ where
 - 输出: 实时编译诊断 + hole 进度报告
 - LSP 集成: `spore watch --json` 作为 LSP 后端
 
-### 语法设计（v0.1）
+### 语法设计（v0.2）
 - 完全 expression-based（if/match 都有返回值）
 - 大括号 `{}`，分号 Rust 语义（有分号=语句，无分号=返回表达式）
 - 管道 `|>` 操作符，不允许自定义操作符
@@ -125,32 +132,39 @@ where
 - trait 实现内联: `implements [...]`（Roc 风格）
 - `struct` 记录 + `type` 枚举/ADT
 - `capability` 关键字（= trait）
+- `with` 关键字 — 效果声明（`with [Effect1, Effect2]`）
+- `if` 子句用于细化类型谓词（`if |n| n > 0`），不再使用 `where`
+- `where` 关键字仅保留用于泛型约束（`where T: Constraint`）
 - 基本类型: I32/I64/U32/U64/F32/F64/Bool/Str + List[T]/Map[K,V]/Set[T]
 
 ## 设计文档索引
 
-### 规格文档
-- files/signature-syntax-v0.2.md — 签名语法完整草案
-- files/cost-model-v0.1.md — 代价模型完整设计
-- files/hole-system-v0.2.md — Hole 系统完整设计
-- files/module-system-v0.1.md — 模块系统设计（含双 hash）
-- files/type-system-v0.1.md — 类型系统设计
-- files/compiler-output-v0.1.md — 编译器输出格式设计
-- files/concurrency-model-v0.1.md — 并发模型设计
-- files/package-management-v0.1.md — 包管理系统设计
-- files/incremental-compilation-v0.1.md — 增量编译与 Watch 模式
-- files/syntax-spec-v0.1.md — 语法规格（生成中）
+### 规格文档 (docs/specs/)
+- [signature-syntax-v0.2.md](specs/signature-syntax-v0.2.md) — 签名语法完整草案（v0.3 拆分子句语法见 DESIGN.md）
+- [cost-model-v0.1.md](specs/cost-model-v0.1.md) — 代价模型完整设计
+- [hole-system-v0.2.md](specs/hole-system-v0.2.md) — Hole 系统完整设计
+- [module-system-v0.1.md](specs/module-system-v0.1.md) — 模块系统设计（含双 hash）
+- [type-system-v0.1.md](specs/type-system-v0.1.md) — 类型系统设计
+- [compiler-output-v0.1.md](specs/compiler-output-v0.1.md) — 编译器输出格式设计
+- [compiler-pipeline-v0.1.md](specs/compiler-pipeline-v0.1.md) — 编译器 Pipeline 架构
+- [concurrency-model-v0.1.md](specs/concurrency-model-v0.1.md) — 并发模型设计
+- [package-management-v0.1.md](specs/package-management-v0.1.md) — 包管理系统设计
+- [platform-system-v0.1.md](specs/platform-system-v0.1.md) — Platform 系统设计
+- [incremental-compilation-v0.1.md](specs/incremental-compilation-v0.1.md) — 增量编译与 Watch 模式
+- [syntax-spec-v0.1.md](specs/syntax-spec-v0.1.md) — 语法规格
 
-### 调研文档
-- files/syntax-comparison-v0.1.md — 参考语言语法对比
-- files/module-system-research.md — 10 语言模块系统调研
-- files/type-research-dependent.md — 依赖类型调研（7 语言）
-- files/type-research-practical.md — 实用类型系统调研（7 语言）
-- files/type-research-tradeoffs.md — 类型系统权衡分析
-- files/concurrency-research.md — 13 并发模型调研
-- files/pkg-management-research.md — 10 语言包管理调研
-- files/hot-reload-research.md — 12 系统热重载调研
-- files/syntax-research.md — 10 语言语法设计调研
+### 调研文档 (docs/research/)
+- [syntax-comparison-v0.1.md](research/syntax-comparison-v0.1.md) — 参考语言语法对比
+- [module-system-research.md](research/module-system-research.md) — 10 语言模块系统调研
+- [type-research-dependent.md](research/type-research-dependent.md) — 依赖类型调研（7 语言）
+- [type-research-practical.md](research/type-research-practical.md) — 实用类型系统调研（7 语言）
+- [type-research-tradeoffs.md](research/type-research-tradeoffs.md) — 类型系统权衡分析
+- [concurrency-research.md](research/concurrency-research.md) — 13 并发模型调研
+- [pkg-management-research.md](research/pkg-management-research.md) — 10 语言包管理调研
+- [hot-reload-research.md](research/hot-reload-research.md) — 12 系统热重载调研
+- [syntax-research.md](research/syntax-research.md) — 10 语言语法设计调研
+- [impl-stack-research.md](research/impl-stack-research.md) — 10 语言编译器实现栈调研
+- [codegen-comparison.md](research/codegen-comparison.md) — LLVM vs Cranelift 深度对比
 
 ### 标准库（极简）
 - **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Str, Option[T], Result[T,E], 基本操作符, |>, ?
@@ -172,23 +186,72 @@ where
 - 实现语言: 原生代码（Rust/C/编译后的 Spore）
 - 测试: 换 mock Platform（确定性 handler）
 
-### 实现技术栈
-- **实现语言**: Rust
+### 实现技术栈（已确定）
+- **实现语言**: Rust（edition 2024, MSRV 1.90）
 - **自举策略**: Rust bootstrap → 部分自举（Parser/TypeChecker/CostAnalyzer 等纯计算部分用 Spore 重写）
+- **解析器**: 手写递归下降 + Pratt 运算符解析（调研 Rust/Zig/Roc/Unison/Elm/Gleam 全部手写）
 - **代码生成**: Cranelift（先）→ 后期可选加 LLVM
   - Cranelift 优势: 10x 编译速度、纯 Rust、函数级粒度（契合内容寻址）、原生 WASM
   - 14% 输出性能差距可接受，新语言不需要和 C 竞争
 - **增量编译框架**: salsa（rust-analyzer 同款）
-- **解析器**: Rust 生态（pest/LALRPOP/手写递归下降，待定）
-- **错误报告**: ariadne 或 miette
+- **错误报告**: ariadne 0.6（gonidium 同款，JSON 模式自行序列化）
+- **错误处理**: thiserror 2（gonidium 同款，结构化错误枚举）
+- **CLI 框架**: clap 4 + derive（多子命令场景优于 bpaf）
 - **LSP 服务器**: tower-lsp
 - **内容寻址 Hash**: blake3
+- **无 Comptime**: 不支持图灵完备的编译期执行（Zig 风格），const generics + 细化类型 + 代价模型已覆盖 95% 场景；v1.1 按需可加轻量 `const fn`
 
-### 调研文档索引（补充）
-- files/impl-stack-research.md — 10 语言编译器实现栈调研
-- files/codegen-comparison.md — LLVM vs Cranelift 深度对比
-- files/platform-research.md — 9 语言 Platform/Effect 系统调研
+### 编译器 Pipeline 架构（v0.1）
+
+```
+Source → [Lex] → Tokens → [Parse] → AST → [Resolve+Desugar] → HIR → [TypeCheck+CapCheck+CostCheck] → TypedHIR → [Codegen] → Cranelift IR → Native
+```
+
+**3 层 IR + Cranelift IR 充当 LIR**（无独立 flat IR，无 MIR）
+
+#### AST（Abstract Syntax Tree）
+- 原始语法树，与源码 1:1 对应
+- 所有节点带 `Span`（源码位置）
+- 保留所有语法糖（`|>`、`?`、`f"..."`）
+- 用途: 错误报告指向源码、IDE 语法高亮
+
+#### HIR（High-level IR）
+- 由 Resolve+Desugar pass 生成
+- **脱糖**: `|>` → 函数调用, `?` → match on Result, `f"..."` → format 调用
+- **名称解析**: 所有标识符绑定到声明
+- **导入解析**: 模块路径解析为具体模块引用
+- **Hole 记录**: 标记 `?name` 位置，记录上下文
+- **sig hash 在此层计算**: 签名（参数/返回/错误集/效果/能力/代价声明）hash，签名不变则下游免重新检查
+
+#### TypedHIR（Typed High-level IR）
+- 由 TypeCheck+CapCheck+CostCheck 统一 pass 生成
+- **类型推断**: 所有表达式都有确定类型（双向类型推断）
+- **能力验证**: 函数体能力使用 ⊆ 声明能力集
+- **代价计算**: 抽象解释计算代价，验证 ≤ 声明上界
+- **穷尽检查**: match 表达式穷尽性验证
+- **错误集传播**: `! [Errors]` 类型一致性
+- **细化类型检查**: L0 可判定谓词 + L1 抽象解释传播
+- **Hole 报告生成**: 完整上下文（类型/绑定/能力/代价预算/候选函数）
+- **impl hash 在此层计算**: 类型检查通过后的完整 AST hash，部分函数（含 hole）为 None
+
+#### salsa 集成
+```
+salsa::input  → SourceFile { path, contents }
+salsa::tracked → lex(file) → parse(tokens) → resolve(ast) → type_check(hir) → codegen(typed_hir)
+```
+- 文件内容变更 → 重新 lex/parse
+- sig hash 不变 → 下游模块跳过 resolve + type_check
+- impl hash 不变 → 跳过 codegen（Cranelift 缓存命中）
+
+#### 设计决策记录
+- **不需要 MIR**: 无 borrow checker，无需 CFG 级别分析
+- **不需要 flat IR**: 无 comptime，salsa 提供增量缓存
+- **能力+代价合并到 TypeCheck**: capability = trait，与类型信息交叉使用，减少 IR 转换
+- **脱糖全在 Resolve 层**: `|>`/`?`/`f"..."` 均在进入 HIR 前脱糖，TypeCheck 不处理语法糖
+- **不支持 Comptime**: const generics + 细化类型 + 代价模型已足够；Elm/Roc/Gleam 均无 comptime
 
 ## 下一步
-- [ ] 创建 GitHub 仓库和项目骨架
-- [ ] 实现 Phase 1: Parser + 基本类型检查 + Cranelift codegen
+- [ ] 设计具体 IR 数据结构（AST with spans, HIR types, TypedHIR types）
+- [ ] 规划 Phase 1 实现范围和任务
+- [ ] 实现 Phase 1: Lexer → Parser → 基本类型检查 → hello-world codegen
+- [ ] 11 份规格文档一致性审计

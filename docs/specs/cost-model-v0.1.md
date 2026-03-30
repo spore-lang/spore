@@ -163,8 +163,7 @@ cost(sum_list) = N × 2 + 5    -- 其中 N = len(items)
 
 ```
 fn process_batch(items: List<Order, max: 500>) -> BatchResult ! [TooLarge]
-where
-    effects: deterministic
+    with [deterministic]
     cost ≤ 25000
     uses [Compute, Module<validator>]
 {
@@ -212,7 +211,7 @@ WARNING [unbounded-cost] fibonacci 的代价无法静态确定。
   推断复杂度: O(2^n)
   
   选项:
-  (a) 添加 `cost ≤ K` + 参数约束 `n: Int where n ≤ 30`
+  (a) 添加 `cost ≤ K` + 参数约束 `n: Int if n ≤ 30`
   (b) 标记为 `unbounded`（放弃代价约束）
   (c) 改用结构递归或尾递归 + 迭代上限
 ```
@@ -220,8 +219,7 @@ WARNING [unbounded-cost] fibonacci 的代价无法静态确定。
 标记为 `unbounded` 的函数：
 ```
 fn fibonacci(n: Int) -> Int
-where
-    effects: pure, deterministic
+    with [pure, deterministic]
     cost: unbounded
 {
     ...
@@ -231,7 +229,6 @@ where
 `unbounded` 函数**不能被 cost ≤ K 函数调用**，除非包裹在运行时代价限制器中：
 ```
 fn safe_fib(n: Int) -> Int ! [CostExceeded]
-where
     cost ≤ 10000
     uses [Compute, FuncCall<fibonacci>]
 {
@@ -249,9 +246,8 @@ where
 
 ```
 fn sort<T>(items: List<T, max: N>) -> List<T, max: N>
-where
-    T: Ord
-    effects: pure, deterministic
+    where T: Ord
+    with [pure, deterministic]
     cost ≤ N × log(N) × 3 + N
     uses [Compute]
 {
@@ -337,7 +333,6 @@ $ langc --query-cost sort
 
 ```
 fn process(data: Data) -> Result ! [ProcessError]
-where
     cost ≤ 1000
     uses [Compute, Module<parser>]
 {
@@ -368,7 +363,7 @@ where
 - `uses [Compute]` → W 维度必须为 0（Compute 不含 IO）
 - `uses [NetRead]` → W 维度可 > 0
 
-如果函数声明 `effects: pure` 但代价分析发现 W > 0 → 编译错误。
+如果函数声明 `with [pure]` 但代价分析发现 W > 0 → 编译错误。
 这形成了一个交叉验证网络：**效果 ↔ 能力 ↔ 代价 三者互相约束**。
 
 ---
@@ -380,8 +375,7 @@ where
    - 签名层面只需为特定类型约束声明代价上界，例如：
      ```
      fn map<T, U>(f: T -> U, items: List<T, max: N>) -> List<U, max: N>
-     where
-         T: Sized, U: Sized
+         where T: Sized, U: Sized
          cost ≤ N × cost(f) + N
      ```
    - `cost(f)` 在每个调用点已知（因为 `f` 已被具体化），编译器直接代入计算即可。
@@ -407,7 +401,6 @@ where
 3. **外部函数（FFI）**：外部函数**必须**在绑定时声明代价。语法如下：
    ```
    extern fn openssl_encrypt(data: Bytes, key: Key) -> Bytes ! [CryptoError]
-   where
        cost ≤ 500
        uses [Compute]
    ```
