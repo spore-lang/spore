@@ -21,7 +21,6 @@ pub enum Item {
 ///
 /// Clauses are separate syntactic constructs:
 /// - `where T: Bound`  — generic type constraints
-/// - `with [IO, Async]` — capability / effect requirements
 /// - `cost ≤ O(n)`      — cost upper-bound
 /// - `uses [Memory]`    — resource dependencies
 #[derive(Debug, Clone)]

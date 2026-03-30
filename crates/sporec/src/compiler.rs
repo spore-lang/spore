@@ -7,7 +7,12 @@ use spore_parser::parse;
 /// 2. Type check (AST → Typed AST)
 /// 3. Code gen (Typed AST → native code)
 pub fn compile(source: &str) -> Result<(), String> {
-    let _ast = parse(source)?;
+    let _ast = parse(source).map_err(|errs| {
+        errs.into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
     // TODO: type checking
     // TODO: code generation
     Ok(())
