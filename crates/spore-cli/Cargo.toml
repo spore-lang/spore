@@ -1,0 +1,14 @@
+[package]
+name = "spore-cli"
+description = "Spore codebase manager (stateful: file IO, watch mode, package management)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "spore"
+path = "src/main.rs"
+
+[dependencies]
+sporec = { path = "../sporec" }
