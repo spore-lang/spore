@@ -334,28 +334,28 @@ fn is_positive_int(expr: &Expr) -> bool {
 // Four-dimensional cost model (SEP-0004)
 // ---------------------------------------------------------------------------
 
-/// Four-dimensional cost vector per the spec.
+/// Four-dimensional cost vector per the spec (SEP-0004).
 ///
 /// Each function maps to one of these, describing:
-/// - **time** — computational steps (big-O)
-/// - **space** — memory allocation
-/// - **stack** — recursion depth
-/// - **concurrency** — spawn count
+/// - **compute** — operation count
+/// - **alloc** — memory cell allocation
+/// - **io** — I/O call count
+/// - **parallel** — lane/spawn count
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CostVector {
-    pub time: CostExpr,
-    pub space: CostExpr,
-    pub stack: CostExpr,
-    pub concurrency: CostExpr,
+    pub compute: CostExpr,
+    pub alloc: CostExpr,
+    pub io: CostExpr,
+    pub parallel: CostExpr,
 }
 
 impl CostVector {
-    pub fn constant(time: u64, space: u64, stack: u64, concurrency: u64) -> Self {
+    pub fn constant(compute: u64, alloc: u64, io: u64, parallel: u64) -> Self {
         Self {
-            time: CostExpr::Const(time),
-            space: CostExpr::Const(space),
-            stack: CostExpr::Const(stack),
-            concurrency: CostExpr::Const(concurrency),
+            compute: CostExpr::Const(compute),
+            alloc: CostExpr::Const(alloc),
+            io: CostExpr::Const(io),
+            parallel: CostExpr::Const(parallel),
         }
     }
 
@@ -365,43 +365,43 @@ impl CostVector {
 
     /// Check if all dimensions are bounded (no `Unbounded`).
     pub fn is_bounded(&self) -> bool {
-        !matches!(self.time, CostExpr::Unbounded)
-            && !matches!(self.space, CostExpr::Unbounded)
-            && !matches!(self.stack, CostExpr::Unbounded)
-            && !matches!(self.concurrency, CostExpr::Unbounded)
+        !matches!(self.compute, CostExpr::Unbounded)
+            && !matches!(self.alloc, CostExpr::Unbounded)
+            && !matches!(self.io, CostExpr::Unbounded)
+            && !matches!(self.parallel, CostExpr::Unbounded)
     }
 
     /// Sequentially compose two cost vectors (both execute).
     ///
-    /// time = sum, space/stack/concurrency = max.
+    /// compute = sum, alloc/io/parallel = max.
     pub fn seq(&self, other: &CostVector) -> CostVector {
         CostVector {
-            time: add_cost(&self.time, &other.time),
-            space: max_cost(&self.space, &other.space),
-            stack: max_cost(&self.stack, &other.stack),
-            concurrency: max_cost(&self.concurrency, &other.concurrency),
+            compute: add_cost(&self.compute, &other.compute),
+            alloc: max_cost(&self.alloc, &other.alloc),
+            io: max_cost(&self.io, &other.io),
+            parallel: max_cost(&self.parallel, &other.parallel),
         }
     }
 
-    /// Parallel compose (spawn): time = max, space = sum, concurrency += 1.
+    /// Parallel compose (spawn): compute = max, alloc = sum, parallel += 1.
     pub fn par(&self, other: &CostVector) -> CostVector {
         CostVector {
-            time: max_cost(&self.time, &other.time),
-            space: add_cost(&self.space, &other.space),
-            stack: max_cost(&self.stack, &other.stack),
-            concurrency: add_cost(&self.concurrency, &CostExpr::Const(1)),
+            compute: max_cost(&self.compute, &other.compute),
+            alloc: add_cost(&self.alloc, &other.alloc),
+            io: max_cost(&self.io, &other.io),
+            parallel: add_cost(&self.parallel, &CostExpr::Const(1)),
         }
     }
 
     /// Scale by a loop/recursion factor.
     ///
-    /// time and space are multiplied, stack depth increments by 1.
+    /// compute and alloc are multiplied, io increments by 1.
     pub fn scale(&self, factor: &CostExpr) -> CostVector {
         CostVector {
-            time: mul_cost(&self.time, factor),
-            space: mul_cost(&self.space, factor),
-            stack: add_cost(&self.stack, &CostExpr::Const(1)),
-            concurrency: self.concurrency.clone(),
+            compute: mul_cost(&self.compute, factor),
+            alloc: mul_cost(&self.alloc, factor),
+            io: add_cost(&self.io, &CostExpr::Const(1)),
+            parallel: self.parallel.clone(),
         }
     }
 }
@@ -410,8 +410,8 @@ impl std::fmt::Display for CostVector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "CostVector {{ time: {}, space: {}, stack: {}, concurrency: {} }}",
-            self.time, self.space, self.stack, self.concurrency
+            "CostVector {{ compute: {}, alloc: {}, io: {}, parallel: {} }}",
+            self.compute, self.alloc, self.io, self.parallel
         )
     }
 }
@@ -652,24 +652,42 @@ mod tests {
 
     #[test]
     fn add_cost_identity() {
-        assert_eq!(add_cost(&CostExpr::Const(0), &CostExpr::Const(7)), CostExpr::Const(7));
-        assert_eq!(add_cost(&CostExpr::Const(3), &CostExpr::Const(0)), CostExpr::Const(3));
+        assert_eq!(
+            add_cost(&CostExpr::Const(0), &CostExpr::Const(7)),
+            CostExpr::Const(7)
+        );
+        assert_eq!(
+            add_cost(&CostExpr::Const(3), &CostExpr::Const(0)),
+            CostExpr::Const(3)
+        );
     }
 
     #[test]
     fn mul_cost_identity_and_zero() {
-        assert_eq!(mul_cost(&CostExpr::Const(1), &CostExpr::Const(42)), CostExpr::Const(42));
-        assert_eq!(mul_cost(&CostExpr::Const(0), &CostExpr::Const(42)), CostExpr::Const(0));
+        assert_eq!(
+            mul_cost(&CostExpr::Const(1), &CostExpr::Const(42)),
+            CostExpr::Const(42)
+        );
+        assert_eq!(
+            mul_cost(&CostExpr::Const(0), &CostExpr::Const(42)),
+            CostExpr::Const(0)
+        );
     }
 
     #[test]
     fn cost_result_to_expr_conversions() {
-        assert_eq!(cost_result_to_expr(&CostResult::Constant(5)), CostExpr::Const(5));
+        assert_eq!(
+            cost_result_to_expr(&CostResult::Constant(5)),
+            CostExpr::Const(5)
+        );
         assert_eq!(
             cost_result_to_expr(&CostResult::Structural("n".into())),
             CostExpr::Linear("n".into())
         );
-        assert_eq!(cost_result_to_expr(&CostResult::Unbounded), CostExpr::Unbounded);
+        assert_eq!(
+            cost_result_to_expr(&CostResult::Unbounded),
+            CostExpr::Unbounded
+        );
         assert_eq!(
             cost_result_to_expr(&CostResult::Unknown("msg".into())),
             CostExpr::Unbounded
@@ -680,7 +698,9 @@ mod tests {
     fn cost_checker_constant_function() {
         let mut analyzer = CostAnalyzer::new();
         // Manually insert a constant result to test the checker.
-        analyzer.results_mut().insert("foo".into(), CostResult::Constant(1));
+        analyzer
+            .results_mut()
+            .insert("foo".into(), CostResult::Constant(1));
 
         let mut checker = CostChecker::new();
         checker.check_all(&analyzer);

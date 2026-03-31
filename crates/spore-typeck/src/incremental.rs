@@ -4,8 +4,8 @@
 //! and invalidated when inputs change. This is the foundation for
 //! future salsa integration.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 /// A fingerprint of an input (source text, AST, etc.).
@@ -45,6 +45,7 @@ impl Revision {
 struct CachedResult<T: Clone> {
     value: T,
     /// The revision at which this result was computed.
+    #[allow(dead_code)]
     computed_at: Revision,
     /// Fingerprint of the input that produced this result.
     input_fingerprint: Fingerprint,
@@ -126,23 +127,18 @@ impl IncrementalDb {
         fn_name: &str,
         input_fp: Fingerprint,
     ) -> Option<Vec<String>> {
-        if let Some(cached) = self.type_check_cache.get(fn_name) {
-            if cached.input_fingerprint == input_fp {
-                self.stats.hits += 1;
-                return Some(cached.value.clone());
-            }
+        if let Some(cached) = self.type_check_cache.get(fn_name)
+            && cached.input_fingerprint == input_fp
+        {
+            self.stats.hits += 1;
+            return Some(cached.value.clone());
         }
         self.stats.misses += 1;
         None
     }
 
     /// Store type check results.
-    pub fn store_type_check(
-        &mut self,
-        fn_name: &str,
-        input_fp: Fingerprint,
-        errors: Vec<String>,
-    ) {
+    pub fn store_type_check(&mut self, fn_name: &str, input_fp: Fingerprint, errors: Vec<String>) {
         self.type_check_cache.insert(
             fn_name.to_string(),
             CachedResult {
@@ -155,11 +151,11 @@ impl IncrementalDb {
 
     /// Query cost analysis for a function.
     pub fn query_cost(&mut self, fn_name: &str, input_fp: Fingerprint) -> Option<String> {
-        if let Some(cached) = self.cost_cache.get(fn_name) {
-            if cached.input_fingerprint == input_fp {
-                self.stats.hits += 1;
-                return Some(cached.value.clone());
-            }
+        if let Some(cached) = self.cost_cache.get(fn_name)
+            && cached.input_fingerprint == input_fp
+        {
+            self.stats.hits += 1;
+            return Some(cached.value.clone());
         }
         self.stats.misses += 1;
         None

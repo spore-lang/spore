@@ -117,10 +117,7 @@ impl HoleDependencyGraph {
             .entry(hole.clone())
             .or_default()
             .insert(dependency.clone());
-        self.dependents
-            .entry(dependency)
-            .or_default()
-            .insert(hole);
+        self.dependents.entry(dependency).or_default().insert(hole);
     }
 
     /// Get holes that have no dependencies (can be filled first).
@@ -128,11 +125,7 @@ impl HoleDependencyGraph {
         let mut roots: Vec<String> = self
             .nodes
             .iter()
-            .filter(|n| {
-                self.dependencies
-                    .get(*n)
-                    .map_or(true, |d| d.is_empty())
-            })
+            .filter(|n| self.dependencies.get(*n).is_none_or(|d| d.is_empty()))
             .cloned()
             .collect();
         roots.sort();
@@ -143,10 +136,7 @@ impl HoleDependencyGraph {
     pub fn topological_order(&self) -> Vec<String> {
         let mut in_degree: HashMap<&String, usize> = HashMap::new();
         for node in &self.nodes {
-            in_degree.insert(
-                node,
-                self.dependencies.get(node).map_or(0, |d| d.len()),
-            );
+            in_degree.insert(node, self.dependencies.get(node).map_or(0, |d| d.len()));
         }
 
         let mut sorted_zero: Vec<&String> = in_degree
@@ -266,8 +256,7 @@ impl HoleDependencyGraph {
 
         // Dependencies as adjacency list
         out.push_str("    \"dependencies\": {");
-        let mut sorted_deps: Vec<(&String, &HashSet<String>)> =
-            self.dependencies.iter().collect();
+        let mut sorted_deps: Vec<(&String, &HashSet<String>)> = self.dependencies.iter().collect();
         sorted_deps.sort_by_key(|(k, _)| *k);
         for (i, (hole, deps)) in sorted_deps.iter().enumerate() {
             if i > 0 {
@@ -276,11 +265,7 @@ impl HoleDependencyGraph {
             let mut sorted: Vec<&String> = deps.iter().collect();
             sorted.sort();
             let items: Vec<String> = sorted.iter().map(|d| json_escape(d)).collect();
-            out.push_str(&format!(
-                "{}: [{}]",
-                json_escape(hole),
-                items.join(", ")
-            ));
+            out.push_str(&format!("{}: [{}]", json_escape(hole), items.join(", ")));
         }
         out.push_str("},\n");
 

@@ -78,7 +78,9 @@ pub struct TypeRegistry {
     /// Type parameter names for generic functions: name → [type param names]
     pub fn_type_params: HashMap<String, Vec<String>>,
     /// Capability (trait) definitions: name → (type_params, methods: [(method_name, param_types, return_type)])
+    #[allow(clippy::type_complexity)]
     pub capabilities: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
     /// Trait implementations: (capability_name, type_name) → method impls: [(method_name, param_types, return_type)]
+    #[allow(clippy::type_complexity)]
     pub impls: HashMap<(String, String), Vec<(String, Vec<Ty>, Ty)>>,
 }

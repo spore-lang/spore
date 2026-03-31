@@ -70,7 +70,10 @@ fn names_resolved() {
     };
     assert_eq!(bar.name, "bar");
     assert!(bar.def_id < UNRESOLVED);
-    assert_ne!(foo.def_id, bar.def_id, "foo and bar should have different def_ids");
+    assert_ne!(
+        foo.def_id, bar.def_id,
+        "foo and bar should have different def_ids"
+    );
 
     // Inside bar's body, `foo` reference should resolve to foo's def_id.
     if let Some(HirExpr::Call(callee, _)) = &bar.body {

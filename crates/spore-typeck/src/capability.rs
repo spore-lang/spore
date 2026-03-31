@@ -19,7 +19,7 @@ impl CapabilitySet {
         Self::default()
     }
 
-    pub fn from_iter(iter: impl IntoIterator<Item = String>) -> Self {
+    pub fn from_names(iter: impl IntoIterator<Item = String>) -> Self {
         Self {
             capabilities: iter.into_iter().collect(),
         }
@@ -54,7 +54,11 @@ impl CapabilitySet {
     /// The combined effect requirements of calling both.
     pub fn union(&self, other: &CapabilitySet) -> CapabilitySet {
         CapabilitySet {
-            capabilities: self.capabilities.union(&other.capabilities).cloned().collect(),
+            capabilities: self
+                .capabilities
+                .union(&other.capabilities)
+                .cloned()
+                .collect(),
         }
     }
 
@@ -185,8 +189,8 @@ mod tests {
 
     #[test]
     fn union_combines_capabilities() {
-        let a = CapabilitySet::from_iter(["NetRead".into(), "FileRead".into()]);
-        let b = CapabilitySet::from_iter(["FileWrite".into(), "NetRead".into()]);
+        let a = CapabilitySet::from_names(["NetRead".into(), "FileRead".into()]);
+        let b = CapabilitySet::from_names(["FileWrite".into(), "NetRead".into()]);
         let c = a.union(&b);
         assert_eq!(c.len(), 3);
         assert!(c.contains("NetRead"));
@@ -196,20 +200,17 @@ mod tests {
 
     #[test]
     fn subset_checking() {
-        let caller = CapabilitySet::from_iter([
-            "NetRead".into(),
-            "FileRead".into(),
-            "FileWrite".into(),
-        ]);
-        let callee = CapabilitySet::from_iter(["NetRead".into(), "FileRead".into()]);
+        let caller =
+            CapabilitySet::from_names(["NetRead".into(), "FileRead".into(), "FileWrite".into()]);
+        let callee = CapabilitySet::from_names(["NetRead".into(), "FileRead".into()]);
         assert!(caller.is_superset_of(&callee));
         assert!(!callee.is_superset_of(&caller));
     }
 
     #[test]
     fn missing_capabilities() {
-        let caller = CapabilitySet::from_iter(["NetRead".into()]);
-        let callee = CapabilitySet::from_iter(["NetRead".into(), "FileWrite".into()]);
+        let caller = CapabilitySet::from_names(["NetRead".into()]);
+        let callee = CapabilitySet::from_names(["NetRead".into(), "FileWrite".into()]);
         let missing = caller.missing_from(&callee);
         assert_eq!(missing, vec!["FileWrite"]);
     }
@@ -220,7 +221,7 @@ mod tests {
         h.add_implies("FileSystem".into(), "FileRead".into());
         h.add_implies("FileSystem".into(), "FileWrite".into());
 
-        let declared = CapabilitySet::from_iter(["FileSystem".into()]);
+        let declared = CapabilitySet::from_names(["FileSystem".into()]);
         let expanded = h.expand(&declared);
         assert!(expanded.contains("FileSystem"));
         assert!(expanded.contains("FileRead"));
@@ -233,15 +234,15 @@ mod tests {
         h.add_implies("FileSystem".into(), "FileRead".into());
         h.add_implies("FileSystem".into(), "FileWrite".into());
 
-        let declared = CapabilitySet::from_iter(["FileSystem".into()]);
-        let required = CapabilitySet::from_iter(["FileRead".into()]);
+        let declared = CapabilitySet::from_names(["FileSystem".into()]);
+        let required = CapabilitySet::from_names(["FileRead".into()]);
         assert!(h.check_propagation(&declared, &required).is_ok());
     }
 
     #[test]
     fn difference_operation() {
-        let a = CapabilitySet::from_iter(["A".into(), "B".into(), "C".into()]);
-        let b = CapabilitySet::from_iter(["B".into()]);
+        let a = CapabilitySet::from_names(["A".into(), "B".into(), "C".into()]);
+        let b = CapabilitySet::from_names(["B".into()]);
         let diff = a.difference(&b);
         assert_eq!(diff.len(), 2);
         assert!(diff.contains("A"));
@@ -250,7 +251,7 @@ mod tests {
 
     #[test]
     fn display_format() {
-        let set = CapabilitySet::from_iter(["FileRead".into(), "NetRead".into()]);
+        let set = CapabilitySet::from_names(["FileRead".into(), "NetRead".into()]);
         assert_eq!(set.to_string(), "[FileRead, NetRead]");
     }
 }

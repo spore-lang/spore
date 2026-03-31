@@ -61,9 +61,7 @@ impl PackageManifest {
         }
 
         if manifest.name == "unknown" {
-            return Err(PackageError::InvalidManifest(
-                "missing `name` field".into(),
-            ));
+            return Err(PackageError::InvalidManifest("missing `name` field".into()));
         }
 
         Ok(manifest)

@@ -3,8 +3,8 @@
 //! Each function signature is hashed to detect changes. When a function's
 //! sig-hash changes, its callers must be rechecked.
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeSet;
+use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::types::Ty;

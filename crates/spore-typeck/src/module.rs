@@ -202,10 +202,7 @@ mod tests {
         m.functions.insert("sort".into(), (vec![], Ty::Unit));
         reg.register(m);
 
-        let result = reg.resolve_import(
-            &["Collections".into()],
-            &["List".into(), "sort".into()],
-        );
+        let result = reg.resolve_import(&["Collections".into()], &["List".into(), "sort".into()]);
         assert!(result.is_ok());
         let resolved = result.unwrap();
         assert_eq!(resolved.len(), 2);

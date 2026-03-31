@@ -844,7 +844,10 @@ fn error_code_in_display_output() {
     let module = parse(r#"fn f() -> Int { "oops" }"#).unwrap();
     let errs = type_check(&module).unwrap_err();
     let output = errs[0].to_string();
-    assert!(output.contains("[E001]"), "display should contain [E001], got: {output}");
+    assert!(
+        output.contains("[E001]"),
+        "display should contain [E001], got: {output}"
+    );
 }
 
 #[test]

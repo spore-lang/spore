@@ -38,7 +38,7 @@ pub struct PlatformConfig {
 impl Platform {
     /// Create a CLI platform (most common).
     pub fn cli() -> Self {
-        let capabilities = CapabilitySet::from_iter([
+        let capabilities = CapabilitySet::from_names([
             "Console".into(),
             "FileRead".into(),
             "FileWrite".into(),
@@ -64,11 +64,8 @@ impl Platform {
 
     /// Create a web/WASI platform.
     pub fn web() -> Self {
-        let capabilities = CapabilitySet::from_iter([
-            "Console".into(),
-            "NetRead".into(),
-            "NetWrite".into(),
-        ]);
+        let capabilities =
+            CapabilitySet::from_names(["Console".into(), "NetRead".into(), "NetWrite".into()]);
 
         Self {
             name: "web".into(),
@@ -232,14 +229,14 @@ mod tests {
     #[test]
     fn validate_capabilities_ok() {
         let p = Platform::cli();
-        let required = CapabilitySet::from_iter(["Console".into(), "FileRead".into()]);
+        let required = CapabilitySet::from_names(["Console".into(), "FileRead".into()]);
         assert!(p.validate_capabilities(&required).is_ok());
     }
 
     #[test]
     fn validate_capabilities_missing() {
         let p = Platform::embedded();
-        let required = CapabilitySet::from_iter(["NetRead".into()]);
+        let required = CapabilitySet::from_names(["NetRead".into()]);
         let result = p.validate_capabilities(&required);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains(&"NetRead".to_string()));
@@ -252,9 +249,11 @@ mod tests {
         assert!(warnings.is_empty());
 
         let warnings = p.validate_entry_point("main", 0, "String");
-        assert!(warnings
-            .iter()
-            .any(|w| w.kind == PlatformWarningKind::WrongEntrySignature));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.kind == PlatformWarningKind::WrongEntrySignature)
+        );
     }
 
     #[test]
