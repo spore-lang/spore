@@ -169,6 +169,7 @@ fn name(params) -> ReturnType ! [Errors]
 - [syntax-research.md](research/syntax-research.md) — 10 语言语法设计调研
 - [impl-stack-research.md](research/impl-stack-research.md) — 10 语言编译器实现栈调研
 - [codegen-comparison.md](research/codegen-comparison.md) — LLVM vs Cranelift 深度对比
+- [intent-first-signature-proposal.md](research/intent-first-signature-proposal.md) — 面向人类/Agent 的签名分层与 contract 提案
 
 ### 标准库（极简）
 - **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Str, Option[T], Result[T,E], 基本操作符, |>, ?

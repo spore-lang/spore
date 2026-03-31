@@ -11,6 +11,8 @@ spore = "spore"
 sporec = "sporec"
 typeck = "typeck"
 codegen = "codegen"
+# Rust compiler term: Typed High-level IR
+THIR = "THIR"
 
 [files]
 extend-exclude = ["docs/research/"]
