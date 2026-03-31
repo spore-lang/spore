@@ -1,5 +1,6 @@
 use spore_parser::parse;
 use spore_typeck::type_check;
+use spore_typeck::types::Ty;
 
 fn check_ok(src: &str) {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
@@ -14,7 +15,7 @@ fn check_ok(src: &str) {
 fn check_err(src: &str) -> Vec<String> {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
     match type_check(&module) {
-        Ok(()) => panic!("expected type error, but check succeeded"),
+        Ok(_) => panic!("expected type error, but check succeeded"),
         Err(errs) => errs.into_iter().map(|e| e.message).collect(),
     }
 }
@@ -288,4 +289,101 @@ fn test_lambda_type() {
         "fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
          fn main() -> Int { apply(|x: Int| x + 1, 42) }",
     );
+}
+
+// ── Hole reports ─────────────────────────────────────────────────────────
+
+#[test]
+fn test_hole_report_basic() {
+    let module = parse("fn f() -> Int { ?todo }").unwrap();
+    let result = type_check(&module).unwrap();
+    assert_eq!(result.hole_report.holes.len(), 1);
+    assert_eq!(result.hole_report.holes[0].name, "todo");
+    assert_eq!(result.hole_report.holes[0].expected_type, Ty::Int);
+    assert_eq!(result.hole_report.holes[0].function, "f");
+}
+
+#[test]
+fn test_hole_report_with_bindings() {
+    let module = parse("fn f(x: Int) -> Int { let y = 42; ?impl_ }").unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    assert!(hole.bindings.contains_key("x"));
+    assert!(hole.bindings.contains_key("y"));
+}
+
+#[test]
+fn test_hole_report_suggestions() {
+    let module = parse(
+        "fn double(x: Int) -> Int { x + x }
+         fn f() -> Int { ?todo }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    assert!(hole.suggestions.contains(&"double".to_string()));
+}
+
+#[test]
+fn test_hole_report_json() {
+    let module = parse("fn f() -> Int { ?todo }").unwrap();
+    let result = type_check(&module).unwrap();
+    let json = result.hole_report.to_json();
+    assert!(json.contains("\"name\": \"todo\""));
+    assert!(json.contains("\"expected_type\": \"Int\""));
+}
+
+#[test]
+fn test_multiple_holes() {
+    let module = parse(
+        "fn f() -> Int { ?first }
+         fn g() -> String { ?second }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert_eq!(result.hole_report.holes.len(), 2);
+}
+
+// ── Capabilities / Effects ──────────────────────────────────────────────
+
+#[test]
+fn test_pure_function() {
+    check_ok("fn add(a: Int, b: Int) -> Int { a + b }");
+}
+
+#[test]
+fn test_function_with_capability() {
+    check_ok(r#"fn fetch(url: String) -> String uses [NetRead] { "data" }"#);
+}
+
+#[test]
+fn test_capability_propagation_error() {
+    // A function calling a capability-requiring function must also declare those capabilities
+    let errs = check_err(
+        r#"fn fetch(url: String) -> String uses [NetRead] { "data" }
+           fn process() -> String { fetch("http://example.com") }"#,
+    );
+    assert!(errs.iter().any(|e| e.contains("missing capabilities")));
+    assert!(errs.iter().any(|e| e.contains("NetRead")));
+}
+
+#[test]
+fn test_capability_superset_ok() {
+    check_ok(
+        r#"fn fetch(url: String) -> String uses [NetRead] { "data" }
+           fn process() -> String uses [NetRead] { fetch("http://example.com") }"#,
+    );
+}
+
+#[test]
+fn test_capability_superset_multiple() {
+    check_ok(
+        r#"fn fetch(url: String) -> String uses [NetRead] { "data" }
+           fn process() -> String uses [NetRead, FileWrite] { fetch("http://example.com") }"#,
+    );
+}
+
+#[test]
+fn test_pure_lambda() {
+    check_ok("fn f() -> (Int) -> Int { |x: Int| x + 1 }");
 }

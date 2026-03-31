@@ -7,12 +7,20 @@ use spore_parser::ast::*;
 
 use crate::env::{Env, TypeRegistry};
 use crate::error::TypeError;
-use crate::types::Ty;
+use crate::hole::{HoleInfo, HoleReport};
+use crate::types::{CapSet, Ty};
 
 pub struct Checker {
     pub errors: Vec<TypeError>,
     pub registry: TypeRegistry,
+    pub hole_report: HoleReport,
     env: Env,
+    /// Capabilities of the function currently being checked.
+    current_caps: CapSet,
+    /// Name of the function currently being checked.
+    current_function: String,
+    /// Declared return type of the current function (for hole inference).
+    expected_return_type: Option<Ty>,
 }
 
 impl Checker {
@@ -20,7 +28,11 @@ impl Checker {
         Self {
             errors: Vec::new(),
             registry: TypeRegistry::default(),
+            hole_report: HoleReport::new(),
             env: Env::new(),
+            current_caps: CapSet::new(),
+            current_function: String::new(),
+            expected_return_type: None,
         }
     }
 
@@ -47,9 +59,14 @@ impl Checker {
                     .as_ref()
                     .map(|t| self.resolve_type(t))
                     .unwrap_or(Ty::Unit);
+                let caps: CapSet = f
+                    .uses_clause
+                    .as_ref()
+                    .map(|uc| uc.resources.iter().cloned().collect())
+                    .unwrap_or_default();
                 self.registry
                     .functions
-                    .insert(f.name.clone(), (param_tys, ret_ty));
+                    .insert(f.name.clone(), (param_tys, ret_ty, caps));
             }
             Item::StructDef(s) => {
                 let fields: Vec<(String, Ty)> = s
@@ -86,6 +103,24 @@ impl Checker {
     fn check_fn(&mut self, f: &FnDef) {
         let Some(body) = &f.body else { return };
 
+        // Set current function's capability set
+        let prev_caps = std::mem::replace(
+            &mut self.current_caps,
+            f.uses_clause
+                .as_ref()
+                .map(|uc| uc.resources.iter().cloned().collect())
+                .unwrap_or_default(),
+        );
+
+        // Track current function name and return type for hole reporting
+        let prev_function = std::mem::replace(&mut self.current_function, f.name.clone());
+        let declared_ret = f
+            .return_type
+            .as_ref()
+            .map(|t| self.resolve_type(t))
+            .unwrap_or(Ty::Unit);
+        let prev_expected = std::mem::replace(&mut self.expected_return_type, Some(declared_ret.clone()));
+
         self.env.push_scope();
 
         // Bind parameters
@@ -95,15 +130,13 @@ impl Checker {
         }
 
         let body_ty = self.check_expr(body);
-        let declared_ret = f
-            .return_type
-            .as_ref()
-            .map(|t| self.resolve_type(t))
-            .unwrap_or(Ty::Unit);
 
         self.unify(&declared_ret, &body_ty, &format!("function `{}`", f.name));
 
         self.env.pop_scope();
+        self.current_caps = prev_caps;
+        self.current_function = prev_function;
+        self.expected_return_type = prev_expected;
     }
 
     // ── Expression type checking ────────────────────────────────────
@@ -119,10 +152,10 @@ impl Checker {
             Expr::Var(name) => {
                 if let Some(ty) = self.env.lookup(name) {
                     ty.clone()
-                } else if let Some((_, _ret)) = self.registry.functions.get(name) {
+                } else if let Some((_, _ret, _)) = self.registry.functions.get(name) {
                     // bare function name as value — return its function type
-                    let (params, ret) = self.registry.functions[name].clone();
-                    Ty::Fn(params, Box::new(ret))
+                    let (params, ret, caps) = self.registry.functions[name].clone();
+                    Ty::Fn(params, Box::new(ret), caps)
                 } else {
                     self.err(format!("undefined variable `{name}`"));
                     Ty::Error
@@ -169,7 +202,7 @@ impl Checker {
                     .collect();
                 let ret_ty = self.check_expr(body);
                 self.env.pop_scope();
-                Ty::Fn(param_tys, Box::new(ret_ty))
+                Ty::Fn(param_tys, Box::new(ret_ty), CapSet::new())
             }
 
             Expr::If(cond, then_branch, else_branch) => {
@@ -220,7 +253,7 @@ impl Checker {
                 let arg_ty = self.check_expr(lhs);
                 let fn_ty = self.check_expr(rhs);
                 match fn_ty {
-                    Ty::Fn(params, ret) => {
+                    Ty::Fn(params, ret, caps) => {
                         if params.len() != 1 {
                             self.err(format!(
                                 "pipe target expects 1 argument, function takes {}",
@@ -229,6 +262,7 @@ impl Checker {
                         } else {
                             self.unify(&params[0], &arg_ty, "pipe argument");
                         }
+                        self.check_cap_propagation(&caps);
                         *ret
                     }
                     Ty::Error => Ty::Error,
@@ -287,11 +321,27 @@ impl Checker {
             }
 
             Expr::Hole(name, ty_hint) => {
-                if let Some(te) = ty_hint {
+                let ty = if let Some(te) = ty_hint {
                     self.resolve_type(te)
+                } else if let Some(ref ret) = self.expected_return_type {
+                    ret.clone()
                 } else {
                     Ty::Hole(name.clone())
-                }
+                };
+
+                // Collect hole info for the report
+                let bindings = self.env.all_bindings();
+                let expected = ty.clone();
+                let suggestions = self.find_suggestions(&expected);
+                self.hole_report.holes.push(HoleInfo {
+                    name: name.clone(),
+                    expected_type: expected,
+                    function: self.current_function.clone(),
+                    bindings,
+                    suggestions,
+                });
+
+                ty
             }
 
             Expr::Spawn(expr) => {
@@ -368,7 +418,7 @@ impl Checker {
     fn check_call(&mut self, callee: &Expr, args: &[Expr]) -> Ty {
         // Direct call by name: `foo(args)`
         if let Expr::Var(name) = callee {
-            if let Some((param_tys, ret_ty)) = self.registry.functions.get(name).cloned() {
+            if let Some((param_tys, ret_ty, callee_caps)) = self.registry.functions.get(name).cloned() {
                 if param_tys.len() != args.len() {
                     self.err(format!(
                         "function `{name}` expects {} arguments, got {}",
@@ -385,6 +435,7 @@ impl Checker {
                         &format!("argument {} of `{name}`", i + 1),
                     );
                 }
+                self.check_cap_propagation(&callee_caps);
                 return ret_ty;
             }
             // Could be a variable holding a function
@@ -394,7 +445,7 @@ impl Checker {
         // General case: check callee type
         let fn_ty = self.check_expr(callee);
         match fn_ty {
-            Ty::Fn(param_tys, ret_ty) => {
+            Ty::Fn(param_tys, ret_ty, caps) => {
                 if param_tys.len() != args.len() {
                     self.err(format!(
                         "function expects {} arguments, got {}",
@@ -407,6 +458,7 @@ impl Checker {
                         self.unify(expected, &arg_ty, &format!("argument {}", i + 1));
                     }
                 }
+                self.check_cap_propagation(&caps);
                 *ret_ty
             }
             Ty::Error => Ty::Error,
@@ -459,12 +511,29 @@ impl Checker {
             }
             TypeExpr::Function(params, ret) => {
                 let ptys: Vec<Ty> = params.iter().map(|p| self.resolve_type(p)).collect();
-                Ty::Fn(ptys, Box::new(self.resolve_type(ret)))
+                Ty::Fn(ptys, Box::new(self.resolve_type(ret)), CapSet::new())
             }
             TypeExpr::Refinement(base, _, _) => {
                 // For PoC, ignore refinement predicates — just use base type
                 self.resolve_type(base)
             }
+        }
+    }
+
+    // ── Capability propagation check ────────────────────────────────
+
+    /// Verify that the current function's capability set is a superset of the callee's.
+    fn check_cap_propagation(&mut self, callee_caps: &CapSet) {
+        let missing: Vec<&str> = callee_caps
+            .iter()
+            .filter(|c| !self.current_caps.contains(*c))
+            .map(|s| s.as_str())
+            .collect();
+        if !missing.is_empty() {
+            self.err(format!(
+                "missing capabilities [{}]: caller does not declare them",
+                missing.join(", ")
+            ));
         }
     }
 
@@ -488,6 +557,24 @@ impl Checker {
 
     fn err(&mut self, message: String) {
         self.errors.push(TypeError::new(message));
+    }
+
+    /// Find registered functions whose return type matches the expected type.
+    fn find_suggestions(&self, expected: &Ty) -> Vec<String> {
+        if expected.is_error() || matches!(expected, Ty::Hole(_)) {
+            return Vec::new();
+        }
+        let mut suggestions: Vec<String> = self
+            .registry
+            .functions
+            .iter()
+            .filter(|(name, (_, ret_ty, _))| {
+                ret_ty == expected && *name != &self.current_function
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        suggestions.sort();
+        suggestions
     }
 }
 

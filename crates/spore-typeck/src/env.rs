@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::types::Ty;
+use crate::types::{CapSet, Ty};
 
 /// A scoped type environment (symbol table).
 ///
@@ -44,6 +44,18 @@ impl Env {
         }
         None
     }
+
+    /// Return all bindings visible in the current scope chain (innermost wins).
+    pub fn all_bindings(&self) -> std::collections::BTreeMap<String, Ty> {
+        let mut result = std::collections::BTreeMap::new();
+        // Iterate from outermost to innermost so inner scopes shadow outer
+        for scope in &self.scopes {
+            for (k, v) in scope {
+                result.insert(k.clone(), v.clone());
+            }
+        }
+        result
+    }
 }
 
 impl Default for Env {
@@ -55,8 +67,8 @@ impl Default for Env {
 /// Top-level type registry — struct definitions, type defs, function signatures.
 #[derive(Debug, Clone, Default)]
 pub struct TypeRegistry {
-    /// Function signatures: name → (param types, return type)
-    pub functions: HashMap<String, (Vec<Ty>, Ty)>,
+    /// Function signatures: name → (param types, return type, capabilities)
+    pub functions: HashMap<String, (Vec<Ty>, Ty, CapSet)>,
     /// Struct definitions: name → field list (name, type)
     pub structs: HashMap<String, Vec<(String, Ty)>>,
     /// Type (enum) definitions: name → variant list (name, field types)

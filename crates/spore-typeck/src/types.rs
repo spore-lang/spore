@@ -1,5 +1,10 @@
 //! Internal type representation for Spore's type checker.
 
+use std::collections::BTreeSet;
+
+/// A set of capabilities (effects) required by a function.
+pub type CapSet = BTreeSet<String>;
+
 /// The internal type representation used during type checking.
 /// This is separate from the AST's `TypeExpr` — resolved and normalized.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,8 +26,8 @@ pub enum Ty {
     /// Tuple: `(Int, String)`
     Tuple(Vec<Ty>),
 
-    /// Function type: `(params) -> return`
-    Fn(Vec<Ty>, Box<Ty>),
+    /// Function type: `(params) -> return [uses caps]`
+    Fn(Vec<Ty>, Box<Ty>, CapSet),
 
     /// Type variable (for future inference / generics)
     Var(u32),
@@ -75,7 +80,7 @@ impl std::fmt::Display for Ty {
                 }
                 write!(f, ")")
             }
-            Ty::Fn(params, ret) => {
+            Ty::Fn(params, ret, caps) => {
                 write!(f, "(")?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
@@ -83,7 +88,12 @@ impl std::fmt::Display for Ty {
                     }
                     write!(f, "{p}")?;
                 }
-                write!(f, ") -> {ret}")
+                write!(f, ") -> {ret}")?;
+                if !caps.is_empty() {
+                    let cap_list: Vec<&str> = caps.iter().map(|s| s.as_str()).collect();
+                    write!(f, " uses [{}]", cap_list.join(", "))?;
+                }
+                Ok(())
             }
             Ty::Var(id) => write!(f, "?T{id}"),
             Ty::Hole(name) => write!(f, "?{name}"),
