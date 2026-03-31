@@ -8,6 +8,8 @@ use spore_parser::ast::*;
 use crate::env::{Env, TypeRegistry};
 use crate::error::TypeError;
 use crate::hole::{HoleInfo, HoleReport};
+use std::collections::HashMap;
+
 use crate::types::{CapSet, Ty};
 
 pub struct Checker {
@@ -21,6 +23,10 @@ pub struct Checker {
     current_function: String,
     /// Declared return type of the current function (for hole inference).
     expected_return_type: Option<Ty>,
+    /// Next type variable ID for fresh type variables.
+    next_var_id: u32,
+    /// Substitution map: type variable ID → resolved type.
+    substitution: HashMap<u32, Ty>,
 }
 
 impl Checker {
@@ -33,6 +39,8 @@ impl Checker {
             current_caps: CapSet::new(),
             current_function: String::new(),
             expected_return_type: None,
+            next_var_id: 0,
+            substitution: HashMap::new(),
         }
     }
 
@@ -67,6 +75,15 @@ impl Checker {
                 self.registry
                     .functions
                     .insert(f.name.clone(), (param_tys, ret_ty, caps));
+                if let Some(wc) = &f.where_clause {
+                    let mut type_params: Vec<String> =
+                        wc.constraints.iter().map(|c| c.type_var.clone()).collect();
+                    type_params.sort();
+                    type_params.dedup();
+                    self.registry
+                        .fn_type_params
+                        .insert(f.name.clone(), type_params);
+                }
             }
             Item::StructDef(s) => {
                 let fields: Vec<(String, Ty)> = s
@@ -130,6 +147,8 @@ impl Checker {
         }
 
         let body_ty = self.check_expr(body);
+        let body_ty = self.apply_subst(&body_ty);
+        let declared_ret = self.apply_subst(&declared_ret);
 
         self.unify(&declared_ret, &body_ty, &format!("function `{}`", f.name));
 
@@ -419,13 +438,19 @@ impl Checker {
         // Direct call by name: `foo(args)`
         if let Expr::Var(name) = callee {
             if let Some((param_tys, ret_ty, callee_caps)) = self.registry.functions.get(name).cloned() {
+                // Instantiate generic functions with fresh type variables
+                let (param_tys, ret_ty) = match self.registry.fn_type_params.get(name).cloned() {
+                    Some(ref tp) if !tp.is_empty() => self.instantiate_sig(tp, &param_tys, &ret_ty),
+                    _ => (param_tys, ret_ty),
+                };
+
                 if param_tys.len() != args.len() {
                     self.err(format!(
                         "function `{name}` expects {} arguments, got {}",
                         param_tys.len(),
                         args.len()
                     ));
-                    return ret_ty;
+                    return self.apply_subst(&ret_ty);
                 }
                 for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
                     let arg_ty = self.check_expr(arg_expr);
@@ -436,7 +461,7 @@ impl Checker {
                     );
                 }
                 self.check_cap_propagation(&callee_caps);
-                return ret_ty;
+                return self.apply_subst(&ret_ty);
             }
             // Could be a variable holding a function
         }
@@ -520,6 +545,75 @@ impl Checker {
         }
     }
 
+    // ── Type variable infrastructure ────────────────────────────────
+
+    /// Create a fresh type variable.
+    fn fresh_var(&mut self) -> Ty {
+        let id = self.next_var_id;
+        self.next_var_id += 1;
+        Ty::Var(id)
+    }
+
+    /// Apply the current substitution to a type, resolving type variables.
+    fn apply_subst(&self, ty: &Ty) -> Ty {
+        match ty {
+            Ty::Var(id) => {
+                if let Some(t) = self.substitution.get(id) {
+                    self.apply_subst(t)
+                } else {
+                    ty.clone()
+                }
+            }
+            Ty::Fn(params, ret, caps) => Ty::Fn(
+                params.iter().map(|p| self.apply_subst(p)).collect(),
+                Box::new(self.apply_subst(ret)),
+                caps.clone(),
+            ),
+            Ty::App(name, args) => Ty::App(
+                name.clone(),
+                args.iter().map(|a| self.apply_subst(a)).collect(),
+            ),
+            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.apply_subst(t)).collect()),
+            _ => ty.clone(),
+        }
+    }
+
+    /// Substitute type parameter names with fresh type variables in a type.
+    fn instantiate_ty(&self, ty: &Ty, mapping: &HashMap<String, Ty>) -> Ty {
+        match ty {
+            Ty::Named(name) => {
+                if let Some(replacement) = mapping.get(name) {
+                    replacement.clone()
+                } else {
+                    ty.clone()
+                }
+            }
+            Ty::Fn(params, ret, caps) => Ty::Fn(
+                params.iter().map(|p| self.instantiate_ty(p, mapping)).collect(),
+                Box::new(self.instantiate_ty(ret, mapping)),
+                caps.clone(),
+            ),
+            Ty::App(name, args) => Ty::App(
+                name.clone(),
+                args.iter().map(|a| self.instantiate_ty(a, mapping)).collect(),
+            ),
+            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.instantiate_ty(t, mapping)).collect()),
+            _ => ty.clone(),
+        }
+    }
+
+    /// Create fresh type variables for each type parameter and substitute
+    /// them into the function signature.
+    fn instantiate_sig(&mut self, type_params: &[String], param_tys: &[Ty], ret_ty: &Ty) -> (Vec<Ty>, Ty) {
+        let mapping: HashMap<String, Ty> = type_params
+            .iter()
+            .map(|name| (name.clone(), self.fresh_var()))
+            .collect();
+        let new_params: Vec<Ty> = param_tys.iter().map(|t| self.instantiate_ty(t, &mapping)).collect();
+        let new_ret = self.instantiate_ty(ret_ty, &mapping);
+        (new_params, new_ret)
+    }
+
     // ── Capability propagation check ────────────────────────────────
 
     /// Verify that the current function's capability set is a superset of the callee's.
@@ -537,22 +631,59 @@ impl Checker {
         }
     }
 
-    // ── Unification (basic equality check for PoC) ──────────────────
+    // ── Unification with type variable support ─────────────────────
 
     fn unify(&mut self, expected: &Ty, actual: &Ty, context: &str) {
-        if expected.is_error() || actual.is_error() {
-            return; // suppress cascading errors
-        }
-        if expected == actual {
+        let e = self.apply_subst(expected);
+        let a = self.apply_subst(actual);
+        if e.is_error() || a.is_error() {
             return;
         }
-        // Holes unify with anything
-        if matches!(expected, Ty::Hole(_)) || matches!(actual, Ty::Hole(_)) {
+        if e == a {
             return;
         }
-        self.err(format!(
-            "type mismatch in {context}: expected `{expected}`, got `{actual}`"
-        ));
+        if matches!(e, Ty::Hole(_)) || matches!(a, Ty::Hole(_)) {
+            return;
+        }
+
+        // Type variable binding
+        if let Ty::Var(id) = e {
+            self.substitution.insert(id, a);
+            return;
+        }
+        if let Ty::Var(id) = a {
+            self.substitution.insert(id, e);
+            return;
+        }
+
+        // Structural unification
+        match (&e, &a) {
+            (Ty::Fn(p1, r1, _), Ty::Fn(p2, r2, _)) if p1.len() == p2.len() => {
+                let pairs: Vec<(Ty, Ty)> = p1.iter().cloned().zip(p2.iter().cloned()).collect();
+                let ret_pair = ((**r1).clone(), (**r2).clone());
+                for (x, y) in &pairs {
+                    self.unify(x, y, context);
+                }
+                self.unify(&ret_pair.0, &ret_pair.1, context);
+            }
+            (Ty::App(n1, a1), Ty::App(n2, a2)) if n1 == n2 && a1.len() == a2.len() => {
+                let pairs: Vec<(Ty, Ty)> = a1.iter().cloned().zip(a2.iter().cloned()).collect();
+                for (x, y) in &pairs {
+                    self.unify(x, y, context);
+                }
+            }
+            (Ty::Tuple(t1), Ty::Tuple(t2)) if t1.len() == t2.len() => {
+                let pairs: Vec<(Ty, Ty)> = t1.iter().cloned().zip(t2.iter().cloned()).collect();
+                for (x, y) in &pairs {
+                    self.unify(x, y, context);
+                }
+            }
+            _ => {
+                self.err(format!(
+                    "type mismatch in {context}: expected `{e}`, got `{a}`"
+                ));
+            }
+        }
     }
 
     fn err(&mut self, message: String) {

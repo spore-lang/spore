@@ -1,4 +1,5 @@
 use spore_parser::parse;
+use spore_typeck::cost::CostResult;
 use spore_typeck::type_check;
 use spore_typeck::types::Ty;
 
@@ -386,4 +387,103 @@ fn test_capability_superset_multiple() {
 #[test]
 fn test_pure_lambda() {
     check_ok("fn f() -> (Int) -> Int { |x: Int| x + 1 }");
+}
+
+// ── Generics & Type Inference ───────────────────────────────────────────
+
+#[test]
+fn test_type_variable_unification() {
+    // Lambda with inferred type param
+    check_ok("fn f() -> Int { let id = |x: Int| x; id(42) }");
+}
+
+#[test]
+fn test_let_inference() {
+    check_ok("fn f() -> Int { let x = 42; x + 1 }");
+}
+
+// ── Cost analysis ────────────────────────────────────────────────────────
+
+#[test]
+fn test_cost_non_recursive_constant() {
+    let module = parse("fn add(a: Int, b: Int) -> Int { a + b }").unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("add"), Some(CostResult::Constant(1))),
+        "expected Constant(1), got {:?}",
+        result.cost_results.get("add")
+    );
+}
+
+#[test]
+fn test_cost_structural_recursion() {
+    let module = parse(
+        "fn factorial(n: Int) -> Int { if n <= 1 { 1 } else { n * factorial(n - 1) } }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("factorial"), Some(CostResult::Structural(p)) if p == "n"),
+        "expected Structural(\"n\"), got {:?}",
+        result.cost_results.get("factorial")
+    );
+}
+
+#[test]
+fn test_cost_multiple_functions() {
+    let module = parse(
+        "fn double(x: Int) -> Int { x + x }
+         fn quadruple(x: Int) -> Int { double(double(x)) }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(matches!(
+        result.cost_results.get("double"),
+        Some(CostResult::Constant(1))
+    ));
+    assert!(matches!(
+        result.cost_results.get("quadruple"),
+        Some(CostResult::Constant(1))
+    ));
+}
+
+#[test]
+fn test_cost_unknown_recursion() {
+    // Recursive but not structural (arg is n + 1, not decreasing)
+    let module = parse(
+        "fn bad(n: Int) -> Int { if n >= 100 { n } else { bad(n + 1) } }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("bad"), Some(CostResult::Unknown(_))),
+        "expected Unknown, got {:?}",
+        result.cost_results.get("bad")
+    );
+}
+
+#[test]
+fn test_cost_hole_body_constant() {
+    let module = parse("fn f() -> Int { ?todo }").unwrap();
+    let result = type_check(&module).unwrap();
+    // Holes count as constant cost (no real code to analyze)
+    assert!(matches!(
+        result.cost_results.get("f"),
+        Some(CostResult::Constant(1))
+    ));
+}
+
+#[test]
+fn test_cost_structural_countdown() {
+    // countdown(n) calls countdown(n - 1)
+    let module = parse(
+        "fn countdown(n: Int) -> Int { if n <= 0 { 0 } else { countdown(n - 1) } }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("countdown"), Some(CostResult::Structural(p)) if p == "n"),
+        "expected Structural(\"n\"), got {:?}",
+        result.cost_results.get("countdown")
+    );
 }

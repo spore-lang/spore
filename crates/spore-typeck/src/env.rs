@@ -73,4 +73,6 @@ pub struct TypeRegistry {
     pub structs: HashMap<String, Vec<(String, Ty)>>,
     /// Type (enum) definitions: name → variant list (name, field types)
     pub types: HashMap<String, Vec<(String, Vec<Ty>)>>,
+    /// Type parameter names for generic functions: name → [type param names]
+    pub fn_type_params: HashMap<String, Vec<String>>,
 }
