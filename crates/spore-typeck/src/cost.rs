@@ -12,7 +12,7 @@ use spore_parser::ast::{self, BinOp, Expr, FnDef, Item, Module, Stmt};
 /// Cost expression — a symbolic representation of computational cost.
 ///
 /// Grammar: `+, *, ^const, log, max, min` — no division or conditionals.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CostExpr {
     Const(u64),
     Var(String),
@@ -22,6 +22,10 @@ pub enum CostExpr {
     Log(Box<CostExpr>),
     Max(Box<CostExpr>, Box<CostExpr>),
     Min(Box<CostExpr>, Box<CostExpr>),
+    /// Linear in a named variable — represents O(n) cost.
+    Linear(String),
+    /// Unbounded / unknown cost — analysis could not determine a bound.
+    Unbounded,
 }
 
 impl std::fmt::Display for CostExpr {
@@ -35,6 +39,8 @@ impl std::fmt::Display for CostExpr {
             CostExpr::Log(e) => write!(f, "log({e})"),
             CostExpr::Max(a, b) => write!(f, "max({a}, {b})"),
             CostExpr::Min(a, b) => write!(f, "min({a}, {b})"),
+            CostExpr::Linear(v) => write!(f, "O({v})"),
+            CostExpr::Unbounded => write!(f, "∞"),
         }
     }
 }
@@ -74,6 +80,11 @@ impl CostAnalyzer {
 
     pub fn results(&self) -> &HashMap<String, CostResult> {
         &self.results
+    }
+
+    /// Mutable access to results — useful for testing and manual insertion.
+    pub fn results_mut(&mut self) -> &mut HashMap<String, CostResult> {
+        &mut self.results
     }
 
     /// Analyze all functions in a module.
@@ -319,6 +330,189 @@ fn is_positive_int(expr: &Expr) -> bool {
     matches!(expr, Expr::IntLit(n) if *n > 0)
 }
 
+// ---------------------------------------------------------------------------
+// Four-dimensional cost model (SEP-0004)
+// ---------------------------------------------------------------------------
+
+/// Four-dimensional cost vector per the spec.
+///
+/// Each function maps to one of these, describing:
+/// - **time** — computational steps (big-O)
+/// - **space** — memory allocation
+/// - **stack** — recursion depth
+/// - **concurrency** — spawn count
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CostVector {
+    pub time: CostExpr,
+    pub space: CostExpr,
+    pub stack: CostExpr,
+    pub concurrency: CostExpr,
+}
+
+impl CostVector {
+    pub fn constant(time: u64, space: u64, stack: u64, concurrency: u64) -> Self {
+        Self {
+            time: CostExpr::Const(time),
+            space: CostExpr::Const(space),
+            stack: CostExpr::Const(stack),
+            concurrency: CostExpr::Const(concurrency),
+        }
+    }
+
+    pub fn zero() -> Self {
+        Self::constant(0, 0, 0, 0)
+    }
+
+    /// Check if all dimensions are bounded (no `Unbounded`).
+    pub fn is_bounded(&self) -> bool {
+        !matches!(self.time, CostExpr::Unbounded)
+            && !matches!(self.space, CostExpr::Unbounded)
+            && !matches!(self.stack, CostExpr::Unbounded)
+            && !matches!(self.concurrency, CostExpr::Unbounded)
+    }
+
+    /// Sequentially compose two cost vectors (both execute).
+    ///
+    /// time = sum, space/stack/concurrency = max.
+    pub fn seq(&self, other: &CostVector) -> CostVector {
+        CostVector {
+            time: add_cost(&self.time, &other.time),
+            space: max_cost(&self.space, &other.space),
+            stack: max_cost(&self.stack, &other.stack),
+            concurrency: max_cost(&self.concurrency, &other.concurrency),
+        }
+    }
+
+    /// Parallel compose (spawn): time = max, space = sum, concurrency += 1.
+    pub fn par(&self, other: &CostVector) -> CostVector {
+        CostVector {
+            time: max_cost(&self.time, &other.time),
+            space: add_cost(&self.space, &other.space),
+            stack: max_cost(&self.stack, &other.stack),
+            concurrency: add_cost(&self.concurrency, &CostExpr::Const(1)),
+        }
+    }
+
+    /// Scale by a loop/recursion factor.
+    ///
+    /// time and space are multiplied, stack depth increments by 1.
+    pub fn scale(&self, factor: &CostExpr) -> CostVector {
+        CostVector {
+            time: mul_cost(&self.time, factor),
+            space: mul_cost(&self.space, factor),
+            stack: add_cost(&self.stack, &CostExpr::Const(1)),
+            concurrency: self.concurrency.clone(),
+        }
+    }
+}
+
+impl std::fmt::Display for CostVector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "CostVector {{ time: {}, space: {}, stack: {}, concurrency: {} }}",
+            self.time, self.space, self.stack, self.concurrency
+        )
+    }
+}
+
+/// Helper: add two cost expressions.
+fn add_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
+    match (a, b) {
+        (CostExpr::Const(0), other) | (other, CostExpr::Const(0)) => other.clone(),
+        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x + y),
+        (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
+        _ => CostExpr::Unbounded, // Conservative: can't simplify symbolic
+    }
+}
+
+/// Helper: max of two cost expressions.
+fn max_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
+    match (a, b) {
+        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(*x.max(y)),
+        (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
+        (CostExpr::Const(0), other) | (other, CostExpr::Const(0)) => other.clone(),
+        _ => CostExpr::Unbounded,
+    }
+}
+
+/// Helper: multiply two cost expressions.
+fn mul_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
+    match (a, b) {
+        (CostExpr::Const(0), _) | (_, CostExpr::Const(0)) => CostExpr::Const(0),
+        (CostExpr::Const(1), other) | (other, CostExpr::Const(1)) => other.clone(),
+        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x * y),
+        (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
+        _ => CostExpr::Unbounded,
+    }
+}
+
+/// Convert a [`CostResult`] into its time-dimension [`CostExpr`].
+fn cost_result_to_expr(result: &CostResult) -> CostExpr {
+    match result {
+        CostResult::Constant(n) => CostExpr::Const(*n),
+        CostResult::Structural(param) => CostExpr::Linear(param.clone()),
+        CostResult::Declared(expr) => expr.clone(),
+        CostResult::Unbounded => CostExpr::Unbounded,
+        CostResult::Unknown(_) => CostExpr::Unbounded,
+    }
+}
+
+/// Analyzes functions and produces four-dimensional cost vectors.
+///
+/// Works on top of [`CostAnalyzer`] — it reuses the existing single-dimension
+/// analysis as the *time* component and derives the other three dimensions.
+pub struct CostChecker {
+    /// Function name → cost vector.
+    pub costs: HashMap<String, CostVector>,
+}
+
+impl CostChecker {
+    pub fn new() -> Self {
+        Self {
+            costs: HashMap::new(),
+        }
+    }
+
+    /// Derive [`CostVector`]s for every function already analyzed by `analyzer`.
+    pub fn check_all(&mut self, analyzer: &CostAnalyzer) {
+        for (name, result) in analyzer.results() {
+            let cv = Self::cost_vector_from_result(result);
+            self.costs.insert(name.clone(), cv);
+        }
+    }
+
+    /// Build a [`CostVector`] from a single [`CostResult`].
+    fn cost_vector_from_result(result: &CostResult) -> CostVector {
+        let time = cost_result_to_expr(result);
+
+        // Stack depth: structural recursion ⇒ O(n), otherwise O(1).
+        let stack = match result {
+            CostResult::Structural(_) => CostExpr::Linear("n".into()),
+            _ => CostExpr::Const(1),
+        };
+
+        // Space: conservatively mirrors time for now.
+        let space = time.clone();
+
+        // Concurrency: 0 by default (spawns are not yet tracked by CostAnalyzer).
+        let concurrency = CostExpr::Const(0);
+
+        CostVector {
+            time,
+            space,
+            stack,
+            concurrency,
+        }
+    }
+}
+
+impl Default for CostChecker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -374,5 +568,142 @@ mod tests {
                 Box::new(CostExpr::Const(5)),
             )
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // CostVector tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn zero_cost() {
+        let c = CostVector::zero();
+        assert!(c.is_bounded());
+        assert_eq!(c.time, CostExpr::Const(0));
+        assert_eq!(c.space, CostExpr::Const(0));
+        assert_eq!(c.stack, CostExpr::Const(0));
+        assert_eq!(c.concurrency, CostExpr::Const(0));
+    }
+
+    #[test]
+    fn sequential_composition() {
+        let a = CostVector::constant(5, 2, 1, 0);
+        let b = CostVector::constant(3, 4, 1, 0);
+        let c = a.seq(&b);
+        assert_eq!(c.time, CostExpr::Const(8)); // sum
+        assert_eq!(c.space, CostExpr::Const(4)); // max
+        assert_eq!(c.stack, CostExpr::Const(1)); // max
+        assert_eq!(c.concurrency, CostExpr::Const(0)); // max
+    }
+
+    #[test]
+    fn parallel_composition() {
+        let a = CostVector::constant(5, 2, 1, 0);
+        let b = CostVector::constant(3, 4, 1, 0);
+        let c = a.par(&b);
+        assert_eq!(c.time, CostExpr::Const(5)); // max
+        assert_eq!(c.space, CostExpr::Const(6)); // sum
+        assert_eq!(c.concurrency, CostExpr::Const(1)); // +1 for spawn
+    }
+
+    #[test]
+    fn unbounded_propagation() {
+        let a = CostVector {
+            time: CostExpr::Unbounded,
+            space: CostExpr::Const(1),
+            stack: CostExpr::Const(1),
+            concurrency: CostExpr::Const(0),
+        };
+        assert!(!a.is_bounded());
+        let b = CostVector::constant(1, 1, 1, 0);
+        let c = a.seq(&b);
+        assert_eq!(c.time, CostExpr::Unbounded);
+    }
+
+    #[test]
+    fn scale_by_factor() {
+        let a = CostVector::constant(3, 2, 1, 0);
+        let scaled = a.scale(&CostExpr::Const(10));
+        assert_eq!(scaled.time, CostExpr::Const(30));
+        assert_eq!(scaled.space, CostExpr::Const(20));
+        assert_eq!(scaled.stack, CostExpr::Const(2)); // +1 for recursion depth
+    }
+
+    #[test]
+    fn cost_vector_display() {
+        let c = CostVector::constant(5, 3, 1, 0);
+        let s = c.to_string();
+        assert!(s.contains("time"));
+        assert!(s.contains("space"));
+        assert!(s.contains("stack"));
+        assert!(s.contains("concurrency"));
+    }
+
+    #[test]
+    fn cost_vector_display_unbounded() {
+        let c = CostVector {
+            time: CostExpr::Unbounded,
+            space: CostExpr::Const(0),
+            stack: CostExpr::Const(1),
+            concurrency: CostExpr::Const(0),
+        };
+        let s = c.to_string();
+        assert!(s.contains('∞'));
+    }
+
+    #[test]
+    fn add_cost_identity() {
+        assert_eq!(add_cost(&CostExpr::Const(0), &CostExpr::Const(7)), CostExpr::Const(7));
+        assert_eq!(add_cost(&CostExpr::Const(3), &CostExpr::Const(0)), CostExpr::Const(3));
+    }
+
+    #[test]
+    fn mul_cost_identity_and_zero() {
+        assert_eq!(mul_cost(&CostExpr::Const(1), &CostExpr::Const(42)), CostExpr::Const(42));
+        assert_eq!(mul_cost(&CostExpr::Const(0), &CostExpr::Const(42)), CostExpr::Const(0));
+    }
+
+    #[test]
+    fn cost_result_to_expr_conversions() {
+        assert_eq!(cost_result_to_expr(&CostResult::Constant(5)), CostExpr::Const(5));
+        assert_eq!(
+            cost_result_to_expr(&CostResult::Structural("n".into())),
+            CostExpr::Linear("n".into())
+        );
+        assert_eq!(cost_result_to_expr(&CostResult::Unbounded), CostExpr::Unbounded);
+        assert_eq!(
+            cost_result_to_expr(&CostResult::Unknown("msg".into())),
+            CostExpr::Unbounded
+        );
+    }
+
+    #[test]
+    fn cost_checker_constant_function() {
+        let mut analyzer = CostAnalyzer::new();
+        // Manually insert a constant result to test the checker.
+        analyzer.results_mut().insert("foo".into(), CostResult::Constant(1));
+
+        let mut checker = CostChecker::new();
+        checker.check_all(&analyzer);
+
+        let cv = checker.costs.get("foo").expect("foo should be analyzed");
+        assert_eq!(cv.time, CostExpr::Const(1));
+        assert_eq!(cv.stack, CostExpr::Const(1));
+        assert!(cv.is_bounded());
+    }
+
+    #[test]
+    fn cost_checker_structural_function() {
+        let mut analyzer = CostAnalyzer::new();
+        analyzer
+            .results_mut()
+            .insert("bar".into(), CostResult::Structural("n".into()));
+
+        let mut checker = CostChecker::new();
+        checker.check_all(&analyzer);
+
+        let cv = checker.costs.get("bar").expect("bar should be analyzed");
+        assert_eq!(cv.time, CostExpr::Linear("n".into()));
+        assert_eq!(cv.stack, CostExpr::Linear("n".into()));
+        assert!(cv.is_bounded());
     }
 }

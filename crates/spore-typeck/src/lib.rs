@@ -7,13 +7,16 @@ pub mod env;
 pub mod error;
 pub mod hir;
 pub mod hole;
+pub mod incremental;
 pub mod lower;
+pub mod module;
+pub mod sig_hash;
 pub mod types;
 
 use std::collections::HashMap;
 
 use check::Checker;
-use cost::{CostAnalyzer, CostResult};
+use cost::{CostAnalyzer, CostChecker, CostResult, CostVector};
 use error::TypeError;
 use hole::HoleReport;
 use spore_parser::ast::Module;
@@ -23,6 +26,7 @@ use spore_parser::ast::Module;
 pub struct CheckResult {
     pub hole_report: HoleReport,
     pub cost_results: HashMap<String, CostResult>,
+    pub cost_vectors: HashMap<String, CostVector>,
 }
 
 /// Lower an AST module to HIR.
@@ -40,10 +44,15 @@ pub fn type_check(module: &Module) -> Result<CheckResult, Vec<TypeError>> {
     let mut cost_analyzer = CostAnalyzer::new();
     cost_analyzer.analyze_module(module);
 
+    // Build four-dimensional cost vectors
+    let mut cost_checker = CostChecker::new();
+    cost_checker.check_all(&cost_analyzer);
+
     if checker.errors.is_empty() {
         Ok(CheckResult {
             hole_report: checker.hole_report,
             cost_results: cost_analyzer.results().clone(),
+            cost_vectors: cost_checker.costs,
         })
     } else {
         Err(checker.errors)
