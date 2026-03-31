@@ -61,7 +61,8 @@ impl Checker {
     fn register_item(&mut self, item: &Item) {
         match item {
             Item::Function(f) => {
-                let param_tys: Vec<Ty> = f.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                let param_tys: Vec<Ty> =
+                    f.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
                 let ret_ty = f
                     .return_type
                     .as_ref()
@@ -136,7 +137,8 @@ impl Checker {
             .as_ref()
             .map(|t| self.resolve_type(t))
             .unwrap_or(Ty::Unit);
-        let prev_expected = std::mem::replace(&mut self.expected_return_type, Some(declared_ret.clone()));
+        let prev_expected =
+            std::mem::replace(&mut self.expected_return_type, Some(declared_ret.clone()));
 
         self.env.push_scope();
 
@@ -437,7 +439,9 @@ impl Checker {
     fn check_call(&mut self, callee: &Expr, args: &[Expr]) -> Ty {
         // Direct call by name: `foo(args)`
         if let Expr::Var(name) = callee {
-            if let Some((param_tys, ret_ty, callee_caps)) = self.registry.functions.get(name).cloned() {
+            if let Some((param_tys, ret_ty, callee_caps)) =
+                self.registry.functions.get(name).cloned()
+            {
                 // Instantiate generic functions with fresh type variables
                 let (param_tys, ret_ty) = match self.registry.fn_type_params.get(name).cloned() {
                     Some(ref tp) if !tp.is_empty() => self.instantiate_sig(tp, &param_tys, &ret_ty),
@@ -589,27 +593,42 @@ impl Checker {
                 }
             }
             Ty::Fn(params, ret, caps) => Ty::Fn(
-                params.iter().map(|p| self.instantiate_ty(p, mapping)).collect(),
+                params
+                    .iter()
+                    .map(|p| self.instantiate_ty(p, mapping))
+                    .collect(),
                 Box::new(self.instantiate_ty(ret, mapping)),
                 caps.clone(),
             ),
             Ty::App(name, args) => Ty::App(
                 name.clone(),
-                args.iter().map(|a| self.instantiate_ty(a, mapping)).collect(),
+                args.iter()
+                    .map(|a| self.instantiate_ty(a, mapping))
+                    .collect(),
             ),
-            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.instantiate_ty(t, mapping)).collect()),
+            Ty::Tuple(ts) => {
+                Ty::Tuple(ts.iter().map(|t| self.instantiate_ty(t, mapping)).collect())
+            }
             _ => ty.clone(),
         }
     }
 
     /// Create fresh type variables for each type parameter and substitute
     /// them into the function signature.
-    fn instantiate_sig(&mut self, type_params: &[String], param_tys: &[Ty], ret_ty: &Ty) -> (Vec<Ty>, Ty) {
+    fn instantiate_sig(
+        &mut self,
+        type_params: &[String],
+        param_tys: &[Ty],
+        ret_ty: &Ty,
+    ) -> (Vec<Ty>, Ty) {
         let mapping: HashMap<String, Ty> = type_params
             .iter()
             .map(|name| (name.clone(), self.fresh_var()))
             .collect();
-        let new_params: Vec<Ty> = param_tys.iter().map(|t| self.instantiate_ty(t, &mapping)).collect();
+        let new_params: Vec<Ty> = param_tys
+            .iter()
+            .map(|t| self.instantiate_ty(t, &mapping))
+            .collect();
         let new_ret = self.instantiate_ty(ret_ty, &mapping);
         (new_params, new_ret)
     }
@@ -699,9 +718,7 @@ impl Checker {
             .registry
             .functions
             .iter()
-            .filter(|(name, (_, ret_ty, _))| {
-                ret_ty == expected && *name != &self.current_function
-            })
+            .filter(|(name, (_, ret_ty, _))| ret_ty == expected && *name != &self.current_function)
             .map(|(name, _)| name.clone())
             .collect();
         suggestions.sort();

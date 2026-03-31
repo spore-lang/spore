@@ -8,7 +8,10 @@ fn check_ok(src: &str) {
     type_check(&module).unwrap_or_else(|errs| {
         panic!(
             "type errors:\n{}",
-            errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n")
+            errs.iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
         )
     });
 }
@@ -409,7 +412,10 @@ fn test_cost_non_recursive_constant() {
     let module = parse("fn add(a: Int, b: Int) -> Int { a + b }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(
-        matches!(result.cost_results.get("add"), Some(CostResult::Constant(1))),
+        matches!(
+            result.cost_results.get("add"),
+            Some(CostResult::Constant(1))
+        ),
         "expected Constant(1), got {:?}",
         result.cost_results.get("add")
     );
@@ -417,10 +423,9 @@ fn test_cost_non_recursive_constant() {
 
 #[test]
 fn test_cost_structural_recursion() {
-    let module = parse(
-        "fn factorial(n: Int) -> Int { if n <= 1 { 1 } else { n * factorial(n - 1) } }",
-    )
-    .unwrap();
+    let module =
+        parse("fn factorial(n: Int) -> Int { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
+            .unwrap();
     let result = type_check(&module).unwrap();
     assert!(
         matches!(result.cost_results.get("factorial"), Some(CostResult::Structural(p)) if p == "n"),
@@ -450,10 +455,7 @@ fn test_cost_multiple_functions() {
 #[test]
 fn test_cost_unknown_recursion() {
     // Recursive but not structural (arg is n + 1, not decreasing)
-    let module = parse(
-        "fn bad(n: Int) -> Int { if n >= 100 { n } else { bad(n + 1) } }",
-    )
-    .unwrap();
+    let module = parse("fn bad(n: Int) -> Int { if n >= 100 { n } else { bad(n + 1) } }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(
         matches!(result.cost_results.get("bad"), Some(CostResult::Unknown(_))),
@@ -476,10 +478,8 @@ fn test_cost_hole_body_constant() {
 #[test]
 fn test_cost_structural_countdown() {
     // countdown(n) calls countdown(n - 1)
-    let module = parse(
-        "fn countdown(n: Int) -> Int { if n <= 0 { 0 } else { countdown(n - 1) } }",
-    )
-    .unwrap();
+    let module =
+        parse("fn countdown(n: Int) -> Int { if n <= 0 { 0 } else { countdown(n - 1) } }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(
         matches!(result.cost_results.get("countdown"), Some(CostResult::Structural(p)) if p == "n"),

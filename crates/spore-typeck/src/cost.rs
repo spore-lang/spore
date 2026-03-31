@@ -112,8 +112,7 @@ impl CostAnalyzer {
             // Non-recursive → constant cost
             self.results
                 .insert(fn_name.clone(), CostResult::Constant(1));
-        } else if let Some(decreasing_param) =
-            detect_structural_recursion(fn_name, &params, &calls)
+        } else if let Some(decreasing_param) = detect_structural_recursion(fn_name, &params, &calls)
         {
             self.results
                 .insert(fn_name.clone(), CostResult::Structural(decreasing_param));

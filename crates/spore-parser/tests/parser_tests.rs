@@ -4,7 +4,10 @@ fn parse_ok(src: &str) -> spore_parser::ast::Module {
     parse(src).unwrap_or_else(|errs| {
         panic!(
             "parse failed:\n{}",
-            errs.iter().map(|e| e.to_string()).collect::<Vec<_>>().join("\n")
+            errs.iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
         )
     })
 }
@@ -118,11 +121,7 @@ fn test_arithmetic_precedence() {
                         spore_parser::ast::Expr::BinOp(_, spore_parser::ast::BinOp::Add, rhs) => {
                             assert!(matches!(
                                 rhs.as_ref(),
-                                spore_parser::ast::Expr::BinOp(
-                                    _,
-                                    spore_parser::ast::BinOp::Mul,
-                                    _
-                                )
+                                spore_parser::ast::Expr::BinOp(_, spore_parser::ast::BinOp::Mul, _)
                             ));
                         }
                         _ => panic!("expected Add at top"),
@@ -143,7 +142,10 @@ fn test_if_expr() {
             let body = f.body.as_ref().unwrap();
             match body {
                 spore_parser::ast::Expr::Block(_, Some(tail)) => {
-                    assert!(matches!(tail.as_ref(), spore_parser::ast::Expr::If(_, _, Some(_))));
+                    assert!(matches!(
+                        tail.as_ref(),
+                        spore_parser::ast::Expr::If(_, _, Some(_))
+                    ));
                 }
                 _ => panic!("expected block with if tail"),
             }
@@ -225,7 +227,10 @@ fn test_lambda() {
             let body = f.body.as_ref().unwrap();
             match body {
                 spore_parser::ast::Expr::Block(_, Some(tail)) => {
-                    assert!(matches!(tail.as_ref(), spore_parser::ast::Expr::Lambda(_, _)));
+                    assert!(matches!(
+                        tail.as_ref(),
+                        spore_parser::ast::Expr::Lambda(_, _)
+                    ));
                 }
                 _ => panic!("expected block"),
             }
@@ -342,15 +347,13 @@ fn test_capability_def() {
 fn test_generic_type() {
     let m = parse_ok("fn f(xs: List[Int]) -> List[String] { xs }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
-            match &f.params[0].ty {
-                spore_parser::ast::TypeExpr::Generic(name, args) => {
-                    assert_eq!(name, "List");
-                    assert_eq!(args.len(), 1);
-                }
-                _ => panic!("expected generic type"),
+        spore_parser::ast::Item::Function(f) => match &f.params[0].ty {
+            spore_parser::ast::TypeExpr::Generic(name, args) => {
+                assert_eq!(name, "List");
+                assert_eq!(args.len(), 1);
             }
-        }
+            _ => panic!("expected generic type"),
+        },
         _ => panic!("expected function"),
     }
 }

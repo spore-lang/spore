@@ -152,9 +152,7 @@ fn test_match_int() {
 
 #[test]
 fn test_match_wildcard() {
-    let v = run_main(
-        "fn main() -> Int { match 99 { 0 => 0, _ => 42 } }",
-    );
+    let v = run_main("fn main() -> Int { match 99 { 0 => 0, _ => 42 } }");
     assert_eq!(v.as_int(), Some(42));
 }
 

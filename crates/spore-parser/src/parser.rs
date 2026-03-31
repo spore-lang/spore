@@ -358,10 +358,7 @@ impl Parser {
                 self.expect(&Token::RParen)?;
                 Ok(inner)
             }
-            _ => Err(self.error(format!(
-                "expected cost expression, found {:?}",
-                self.peek()
-            ))),
+            _ => Err(self.error(format!("expected cost expression, found {:?}", self.peek()))),
         }
     }
 
@@ -382,8 +379,7 @@ impl Parser {
                 // Check for generic params: `List[Int]`
                 if self.at(&Token::LBracket) {
                     self.advance();
-                    let args =
-                        self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RBracket)?;
+                    let args = self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RBracket)?;
                     self.expect(&Token::RBracket)?;
                     Ok(TypeExpr::Generic(name, args))
                 } else {
@@ -393,8 +389,7 @@ impl Parser {
             Token::LParen => {
                 self.advance();
                 // Tuple or function type
-                let types =
-                    self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RParen)?;
+                let types = self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RParen)?;
                 self.expect(&Token::RParen)?;
                 if self.at(&Token::Arrow) {
                     self.advance();
@@ -842,11 +837,7 @@ impl Parser {
         } else {
             None
         };
-        Ok(Expr::If(
-            Box::new(cond),
-            Box::new(then_branch),
-            else_branch,
-        ))
+        Ok(Expr::If(Box::new(cond), Box::new(then_branch), else_branch))
     }
 
     // ── Match expression ────────────────────────────────────────────
@@ -907,8 +898,7 @@ impl Parser {
                 // Constructor: `Some(x)` or struct: `Point { x, y }`
                 if self.at(&Token::LParen) {
                     self.advance();
-                    let fields =
-                        self.parse_comma_sep(|p| p.parse_pattern(), &Token::RParen)?;
+                    let fields = self.parse_comma_sep(|p| p.parse_pattern(), &Token::RParen)?;
                     self.expect(&Token::RParen)?;
                     Ok(Pattern::Constructor(name, fields))
                 } else if self.at(&Token::LBrace) {

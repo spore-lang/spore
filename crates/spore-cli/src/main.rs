@@ -168,7 +168,9 @@ fn cmd_watch(args: &[String]) -> ExitCode {
                 Err(e) => {
                     if json_output {
                         let escaped = escape_json(&e.to_string());
-                        println!("{{\"event\":\"error\",\"file\":\"{path}\",\"message\":\"{escaped}\"}}");
+                        println!(
+                            "{{\"event\":\"error\",\"file\":\"{path}\",\"message\":\"{escaped}\"}}"
+                        );
                     } else {
                         eprintln!("error reading `{path}`: {e}");
                     }
@@ -185,7 +187,9 @@ fn check_and_report(path: &str, source: &str, json: bool) {
     match sporec::compile(source) {
         Ok(()) => {
             if json {
-                println!("{{\"event\":\"check\",\"file\":\"{path}\",\"status\":\"ok\",\"errors\":[],\"timestamp\":{ts}}}");
+                println!(
+                    "{{\"event\":\"check\",\"file\":\"{path}\",\"status\":\"ok\",\"errors\":[],\"timestamp\":{ts}}}"
+                );
             } else {
                 eprintln!("[{ts}] ✓ `{path}` — no errors");
             }
@@ -193,7 +197,9 @@ fn check_and_report(path: &str, source: &str, json: bool) {
         Err(msg) => {
             if json {
                 let escaped = escape_json(&msg);
-                println!("{{\"event\":\"check\",\"file\":\"{path}\",\"status\":\"error\",\"message\":\"{escaped}\",\"timestamp\":{ts}}}");
+                println!(
+                    "{{\"event\":\"check\",\"file\":\"{path}\",\"status\":\"error\",\"message\":\"{escaped}\",\"timestamp\":{ts}}}"
+                );
             } else {
                 eprintln!("[{ts}] ✗ `{path}`:");
                 eprintln!("{msg}");

@@ -21,7 +21,10 @@ fn test_build_diagnostics_valid_source_is_empty() {
 fn test_build_diagnostics_invalid_source_has_errors() {
     // Garbage input should produce at least one diagnostic
     let diags = build_diagnostics("this is not valid spore code @#$%");
-    assert!(!diags.is_empty(), "invalid source should produce diagnostics");
+    assert!(
+        !diags.is_empty(),
+        "invalid source should produce diagnostics"
+    );
 
     // Each diagnostic should have the required LSP fields
     let d = &diags[0];

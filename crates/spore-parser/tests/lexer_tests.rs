@@ -55,10 +55,7 @@ fn test_float_literal() {
 
 #[test]
 fn test_string_literal() {
-    assert_eq!(
-        toks_no_eof(r#""hello""#),
-        vec![Token::Str("hello".into())]
-    );
+    assert_eq!(toks_no_eof(r#""hello""#), vec![Token::Str("hello".into())]);
 }
 
 #[test]
@@ -98,7 +95,14 @@ fn test_identifiers() {
 fn test_keywords() {
     assert_eq!(
         toks_no_eof("fn let if else match return"),
-        vec![Token::Fn, Token::Let, Token::If, Token::Else, Token::Match, Token::Return]
+        vec![
+            Token::Fn,
+            Token::Let,
+            Token::If,
+            Token::Else,
+            Token::Match,
+            Token::Return
+        ]
     );
 }
 
@@ -154,7 +158,13 @@ fn test_module_keywords() {
 fn test_arithmetic_operators() {
     assert_eq!(
         toks_no_eof("+ - * / %"),
-        vec![Token::Plus, Token::Minus, Token::Star, Token::Slash, Token::Percent]
+        vec![
+            Token::Plus,
+            Token::Minus,
+            Token::Star,
+            Token::Slash,
+            Token::Percent
+        ]
     );
 }
 
@@ -185,7 +195,14 @@ fn test_logical_operators() {
 fn test_bitwise_operators() {
     assert_eq!(
         toks_no_eof("& | ^ ~ << >>"),
-        vec![Token::Amp, Token::Pipe, Token::Caret, Token::Tilde, Token::Shl, Token::Shr]
+        vec![
+            Token::Amp,
+            Token::Pipe,
+            Token::Caret,
+            Token::Tilde,
+            Token::Shl,
+            Token::Shr
+        ]
     );
 }
 
@@ -207,7 +224,11 @@ fn test_two_char_operators() {
 fn test_pipe_arrow() {
     assert_eq!(
         toks_no_eof("x |> f"),
-        vec![Token::Ident("x".into()), Token::PipeArrow, Token::Ident("f".into())]
+        vec![
+            Token::Ident("x".into()),
+            Token::PipeArrow,
+            Token::Ident("f".into())
+        ]
     );
 }
 
@@ -226,9 +247,12 @@ fn test_delimiters() {
     assert_eq!(
         toks_no_eof("( ) { } [ ]"),
         vec![
-            Token::LParen, Token::RParen,
-            Token::LBrace, Token::RBrace,
-            Token::LBracket, Token::RBracket,
+            Token::LParen,
+            Token::RParen,
+            Token::LBrace,
+            Token::RBrace,
+            Token::LBracket,
+            Token::RBracket,
         ]
     );
 }
@@ -240,8 +264,12 @@ fn test_punctuation() {
     assert_eq!(
         toks_no_eof(", : ; . @ #"),
         vec![
-            Token::Comma, Token::Colon, Token::Semicolon,
-            Token::Dot, Token::At, Token::Hash,
+            Token::Comma,
+            Token::Colon,
+            Token::Semicolon,
+            Token::Dot,
+            Token::At,
+            Token::Hash,
         ]
     );
 }
@@ -302,9 +330,7 @@ fn test_eq_assign() {
 
 #[test]
 fn test_spans() {
-    let tokens = Lexer::new("fn add")
-        .tokenize()
-        .unwrap();
+    let tokens = Lexer::new("fn add").tokenize().unwrap();
     assert_eq!(tokens[0].span, Span::new(0, 2));
     assert_eq!(tokens[0].node, Token::Fn);
     assert_eq!(tokens[1].span, Span::new(3, 6));

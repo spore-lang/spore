@@ -143,7 +143,9 @@ impl Interpreter {
 
         match &func.body {
             Some(body) => self.eval(body, &mut env),
-            None => Err(RuntimeError::new(format!("function `{name}` has no body (hole)"))),
+            None => Err(RuntimeError::new(format!(
+                "function `{name}` has no body (hole)"
+            ))),
         }
     }
 
@@ -176,10 +178,7 @@ impl Interpreter {
                     let func = &self.functions[name];
                     Ok(Value::Closure(Closure {
                         params: func.params.iter().map(|p| p.name.clone()).collect(),
-                        body: func.body.clone().unwrap_or(Expr::Hole(
-                            name.clone(),
-                            None,
-                        )),
+                        body: func.body.clone().unwrap_or(Expr::Hole(name.clone(), None)),
                         env: BTreeMap::new(),
                     }))
                 } else {
@@ -351,9 +350,7 @@ impl Interpreter {
                 self.eval(expr, env)
             }
 
-            Expr::Hole(name, _) => {
-                Err(RuntimeError::new(format!("hit unfilled hole `?{name}`")))
-            }
+            Expr::Hole(name, _) => Err(RuntimeError::new(format!("hit unfilled hole `?{name}`"))),
 
             Expr::Spawn(expr) => {
                 // For PoC, just evaluate synchronously

@@ -38,10 +38,7 @@ impl HoleReport {
                 out.push_str(",\n");
             }
             out.push_str("    {\n");
-            out.push_str(&format!(
-                "      \"name\": {},\n",
-                json_escape(&h.name)
-            ));
+            out.push_str(&format!("      \"name\": {},\n", json_escape(&h.name)));
             out.push_str(&format!(
                 "      \"expected_type\": {},\n",
                 json_escape(&h.expected_type.to_string())
@@ -55,7 +52,11 @@ impl HoleReport {
                 if j > 0 {
                     out.push_str(", ");
                 }
-                out.push_str(&format!("{}: {}", json_escape(k), json_escape(&v.to_string())));
+                out.push_str(&format!(
+                    "{}: {}",
+                    json_escape(k),
+                    json_escape(&v.to_string())
+                ));
             }
             out.push_str("},\n");
             out.push_str("      \"suggestions\": [");
