@@ -6,5 +6,13 @@ rust-version.workspace = true
 description = "Spore Language Server Protocol implementation"
 license.workspace = true
 
+[[bin]]
+name = "spore-lsp"
+path = "src/main.rs"
+
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+spore-parser = { path = "../spore-parser" }
+spore-typeck = { path = "../spore-typeck" }
 sporec = { path = "../sporec" }

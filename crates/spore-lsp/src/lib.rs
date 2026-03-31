@@ -1,6 +1,6 @@
-/// spore-lsp — Spore Language Server Protocol implementation
-///
-/// Provides IDE features: diagnostics, completions, hover, go-to-definition.
+pub mod server;
+
 pub fn lsp_main() {
-    // TODO: implement LSP server with tower-lsp
+    let mut server = server::LspServer::new();
+    server.run();
 }
