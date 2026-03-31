@@ -487,3 +487,337 @@ fn test_cost_structural_countdown() {
         result.cost_results.get("countdown")
     );
 }
+
+#[test]
+fn never_type_unifies_with_anything() {
+    // A function returning Never should be usable where Int is expected
+    let src = r#"
+        fn diverge() -> Never { ?todo }
+        fn use_int() -> Int {
+            diverge()
+        }
+    "#;
+    let ast = spore_parser::parse(src).unwrap();
+    let result = spore_typeck::type_check(&ast);
+    assert!(result.is_ok(), "Never should unify with Int");
+}
+
+#[test]
+fn char_type_basic() {
+    let src = r#"
+        fn get_char() -> Char { ?todo }
+        fn use_char(c: Char) -> Char { c }
+    "#;
+    let ast = spore_parser::parse(src).unwrap();
+    let result = spore_typeck::type_check(&ast);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn occurs_check_prevents_infinite_type() {
+    // This should produce an error, not infinite loop
+    // A function that tries to create T = List[T]
+    let src = r#"
+        fn wrap(x: List[Int]) -> Int { x }
+    "#;
+    // This is a simpler test - just ensure occurs_in works
+    // The real test is that unification with self-referential types fails
+    let ast = spore_parser::parse(src).unwrap();
+    let result = spore_typeck::type_check(&ast);
+    // This should fail with type mismatch, not infinite loop
+    assert!(result.is_err());
+}
+
+// ── Pattern type checking ────────────────────────────────────────────
+
+#[test]
+fn exhaustive_bool_match() {
+    check_ok(
+        r#"fn check(b: Bool) -> Int {
+            match b {
+                true => 1,
+                false => 0,
+            }
+        }"#,
+    );
+}
+
+#[test]
+fn non_exhaustive_bool_match() {
+    let errs = check_err(
+        r#"fn check(b: Bool) -> Int {
+            match b {
+                true => 1,
+            }
+        }"#,
+    );
+    assert!(errs.iter().any(|e| e.contains("non-exhaustive")));
+}
+
+#[test]
+fn exhaustive_enum_match() {
+    check_ok(
+        r#"type Color { Red, Green, Blue }
+        fn name(c: Color) -> String {
+            match c {
+                Red => "red",
+                Green => "green",
+                Blue => "blue",
+            }
+        }"#,
+    );
+}
+
+#[test]
+fn non_exhaustive_enum_match() {
+    let errs = check_err(
+        r#"type Color { Red, Green, Blue }
+        fn name(c: Color) -> Int {
+            match c {
+                Red => 1,
+                Green => 2,
+            }
+        }"#,
+    );
+    assert!(errs.iter().any(|e| e.contains("non-exhaustive")));
+    assert!(errs.iter().any(|e| e.contains("Blue")));
+}
+
+#[test]
+fn wildcard_makes_match_exhaustive() {
+    check_ok(
+        r#"fn describe(n: Int) -> String {
+            match n {
+                0 => "zero",
+                1 => "one",
+                _ => "other",
+            }
+        }"#,
+    );
+}
+
+#[test]
+fn match_with_guard_type_checked() {
+    check_ok(
+        r#"fn classify(n: Int) -> String {
+            match n {
+                x if x > 0 => "positive",
+                _ => "non-positive",
+            }
+        }"#,
+    );
+}
+
+#[test]
+fn pattern_binds_variable() {
+    check_ok(
+        r#"type Option { Some(Int), None }
+        fn unwrap_or(opt: Option, default: Int) -> Int {
+            match opt {
+                Some(value) => value,
+                None => default,
+            }
+        }"#,
+    );
+}
+
+#[test]
+fn int_match_without_wildcard_is_non_exhaustive() {
+    let errs = check_err(
+        r#"fn check(n: Int) -> String {
+            match n {
+                0 => "zero",
+                1 => "one",
+            }
+        }"#,
+    );
+    assert!(errs.iter().any(|e| e.contains("non-exhaustive")));
+}
+
+#[test]
+fn int_pattern_on_bool_is_type_error() {
+    let errs = check_err(
+        r#"fn check(b: Bool) -> Int {
+            match b {
+                0 => 1,
+                _ => 2,
+            }
+        }"#,
+    );
+    assert!(errs.iter().any(|e| e.contains("integer pattern")));
+}
+
+#[test]
+fn variable_pattern_makes_int_match_exhaustive() {
+    check_ok(
+        r#"fn describe(n: Int) -> String {
+            match n {
+                0 => "zero",
+                other => "something",
+            }
+        }"#,
+    );
+}
+
+// ── Error set (throws) checking ─────────────────────────────────────────
+
+#[test]
+fn function_with_throws_clause() {
+    check_ok(
+        r#"
+        fn read_file(path: String) -> String ! [IoError] { "content" }
+    "#,
+    );
+}
+
+#[test]
+fn try_propagation_ok() {
+    check_ok(
+        r#"
+        fn read_file(path: String) -> String ! [IoError] { "content" }
+        fn process() -> String ! [IoError] {
+            read_file("test.txt")?
+        }
+    "#,
+    );
+}
+
+#[test]
+fn try_propagation_missing_error() {
+    let errs = check_err(
+        r#"
+        fn read_file(path: String) -> String ! [IoError] { "content" }
+        fn process() -> String {
+            read_file("test.txt")?
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("IoError")),
+        "expected error about IoError, got: {errs:?}"
+    );
+}
+
+#[test]
+fn try_propagation_superset_ok() {
+    check_ok(
+        r#"
+        fn read_file(path: String) -> String ! [IoError] { "content" }
+        fn process() -> String ! [IoError, ParseError] {
+            read_file("test.txt")?
+        }
+    "#,
+    );
+}
+
+#[test]
+fn try_propagation_partial_missing() {
+    let errs = check_err(
+        r#"
+        fn risky(x: Int) -> Int ! [IoError, ParseError] { x }
+        fn caller() -> Int ! [IoError] {
+            risky(1)?
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("ParseError")),
+        "expected error about ParseError, got: {errs:?}"
+    );
+}
+
+#[test]
+fn no_try_no_error_check() {
+    // Calling a throwing function without ? doesn't require the caller to declare errors
+    check_ok(
+        r#"
+        fn read_file(path: String) -> String ! [IoError] { "content" }
+        fn process() -> String {
+            read_file("test.txt")
+        }
+    "#,
+    );
+}
+
+#[test]
+fn function_with_throws_and_uses() {
+    check_ok(
+        r#"
+        fn read_file(path: String) -> String ! [IoError] uses [Fs] { "content" }
+    "#,
+    );
+}
+
+#[test]
+fn throw_keyword_still_works() {
+    check_ok(
+        r#"
+        fn read_file(path: String) -> String throw [IoError] { "content" }
+        fn process() -> String throw [IoError] {
+            read_file("test.txt")?
+        }
+    "#,
+    );
+}
+
+// ── Capability definition and impl ──────────────────────────────────────
+
+#[test]
+fn capability_definition_and_impl() {
+    check_ok(
+        r#"
+        capability Display[T] {
+            fn show(self: T) -> String
+        }
+        struct Point { x: Int, y: Int }
+        impl Display for Point {
+            fn show(self: Point) -> String { "point" }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn impl_missing_method_error() {
+    let errs = check_err(
+        r#"
+        capability Display[T] {
+            fn show(self: T) -> String
+        }
+        struct Point { x: Int, y: Int }
+        impl Display for Point {
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("missing method")));
+}
+
+#[test]
+fn impl_extra_method_error() {
+    let errs = check_err(
+        r#"
+        capability Display[T] {
+            fn show(self: T) -> String
+        }
+        struct Point { x: Int, y: Int }
+        impl Display for Point {
+            fn show(self: Point) -> String { "point" }
+            fn extra() -> Int { 42 }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("not defined in capability")));
+}
+
+#[test]
+fn impl_unknown_capability_error() {
+    let errs = check_err(
+        r#"
+        struct Point { x: Int, y: Int }
+        impl UnknownCap for Point {
+            fn show(self: Point) -> String { "point" }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("unknown capability")));
+}

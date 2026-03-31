@@ -169,9 +169,10 @@ impl Parser {
             Token::Struct => self.parse_struct_item(),
             Token::Type => self.parse_type_item(),
             Token::Capability => self.parse_capability_item(),
+            Token::Impl => self.parse_impl_item(),
             Token::Import => self.parse_import_item(),
             _ => Err(self.error(format!(
-                "expected item (fn, pub, struct, type, capability, import), found {:?}",
+                "expected item (fn, pub, struct, type, capability, impl, import), found {:?}",
                 self.peek()
             ))),
         }
@@ -201,8 +202,8 @@ impl Parser {
             None
         };
 
-        // optional errors clause: `throws [E1, E2]`
-        let errors = if self.at(&Token::Throw) {
+        // optional errors clause: `! [E1, E2]` or `throw [E1, E2]`
+        let errors = if self.at(&Token::Bang) || self.at(&Token::Throw) {
             self.advance();
             self.expect(&Token::LBracket)?;
             let errs = self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RBracket)?;
@@ -512,6 +513,47 @@ impl Parser {
             name,
             visibility: Visibility::Private,
             type_params,
+            methods,
+        }))
+    }
+
+    // ── Impl block ──────────────────────────────────────────────────
+
+    fn parse_impl_item(&mut self) -> Result<Item, ParseError> {
+        self.expect(&Token::Impl)?;
+        let capability = self.expect_ident()?;
+
+        // Optional type arguments: `impl Show[T] for ...`
+        let type_args = if self.at(&Token::LBracket) {
+            self.advance();
+            let args = self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RBracket)?;
+            self.expect(&Token::RBracket)?;
+            args
+        } else {
+            vec![]
+        };
+
+        // Expect `for` (not a keyword — parsed as identifier)
+        let next = self.expect_ident()?;
+        if next != "for" {
+            return Err(self.error(format!(
+                "expected `for` after capability name, got `{next}`"
+            )));
+        }
+
+        let target_type = self.expect_ident()?;
+
+        self.expect(&Token::LBrace)?;
+        let mut methods = Vec::new();
+        while !self.at(&Token::RBrace) && !self.at_eof() {
+            methods.push(self.parse_fn_def()?);
+        }
+        self.expect(&Token::RBrace)?;
+
+        Ok(Item::ImplDef(ImplDef {
+            capability,
+            target_type,
+            type_args,
             methods,
         }))
     }

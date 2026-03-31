@@ -10,7 +10,7 @@ use crate::error::TypeError;
 use crate::hole::{HoleInfo, HoleReport};
 use std::collections::HashMap;
 
-use crate::types::{CapSet, Ty};
+use crate::types::{CapSet, ErrorSet, Ty};
 
 pub struct Checker {
     pub errors: Vec<TypeError>,
@@ -19,6 +19,8 @@ pub struct Checker {
     env: Env,
     /// Capabilities of the function currently being checked.
     current_caps: CapSet,
+    /// Error set of the function currently being checked.
+    current_errors: ErrorSet,
     /// Name of the function currently being checked.
     current_function: String,
     /// Declared return type of the current function (for hole inference).
@@ -37,6 +39,7 @@ impl Checker {
             hole_report: HoleReport::new(),
             env: Env::new(),
             current_caps: CapSet::new(),
+            current_errors: ErrorSet::new(),
             current_function: String::new(),
             expected_return_type: None,
             next_var_id: 0,
@@ -76,6 +79,21 @@ impl Checker {
                 self.registry
                     .functions
                     .insert(f.name.clone(), (param_tys, ret_ty, caps));
+                // Register error set (! [E1, E2])
+                if !f.errors.is_empty() {
+                    let error_set: ErrorSet = f
+                        .errors
+                        .iter()
+                        .filter_map(|te| {
+                            if let TypeExpr::Named(n) = te {
+                                Some(n.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    self.registry.fn_errors.insert(f.name.clone(), error_set);
+                }
                 if let Some(wc) = &f.where_clause {
                     let mut type_params: Vec<String> =
                         wc.constraints.iter().map(|c| c.type_var.clone()).collect();
@@ -105,17 +123,94 @@ impl Checker {
                     .collect();
                 self.registry.types.insert(t.name.clone(), variants);
             }
-            Item::CapabilityDef(_) | Item::Import(_) => {}
+            Item::CapabilityDef(cap) => {
+                let methods: Vec<(String, Vec<Ty>, Ty)> = cap
+                    .methods
+                    .iter()
+                    .map(|m| {
+                        let param_tys: Vec<Ty> =
+                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let ret_ty = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit);
+                        (m.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                self.registry
+                    .capabilities
+                    .insert(cap.name.clone(), (cap.type_params.clone(), methods));
+            }
+            Item::ImplDef(impl_def) => {
+                if !self.registry.capabilities.contains_key(&impl_def.capability) {
+                    self.err(format!("unknown capability `{}`", impl_def.capability));
+                    return;
+                }
+                let methods: Vec<(String, Vec<Ty>, Ty)> = impl_def
+                    .methods
+                    .iter()
+                    .map(|m| {
+                        let param_tys: Vec<Ty> =
+                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let ret_ty = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit);
+                        (m.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                self.registry.impls.insert(
+                    (impl_def.capability.clone(), impl_def.target_type.clone()),
+                    methods,
+                );
+            }
+            Item::Import(_) => {}
         }
     }
 
     // ── Checking (second pass) ──────────────────────────────────────
 
     fn check_item(&mut self, item: &Item) {
-        if let Item::Function(f) = item {
-            self.check_fn(f);
+        match item {
+            Item::Function(f) => self.check_fn(f),
+            Item::ImplDef(impl_def) => self.check_impl(impl_def),
+            _ => {} // structs/types already registered; capabilities/imports deferred
         }
-        // structs/types already registered; capabilities/imports deferred
+    }
+
+    fn check_impl(&mut self, impl_def: &ImplDef) {
+        let Some((_cap_type_params, cap_methods)) =
+            self.registry.capabilities.get(&impl_def.capability).cloned()
+        else {
+            return; // Already errored in registration
+        };
+
+        // Check that all required methods are implemented
+        for (method_name, _expected_params, _expected_ret) in &cap_methods {
+            if !impl_def.methods.iter().any(|m| &m.name == method_name) {
+                self.err(format!(
+                    "impl `{}` for `{}` is missing method `{}`",
+                    impl_def.capability, impl_def.target_type, method_name
+                ));
+            }
+        }
+
+        // Check that no extra methods are defined
+        for method in &impl_def.methods {
+            if !cap_methods.iter().any(|(name, _, _)| name == &method.name) {
+                self.err(format!(
+                    "method `{}` is not defined in capability `{}`",
+                    method.name, impl_def.capability
+                ));
+            }
+        }
+
+        // Type-check each method body
+        for method in &impl_def.methods {
+            self.check_fn(method);
+        }
     }
 
     fn check_fn(&mut self, f: &FnDef) {
@@ -128,6 +223,21 @@ impl Checker {
                 .as_ref()
                 .map(|uc| uc.resources.iter().cloned().collect())
                 .unwrap_or_default(),
+        );
+
+        // Set current function's error set (! [E1, E2])
+        let prev_errors = std::mem::replace(
+            &mut self.current_errors,
+            f.errors
+                .iter()
+                .filter_map(|te| {
+                    if let TypeExpr::Named(n) = te {
+                        Some(n.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
         );
 
         // Track current function name and return type for hole reporting
@@ -156,6 +266,7 @@ impl Checker {
 
         self.env.pop_scope();
         self.current_caps = prev_caps;
+        self.current_errors = prev_errors;
         self.current_function = prev_function;
         self.expected_return_type = prev_expected;
     }
@@ -242,11 +353,34 @@ impl Checker {
             }
 
             Expr::Match(scrutinee, arms) => {
-                let _scrut_ty = self.check_expr(scrutinee);
+                let scrut_ty = self.check_expr(scrutinee);
+                let scrut_ty = self.apply_subst(&scrut_ty);
+
+                // Check exhaustiveness
+                self.check_exhaustiveness(&scrut_ty, arms);
+
                 let mut result_ty: Option<Ty> = None;
                 for arm in arms {
-                    // TODO: check pattern against scrutinee type
+                    // Check pattern against scrutinee type and get bindings
+                    let bindings = self.check_pattern(&arm.pattern, &scrut_ty);
+
+                    // Create a new scope with pattern bindings
+                    self.env.push_scope();
+                    for (name, ty) in bindings {
+                        self.env.define(name, ty);
+                    }
+
+                    // Check guard if present
+                    if let Some(guard) = &arm.guard {
+                        let guard_ty = self.check_expr(guard);
+                        if guard_ty != Ty::Bool && !guard_ty.is_error() {
+                            self.err(format!("match guard must be Bool, got `{guard_ty}`"));
+                        }
+                    }
+
                     let arm_ty = self.check_expr(&arm.body);
+                    self.env.pop_scope();
+
                     if let Some(ref expected) = result_ty {
                         self.unify(expected, &arm_ty, "match arms");
                     } else {
@@ -336,9 +470,28 @@ impl Checker {
             }
 
             Expr::Try(expr) => {
-                // For now, just return the inner type
-                // TODO: proper Result[T, E] unwrapping
-                self.check_expr(expr)
+                // Extract the callee name for error-set lookup when inner is a call
+                let callee_name = match expr.as_ref() {
+                    Expr::Call(callee, _) => {
+                        if let Expr::Var(name) = callee.as_ref() {
+                            Some(name.clone())
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                let inner_ty = self.check_expr(expr);
+
+                // Check error propagation: callee's error set ⊆ caller's error set
+                if let Some(name) = callee_name {
+                    if let Some(callee_errors) = self.registry.fn_errors.get(&name).cloned() {
+                        self.check_error_propagation(&callee_errors);
+                    }
+                }
+
+                inner_ty
             }
 
             Expr::Hole(name, ty_hint) => {
@@ -527,7 +680,9 @@ impl Checker {
                 "Float" => Ty::Float,
                 "Bool" => Ty::Bool,
                 "String" => Ty::Str,
+                "Char" => Ty::Char,
                 "()" => Ty::Unit,
+                "Never" => Ty::Never,
                 _ => Ty::Named(name.clone()),
             },
             TypeExpr::Generic(name, args) => {
@@ -578,6 +733,20 @@ impl Checker {
             ),
             Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.apply_subst(t)).collect()),
             _ => ty.clone(),
+        }
+    }
+
+    /// Check if type variable `id` occurs anywhere in `ty`.
+    fn occurs_in(&self, id: u32, ty: &Ty) -> bool {
+        let ty = self.apply_subst(ty);
+        match &ty {
+            Ty::Var(vid) => *vid == id,
+            Ty::Fn(params, ret, _) => {
+                params.iter().any(|p| self.occurs_in(id, p)) || self.occurs_in(id, ret)
+            }
+            Ty::App(_, args) => args.iter().any(|a| self.occurs_in(id, a)),
+            Ty::Tuple(ts) => ts.iter().any(|t| self.occurs_in(id, t)),
+            _ => false,
         }
     }
 
@@ -649,6 +818,23 @@ impl Checker {
         }
     }
 
+    // ── Error set propagation check ─────────────────────────────────
+
+    /// Verify that the current function's error set is a superset of the callee's.
+    fn check_error_propagation(&mut self, callee_errors: &ErrorSet) {
+        let missing: Vec<&str> = callee_errors
+            .iter()
+            .filter(|e| !self.current_errors.contains(*e))
+            .map(|s| s.as_str())
+            .collect();
+        if !missing.is_empty() {
+            self.err(format!(
+                "missing errors [{}] in `?`: caller does not declare them in its error set",
+                missing.join(", ")
+            ));
+        }
+    }
+
     // ── Unification with type variable support ─────────────────────
 
     fn unify(&mut self, expected: &Ty, actual: &Ty, context: &str) {
@@ -664,12 +850,25 @@ impl Checker {
             return;
         }
 
+        // Never is subtype of all types
+        if matches!(e, Ty::Never) || matches!(a, Ty::Never) {
+            return;
+        }
+
         // Type variable binding
         if let Ty::Var(id) = e {
+            if self.occurs_in(id, &a) {
+                self.err(format!("infinite type: ?T{id} occurs in `{a}`"));
+                return;
+            }
             self.substitution.insert(id, a);
             return;
         }
         if let Ty::Var(id) = a {
+            if self.occurs_in(id, &e) {
+                self.err(format!("infinite type: ?T{id} occurs in `{e}`"));
+                return;
+            }
             self.substitution.insert(id, e);
             return;
         }
@@ -704,6 +903,192 @@ impl Checker {
         }
     }
 
+
+    // ── Pattern type checking ──────────────────────────────────────
+
+    /// Check if `name` is a known zero-field enum variant.
+    fn find_unit_variant(&self, name: &str) -> Option<String> {
+        for (type_name, variants) in &self.registry.types {
+            if variants
+                .iter()
+                .any(|(vname, fields)| vname == name && fields.is_empty())
+            {
+                return Some(type_name.clone());
+            }
+        }
+        None
+    }
+
+    /// Type-check a pattern against a scrutinee type.
+    /// Returns bindings introduced by the pattern (name -> type).
+    fn check_pattern(&mut self, pattern: &Pattern, scrutinee_ty: &Ty) -> Vec<(String, Ty)> {
+        match pattern {
+            Pattern::Wildcard => vec![],
+            Pattern::Var(name) => {
+                // Zero-field enum variants (e.g. Red, None) are parsed as Var.
+                if let Some(type_name) = self.find_unit_variant(name) {
+                    let expected_ty = Ty::Named(type_name);
+                    self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
+                    vec![]
+                } else {
+                    vec![(name.clone(), scrutinee_ty.clone())]
+                }
+            }
+            Pattern::IntLit(_) => {
+                if *scrutinee_ty != Ty::Int && !scrutinee_ty.is_error() {
+                    self.err(format!(
+                        "integer pattern cannot match type `{scrutinee_ty}`"
+                    ));
+                }
+                vec![]
+            }
+            Pattern::StrLit(_) => {
+                if *scrutinee_ty != Ty::Str && !scrutinee_ty.is_error() {
+                    self.err(format!(
+                        "string pattern cannot match type `{scrutinee_ty}`"
+                    ));
+                }
+                vec![]
+            }
+            Pattern::BoolLit(_) => {
+                if *scrutinee_ty != Ty::Bool && !scrutinee_ty.is_error() {
+                    self.err(format!(
+                        "boolean pattern cannot match type `{scrutinee_ty}`"
+                    ));
+                }
+                vec![]
+            }
+            Pattern::Constructor(name, sub_pats) => {
+                let types_snapshot: Vec<(String, Vec<(String, Vec<Ty>)>)> =
+                    self.registry.types.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                for (type_name, variants) in &types_snapshot {
+                    if let Some((_, field_tys)) =
+                        variants.iter().find(|(vname, _)| vname == name)
+                    {
+                        let expected_ty = Ty::Named(type_name.clone());
+                        self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
+
+                        if sub_pats.len() != field_tys.len() {
+                            self.err(format!(
+                                "variant `{name}` expects {} fields, got {}",
+                                field_tys.len(),
+                                sub_pats.len()
+                            ));
+                        }
+
+                        let mut bindings = vec![];
+                        for (sub_pat, field_ty) in sub_pats.iter().zip(field_tys.iter()) {
+                            bindings.extend(self.check_pattern(sub_pat, field_ty));
+                        }
+                        return bindings;
+                    }
+                }
+                if !scrutinee_ty.is_error() {
+                    self.err(format!("unknown variant `{name}`"));
+                }
+                vec![]
+            }
+            Pattern::Struct(name, field_pats) => {
+                let def_fields = self.registry.structs.get(name).cloned();
+                if let Some(def_fields) = def_fields {
+                    let expected_ty = Ty::Named(name.clone());
+                    self.unify(&expected_ty, scrutinee_ty, &format!("struct pattern `{name}`"));
+
+                    let mut bindings = vec![];
+                    for (fname, fpat) in field_pats {
+                        if let Some((_, fty)) = def_fields.iter().find(|(n, _)| n == fname) {
+                            bindings.extend(self.check_pattern(fpat, fty));
+                        } else {
+                            self.err(format!("struct `{name}` has no field `{fname}`"));
+                        }
+                    }
+                    bindings
+                } else {
+                    if !scrutinee_ty.is_error() {
+                        self.err(format!("unknown struct `{name}` in pattern"));
+                    }
+                    vec![]
+                }
+            }
+            Pattern::Or(pats) => {
+                let mut all_bindings = vec![];
+                for pat in pats {
+                    all_bindings = self.check_pattern(pat, scrutinee_ty);
+                }
+                all_bindings
+            }
+        }
+    }
+
+    // ── Exhaustiveness checking ─────────────────────────────────────
+
+    /// Check if match arms exhaustively cover the scrutinee type.
+    fn check_exhaustiveness(&mut self, scrutinee_ty: &Ty, arms: &[MatchArm]) {
+        if scrutinee_ty.is_error() {
+            return;
+        }
+
+        let has_catch_all = arms.iter().any(|arm| {
+            let is_catch_all = match &arm.pattern {
+                Pattern::Wildcard => true,
+                Pattern::Var(name) => self.find_unit_variant(name).is_none(),
+                _ => false,
+            };
+            is_catch_all && arm.guard.is_none()
+        });
+        if has_catch_all {
+            return;
+        }
+
+        match scrutinee_ty {
+            Ty::Bool => {
+                let has_true = arms.iter().any(|arm| pattern_contains_bool(&arm.pattern, true));
+                let has_false = arms.iter().any(|arm| pattern_contains_bool(&arm.pattern, false));
+                if !has_true || !has_false {
+                    let mut missing = vec![];
+                    if !has_true { missing.push("true"); }
+                    if !has_false { missing.push("false"); }
+                    self.err(format!(
+                        "non-exhaustive match: missing pattern(s) {}",
+                        missing.join(", ")
+                    ));
+                }
+            }
+            Ty::Named(name) => {
+                if let Some(variants) = self.registry.types.get(name).cloned() {
+                    let variant_names: Vec<String> =
+                        variants.iter().map(|(n, _)| n.clone()).collect();
+                    let mut covered: Vec<bool> = vec![false; variant_names.len()];
+
+                    for arm in arms {
+                        mark_covered_variants(&arm.pattern, &variant_names, &mut covered);
+                    }
+
+                    let missing: Vec<&str> = variant_names
+                        .iter()
+                        .zip(covered.iter())
+                        .filter(|(_, c)| !**c)
+                        .map(|(n, _)| n.as_str())
+                        .collect();
+
+                    if !missing.is_empty() {
+                        self.err(format!(
+                            "non-exhaustive match on `{name}`: missing variant(s) {}",
+                            missing.join(", ")
+                        ));
+                    }
+                }
+            }
+            Ty::Int | Ty::Float | Ty::Str => {
+                self.err(format!(
+                    "non-exhaustive match: `{}` requires a wildcard `_` or variable pattern",
+                    scrutinee_ty
+                ));
+            }
+            _ => {}
+        }
+    }
+
     fn err(&mut self, message: String) {
         self.errors.push(TypeError::new(message));
     }
@@ -728,5 +1113,41 @@ impl Checker {
 impl Default for Checker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ── Free helper functions for pattern analysis ──────────────────────
+
+fn pattern_contains_bool(pattern: &Pattern, val: bool) -> bool {
+    match pattern {
+        Pattern::BoolLit(b) => *b == val,
+        Pattern::Or(pats) => pats.iter().any(|p| pattern_contains_bool(p, val)),
+        _ => false,
+    }
+}
+
+fn mark_covered_variants(pattern: &Pattern, variant_names: &[String], covered: &mut Vec<bool>) {
+    match pattern {
+        Pattern::Constructor(name, _) => {
+            if let Some(idx) = variant_names.iter().position(|v| v == name) {
+                covered[idx] = true;
+            }
+        }
+        Pattern::Var(name) => {
+            if let Some(idx) = variant_names.iter().position(|v| v == name) {
+                covered[idx] = true;
+            }
+        }
+        Pattern::Wildcard => {
+            for c in covered.iter_mut() {
+                *c = true;
+            }
+        }
+        Pattern::Or(pats) => {
+            for p in pats {
+                mark_covered_variants(p, variant_names, covered);
+            }
+        }
+        _ => {}
     }
 }

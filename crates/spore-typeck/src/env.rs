@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::types::{CapSet, Ty};
+use crate::types::{CapSet, ErrorSet, Ty};
 
 /// A scoped type environment (symbol table).
 ///
@@ -69,10 +69,16 @@ impl Default for Env {
 pub struct TypeRegistry {
     /// Function signatures: name → (param types, return type, capabilities)
     pub functions: HashMap<String, (Vec<Ty>, Ty, CapSet)>,
+    /// Error sets declared by functions: name → set of error type names
+    pub fn_errors: HashMap<String, ErrorSet>,
     /// Struct definitions: name → field list (name, type)
     pub structs: HashMap<String, Vec<(String, Ty)>>,
     /// Type (enum) definitions: name → variant list (name, field types)
     pub types: HashMap<String, Vec<(String, Vec<Ty>)>>,
     /// Type parameter names for generic functions: name → [type param names]
     pub fn_type_params: HashMap<String, Vec<String>>,
+    /// Capability (trait) definitions: name → (type_params, methods: [(method_name, param_types, return_type)])
+    pub capabilities: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
+    /// Trait implementations: (capability_name, type_name) → method impls: [(method_name, param_types, return_type)]
+    pub impls: HashMap<(String, String), Vec<(String, Vec<Ty>, Ty)>>,
 }

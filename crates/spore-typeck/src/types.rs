@@ -5,6 +5,9 @@ use std::collections::BTreeSet;
 /// A set of capabilities (effects) required by a function.
 pub type CapSet = BTreeSet<String>;
 
+/// A set of error types that a function may throw.
+pub type ErrorSet = BTreeSet<String>;
+
 /// The internal type representation used during type checking.
 /// This is separate from the AST's `TypeExpr` — resolved and normalized.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,8 +17,11 @@ pub enum Ty {
     Float,
     Bool,
     Str,
+    Char,
     /// Unit type (empty tuple / void)
     Unit,
+    /// Bottom type — subtype of all types
+    Never,
 
     /// Named type (structs, type aliases, type params)
     Named(String),
@@ -58,7 +64,9 @@ impl std::fmt::Display for Ty {
             Ty::Float => write!(f, "Float"),
             Ty::Bool => write!(f, "Bool"),
             Ty::Str => write!(f, "String"),
+            Ty::Char => write!(f, "Char"),
             Ty::Unit => write!(f, "()"),
+            Ty::Never => write!(f, "Never"),
             Ty::Named(n) => write!(f, "{n}"),
             Ty::App(name, args) => {
                 write!(f, "{name}[")?;
