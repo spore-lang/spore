@@ -5,7 +5,9 @@ pub mod check;
 pub mod cost;
 pub mod env;
 pub mod error;
+pub mod hir;
 pub mod hole;
+pub mod lower;
 pub mod types;
 
 use std::collections::HashMap;
@@ -21,6 +23,12 @@ use spore_parser::ast::Module;
 pub struct CheckResult {
     pub hole_report: HoleReport,
     pub cost_results: HashMap<String, CostResult>,
+}
+
+/// Lower an AST module to HIR.
+pub fn lower(module: &Module) -> hir::HirModule {
+    let mut lowering = lower::Lowering::new();
+    lowering.lower_module(module)
 }
 
 /// Type-check a parsed Spore module, returning a CheckResult or all errors found.

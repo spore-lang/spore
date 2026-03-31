@@ -115,7 +115,7 @@ impl Interpreter {
                 Item::TypeDef(t) => {
                     self.type_defs.insert(t.name.clone(), t.clone());
                 }
-                Item::CapabilityDef(_) | Item::Import(_) => {}
+                Item::CapabilityDef(_) | Item::ImplDef(_) | Item::Import(_) => {}
             }
         }
     }

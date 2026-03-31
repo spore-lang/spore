@@ -14,6 +14,7 @@ pub enum Item {
     StructDef(StructDef),
     TypeDef(TypeDef),
     CapabilityDef(CapabilityDef),
+    ImplDef(ImplDef),
     Import(ImportDecl),
 }
 
@@ -227,6 +228,15 @@ pub struct CapabilityDef {
     pub name: String,
     pub visibility: Visibility,
     pub type_params: Vec<String>,
+    pub methods: Vec<FnDef>,
+}
+
+/// Top-level impl block: `impl Capability for Type { ... }`
+#[derive(Debug, Clone)]
+pub struct ImplDef {
+    pub capability: String,
+    pub target_type: String,
+    pub type_args: Vec<TypeExpr>,
     pub methods: Vec<FnDef>,
 }
 

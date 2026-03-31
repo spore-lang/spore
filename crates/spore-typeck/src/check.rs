@@ -6,9 +6,9 @@
 use spore_parser::ast::*;
 
 use crate::env::{Env, TypeRegistry};
-use crate::error::TypeError;
-use crate::hole::{HoleInfo, HoleReport};
-use std::collections::HashMap;
+use crate::error::{ErrorCode, TypeError};
+use crate::hole::{HoleDependencyGraph, HoleInfo, HoleReport};
+use std::collections::{HashMap, HashSet};
 
 use crate::types::{CapSet, ErrorSet, Ty};
 
@@ -57,6 +57,8 @@ impl Checker {
         for item in &module.items {
             self.check_item(item);
         }
+        // Build the hole dependency graph based on shared type variables
+        self.hole_report.dependency_graph = self.build_hole_dependency_graph();
     }
 
     // ── Registration (first pass) ───────────────────────────────────
@@ -144,7 +146,7 @@ impl Checker {
             }
             Item::ImplDef(impl_def) => {
                 if !self.registry.capabilities.contains_key(&impl_def.capability) {
-                    self.err(format!("unknown capability `{}`", impl_def.capability));
+                    self.err(ErrorCode::E104, format!("unknown capability `{}`", impl_def.capability));
                     return;
                 }
                 let methods: Vec<(String, Vec<Ty>, Ty)> = impl_def
@@ -190,7 +192,7 @@ impl Checker {
         // Check that all required methods are implemented
         for (method_name, _expected_params, _expected_ret) in &cap_methods {
             if !impl_def.methods.iter().any(|m| &m.name == method_name) {
-                self.err(format!(
+                self.err(ErrorCode::E403, format!(
                     "impl `{}` for `{}` is missing method `{}`",
                     impl_def.capability, impl_def.target_type, method_name
                 ));
@@ -200,7 +202,7 @@ impl Checker {
         // Check that no extra methods are defined
         for method in &impl_def.methods {
             if !cap_methods.iter().any(|(name, _, _)| name == &method.name) {
-                self.err(format!(
+                self.err(ErrorCode::E404, format!(
                     "method `{}` is not defined in capability `{}`",
                     method.name, impl_def.capability
                 ));
@@ -289,7 +291,7 @@ impl Checker {
                     let (params, ret, caps) = self.registry.functions[name].clone();
                     Ty::Fn(params, Box::new(ret), caps)
                 } else {
-                    self.err(format!("undefined variable `{name}`"));
+                    self.err(ErrorCode::E101, format!("undefined variable `{name}`"));
                     Ty::Error
                 }
             }
@@ -301,19 +303,19 @@ impl Checker {
                 match op {
                     UnaryOp::Neg => {
                         if !ty.is_numeric() && !ty.is_error() {
-                            self.err(format!("cannot negate type `{ty}`"));
+                            self.err(ErrorCode::E002, format!("cannot negate type `{ty}`"));
                         }
                         ty
                     }
                     UnaryOp::Not => {
                         if ty != Ty::Bool && !ty.is_error() {
-                            self.err(format!("cannot apply `!` to type `{ty}`"));
+                            self.err(ErrorCode::E002, format!("cannot apply `!` to type `{ty}`"));
                         }
                         Ty::Bool
                     }
                     UnaryOp::BitNot => {
                         if ty != Ty::Int && !ty.is_error() {
-                            self.err(format!("cannot apply `~` to type `{ty}`"));
+                            self.err(ErrorCode::E002, format!("cannot apply `~` to type `{ty}`"));
                         }
                         Ty::Int
                     }
@@ -340,7 +342,7 @@ impl Checker {
             Expr::If(cond, then_branch, else_branch) => {
                 let cond_ty = self.check_expr(cond);
                 if cond_ty != Ty::Bool && !cond_ty.is_error() {
-                    self.err(format!("if condition must be Bool, got `{cond_ty}`"));
+                    self.err(ErrorCode::E001, format!("if condition must be Bool, got `{cond_ty}`"));
                 }
                 let then_ty = self.check_expr(then_branch);
                 if let Some(else_expr) = else_branch {
@@ -374,7 +376,7 @@ impl Checker {
                     if let Some(guard) = &arm.guard {
                         let guard_ty = self.check_expr(guard);
                         if guard_ty != Ty::Bool && !guard_ty.is_error() {
-                            self.err(format!("match guard must be Bool, got `{guard_ty}`"));
+                            self.err(ErrorCode::E601, format!("match guard must be Bool, got `{guard_ty}`"));
                         }
                     }
 
@@ -410,7 +412,7 @@ impl Checker {
                 match fn_ty {
                     Ty::Fn(params, ret, caps) => {
                         if params.len() != 1 {
-                            self.err(format!(
+                            self.err(ErrorCode::E203, format!(
                                 "pipe target expects 1 argument, function takes {}",
                                 params.len()
                             ));
@@ -422,7 +424,7 @@ impl Checker {
                     }
                     Ty::Error => Ty::Error,
                     _ => {
-                        self.err(format!("pipe target must be a function, got `{fn_ty}`"));
+                        self.err(ErrorCode::E203, format!("pipe target must be a function, got `{fn_ty}`"));
                         Ty::Error
                     }
                 }
@@ -436,17 +438,17 @@ impl Checker {
                             if let Some((_, fty)) = fields.iter().find(|(n, _)| n == field) {
                                 fty.clone()
                             } else {
-                                self.err(format!("struct `{name}` has no field `{field}`"));
+                                self.err(ErrorCode::E501, format!("struct `{name}` has no field `{field}`"));
                                 Ty::Error
                             }
                         } else {
-                            self.err(format!("type `{name}` has no fields"));
+                            self.err(ErrorCode::E502, format!("type `{name}` has no fields"));
                             Ty::Error
                         }
                     }
                     Ty::Error => Ty::Error,
                     _ => {
-                        self.err(format!("cannot access field `{field}` on type `{ty}`"));
+                        self.err(ErrorCode::E502, format!("cannot access field `{field}` on type `{ty}`"));
                         Ty::Error
                     }
                 }
@@ -459,12 +461,12 @@ impl Checker {
                         if let Some((_, expected)) = def_fields.iter().find(|(n, _)| n == fname) {
                             self.unify(expected, &fty, &format!("struct field `{fname}`"));
                         } else {
-                            self.err(format!("struct `{name}` has no field `{fname}`"));
+                            self.err(ErrorCode::E501, format!("struct `{name}` has no field `{fname}`"));
                         }
                     }
                     Ty::Named(name.clone())
                 } else {
-                    self.err(format!("undefined struct `{name}`"));
+                    self.err(ErrorCode::E102, format!("undefined struct `{name}`"));
                     Ty::Error
                 }
             }
@@ -553,7 +555,7 @@ impl Checker {
                     return Ty::Str;
                 }
                 if !lt.is_numeric() {
-                    self.err(format!("cannot apply `{op:?}` to type `{lt}`"));
+                    self.err(ErrorCode::E002, format!("cannot apply `{op:?}` to type `{lt}`"));
                     return Ty::Error;
                 }
                 self.unify(&lt, &rt, "arithmetic operands");
@@ -567,20 +569,20 @@ impl Checker {
             // Logical: both Bool
             BinOp::And | BinOp::Or => {
                 if lt != Ty::Bool {
-                    self.err(format!("logical `{op:?}` expects Bool, got `{lt}`"));
+                    self.err(ErrorCode::E002, format!("logical `{op:?}` expects Bool, got `{lt}`"));
                 }
                 if rt != Ty::Bool {
-                    self.err(format!("logical `{op:?}` expects Bool, got `{rt}`"));
+                    self.err(ErrorCode::E002, format!("logical `{op:?}` expects Bool, got `{rt}`"));
                 }
                 Ty::Bool
             }
             // Bitwise: both Int
             BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
                 if lt != Ty::Int {
-                    self.err(format!("bitwise `{op:?}` expects Int, got `{lt}`"));
+                    self.err(ErrorCode::E002, format!("bitwise `{op:?}` expects Int, got `{lt}`"));
                 }
                 if rt != Ty::Int {
-                    self.err(format!("bitwise `{op:?}` expects Int, got `{rt}`"));
+                    self.err(ErrorCode::E002, format!("bitwise `{op:?}` expects Int, got `{rt}`"));
                 }
                 Ty::Int
             }
@@ -602,7 +604,7 @@ impl Checker {
             };
 
             if param_tys.len() != args.len() {
-                self.err(format!(
+                self.err(ErrorCode::E201, format!(
                     "function `{name}` expects {} arguments, got {}",
                     param_tys.len(),
                     args.len()
@@ -628,7 +630,7 @@ impl Checker {
         match fn_ty {
             Ty::Fn(param_tys, ret_ty, caps) => {
                 if param_tys.len() != args.len() {
-                    self.err(format!(
+                    self.err(ErrorCode::E201, format!(
                         "function expects {} arguments, got {}",
                         param_tys.len(),
                         args.len()
@@ -644,7 +646,7 @@ impl Checker {
             }
             Ty::Error => Ty::Error,
             _ => {
-                self.err(format!("cannot call non-function type `{fn_ty}`"));
+                self.err(ErrorCode::E202, format!("cannot call non-function type `{fn_ty}`"));
                 Ty::Error
             }
         }
@@ -811,7 +813,7 @@ impl Checker {
             .map(|s| s.as_str())
             .collect();
         if !missing.is_empty() {
-            self.err(format!(
+            self.err(ErrorCode::E401, format!(
                 "missing capabilities [{}]: caller does not declare them",
                 missing.join(", ")
             ));
@@ -828,7 +830,7 @@ impl Checker {
             .map(|s| s.as_str())
             .collect();
         if !missing.is_empty() {
-            self.err(format!(
+            self.err(ErrorCode::E402, format!(
                 "missing errors [{}] in `?`: caller does not declare them in its error set",
                 missing.join(", ")
             ));
@@ -858,7 +860,7 @@ impl Checker {
         // Type variable binding
         if let Ty::Var(id) = e {
             if self.occurs_in(id, &a) {
-                self.err(format!("infinite type: ?T{id} occurs in `{a}`"));
+                self.err(ErrorCode::E003, format!("infinite type: ?T{id} occurs in `{a}`"));
                 return;
             }
             self.substitution.insert(id, a);
@@ -866,7 +868,7 @@ impl Checker {
         }
         if let Ty::Var(id) = a {
             if self.occurs_in(id, &e) {
-                self.err(format!("infinite type: ?T{id} occurs in `{e}`"));
+                self.err(ErrorCode::E003, format!("infinite type: ?T{id} occurs in `{e}`"));
                 return;
             }
             self.substitution.insert(id, e);
@@ -896,7 +898,7 @@ impl Checker {
                 }
             }
             _ => {
-                self.err(format!(
+                self.err(ErrorCode::E001, format!(
                     "type mismatch in {context}: expected `{e}`, got `{a}`"
                 ));
             }
@@ -936,7 +938,7 @@ impl Checker {
             }
             Pattern::IntLit(_) => {
                 if *scrutinee_ty != Ty::Int && !scrutinee_ty.is_error() {
-                    self.err(format!(
+                    self.err(ErrorCode::E302, format!(
                         "integer pattern cannot match type `{scrutinee_ty}`"
                     ));
                 }
@@ -944,7 +946,7 @@ impl Checker {
             }
             Pattern::StrLit(_) => {
                 if *scrutinee_ty != Ty::Str && !scrutinee_ty.is_error() {
-                    self.err(format!(
+                    self.err(ErrorCode::E302, format!(
                         "string pattern cannot match type `{scrutinee_ty}`"
                     ));
                 }
@@ -952,7 +954,7 @@ impl Checker {
             }
             Pattern::BoolLit(_) => {
                 if *scrutinee_ty != Ty::Bool && !scrutinee_ty.is_error() {
-                    self.err(format!(
+                    self.err(ErrorCode::E302, format!(
                         "boolean pattern cannot match type `{scrutinee_ty}`"
                     ));
                 }
@@ -969,7 +971,7 @@ impl Checker {
                         self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
 
                         if sub_pats.len() != field_tys.len() {
-                            self.err(format!(
+                            self.err(ErrorCode::E201, format!(
                                 "variant `{name}` expects {} fields, got {}",
                                 field_tys.len(),
                                 sub_pats.len()
@@ -984,7 +986,7 @@ impl Checker {
                     }
                 }
                 if !scrutinee_ty.is_error() {
-                    self.err(format!("unknown variant `{name}`"));
+                    self.err(ErrorCode::E103, format!("unknown variant `{name}`"));
                 }
                 vec![]
             }
@@ -999,13 +1001,13 @@ impl Checker {
                         if let Some((_, fty)) = def_fields.iter().find(|(n, _)| n == fname) {
                             bindings.extend(self.check_pattern(fpat, fty));
                         } else {
-                            self.err(format!("struct `{name}` has no field `{fname}`"));
+                            self.err(ErrorCode::E501, format!("struct `{name}` has no field `{fname}`"));
                         }
                     }
                     bindings
                 } else {
                     if !scrutinee_ty.is_error() {
-                        self.err(format!("unknown struct `{name}` in pattern"));
+                        self.err(ErrorCode::E102, format!("unknown struct `{name}` in pattern"));
                     }
                     vec![]
                 }
@@ -1048,7 +1050,7 @@ impl Checker {
                     let mut missing = vec![];
                     if !has_true { missing.push("true"); }
                     if !has_false { missing.push("false"); }
-                    self.err(format!(
+                    self.err(ErrorCode::E301, format!(
                         "non-exhaustive match: missing pattern(s) {}",
                         missing.join(", ")
                     ));
@@ -1072,7 +1074,7 @@ impl Checker {
                         .collect();
 
                     if !missing.is_empty() {
-                        self.err(format!(
+                        self.err(ErrorCode::E301, format!(
                             "non-exhaustive match on `{name}`: missing variant(s) {}",
                             missing.join(", ")
                         ));
@@ -1080,7 +1082,7 @@ impl Checker {
                 }
             }
             Ty::Int | Ty::Float | Ty::Str => {
-                self.err(format!(
+                self.err(ErrorCode::E301, format!(
                     "non-exhaustive match: `{}` requires a wildcard `_` or variable pattern",
                     scrutinee_ty
                 ));
@@ -1089,8 +1091,8 @@ impl Checker {
         }
     }
 
-    fn err(&mut self, message: String) {
-        self.errors.push(TypeError::new(message));
+    fn err(&mut self, code: ErrorCode, message: String) {
+        self.errors.push(TypeError::new(code, message));
     }
 
     /// Find registered functions whose return type matches the expected type.
@@ -1107,6 +1109,71 @@ impl Checker {
             .collect();
         suggestions.sort();
         suggestions
+    }
+
+    /// Build a dependency graph between holes based on shared type variables.
+    fn build_hole_dependency_graph(&self) -> HoleDependencyGraph {
+        let mut graph = HoleDependencyGraph::new();
+
+        for hole in &self.hole_report.holes {
+            graph.add_hole(hole.name.clone());
+        }
+
+        let hole_vars: Vec<(&str, HashSet<u32>)> = self
+            .hole_report
+            .holes
+            .iter()
+            .map(|h| {
+                let vars = self.collect_type_vars(&h.expected_type);
+                (h.name.as_str(), vars)
+            })
+            .collect();
+
+        // Two holes that share a type variable are dependent
+        for (i, (name1, vars1)) in hole_vars.iter().enumerate() {
+            for (name2, vars2) in hole_vars.iter().skip(i + 1) {
+                if vars1.iter().any(|v| vars2.contains(v)) {
+                    graph.add_dependency(name2.to_string(), name1.to_string());
+                }
+            }
+        }
+
+        graph
+    }
+
+    /// Collect all type variable IDs in a type (following substitutions).
+    fn collect_type_vars(&self, ty: &Ty) -> HashSet<u32> {
+        let mut vars = HashSet::new();
+        self.collect_type_vars_inner(ty, &mut vars);
+        vars
+    }
+
+    fn collect_type_vars_inner(&self, ty: &Ty, vars: &mut HashSet<u32>) {
+        match ty {
+            Ty::Var(id) => {
+                vars.insert(*id);
+                if let Some(resolved) = self.substitution.get(id) {
+                    self.collect_type_vars_inner(resolved, vars);
+                }
+            }
+            Ty::Fn(params, ret, _) => {
+                for p in params {
+                    self.collect_type_vars_inner(p, vars);
+                }
+                self.collect_type_vars_inner(ret, vars);
+            }
+            Ty::App(_, args) => {
+                for a in args {
+                    self.collect_type_vars_inner(a, vars);
+                }
+            }
+            Ty::Tuple(ts) => {
+                for t in ts {
+                    self.collect_type_vars_inner(t, vars);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
