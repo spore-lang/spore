@@ -1,7 +1,9 @@
 /// spore-typeck — Spore type checker and analysis
 ///
 /// Performs type checking, capability verification, and cost analysis.
+pub mod capability;
 pub mod check;
+pub mod concurrency;
 pub mod cost;
 pub mod env;
 pub mod error;
@@ -10,6 +12,7 @@ pub mod hole;
 pub mod incremental;
 pub mod lower;
 pub mod module;
+pub mod platform;
 pub mod sig_hash;
 pub mod types;
 

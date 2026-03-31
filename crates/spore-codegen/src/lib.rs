@@ -2,6 +2,7 @@
 ///
 /// PoC: tree-walking interpreter for direct AST evaluation.
 /// Prototype: will add Cranelift backend for native compilation.
+pub mod backend;
 pub mod interpret;
 pub mod value;
 

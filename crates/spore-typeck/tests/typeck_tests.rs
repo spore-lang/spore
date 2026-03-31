@@ -1,5 +1,6 @@
 use spore_parser::parse;
 use spore_typeck::cost::CostResult;
+use spore_typeck::error::ErrorCode;
 use spore_typeck::type_check;
 use spore_typeck::types::Ty;
 
@@ -21,6 +22,14 @@ fn check_err(src: &str) -> Vec<String> {
     match type_check(&module) {
         Ok(_) => panic!("expected type error, but check succeeded"),
         Err(errs) => errs.into_iter().map(|e| e.message).collect(),
+    }
+}
+
+fn check_err_with_codes(src: &str) -> Vec<(ErrorCode, String)> {
+    let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    match type_check(&module) {
+        Ok(_) => panic!("expected type error, but check succeeded"),
+        Err(errs) => errs.into_iter().map(|e| (e.code, e.message)).collect(),
     }
 }
 
@@ -820,4 +829,65 @@ fn impl_unknown_capability_error() {
     "#,
     );
     assert!(errs.iter().any(|e| e.contains("unknown capability")));
+}
+
+// ── Error code tests ─────────────────────────────────────────────────
+
+#[test]
+fn error_code_type_mismatch() {
+    let errs = check_err_with_codes(r#"fn f() -> Int { "oops" }"#);
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E001));
+}
+
+#[test]
+fn error_code_in_display_output() {
+    let module = parse(r#"fn f() -> Int { "oops" }"#).unwrap();
+    let errs = type_check(&module).unwrap_err();
+    let output = errs[0].to_string();
+    assert!(output.contains("[E001]"), "display should contain [E001], got: {output}");
+}
+
+#[test]
+fn error_code_undefined_variable() {
+    let errs = check_err_with_codes("fn f() -> Int { x }");
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E101));
+}
+
+#[test]
+fn error_code_wrong_arg_count() {
+    let errs = check_err_with_codes(
+        r#"
+        fn add(a: Int, b: Int) -> Int { a }
+        fn main() -> Int { add(1) }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E201));
+}
+
+#[test]
+fn error_code_cannot_call_non_function() {
+    let errs = check_err_with_codes("fn f() -> Int { let x: Int = 1; x(2) }");
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E202));
+}
+
+#[test]
+fn error_code_missing_capabilities() {
+    let errs = check_err_with_codes(
+        r#"
+        fn fetch(url: String) -> String uses [NetRead] { "data" }
+        fn process() -> String { fetch("http://example.com") }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E401));
+}
+
+#[test]
+fn error_code_no_such_field() {
+    let errs = check_err_with_codes(
+        r#"
+        struct Point { x: Int, y: Int }
+        fn f() -> Int { let p = Point { x: 1, y: 2 }; p.z }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E501));
 }
