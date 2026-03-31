@@ -385,62 +385,62 @@ impl<'a> Lexer<'a> {
 
     fn read_number(&mut self, start: usize) -> Result<Spanned<Token>, LexError> {
         // Check for 0x, 0b, 0o prefixes
-        if self.bytes[start] == b'0' {
-            if let Some(prefix) = self.peek() {
-                match prefix {
-                    b'x' | b'X' => {
-                        self.pos += 1; // skip 'x'
-                        while let Some(b) = self.peek() {
-                            if b.is_ascii_hexdigit() || b == b'_' {
-                                self.pos += 1;
-                            } else {
-                                break;
-                            }
+        if self.bytes[start] == b'0'
+            && let Some(prefix) = self.peek()
+        {
+            match prefix {
+                b'x' | b'X' => {
+                    self.pos += 1; // skip 'x'
+                    while let Some(b) = self.peek() {
+                        if b.is_ascii_hexdigit() || b == b'_' {
+                            self.pos += 1;
+                        } else {
+                            break;
                         }
-                        let text = &self.source[start + 2..self.pos];
-                        let text = text.replace('_', "");
-                        let val = i64::from_str_radix(&text, 16).map_err(|e| LexError {
-                            message: format!("invalid hex literal: {e}"),
-                            span: Span::new(start, self.pos),
-                        })?;
-                        return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
                     }
-                    b'b' | b'B' => {
-                        self.pos += 1;
-                        while let Some(b) = self.peek() {
-                            if b == b'0' || b == b'1' || b == b'_' {
-                                self.pos += 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        let text = &self.source[start + 2..self.pos];
-                        let text = text.replace('_', "");
-                        let val = i64::from_str_radix(&text, 2).map_err(|e| LexError {
-                            message: format!("invalid binary literal: {e}"),
-                            span: Span::new(start, self.pos),
-                        })?;
-                        return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
-                    }
-                    b'o' | b'O' => {
-                        self.pos += 1;
-                        while let Some(b) = self.peek() {
-                            if (b'0'..=b'7').contains(&b) || b == b'_' {
-                                self.pos += 1;
-                            } else {
-                                break;
-                            }
-                        }
-                        let text = &self.source[start + 2..self.pos];
-                        let text = text.replace('_', "");
-                        let val = i64::from_str_radix(&text, 8).map_err(|e| LexError {
-                            message: format!("invalid octal literal: {e}"),
-                            span: Span::new(start, self.pos),
-                        })?;
-                        return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
-                    }
-                    _ => {}
+                    let text = &self.source[start + 2..self.pos];
+                    let text = text.replace('_', "");
+                    let val = i64::from_str_radix(&text, 16).map_err(|e| LexError {
+                        message: format!("invalid hex literal: {e}"),
+                        span: Span::new(start, self.pos),
+                    })?;
+                    return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
                 }
+                b'b' | b'B' => {
+                    self.pos += 1;
+                    while let Some(b) = self.peek() {
+                        if b == b'0' || b == b'1' || b == b'_' {
+                            self.pos += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let text = &self.source[start + 2..self.pos];
+                    let text = text.replace('_', "");
+                    let val = i64::from_str_radix(&text, 2).map_err(|e| LexError {
+                        message: format!("invalid binary literal: {e}"),
+                        span: Span::new(start, self.pos),
+                    })?;
+                    return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
+                }
+                b'o' | b'O' => {
+                    self.pos += 1;
+                    while let Some(b) = self.peek() {
+                        if (b'0'..=b'7').contains(&b) || b == b'_' {
+                            self.pos += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let text = &self.source[start + 2..self.pos];
+                    let text = text.replace('_', "");
+                    let val = i64::from_str_radix(&text, 8).map_err(|e| LexError {
+                        message: format!("invalid octal literal: {e}"),
+                        span: Span::new(start, self.pos),
+                    })?;
+                    return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
+                }
+                _ => {}
             }
         }
 

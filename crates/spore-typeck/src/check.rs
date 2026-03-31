@@ -112,10 +112,10 @@ impl Checker {
     // ── Checking (second pass) ──────────────────────────────────────
 
     fn check_item(&mut self, item: &Item) {
-        match item {
-            Item::Function(f) => self.check_fn(f),
-            _ => {} // structs/types already registered; capabilities/imports deferred
+        if let Item::Function(f) = item {
+            self.check_fn(f);
         }
+        // structs/types already registered; capabilities/imports deferred
     }
 
     fn check_fn(&mut self, f: &FnDef) {
@@ -137,8 +137,8 @@ impl Checker {
             .as_ref()
             .map(|t| self.resolve_type(t))
             .unwrap_or(Ty::Unit);
-        let prev_expected =
-            std::mem::replace(&mut self.expected_return_type, Some(declared_ret.clone()));
+        let prev_expected = self.expected_return_type.take();
+        self.expected_return_type = Some(declared_ret.clone());
 
         self.env.push_scope();
 
@@ -438,37 +438,36 @@ impl Checker {
 
     fn check_call(&mut self, callee: &Expr, args: &[Expr]) -> Ty {
         // Direct call by name: `foo(args)`
-        if let Expr::Var(name) = callee {
-            if let Some((param_tys, ret_ty, callee_caps)) =
+        if let Expr::Var(name) = callee
+            && let Some((param_tys, ret_ty, callee_caps)) =
                 self.registry.functions.get(name).cloned()
-            {
-                // Instantiate generic functions with fresh type variables
-                let (param_tys, ret_ty) = match self.registry.fn_type_params.get(name).cloned() {
-                    Some(ref tp) if !tp.is_empty() => self.instantiate_sig(tp, &param_tys, &ret_ty),
-                    _ => (param_tys, ret_ty),
-                };
+        {
+            // Instantiate generic functions with fresh type variables
+            let (param_tys, ret_ty) = match self.registry.fn_type_params.get(name).cloned() {
+                Some(ref tp) if !tp.is_empty() => self.instantiate_sig(tp, &param_tys, &ret_ty),
+                _ => (param_tys, ret_ty),
+            };
 
-                if param_tys.len() != args.len() {
-                    self.err(format!(
-                        "function `{name}` expects {} arguments, got {}",
-                        param_tys.len(),
-                        args.len()
-                    ));
-                    return self.apply_subst(&ret_ty);
-                }
-                for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
-                    let arg_ty = self.check_expr(arg_expr);
-                    self.unify(
-                        expected,
-                        &arg_ty,
-                        &format!("argument {} of `{name}`", i + 1),
-                    );
-                }
-                self.check_cap_propagation(&callee_caps);
+            if param_tys.len() != args.len() {
+                self.err(format!(
+                    "function `{name}` expects {} arguments, got {}",
+                    param_tys.len(),
+                    args.len()
+                ));
                 return self.apply_subst(&ret_ty);
             }
-            // Could be a variable holding a function
+            for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
+                let arg_ty = self.check_expr(arg_expr);
+                self.unify(
+                    expected,
+                    &arg_ty,
+                    &format!("argument {} of `{name}`", i + 1),
+                );
+            }
+            self.check_cap_propagation(&callee_caps);
+            return self.apply_subst(&ret_ty);
         }
+        // Could be a variable holding a function
 
         // Method call: `obj.method(args)` — callee is FieldAccess
         // General case: check callee type

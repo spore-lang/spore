@@ -15,12 +15,7 @@ impl LspServer {
     }
 
     pub fn run(&mut self) {
-        loop {
-            let msg = match self.read_message() {
-                Some(m) => m,
-                None => break,
-            };
-
+        while let Some(msg) = self.read_message() {
             let method = msg.get("method").and_then(|m| m.as_str());
             let id = msg.get("id").cloned();
 
@@ -46,13 +41,13 @@ impl LspServer {
                 }
                 Some("initialized") => {}
                 Some("textDocument/didOpen") => {
-                    if let Some(params) = msg.get("params") {
-                        if let Some(doc) = params.get("textDocument") {
-                            let uri = doc["uri"].as_str().unwrap_or("").to_string();
-                            let text = doc["text"].as_str().unwrap_or("").to_string();
-                            self.documents.insert(uri.clone(), text.clone());
-                            self.publish_diagnostics(&uri, &text);
-                        }
+                    if let Some(params) = msg.get("params")
+                        && let Some(doc) = params.get("textDocument")
+                    {
+                        let uri = doc["uri"].as_str().unwrap_or("").to_string();
+                        let text = doc["text"].as_str().unwrap_or("").to_string();
+                        self.documents.insert(uri.clone(), text.clone());
+                        self.publish_diagnostics(&uri, &text);
                     }
                 }
                 Some("textDocument/didChange") => {
@@ -61,12 +56,12 @@ impl LspServer {
                             .as_str()
                             .unwrap_or("")
                             .to_string();
-                        if let Some(changes) = params["contentChanges"].as_array() {
-                            if let Some(last) = changes.last() {
-                                let text = last["text"].as_str().unwrap_or("").to_string();
-                                self.documents.insert(uri.clone(), text.clone());
-                                self.publish_diagnostics(&uri, &text);
-                            }
+                        if let Some(changes) = params["contentChanges"].as_array()
+                            && let Some(last) = changes.last()
+                        {
+                            let text = last["text"].as_str().unwrap_or("").to_string();
+                            self.documents.insert(uri.clone(), text.clone());
+                            self.publish_diagnostics(&uri, &text);
                         }
                     }
                 }

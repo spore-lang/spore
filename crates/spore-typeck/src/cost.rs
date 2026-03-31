@@ -59,6 +59,12 @@ pub struct CostAnalyzer {
     results: HashMap<String, CostResult>,
 }
 
+impl Default for CostAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CostAnalyzer {
     pub fn new() -> Self {
         CostAnalyzer {
@@ -209,11 +215,11 @@ fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg
     match expr {
         Expr::Call(callee, args) => {
             // Check if the callee is `fn_name`
-            if let Expr::Var(name) = callee.as_ref() {
-                if name == fn_name {
-                    let classified: Vec<CallArg> = args.iter().map(|a| classify_arg(a)).collect();
-                    out.push(classified);
-                }
+            if let Expr::Var(name) = callee.as_ref()
+                && name == fn_name
+            {
+                let classified: Vec<CallArg> = args.iter().map(classify_arg).collect();
+                out.push(classified);
             }
             // Also recurse into callee and args
             collect_recursive_calls(fn_name, callee, out);

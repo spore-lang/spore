@@ -20,6 +20,7 @@ fn test_int_literal() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_float_literal() {
     let v = run_main("fn main() -> Float { 3.14 }");
     assert_eq!(v.as_float(), Some(3.14));

@@ -236,10 +236,10 @@ impl Interpreter {
                     .collect::<Result<_>>()?;
 
                 // Direct function call by name
-                if let Expr::Var(name) = callee.as_ref() {
-                    if self.functions.contains_key(name) {
-                        return self.call_function(name, arg_vals);
-                    }
+                if let Expr::Var(name) = callee.as_ref()
+                    && self.functions.contains_key(name)
+                {
+                    return self.call_function(name, arg_vals);
                 }
                 // Method call: Expr::FieldAccess was turned into Call(FieldAccess(...), args)
                 // For now just evaluate callee and call as closure

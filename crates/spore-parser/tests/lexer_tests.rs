@@ -49,6 +49,7 @@ fn test_integer_underscores() {
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_float_literal() {
     assert_eq!(toks_no_eof("3.14"), vec![Token::Float(3.14)]);
 }
