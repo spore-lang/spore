@@ -332,7 +332,7 @@ function try_fill(agent: Agent, hole: Hole) -> FillResult:
 // NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
 
 function detect_cycle(G: Graph) -> Option<List<Hole>>:
-    color = { h: WHITE for h in V }
+    color = V |> fold({}, fn(m, h) { m.insert(h, WHITE) })
     parent = {}
 
     function dfs(h):

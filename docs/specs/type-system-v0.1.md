@@ -407,11 +407,7 @@ where
     C: Collection
     C.Item: Add<Output = Int>
 {
-    let mut total = 0
-    for item in collection.iter() {
-        total = total + item
-    }
-    total
+    collection.iter() |> fold(0, fn(total, item) { total + item })
 }
 
 -- Without associated types (verbose, requires extra params):
@@ -1676,11 +1672,11 @@ cost <= 500
     if items.is_empty() {
         raise EmptyItems
     }
-    for item in items {
+    items |> each(fn(item) {
         if item.quantity <= 0 {
             raise InvalidQuantity { item: item.name, quantity: item.quantity }
         }
-    }
+    })
     items
 }
 

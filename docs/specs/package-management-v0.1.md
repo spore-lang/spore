@@ -446,17 +446,23 @@ def resolve_dependencies(manifest: SporeToml) -> DepGraph:
     graph = DepGraph()
     queue = [(manifest.package, manifest.dependencies)]
 
-    while queue:
-        (pkg, deps) = queue.pop()
-        for dep in deps:
-            # 精确哈希匹配,无需协商
-            if dep.sig not in graph:
-                source = fetch_source(dep.source)
-                verify_hash(source, dep.sig, dep.impl)
-                graph.add(dep)
-                queue.append((dep, source.dependencies))
+    // NOTE: Algorithm pseudocode — Spore has no loop constructs.
+    // Recursive resolution: process queue until empty
+    fn resolve_next(queue, graph):
+        match queue:
+            [] => graph
+            [(pkg, deps), ...rest] =>
+                let (new_graph, new_queue) = deps |> fold((graph, rest), fn((g, q), dep) {
+                    match dep.sig in g:
+                        true => (g, q)
+                        false =>
+                            let source = fetch_source(dep.source)
+                            verify_hash(source, dep.sig, dep.impl)
+                            (g.add(dep), q ++ [(dep, source.dependencies)])
+                })
+                resolve_next(new_queue, new_graph)
 
-    return graph
+    resolve_next(queue, graph)
 ```
 
 ### 5.2 Diamond 依赖 (Diamond Dependencies)

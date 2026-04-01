@@ -249,8 +249,8 @@ struct Point {
 /// 用户账户 (User account)
 struct User {
     id: U64,
-    name: Str,
-    email: Str,
+    name: String,
+    email: String,
     age: U32,
 } implements [Display, Serialize]
 ```
@@ -278,7 +278,7 @@ struct NoData;
 
 ```spore
 type UserId = U64;
-type Callback = fn(I32) -> Str;
+type Callback = fn(I32) -> String;
 ```
 
 #### 3.2.2 枚举与求和类型 (Enum & sum type)
@@ -314,12 +314,12 @@ Capability 是 Spore 的 trait/interface 机制，同时也是能力系统的一
 ```spore
 /// 可显示 capability (Display capability)
 capability Display {
-    fn to_string(self) -> Str;
+    fn to_string(self) -> String;
 }
 
 /// 可序列化 capability (Serializable capability)
 capability Serialize {
-    fn serialize(self) -> Str ! [SerializeError];
+    fn serialize(self) -> String ! [SerializeError];
 }
 
 /// 带关联类型的 capability (Capability with associated type)
@@ -393,7 +393,7 @@ let identity: Matrix[F64, 3, 3] = Matrix.identity();
 
 ```spore
 /// 非空字符串 (Non-empty string)
-type NonEmptyStr = Str if |s| s.len() > 0;
+type NonEmptyStr = String if |s| s.len() > 0;
 
 /// 正整数 (Positive integer)
 type PositiveInt = I32 if |n| n > 0;
@@ -616,14 +616,14 @@ let sum = numbers.fold(0, |acc, x| acc + x);
 
 ```spore
 /// 基本用法 (Basic usage)
-fn read_config(path: Str) -> Config ! [IoError, ParseError] {
+fn read_config(path: String) -> Config ! [IoError, ParseError] {
     let content = read_file(path)?;  // 如果失败，立即返回错误
     let config = parse_config(content)?;  // 同上
     config  // 成功则返回配置
 }
 
 /// 链式传播 (Chained propagation)
-fn process_data(input: Str) -> Result ! [ValidationError, ProcessError] {
+fn process_data(input: String) -> Result ! [ValidationError, ProcessError] {
     let validated = validate(input)?;
     let transformed = transform(validated)?;
     let result = finalize(transformed)?;
@@ -741,7 +741,7 @@ fn map[A, B](list: List[A], f: fn(A) -> B) -> List[B] {
 
 ```spore
 /// 声明 I/O 效应 (Declaring I/O effects)
-fn read_file(path: Str) -> Str ! [IoError]
+fn read_file(path: String) -> String ! [IoError]
 uses [FileRead]
 {
     // 实现代码 (Implementation)
@@ -749,7 +749,7 @@ uses [FileRead]
 }
 
 /// 声明网络效应 (Declaring network effects)
-fn fetch_data(url: Str) -> Data ! [NetworkError]
+fn fetch_data(url: String) -> Data ! [NetworkError]
 uses [Network]
 {
     ?implementation
@@ -793,7 +793,7 @@ cost ≤ n * 10
 
 ```spore
 /// 声明资源依赖 (Declaring resource dependencies)
-fn query_database(sql: Str) -> Result[Data] ! [DbError]
+fn query_database(sql: String) -> Result[Data] ! [DbError]
 uses [Database, db_connection]
 {
     ?implementation
@@ -1095,7 +1095,7 @@ alias HashMap = std.collections.HashMap;
 ```spore
 /// 声明模块需要的 capability (Declare required capabilities)
 module http_client uses [Network, Allocate] {
-    pub fn fetch(url: Str) -> Result[Str] ! [NetworkError]
+    pub fn fetch(url: String) -> Result[String] ! [NetworkError]
     {
         ?implementation
     }
@@ -1103,7 +1103,7 @@ module http_client uses [Network, Allocate] {
 
 /// 声明多个依赖 (Multiple dependencies)
 module database uses [Database, FileRead, FileWrite, Allocate] {
-    pub fn init(path: Str) -> Connection ! [IoError] {
+    pub fn init(path: String) -> Connection ! [IoError] {
         ?implementation
     }
 }
@@ -1154,7 +1154,7 @@ parallel_scope {
 }
 
 /// 多生产者单消费者 (Multiple producers single consumer)
-let (tx, rx) = Channel.new[Str](buffer: 5);
+let (tx, rx) = Channel.new[String](buffer: 5);
 
 parallel_scope {
     let tx1 = tx.clone();
@@ -1181,11 +1181,11 @@ parallel_scope {
 ```spore
 /// 多路复用 channel (Multiplex channels)
 let (tx1, rx1) = Channel.new[I32](buffer: 1);
-let (tx2, rx2) = Channel.new[Str](buffer: 1);
+let (tx2, rx2) = Channel.new[String](buffer: 1);
 
 parallel_scope {
     /// 递归事件循环 (Recursive event loop with TCO)
-    fn event_loop(rx1: Channel.Receiver[I32], rx2: Channel.Receiver[Str]) {
+    fn event_loop(rx1: Channel.Receiver[I32], rx2: Channel.Receiver[String]) {
         select {
             value from rx1 => {
                 print(f"Got integer: {value}");
@@ -1258,9 +1258,9 @@ parallel_scope {
 ```spore
 /// 自定义错误类型 (Custom error type)
 type FileError =
-    | NotFound(path: Str)
-    | PermissionDenied(path: Str)
-    | IoError(message: Str);
+    | NotFound(path: String)
+    | PermissionDenied(path: String)
+    | IoError(message: String);
 
 type NetworkError =
     | Timeout
@@ -1268,8 +1268,8 @@ type NetworkError =
     | InvalidResponse(code: I32);
 
 type ParseError =
-    | SyntaxError(line: U32, column: U32, message: Str)
-    | UnexpectedToken(token: Str)
+    | SyntaxError(line: U32, column: U32, message: String)
+    | UnexpectedToken(token: String)
     | UnexpectedEof;
 ```
 
@@ -1277,19 +1277,19 @@ type ParseError =
 
 ```spore
 /// 单一错误类型 (Single error type)
-fn read_file(path: Str) -> Str ! [FileError] {
+fn read_file(path: String) -> String ! [FileError] {
     ?implementation
 }
 
 /// 多种错误类型 (Multiple error types)
-fn fetch_and_parse(url: Str) -> Data ! [NetworkError, ParseError] {
+fn fetch_and_parse(url: String) -> Data ! [NetworkError, ParseError] {
     let response = fetch(url)?;  // 可能抛出 NetworkError
     let data = parse(response)?;  // 可能抛出 ParseError
     data
 }
 
 /// 泛型错误 (Generic error)
-fn try_parse[T, E](input: Str, parser: fn(Str) -> Result[T, E]) -> T ! [E] {
+fn try_parse[T, E](input: String, parser: fn(String) -> Result[T, E]) -> T ! [E] {
     match parser(input) {
         Ok(value) => value,
         Err(e) => throw e,  // 抛出错误
@@ -1301,7 +1301,7 @@ fn try_parse[T, E](input: Str, parser: fn(Str) -> Result[T, E]) -> T ! [E] {
 
 ```spore
 /// 自动传播错误 (Automatic error propagation)
-fn process_file(path: Str) -> Data ! [FileError, ParseError] {
+fn process_file(path: String) -> Data ! [FileError, ParseError] {
     let content = read_file(path)?;  // FileError 自动传播
     let data = parse(content)?;      // ParseError 自动传播
     validate(data)?;                 // ParseError 自动传播
@@ -1309,7 +1309,7 @@ fn process_file(path: Str) -> Data ! [FileError, ParseError] {
 }
 
 /// 错误转换 (Error transformation)
-fn load_config(path: Str) -> Config ! [ConfigError] {
+fn load_config(path: String) -> Config ! [ConfigError] {
     let content = read_file(path)?;  // FileError -> ConfigError
     let config = parse_toml(content)?;  // ParseError -> ConfigError
     config
@@ -1364,9 +1364,9 @@ fn get_config() -> Config {
 }
 
 /// 重试逻辑 (Retry logic)
-fn fetch_with_retry(url: Str, max_retries: I32) -> Data ! [NetworkError] {
+fn fetch_with_retry(url: String, max_retries: I32) -> Data ! [NetworkError] {
     /// 递归重试 (Recursive retry with TCO)
-    fn retry(url: Str, attempts: I32, max_retries: I32) -> Data ! [NetworkError] {
+    fn retry(url: String, attempts: I32, max_retries: I32) -> Data ! [NetworkError] {
         match fetch(url) {
             Ok(data) => data,
             Err(NetworkError.Timeout) if attempts < max_retries => {
@@ -1415,7 +1415,7 @@ fn mysterious_function(x: I32) -> ? {
 }  // 编译器推断返回类型为 I32
 
 /// 参数类型 hole (Parameter type hole)
-fn generic_wrapper(value: ?) -> Str {
+fn generic_wrapper(value: ?) -> String {
     f"Value: {value}"
 }
 ```
@@ -1425,7 +1425,7 @@ fn generic_wrapper(value: ?) -> Str {
 ```spore
 /// 使用 @allows 注解限制可用函数 (Use @allows to restrict available functions)
 @allows[validate, sanitize, format]
-fn process_input(raw: Str) -> Result ! [ValidationError] {
+fn process_input(raw: String) -> Result ! [ValidationError] {
     let validated = validate(raw)?;
     let sanitized = sanitize(validated);
     ?final_step  // 此 hole 只能调用 validate/sanitize/format
@@ -1568,7 +1568,7 @@ let user_count = 42;
 let is_valid = true;
 
 fn calculate_total(items: List[Item]) -> F64 { ... }
-fn parse_json(input: Str) -> Result[Json] { ... }
+fn parse_json(input: String) -> Result[Json] { ... }
 
 module http_client { ... }
 module data_processing { ... }
@@ -1600,7 +1600,7 @@ Status.Success
 ```spore
 const MAX_CONNECTIONS: I32 = 100;
 const DEFAULT_TIMEOUT: I32 = 5000;
-const API_BASE_URL: Str = "https://api.example.com";
+const API_BASE_URL: String = "https://api.example.com";
 const PI: F64 = 3.14159265359;
 ```
 
@@ -1625,17 +1625,17 @@ fn cache[Key, Value](key: Key) -> Option[Value] { ... }
 ```spore
 /// HTTP 请求类型 (HTTP request type)
 struct Request {
-    method: Str,
-    path: Str,
-    headers: Map[Str, Str],
-    body: Str,
+    method: String,
+    path: String,
+    headers: Map[String, String],
+    body: String,
 }
 
 /// HTTP 响应类型 (HTTP response type)
 struct Response {
     status: I32,
-    headers: Map[Str, Str],
-    body: Str,
+    headers: Map[String, String],
+    body: String,
 }
 
 /// 路由处理器类型 (Route handler type)
@@ -1643,9 +1643,9 @@ type Handler = fn(Request) -> Response ! [HttpError];
 
 /// HTTP 错误 (HTTP error)
 type HttpError =
-    | BadRequest(message: Str)
-    | NotFound(path: Str)
-    | InternalError(message: Str);
+    | BadRequest(message: String)
+    | NotFound(path: String)
+    | InternalError(message: String);
 
 /// 路由匹配 (Route matching)
 fn route(req: Request) -> Response ! [HttpError] {
@@ -1714,10 +1714,10 @@ uses [Network]
 /// 表达式 AST (Expression AST)
 type Expr =
     | Literal(I32)
-    | Variable(name: Str)
+    | Variable(name: String)
     | BinOp(op: Op, left: Expr, right: Expr)
     | UnaryOp(op: UnaryOp, expr: Expr)
-    | Let(name: Str, value: Expr, body: Expr)
+    | Let(name: String, value: Expr, body: Expr)
     | If(condition: Expr, then_branch: Expr, else_branch: Expr);
 
 /// 二元操作符 (Binary operator)
@@ -1727,13 +1727,13 @@ type Op = Add | Sub | Mul | Div | Equal | LessThan;
 type UnaryOp = Negate | Not;
 
 /// 环境（变量绑定）(Environment - variable bindings)
-type Env = Map[Str, I32];
+type Env = Map[String, I32];
 
 /// 求值错误 (Evaluation error)
 type EvalError =
-    | UndefinedVariable(name: Str)
+    | UndefinedVariable(name: String)
     | DivisionByZero
-    | TypeError(message: Str);
+    | TypeError(message: String);
 
 /// 求值器 (Evaluator)
 fn eval(expr: Expr, env: Env) -> I32 ! [EvalError]
@@ -1821,7 +1821,7 @@ fn example() {
 ```spore
 /// 任务类型 (Task type)
 type Task =
-    | Process(id: I32, data: Str)
+    | Process(id: I32, data: String)
     | Stop;
 
 /// 生产者 (Producer)
@@ -1842,11 +1842,11 @@ fn producer(
 fn consumer(
     id: I32,
     rx: Channel.Receiver[Task],
-    result_tx: Channel.Sender[Str]
+    result_tx: Channel.Sender[String]
 )
 {
     /// 递归处理消息 (Recursive message processing with TCO)
-    fn process(id: I32, rx: Channel.Receiver[Task], result_tx: Channel.Sender[Str]) {
+    fn process(id: I32, rx: Channel.Receiver[Task], result_tx: Channel.Sender[String]) {
         match rx.recv() {
             Task.Process(task_id, data) => {
                 // 模拟处理 (Simulate processing)
@@ -1864,12 +1864,12 @@ fn consumer(
 
 /// 结果收集器 (Result collector)
 fn collector(
-    rx: Channel.Receiver[Str],
+    rx: Channel.Receiver[String],
     expected_count: I32
 )
 {
     /// 递归收集结果 (Recursive result collection with TCO)
-    fn collect(rx: Channel.Receiver[Str], remaining: I32) {
+    fn collect(rx: Channel.Receiver[String], remaining: I32) {
         if remaining <= 0 {
             return;
         }
@@ -1886,7 +1886,7 @@ fn main() {
     let consumer_count = 3;
 
     let (task_tx, task_rx) = Channel.new[Task](buffer: 5);
-    let (result_tx, result_rx) = Channel.new[Str](buffer: 10);
+    let (result_tx, result_rx) = Channel.new[String](buffer: 10);
 
     parallel_scope {
         // 启动生产者 (Start producer)
@@ -1974,7 +1974,7 @@ I32, I64      // 有符号整数 (Signed integers)
 U32, U64      // 无符号整数 (Unsigned integers)
 F32, F64      // 浮点数 (Floating point)
 Bool          // 布尔 (Boolean)
-Str           // 字符串 (String)
+String        // 字符串
 ```
 
 #### 集合类型 (Collection types)
