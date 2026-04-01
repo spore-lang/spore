@@ -264,7 +264,7 @@ fn test_hole() {
             let body = f.body.as_ref().unwrap();
             match body {
                 spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    spore_parser::ast::Expr::Hole(name, _) => assert_eq!(name, "todo"),
+                    spore_parser::ast::Expr::Hole(name, _, _) => assert_eq!(name, "todo"),
                     _ => panic!("expected hole, got {:?}", tail),
                 },
                 _ => panic!("expected block"),
@@ -870,5 +870,68 @@ fn test_int_scientific_notation() {
     match tail {
         Expr::FloatLit(v) => assert_eq!(v, 5e2),
         other => panic!("expected FloatLit, got {:?}", other),
+    }
+}
+
+// ── Batch 4 Item 1: Anonymous record types ─────────────────────────────
+
+#[test]
+fn test_record_type_in_param() {
+    use spore_parser::ast::*;
+    let m = parse_ok("fn f(p: { x: Int, y: Int }) -> Int { 0 }");
+    match &m.items[0] {
+        Item::Function(f) => {
+            match &f.params[0].ty {
+                TypeExpr::Record(fields) => {
+                    assert_eq!(fields.len(), 2);
+                    assert_eq!(fields[0].0, "x");
+                    assert_eq!(fields[1].0, "y");
+                }
+                other => panic!("expected Record type, got {:?}", other),
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+// ── Batch 4 Item 2: Associated types in capabilities ───────────────────
+
+#[test]
+fn test_capability_assoc_type() {
+    use spore_parser::ast::*;
+    let m = parse_ok(r#"
+        capability Iterator[T] {
+            type Output
+            fn next(self: T) -> Output
+        }
+    "#);
+    match &m.items[0] {
+        Item::CapabilityDef(cap) => {
+            assert_eq!(cap.name, "Iterator");
+            assert_eq!(cap.assoc_types.len(), 1);
+            assert_eq!(cap.assoc_types[0].name, "Output");
+            assert!(cap.assoc_types[0].bounds.is_empty());
+            assert_eq!(cap.methods.len(), 1);
+        }
+        _ => panic!("expected CapabilityDef"),
+    }
+}
+
+#[test]
+fn test_capability_assoc_type_with_bound() {
+    use spore_parser::ast::*;
+    let m = parse_ok(r#"
+        capability Container[T] {
+            type Item: Display
+            fn get(self: T) -> Item
+        }
+    "#);
+    match &m.items[0] {
+        Item::CapabilityDef(cap) => {
+            assert_eq!(cap.assoc_types.len(), 1);
+            assert_eq!(cap.assoc_types[0].name, "Item");
+            assert_eq!(cap.assoc_types[0].bounds.len(), 1);
+        }
+        _ => panic!("expected CapabilityDef"),
     }
 }

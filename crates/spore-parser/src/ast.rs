@@ -17,6 +17,11 @@ pub enum Item {
     StructDef(StructDef),
     TypeDef(TypeDef),
     CapabilityDef(CapabilityDef),
+    /// Composite capability alias: `capability IO = [FileRead, FileWrite]`
+    CapabilityAlias {
+        name: String,
+        components: Vec<String>,
+    },
     ImplDef(ImplDef),
     Import(ImportDecl),
     Alias(AliasDef),
@@ -124,11 +129,14 @@ pub enum TypeExpr {
     Named(String),
     Generic(String, Vec<TypeExpr>),
     Tuple(Vec<TypeExpr>),
-    Function(Vec<TypeExpr>, Box<TypeExpr>),
+    /// Function type with optional error set: `fn(Int) -> Int ! ParseError | IoError`
+    Function(Vec<TypeExpr>, Box<TypeExpr>, Vec<TypeExpr>),
     /// Refinement type using `if`: `{ x: Int if x > 0 }`
     ///
     /// Fields: base type, binding name, predicate expression.
     Refinement(Box<TypeExpr>, String, Box<Expr>),
+    /// Anonymous record type: `{ x: Int, y: Int }`
+    Record(Vec<(String, TypeExpr)>),
 }
 
 /// Expression — everything in Spore is an expression.
@@ -150,7 +158,7 @@ pub enum Expr {
     Match(Box<Expr>, Vec<MatchArm>),
     Block(Vec<Stmt>, Option<Box<Expr>>),
     Try(Box<Expr>),
-    Hole(String, Option<Box<TypeExpr>>),
+    Hole(String, Option<Box<TypeExpr>>, Option<Vec<String>>),
     StructLit(String, Vec<(String, Expr)>),
     Spawn(Box<Expr>),
     Await(Box<Expr>),
@@ -251,6 +259,7 @@ pub struct StructDef {
     pub type_params: Vec<String>,
     pub fields: Vec<FieldDef>,
     pub implements: Vec<ImplBlock>,
+    pub deriving: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -266,6 +275,7 @@ pub struct TypeDef {
     pub type_params: Vec<String>,
     pub variants: Vec<Variant>,
     pub implements: Vec<ImplBlock>,
+    pub deriving: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -274,12 +284,20 @@ pub struct Variant {
     pub fields: Vec<TypeExpr>,
 }
 
+/// Associated type declaration inside a capability.
+#[derive(Debug, Clone)]
+pub struct AssocType {
+    pub name: String,
+    pub bounds: Vec<TypeExpr>,
+}
+
 #[derive(Debug, Clone)]
 pub struct CapabilityDef {
     pub name: String,
     pub visibility: Visibility,
     pub type_params: Vec<String>,
     pub methods: Vec<FnDef>,
+    pub assoc_types: Vec<AssocType>,
 }
 
 /// Top-level impl block: `impl Capability for Type { ... }`

@@ -334,7 +334,7 @@ fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg
         | Expr::BoolLit(_)
         | Expr::CharLit(_)
         | Expr::Var(_)
-        | Expr::Hole(_, _) => {}
+        | Expr::Hole(_, _, _) => {}
     }
 }
 

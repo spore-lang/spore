@@ -175,7 +175,7 @@ impl Checker {
                     methods,
                 );
             }
-            Item::Import(_) | Item::Const(_) | Item::Alias(_) => {}
+            Item::Import(_) | Item::Const(_) | Item::Alias(_) | Item::CapabilityAlias { .. } => {}
         }
     }
 
@@ -534,7 +534,7 @@ impl Checker {
                 inner_ty
             }
 
-            Expr::Hole(name, ty_hint) => {
+            Expr::Hole(name, ty_hint, _allows) => {
                 let ty = if let Some(te) = ty_hint {
                     self.resolve_type(te)
                 } else if let Some(ref ret) = self.expected_return_type {
@@ -816,13 +816,20 @@ impl Checker {
             TypeExpr::Tuple(types) => {
                 Ty::Tuple(types.iter().map(|t| self.resolve_type(t)).collect())
             }
-            TypeExpr::Function(params, ret) => {
+            TypeExpr::Function(params, ret, _errors) => {
                 let ptys: Vec<Ty> = params.iter().map(|p| self.resolve_type(p)).collect();
                 Ty::Fn(ptys, Box::new(self.resolve_type(ret)), CapSet::new())
             }
             TypeExpr::Refinement(base, _, _) => {
                 // For PoC, ignore refinement predicates — just use base type
                 self.resolve_type(base)
+            }
+            TypeExpr::Record(fields) => {
+                let resolved = fields
+                    .iter()
+                    .map(|(name, te)| (name.clone(), self.resolve_type(te)))
+                    .collect();
+                Ty::Record(resolved)
             }
         }
     }
@@ -856,6 +863,12 @@ impl Checker {
                 args.iter().map(|a| self.apply_subst(a)).collect(),
             ),
             Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.apply_subst(t)).collect()),
+            Ty::Record(fields) => Ty::Record(
+                fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), self.apply_subst(t)))
+                    .collect(),
+            ),
             _ => ty.clone(),
         }
     }
@@ -870,6 +883,7 @@ impl Checker {
             }
             Ty::App(_, args) => args.iter().any(|a| self.occurs_in(id, a)),
             Ty::Tuple(ts) => ts.iter().any(|t| self.occurs_in(id, t)),
+            Ty::Record(fields) => fields.iter().any(|(_, t)| self.occurs_in(id, t)),
             _ => false,
         }
     }
@@ -901,6 +915,12 @@ impl Checker {
             Ty::Tuple(ts) => {
                 Ty::Tuple(ts.iter().map(|t| self.instantiate_ty(t, mapping)).collect())
             }
+            Ty::Record(fields) => Ty::Record(
+                fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), self.instantiate_ty(t, mapping)))
+                    .collect(),
+            ),
             _ => ty.clone(),
         }
     }
@@ -1029,6 +1049,21 @@ impl Checker {
                 let pairs: Vec<(Ty, Ty)> = t1.iter().cloned().zip(t2.iter().cloned()).collect();
                 for (x, y) in &pairs {
                     self.unify(x, y, context);
+                }
+            }
+            // Width subtyping: actual record may have extra fields
+            (Ty::Record(expected_fields), Ty::Record(actual_fields)) => {
+                for (ename, ety) in expected_fields {
+                    if let Some((_, aty)) = actual_fields.iter().find(|(n, _)| n == ename) {
+                        self.unify(ety, aty, context);
+                    } else {
+                        self.err(
+                            ErrorCode::E001,
+                            format!(
+                                "type mismatch in {context}: record missing field `{ename}`"
+                            ),
+                        );
+                    }
                 }
             }
             _ => {
@@ -1353,6 +1388,11 @@ impl Checker {
             }
             Ty::Tuple(ts) => {
                 for t in ts {
+                    self.collect_type_vars_inner(t, vars);
+                }
+            }
+            Ty::Record(fields) => {
+                for (_, t) in fields {
                     self.collect_type_vars_inner(t, vars);
                 }
             }

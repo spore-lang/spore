@@ -477,10 +477,36 @@ impl Parser {
                 if self.at(&Token::Arrow) {
                     self.advance();
                     let ret = self.parse_type_expr()?;
-                    Ok(TypeExpr::Function(types, Box::new(ret)))
+                    // Parse optional error set: `! ErrorType | ErrorType2`
+                    let errors = if self.at(&Token::Bang) {
+                        self.advance();
+                        let mut errs = vec![self.parse_type_expr()?];
+                        while self.at(&Token::Pipe) {
+                            self.advance();
+                            errs.push(self.parse_type_expr()?);
+                        }
+                        errs
+                    } else {
+                        vec![]
+                    };
+                    Ok(TypeExpr::Function(types, Box::new(ret), errors))
                 } else {
                     Ok(TypeExpr::Tuple(types))
                 }
+            }
+            Token::LBrace => {
+                self.advance();
+                let fields = self.parse_comma_sep(
+                    |p| {
+                        let name = p.expect_ident()?;
+                        p.expect(&Token::Colon)?;
+                        let ty = p.parse_type_expr()?;
+                        Ok((name, ty))
+                    },
+                    &Token::RBrace,
+                )?;
+                self.expect(&Token::RBrace)?;
+                Ok(TypeExpr::Record(fields))
             }
             _ => Err(self.error(format!("expected type, found {:?}", self.peek()))),
         }
@@ -514,12 +540,15 @@ impl Parser {
         )?;
         self.expect(&Token::RBrace)?;
 
+        let deriving = self.parse_deriving_clause()?;
+
         Ok(Item::StructDef(StructDef {
             name,
             visibility: Visibility::Private,
             type_params,
             fields,
             implements: vec![],
+            deriving,
         }))
     }
 
@@ -560,13 +589,31 @@ impl Parser {
         }
         self.expect(&Token::RBrace)?;
 
+        let deriving = self.parse_deriving_clause()?;
+
         Ok(Item::TypeDef(TypeDef {
             name,
             visibility: Visibility::Private,
             type_params,
             variants,
             implements: vec![],
+            deriving,
         }))
+    }
+
+    // ── Deriving clause ──────────────────────────────────────────────
+
+    fn parse_deriving_clause(&mut self) -> Result<Vec<String>, ParseError> {
+        if let Token::Ident(kw) = self.peek() {
+            if kw == "deriving" {
+                self.advance();
+                self.expect(&Token::LBracket)?;
+                let names = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+                self.expect(&Token::RBracket)?;
+                return Ok(names);
+            }
+        }
+        Ok(vec![])
     }
 
     // ── Capability definition ───────────────────────────────────────
@@ -584,10 +631,41 @@ impl Parser {
             vec![]
         };
 
+        // Composite capability alias: `capability IO = [FileRead, FileWrite]`
+        if self.at(&Token::Eq) {
+            self.advance();
+            self.expect(&Token::LBracket)?;
+            let components = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+            self.expect(&Token::RBracket)?;
+            return Ok(Item::CapabilityAlias {
+                name,
+                components,
+            });
+        }
+
         self.expect(&Token::LBrace)?;
         let mut methods = Vec::new();
+        let mut assoc_types = Vec::new();
         while !self.at(&Token::RBrace) && !self.at_eof() {
-            methods.push(self.parse_fn_def()?);
+            if self.at(&Token::Type) {
+                // Associated type: `type Output` or `type Output: Bound`
+                self.advance();
+                let aname = self.expect_ident()?;
+                let bounds = if self.at(&Token::Colon) {
+                    self.advance();
+                    let mut bs = vec![self.parse_type_expr()?];
+                    while self.at(&Token::Plus) {
+                        self.advance();
+                        bs.push(self.parse_type_expr()?);
+                    }
+                    bs
+                } else {
+                    vec![]
+                };
+                assoc_types.push(AssocType { name: aname, bounds });
+            } else {
+                methods.push(self.parse_fn_def()?);
+            }
         }
         self.expect(&Token::RBrace)?;
 
@@ -596,6 +674,7 @@ impl Parser {
             visibility: Visibility::Private,
             type_params,
             methods,
+            assoc_types,
         }))
     }
 
@@ -874,7 +953,7 @@ impl Parser {
                 Ok(Expr::CharLit(c))
             }
 
-            // Hole: `?name` or `?name: Type`
+            // Hole: `?name` or `?name: Type` or `?name @allows [Cap1, Cap2]`
             Token::Question => {
                 self.advance();
                 let name = self.expect_ident()?;
@@ -884,7 +963,21 @@ impl Parser {
                 } else {
                     None
                 };
-                Ok(Expr::Hole(name, ty))
+                // Parse optional @allows [Cap1, Cap2]
+                let allows = if self.at(&Token::At) {
+                    self.advance();
+                    let kw = self.expect_ident()?;
+                    if kw != "allows" {
+                        return Err(self.error(format!("expected `allows` after `@`, found `{kw}`")));
+                    }
+                    self.expect(&Token::LBracket)?;
+                    let caps = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+                    self.expect(&Token::RBracket)?;
+                    Some(caps)
+                } else {
+                    None
+                };
+                Ok(Expr::Hole(name, ty, allows))
             }
 
             // Lambda: `|params| body`

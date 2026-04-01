@@ -41,6 +41,9 @@ pub enum Ty {
     /// The type of a hole — we know the expected type but it's unfilled
     Hole(String),
 
+    /// Anonymous record type: `{ x: Int, y: Int }`
+    Record(Vec<(String, Ty)>),
+
     /// Error sentinel — allows type checking to continue after errors
     Error,
 }
@@ -102,6 +105,16 @@ impl std::fmt::Display for Ty {
                     write!(f, " uses [{}]", cap_list.join(", "))?;
                 }
                 Ok(())
+            }
+            Ty::Record(fields) => {
+                write!(f, "{{ ")?;
+                for (i, (name, ty)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{name}: {ty}")?;
+                }
+                write!(f, " }}")
             }
             Ty::Var(id) => write!(f, "?T{id}"),
             Ty::Hole(name) => write!(f, "?{name}"),

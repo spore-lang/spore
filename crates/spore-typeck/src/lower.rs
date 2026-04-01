@@ -61,7 +61,7 @@ impl Lowering {
                 ast::Item::Const(c) => {
                     self.register_name(&c.name);
                 }
-                ast::Item::ImplDef(_) | ast::Item::Import(_) | ast::Item::Alias(_) => {}
+                ast::Item::ImplDef(_) | ast::Item::Import(_) | ast::Item::Alias(_) | ast::Item::CapabilityAlias { .. } => {}
             }
         }
 
@@ -83,7 +83,10 @@ impl Lowering {
                 Some(HirItem::CapabilityDef(self.lower_capability_def(c)))
             }
             ast::Item::ImplDef(i) => Some(HirItem::ImplDef(self.lower_impl_def(i))),
-            ast::Item::Import(_) | ast::Item::Const(_) | ast::Item::Alias(_) => None,
+            ast::Item::Import(_)
+            | ast::Item::Const(_)
+            | ast::Item::Alias(_)
+            | ast::Item::CapabilityAlias { .. } => None,
         }
     }
 
@@ -208,7 +211,7 @@ impl Lowering {
                 name.clone(),
                 args.iter().map(|a| self.lower_type_expr(a)).collect(),
             ),
-            ast::TypeExpr::Function(params, ret) => HirTypeRef::Function(
+            ast::TypeExpr::Function(params, ret, _errors) => HirTypeRef::Function(
                 params.iter().map(|p| self.lower_type_expr(p)).collect(),
                 Box::new(self.lower_type_expr(ret)),
             ),
@@ -217,6 +220,10 @@ impl Lowering {
                 ts.iter().map(|t| self.lower_type_expr(t)).collect(),
             ),
             ast::TypeExpr::Refinement(base, _, _) => self.lower_type_expr(base),
+            ast::TypeExpr::Record(fields) => HirTypeRef::Generic(
+                "Record".to_string(),
+                fields.iter().map(|(_, t)| self.lower_type_expr(t)).collect(),
+            ),
         }
     }
 
@@ -316,7 +323,7 @@ impl Lowering {
             }
             ast::Expr::CharLit(c) => HirExpr::CharLit(*c),
 
-            ast::Expr::Hole(name, _ty_hint) => HirExpr::Hole(name.clone()),
+            ast::Expr::Hole(name, _ty_hint, _) => HirExpr::Hole(name.clone()),
 
             ast::Expr::ParallelScope { body, .. } => {
                 // PoC: lower to just the body expression
