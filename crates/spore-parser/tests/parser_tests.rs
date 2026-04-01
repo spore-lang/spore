@@ -305,10 +305,10 @@ fn test_type_def() {
 
 #[test]
 fn test_import() {
-    let m = parse_ok("import std::io::File");
+    let m = parse_ok("import std.io.File");
     match &m.items[0] {
         spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import { path, alias }) => {
-            assert_eq!(path, "std::io::File");
+            assert_eq!(path, "std.io.File");
             assert_eq!(alias, "File");
         }
         _ => panic!("expected import"),
@@ -317,10 +317,10 @@ fn test_import() {
 
 #[test]
 fn test_import_with_alias() {
-    let m = parse_ok("import std::collections::HashMap as Map");
+    let m = parse_ok("import std.collections.HashMap as Map");
     match &m.items[0] {
         spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import { path, alias }) => {
-            assert_eq!(path, "std::collections::HashMap");
+            assert_eq!(path, "std.collections.HashMap");
             assert_eq!(alias, "Map");
         }
         _ => panic!("expected import"),
@@ -448,6 +448,46 @@ fn test_unary_neg() {
                 }
                 _ => panic!("expected block"),
             }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+// ── Generic type parameters on functions ─────────────────────────────────
+
+#[test]
+fn test_fn_type_params() {
+    let m = parse_ok("fn identity[T](x: T) -> T { x }");
+    assert_eq!(m.items.len(), 1);
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert_eq!(f.name, "identity");
+            assert_eq!(f.type_params, vec!["T".to_string()]);
+            assert_eq!(f.params.len(), 1);
+            assert_eq!(f.params[0].name, "x");
+            assert!(f.return_type.is_some());
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_fn_multiple_type_params() {
+    let m = parse_ok("fn pair[A, B](a: A, b: B) -> Tuple { a }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert_eq!(f.type_params, vec!["A".to_string(), "B".to_string()]);
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_fn_no_type_params() {
+    let m = parse_ok("fn add(a: Int, b: Int) -> Int { a + b }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert!(f.type_params.is_empty());
         }
         _ => panic!("expected function"),
     }

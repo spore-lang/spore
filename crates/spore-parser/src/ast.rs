@@ -28,6 +28,8 @@ pub enum Item {
 pub struct FnDef {
     pub name: String,
     pub visibility: Visibility,
+    /// Generic type parameters: `fn foo[T, U](...)`
+    pub type_params: Vec<String>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeExpr>,
     pub errors: Vec<TypeExpr>,

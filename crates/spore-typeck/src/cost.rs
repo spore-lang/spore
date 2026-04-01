@@ -484,25 +484,25 @@ impl CostChecker {
 
     /// Build a [`CostVector`] from a single [`CostResult`].
     fn cost_vector_from_result(result: &CostResult) -> CostVector {
-        let time = cost_result_to_expr(result);
+        let compute = cost_result_to_expr(result);
 
-        // Stack depth: structural recursion ⇒ O(n), otherwise O(1).
-        let stack = match result {
+        // I/O call depth: structural recursion ⇒ O(n), otherwise O(1).
+        let io = match result {
             CostResult::Structural(_) => CostExpr::Linear("n".into()),
             _ => CostExpr::Const(1),
         };
 
-        // Space: conservatively mirrors time for now.
-        let space = time.clone();
+        // Alloc: conservatively mirrors compute for now.
+        let alloc = compute.clone();
 
-        // Concurrency: 0 by default (spawns are not yet tracked by CostAnalyzer).
-        let concurrency = CostExpr::Const(0);
+        // Parallel: 0 by default (spawns are not yet tracked by CostAnalyzer).
+        let parallel = CostExpr::Const(0);
 
         CostVector {
-            time,
-            space,
-            stack,
-            concurrency,
+            compute,
+            alloc,
+            io,
+            parallel,
         }
     }
 }
@@ -578,10 +578,10 @@ mod tests {
     fn zero_cost() {
         let c = CostVector::zero();
         assert!(c.is_bounded());
-        assert_eq!(c.time, CostExpr::Const(0));
-        assert_eq!(c.space, CostExpr::Const(0));
-        assert_eq!(c.stack, CostExpr::Const(0));
-        assert_eq!(c.concurrency, CostExpr::Const(0));
+        assert_eq!(c.compute, CostExpr::Const(0));
+        assert_eq!(c.alloc, CostExpr::Const(0));
+        assert_eq!(c.io, CostExpr::Const(0));
+        assert_eq!(c.parallel, CostExpr::Const(0));
     }
 
     #[test]
@@ -589,10 +589,10 @@ mod tests {
         let a = CostVector::constant(5, 2, 1, 0);
         let b = CostVector::constant(3, 4, 1, 0);
         let c = a.seq(&b);
-        assert_eq!(c.time, CostExpr::Const(8)); // sum
-        assert_eq!(c.space, CostExpr::Const(4)); // max
-        assert_eq!(c.stack, CostExpr::Const(1)); // max
-        assert_eq!(c.concurrency, CostExpr::Const(0)); // max
+        assert_eq!(c.compute, CostExpr::Const(8)); // sum
+        assert_eq!(c.alloc, CostExpr::Const(4)); // max
+        assert_eq!(c.io, CostExpr::Const(1)); // max
+        assert_eq!(c.parallel, CostExpr::Const(0)); // max
     }
 
     #[test]
@@ -600,51 +600,51 @@ mod tests {
         let a = CostVector::constant(5, 2, 1, 0);
         let b = CostVector::constant(3, 4, 1, 0);
         let c = a.par(&b);
-        assert_eq!(c.time, CostExpr::Const(5)); // max
-        assert_eq!(c.space, CostExpr::Const(6)); // sum
-        assert_eq!(c.concurrency, CostExpr::Const(1)); // +1 for spawn
+        assert_eq!(c.compute, CostExpr::Const(5)); // max
+        assert_eq!(c.alloc, CostExpr::Const(6)); // sum
+        assert_eq!(c.parallel, CostExpr::Const(1)); // +1 for spawn
     }
 
     #[test]
     fn unbounded_propagation() {
         let a = CostVector {
-            time: CostExpr::Unbounded,
-            space: CostExpr::Const(1),
-            stack: CostExpr::Const(1),
-            concurrency: CostExpr::Const(0),
+            compute: CostExpr::Unbounded,
+            alloc: CostExpr::Const(1),
+            io: CostExpr::Const(1),
+            parallel: CostExpr::Const(0),
         };
         assert!(!a.is_bounded());
         let b = CostVector::constant(1, 1, 1, 0);
         let c = a.seq(&b);
-        assert_eq!(c.time, CostExpr::Unbounded);
+        assert_eq!(c.compute, CostExpr::Unbounded);
     }
 
     #[test]
     fn scale_by_factor() {
         let a = CostVector::constant(3, 2, 1, 0);
         let scaled = a.scale(&CostExpr::Const(10));
-        assert_eq!(scaled.time, CostExpr::Const(30));
-        assert_eq!(scaled.space, CostExpr::Const(20));
-        assert_eq!(scaled.stack, CostExpr::Const(2)); // +1 for recursion depth
+        assert_eq!(scaled.compute, CostExpr::Const(30));
+        assert_eq!(scaled.alloc, CostExpr::Const(20));
+        assert_eq!(scaled.io, CostExpr::Const(2)); // +1 for recursion depth
     }
 
     #[test]
     fn cost_vector_display() {
         let c = CostVector::constant(5, 3, 1, 0);
         let s = c.to_string();
-        assert!(s.contains("time"));
-        assert!(s.contains("space"));
-        assert!(s.contains("stack"));
-        assert!(s.contains("concurrency"));
+        assert!(s.contains("compute"));
+        assert!(s.contains("alloc"));
+        assert!(s.contains("io"));
+        assert!(s.contains("parallel"));
     }
 
     #[test]
     fn cost_vector_display_unbounded() {
         let c = CostVector {
-            time: CostExpr::Unbounded,
-            space: CostExpr::Const(0),
-            stack: CostExpr::Const(1),
-            concurrency: CostExpr::Const(0),
+            compute: CostExpr::Unbounded,
+            alloc: CostExpr::Const(0),
+            io: CostExpr::Const(1),
+            parallel: CostExpr::Const(0),
         };
         let s = c.to_string();
         assert!(s.contains('∞'));
@@ -706,8 +706,8 @@ mod tests {
         checker.check_all(&analyzer);
 
         let cv = checker.costs.get("foo").expect("foo should be analyzed");
-        assert_eq!(cv.time, CostExpr::Const(1));
-        assert_eq!(cv.stack, CostExpr::Const(1));
+        assert_eq!(cv.compute, CostExpr::Const(1));
+        assert_eq!(cv.io, CostExpr::Const(1));
         assert!(cv.is_bounded());
     }
 
@@ -722,8 +722,8 @@ mod tests {
         checker.check_all(&analyzer);
 
         let cv = checker.costs.get("bar").expect("bar should be analyzed");
-        assert_eq!(cv.time, CostExpr::Linear("n".into()));
-        assert_eq!(cv.stack, CostExpr::Linear("n".into()));
+        assert_eq!(cv.compute, CostExpr::Linear("n".into()));
+        assert_eq!(cv.io, CostExpr::Linear("n".into()));
         assert!(cv.is_bounded());
     }
 }

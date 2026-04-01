@@ -189,6 +189,16 @@ impl Parser {
         self.expect(&Token::Fn)?;
         let name = self.expect_ident()?;
 
+        // optional type parameters: fn foo[T, U](...)
+        let type_params = if self.at(&Token::LBracket) {
+            self.advance();
+            let ps = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+            self.expect(&Token::RBracket)?;
+            ps
+        } else {
+            vec![]
+        };
+
         // params
         self.expect(&Token::LParen)?;
         let params = self.parse_params()?;
@@ -244,6 +254,7 @@ impl Parser {
         Ok(FnDef {
             name,
             visibility,
+            type_params,
             params,
             return_type,
             errors,
@@ -564,12 +575,12 @@ impl Parser {
         self.expect(&Token::Import)?;
         let path = self.expect_ident()?;
 
-        // Collect path segments: `import std::io::File`
+        // Collect path segments: `import std.io.File`
         let mut full_path = path;
-        while self.at(&Token::ColonColon) {
+        while self.at(&Token::Dot) {
             self.advance();
             let seg = self.expect_ident()?;
-            full_path = format!("{full_path}::{seg}");
+            full_path = format!("{full_path}.{seg}");
         }
 
         let alias = if self.at(&Token::As) {
@@ -578,7 +589,7 @@ impl Parser {
         } else {
             // Default alias is the last segment
             full_path
-                .rsplit("::")
+                .rsplit('.')
                 .next()
                 .unwrap_or(&full_path)
                 .to_string()

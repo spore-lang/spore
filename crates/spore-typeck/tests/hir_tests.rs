@@ -145,7 +145,7 @@ use spore_typeck::hir;
 fn imports_are_skipped() {
     let hir = lower_src(
         r#"
-        import std::io as io
+        import std.io as io
         fn main() -> Int { 0 }
     "#,
     );
