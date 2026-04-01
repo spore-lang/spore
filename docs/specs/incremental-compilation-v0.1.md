@@ -70,13 +70,18 @@ fn on_file_changed(path: Path) -> ChangeResult:
 sig hash 变化时，沿依赖图向下游传播（topological order）。每层重编后判断 sig hash 是否变化，决定是否继续传播——确保范围尽可能小。同层内独立模块可并行编译。
 
 ```
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs —
+//       use recursion + higher-order functions (each/fold/map/filter).
+
 fn compile_batch(modules: Set<ModuleId>, graph: DepGraph):
     let levels = topological_levels(modules, graph)
-    for level in levels:
-        parallel_for module_id in level:
+    levels |> each(fn(level) {
+        level |> parallel_each(fn(module_id) {
             compile(module_id)
             update_diagnostics(module_id)
             update_hole_report(module_id)
+        })
+    })
 ```
 
 ### 2.4 三种场景
@@ -391,13 +396,17 @@ module HttpClient:
 模块 import 声明变化时更新图结构，并检查循环依赖：
 
 ```
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
+
 fn update_dep_graph(module_id, old_deps, new_deps):
-    for dep in (old_deps - new_deps):  // 移除
+    (old_deps - new_deps) |> each(fn(dep) {  // 移除
         graph.edges[module_id].remove(dep)
         graph.reverse[dep].remove(module_id)
-    for dep in (new_deps - old_deps):  // 新增
+    })
+    (new_deps - old_deps) |> each(fn(dep) {  // 新增
         graph.edges[module_id].insert(dep)
         graph.reverse[dep].insert(module_id)
+    })
     if has_cycle(graph, module_id):
         emit_error("循环依赖", module_id)
 ```

@@ -64,26 +64,36 @@ Spore 的 Hole 系统允许一个代码库中同时存在多个未填充的 hole
 ### 3.1 主算法
 
 ```pseudocode
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs —
+//       use recursion + higher-order functions (each/fold/map/filter).
+
 function build_hole_graph(module: TypedAST) -> Graph:
     holes = find_all_holes(module)
-    edges = []
 
-    for each hole h in holes:
+    edges = holes |> flat_map(fn(h) {
         // 值依赖：追踪绑定的数据流来源
-        for each binding b in h.available_bindings:
+        value_edges = h.available_bindings |> filter_map(fn(b) {
             source = trace_data_source(b)
             if source is HoleOutput(h'):
-                edges.add(Edge(from=h', to=h, kind="value"))
+                Some(Edge(from=h', to=h, kind="value"))
+            else: None
+        })
 
         // 类型依赖：追踪类型变量的约束来源
-        for each type_var tv in free_type_vars(h.expected_type):
+        type_edges = free_type_vars(h.expected_type) |> filter_map(fn(tv) {
             source = trace_type_source(tv)
             if source is HoleOutput(h'):
-                edges.add(Edge(from=h', to=h, kind="type"))
+                Some(Edge(from=h', to=h, kind="type"))
+            else: None
+        })
 
         // 代价依赖：同一顺序块中的先序 hole
-        if h.cost_budget depends on another hole h':
-            edges.add(Edge(from=h', to=h, kind="cost"))
+        cost_edges = if h.cost_budget depends on another hole h':
+            [Edge(from=h', to=h, kind="cost")]
+        else: []
+
+        value_edges ++ type_edges ++ cost_edges
+    })
 
     // 去重：同一对 (h', h) 可能存在多种依赖，保留所有类型标注
     return Graph(vertices=holes, edges=deduplicate(edges))
@@ -94,6 +104,8 @@ function build_hole_graph(module: TypedAST) -> Graph:
 沿 SSA 形式的数据流反向追踪一个绑定的来源：
 
 ```pseudocode
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
+
 function trace_data_source(binding: Binding) -> Source:
     match binding.origin:
         Parameter(p)       => return ParameterSource(p)
@@ -101,11 +113,11 @@ function trace_data_source(binding: Binding) -> Source:
         HoleOutput(h)      => return HoleOutput(h)
         FunctionCall(f, args) =>
             // 如果 f 的任何参数来自 hole，则传递依赖
-            for arg in args:
+            args |> find_map(fn(arg) {
                 src = trace_data_source(arg)
-                if src is HoleOutput(h):
-                    return HoleOutput(h)
-            return ConcreteSource(f)
+                if src is HoleOutput(h): Some(HoleOutput(h))
+                else: None
+            }) |> unwrap_or(ConcreteSource(f))
 ```
 
 ### 3.3 trace_type_source
@@ -113,14 +125,17 @@ function trace_data_source(binding: Binding) -> Source:
 沿类型推断约束链反向追踪一个类型变量的来源：
 
 ```pseudocode
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
+
 function trace_type_source(tv: TypeVar) -> Source:
     constraints = get_constraints_for(tv)
-    for each constraint c in constraints:
+    constraints |> find_map(fn(c) {
         match c:
-            UnifyWith(HoleOutputType(h)) => return HoleOutput(h)
-            UnifyWith(ConcreteType(t))   => return ConcreteSource(t)
-            UnifyWith(OtherTypeVar(tv')) => return trace_type_source(tv')
-    return Unconstrained
+            UnifyWith(HoleOutputType(h)) => Some(HoleOutput(h))
+            UnifyWith(ConcreteType(t))   => Some(ConcreteSource(t))
+            UnifyWith(OtherTypeVar(tv')) => Some(trace_type_source(tv'))
+            _                            => None
+    }) |> unwrap_or(Unconstrained)
 ```
 
 ### 3.4 示例：图构建过程
@@ -167,6 +182,8 @@ fn process_order(order: RawOrder) -> Receipt ! [ValidationError, PaymentError]
 ### 4.1 分层拓扑排序
 
 ```pseudocode
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
+
 function compute_fill_order(G: Graph) -> Result<List<Set<Hole>>, CycleError>:
     // 第一步：环检测
     if has_cycle(G):
@@ -174,21 +191,21 @@ function compute_fill_order(G: Graph) -> Result<List<Set<Hole>>, CycleError>:
         return Err(CycleError(cycle_path))
 
     // 第二步：分层拓扑排序（Kahn 算法变体）
+    //   使用递归 + fold 代替 while 循环
     layers = []
     remaining = copy(V)
     in_degree = compute_in_degrees(G)
 
-    while remaining is not empty:
-        ready = { h ∈ remaining | in_degree[h] == 0 }
+    fn build_layers(remaining, in_degree, layers):
+        if remaining is empty: return layers
+        ready = remaining |> filter(fn(h) { in_degree[h] == 0 })
         assert ready is not empty   // 无环保证此断言成立
-        layers.append(ready)
+        new_in_degree = ready |> fold(in_degree, fn(deg, h) {
+            successors(h) |> fold(deg, fn(d, s) { d[s] -= 1; d })
+        })
+        build_layers(remaining - ready, new_in_degree, layers ++ [ready])
 
-        for each h in ready:
-            for each successor s of h:
-                in_degree[s] -= 1
-            remaining = remaining - ready
-
-    return Ok(layers)
+    return Ok(build_layers(remaining, in_degree, []))
 ```
 
 ### 4.2 语义
@@ -203,11 +220,11 @@ function compute_fill_order(G: Graph) -> Result<List<Set<Hole>>, CycleError>:
 在同一层内，hole 按**传递依赖者数量**降序排列（与 Hole System v0.2 §2.4 一致）：
 
 ```pseudocode
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
+
 function rank_within_layer(layer: Set<Hole>, G: Graph) -> List<Hole>:
-    scores = {}
-    for each h in layer:
-        scores[h] = count_transitive_dependents(h, G)
-    return sort_descending_by(layer, scores)
+    scores = layer |> map(fn(h) { (h, count_transitive_dependents(h, G)) })
+    scores |> sort_descending_by(fn((_, s)) { s }) |> map(fn((h, _)) { h })
 ```
 
 影响力越高的 hole 越优先分配给 Agent，因为填充它能解锁更多下游工作。
@@ -249,15 +266,16 @@ parallelism(G) = max { |Lₖ| : k = 0, 1, ..., depth(G) }
 ### 5.3 Agent 分配策略
 
 ```pseudocode
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
+
 function assign_agents(ready: Set<Hole>, agents: List<Agent>) -> Assignment:
     ranked = rank_within_layer(ready, G)
 
-    assignment = {}
-    for i, hole in enumerate(ranked):
+    ranked |> enumerate() |> fold({}, fn(assignment, (i, hole)) {
         agent = agents[i % len(agents)]   // 轮询分配
         assignment[hole] = agent
-
-    return assignment
+        assignment
+    })
 ```
 
 当 Agent 数量少于就绪 hole 数量时，采用轮询分配。影响力高的 hole 优先被分配给空闲 Agent。
@@ -311,30 +329,27 @@ function try_fill(agent: Agent, hole: Hole) -> FillResult:
 采用标准 DFS 着色法，时间复杂度 O(|V| + |E|)：
 
 ```pseudocode
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
+
 function detect_cycle(G: Graph) -> Option<List<Hole>>:
     color = { h: WHITE for h in V }
     parent = {}
 
     function dfs(h):
         color[h] = GRAY
-        for each successor s of h:
+        successors(h) |> find_map(fn(s) {
             if color[s] == GRAY:
                 // 发现环：从 s 回溯到 s
-                return extract_cycle(parent, s, h)
+                return Some(extract_cycle(parent, s, h))
             if color[s] == WHITE:
                 parent[s] = h
-                result = dfs(s)
-                if result is Some:
-                    return result
+                dfs(s)
+            else: None
+        })
         color[h] = BLACK
         return None
 
-    for each h in V:
-        if color[h] == WHITE:
-            result = dfs(h)
-            if result is Some:
-                return result
-    return None
+    V |> filter(fn(h) { color[h] == WHITE }) |> find_map(fn(h) { dfs(h) })
 ```
 
 ### 6.3 错误输出格式
@@ -369,6 +384,8 @@ error[H0301]: circular hole dependency detected
 ### 7.2 更新算法
 
 ```pseudocode
+// NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
+
 function on_hole_filled(G: Graph, filled: Hole, fill_result: FillResult) -> GraphUpdate:
     // 第一步：移除已填充的 hole
     V = V - {filled}
@@ -378,10 +395,11 @@ function on_hole_filled(G: Graph, filled: Hole, fill_result: FillResult) -> Grap
     E = E - removed_edges
 
     // 第三步：更新后继 hole 的入度
-    newly_ready = {}
-    for each (filled, successor) in removed_edges where successor ∈ V:
-        if in_degree(successor) == 0:
-            newly_ready.add(successor)
+    newly_ready = removed_edges
+        |> filter(fn((_, successor)) { successor ∈ V })
+        |> filter(fn((_, successor)) { in_degree(successor) == 0 })
+        |> map(fn((_, successor)) { successor })
+        |> to_set()
 
     // 第四步：检查是否有新 hole 被揭示（填充可能暴露新代码路径）
     new_holes = find_revealed_holes(fill_result.new_code)

@@ -120,9 +120,9 @@ parallel_scope {
 
 -- 带显式 lane 数限制（可选，省略时由编译器从函数签名推断）
 parallel_scope(lanes: 4) {
-    for chunk in data.chunks(4) {
+    data.chunks(4) |> each(fn(chunk) {
         spawn { process_chunk(chunk) }
-    }
+    })
 }
 ```
 
@@ -413,19 +413,18 @@ effect ChanRecv[T] {
 fn producer(tx: Sender[Int]) -> Unit ! [ChannelClosed]
 uses [ChanSend[Int]]
 {
-    for i in 0..100 {
+    range(0, 100) |> each(fn(i) {
         tx.send(i)
-    }
+    })
 }
 
 fn consumer(rx: Receiver[Int]) -> List[Int] ! [ChannelClosed]
 uses [ChanRecv[Int]]
 {
-    let mut results = []
-    for msg in rx {
+    rx |> fold([], fn(results, msg) {
         results.push(msg)
-    }
-    results
+        results
+    })
 }
 ```
 
@@ -547,7 +546,7 @@ uses [Spawn, NetRead, FileRead]
 | `tx.send(value)` | 返回 `Err(ChannelClosed)` |
 | `rx.recv()` | buffer 非空则返回值；buffer 空则返回 `Err(ChannelClosed)` |
 | `tx.close()` | 标记 sender 端关闭 |
-| `for msg in rx` | 迭代至 channel 关闭 + buffer 耗尽 |
+| `rx \|> each(fn(msg) { ... })` | 迭代至 channel 关闭 + buffer 耗尽 |
 
 ---
 
@@ -622,9 +621,9 @@ uses [Spawn, NetRead]
 {
     parallel_scope(lanes: 10) {
         -- 最多 10 个并行任务，剩余排队
-        for url in urls {
+        urls |> each(fn(url) {
             spawn { fetch(url) }
-        }
+        })
     }
 }
 ```
@@ -772,12 +771,11 @@ Spore 使用**协作式**取消——任务不会被强制终止，
 fn long_running_download(url: Url) -> Data ! [NetError, Cancelled]
 uses [Spawn, NetRead]
 {
-    let chunks = []
-    for chunk_url in split_download(url) {
+    let chunks = split_download(url) |> map(fn(chunk_url) {
         -- 每次 effect 调用（如 fetch）自动检查取消状态
         -- 如果已取消，fetch 内部抛出 Cancelled 而非真正请求
-        chunks.push(fetch(chunk_url))
-    }
+        fetch(chunk_url)
+    })
     merge_chunks(chunks)
 }
 ```
@@ -788,15 +786,14 @@ uses [Spawn, NetRead]
 fn cpu_bound_work(data: List[Item]) -> List[Item]
 uses [Spawn]
 {
-    let mut results = []
-    for (i, item) in data.enumerate() {
+    data.enumerate() |> fold([], fn(results, (i, item)) {
         -- CPU 密集型代码需要手动插入取消检查点
         if i % 100 == 0 {
             check_cancelled()  -- 如果已取消，抛出 Cancelled
         }
         results.push(transform(item))
-    }
-    results
+        results
+    })
 }
 ```
 
@@ -1092,9 +1089,9 @@ tx.close()
 let tx2 = tx.clone()
 
 -- 迭代
-for msg in rx {
+rx |> each(fn(msg) {
     handle(msg)
-}
+})
 ```
 
 ### A.5 select
@@ -1224,32 +1221,30 @@ uses [Spawn, NetRead, DbRead, DbWrite]
     parallel_scope(lanes: 6) {
         -- Extract: 1 lane
         let extractor = spawn uses [NetRead] {
-            for record in source.stream() {
+            source.stream() |> each(fn(record) {
                 raw_tx.send(record)
-            }
+            })
             raw_tx.close()
         }
 
         -- Transform: 4 lanes (fan-out)
-        for _ in 0..4 {
+        range(0, 4) |> each(fn(_) {
             spawn {
-                for raw in raw_rx {
+                raw_rx |> each(fn(raw) {
                     match transform(raw) {
                         Ok(clean) => clean_tx.send(clean),
                         Err(e)    => log_error(e),
                     }
-                }
+                })
             }
-        }
+        })
 
         -- Load: 1 lane (fan-in)
         let loader = spawn uses [DbWrite] {
-            let mut count = 0
-            for record in clean_rx {
+            clean_rx |> fold(0, fn(count, record) {
                 sink.write(record)
-                count += 1
-            }
-            count
+                count + 1
+            })
         }
 
         -- 等待并汇总

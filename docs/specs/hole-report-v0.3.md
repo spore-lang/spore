@@ -863,12 +863,16 @@ spore watch 检测到变化
 Agent 应以流式方式读取 NDJSON，按事件类型分发处理：
 
 ```
-while line = read_line(stdin):
-    event = parse_json(line)
-    match event.type:
-        "hole_graph_update" => update_local_graph(event.hole_graph)
-        "hole_update"       => update_hole_report(event.hole, event.report)
-        "compile_result"    => handle_compile_result(event)
+fn consume_events(stdin) -> Unit:
+    match read_line(stdin):
+        Some(line) =>
+            event = parse_json(line)
+            match event.type:
+                "hole_graph_update" => update_local_graph(event.hole_graph)
+                "hole_update"       => update_hole_report(event.hole, event.report)
+                "compile_result"    => handle_compile_result(event)
+            consume_events(stdin)   -- 递归处理下一行
+        None => ()                  -- stdin 关闭，结束
 ```
 
 ---
