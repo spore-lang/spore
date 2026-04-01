@@ -37,6 +37,11 @@ pub enum ErrorCode {
 
     // Guard errors (E6xx)
     E601, // match guard must be Bool
+
+    // Module errors (M0xx)
+    M001, // module not found
+    M002, // symbol not found in module
+    M003, // private symbol not accessible
 }
 
 impl fmt::Display for ErrorCode {
@@ -61,6 +66,9 @@ impl fmt::Display for ErrorCode {
             ErrorCode::E501 => "E501",
             ErrorCode::E502 => "E502",
             ErrorCode::E601 => "E601",
+            ErrorCode::M001 => "M001",
+            ErrorCode::M002 => "M002",
+            ErrorCode::M003 => "M003",
         };
         write!(f, "{code}")
     }

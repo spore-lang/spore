@@ -8,6 +8,7 @@ use spore_parser::ast::*;
 use crate::env::{Env, TypeRegistry};
 use crate::error::{ErrorCode, TypeError};
 use crate::hole::{HoleDependencyGraph, HoleInfo, HoleReport};
+use crate::module::{ImportedSymbol, ModuleError, ModuleRegistry};
 use std::collections::{HashMap, HashSet};
 
 use crate::types::{CapSet, ErrorSet, Ty};
@@ -16,6 +17,7 @@ pub struct Checker {
     pub errors: Vec<TypeError>,
     pub registry: TypeRegistry,
     pub hole_report: HoleReport,
+    pub module_registry: ModuleRegistry,
     env: Env,
     /// Capabilities of the function currently being checked.
     current_caps: CapSet,
@@ -37,6 +39,24 @@ impl Checker {
             errors: Vec::new(),
             registry: TypeRegistry::default(),
             hole_report: HoleReport::new(),
+            module_registry: ModuleRegistry::new(),
+            env: Env::new(),
+            current_caps: CapSet::new(),
+            current_errors: ErrorSet::new(),
+            current_function: String::new(),
+            expected_return_type: None,
+            next_var_id: 0,
+            substitution: HashMap::new(),
+        }
+    }
+
+    /// Create a new Checker with an existing module registry.
+    pub fn with_module_registry(module_registry: ModuleRegistry) -> Self {
+        Self {
+            errors: Vec::new(),
+            registry: TypeRegistry::default(),
+            hole_report: HoleReport::new(),
+            module_registry,
             env: Env::new(),
             current_caps: CapSet::new(),
             current_errors: ErrorSet::new(),
@@ -53,6 +73,12 @@ impl Checker {
         for item in &module.items {
             self.register_item(item);
         }
+        // Process imports after registration (so local symbols exist)
+        for item in &module.items {
+            if let Item::Import(import) = item {
+                self.resolve_import(import);
+            }
+        }
         // Second pass: check function bodies
         for item in &module.items {
             self.check_item(item);
@@ -62,6 +88,131 @@ impl Checker {
     }
 
     // ── Registration (first pass) ───────────────────────────────────
+
+    /// Resolve an import declaration, importing symbols into the current registry.
+    fn resolve_import(&mut self, import: &ImportDecl) {
+        match import {
+            ImportDecl::Import { path, alias } => {
+                let path_segments: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
+                // The alias is the module alias; import all exported symbols
+                let module = match self.module_registry.get(&path_segments) {
+                    Some(m) => m.clone(),
+                    None => {
+                        self.err(ErrorCode::M001, format!("module `{path}` not found"));
+                        return;
+                    }
+                };
+                let all_names = module.all_exports();
+                match self
+                    .module_registry
+                    .resolve_import(&path_segments, &all_names)
+                {
+                    Ok(resolved) => {
+                        self.import_resolved_symbols(&module, &resolved, alias);
+                    }
+                    Err(ModuleError::PrivateSymbol { symbol, module: m }) => {
+                        self.err(
+                            ErrorCode::M003,
+                            format!(
+                                "symbol `{symbol}` in module `{m}` is private and not accessible"
+                            ),
+                        );
+                    }
+                    Err(ModuleError::SymbolNotFound { symbol, module: m }) => {
+                        self.err(
+                            ErrorCode::M002,
+                            format!("symbol `{symbol}` not found in module `{m}`"),
+                        );
+                    }
+                    Err(ModuleError::ModuleNotFound(m)) => {
+                        self.err(ErrorCode::M001, format!("module `{m}` not found"));
+                    }
+                }
+                let _ = alias; // alias available for qualified access
+            }
+            ImportDecl::Alias { name, path } => {
+                let path_segments: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
+                let module = match self.module_registry.get(&path_segments) {
+                    Some(m) => m.clone(),
+                    None => {
+                        self.err(ErrorCode::M001, format!("module `{path}` not found"));
+                        return;
+                    }
+                };
+                let all_names = module.all_exports();
+                match self
+                    .module_registry
+                    .resolve_import(&path_segments, &all_names)
+                {
+                    Ok(resolved) => {
+                        self.import_resolved_symbols(&module, &resolved, name);
+                    }
+                    Err(ModuleError::PrivateSymbol { symbol, module: m }) => {
+                        self.err(
+                            ErrorCode::M003,
+                            format!(
+                                "symbol `{symbol}` in module `{m}` is private and not accessible"
+                            ),
+                        );
+                    }
+                    Err(ModuleError::SymbolNotFound { symbol, module: m }) => {
+                        self.err(
+                            ErrorCode::M002,
+                            format!("symbol `{symbol}` not found in module `{m}`"),
+                        );
+                    }
+                    Err(ModuleError::ModuleNotFound(m)) => {
+                        self.err(ErrorCode::M001, format!("module `{m}` not found"));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Import resolved symbols from a module into the current type registry.
+    fn import_resolved_symbols(
+        &mut self,
+        module: &crate::module::ModuleInterface,
+        resolved: &[(String, ImportedSymbol)],
+        _alias: &str,
+    ) {
+        for (name, kind) in resolved {
+            match kind {
+                ImportedSymbol::Function => {
+                    if let Some((params, ret)) = module.functions.get(name) {
+                        // Import with empty capability set (cross-module calls
+                        // inherit the callee's declared caps on invocation)
+                        self.registry
+                            .functions
+                            .insert(name.clone(), (params.clone(), ret.clone(), CapSet::new()));
+                    }
+                }
+                ImportedSymbol::Type => {
+                    if let Some(variants) = module.types.get(name) {
+                        let variant_tys: Vec<(String, Vec<Ty>)> =
+                            variants.iter().map(|v| (v.clone(), Vec::new())).collect();
+                        self.registry.types.insert(name.clone(), variant_tys);
+                    }
+                }
+                ImportedSymbol::Struct => {
+                    if let Some(fields) = module.structs.get(name) {
+                        let field_tys: Vec<(String, Ty)> = fields
+                            .iter()
+                            .map(|f| (f.clone(), Ty::Named("Unknown".into())))
+                            .collect();
+                        self.registry.structs.insert(name.clone(), field_tys);
+                    }
+                }
+                ImportedSymbol::Capability => {
+                    if module.capabilities.contains(name) {
+                        self.registry
+                            .capabilities
+                            .insert(name.clone(), (Vec::new(), Vec::new()));
+                    }
+                }
+            }
+        }
+    }
 
     fn register_item(&mut self, item: &Item) {
         match item {
@@ -824,7 +975,7 @@ impl Checker {
 
     // ── Type resolution ─────────────────────────────────────────────
 
-    fn resolve_type(&self, te: &TypeExpr) -> Ty {
+    pub fn resolve_type(&self, te: &TypeExpr) -> Ty {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
                 "Int" => Ty::Int,

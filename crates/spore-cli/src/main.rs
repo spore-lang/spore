@@ -35,7 +35,7 @@ fn usage() -> ExitCode {
     eprintln!();
     eprintln!("COMMANDS:");
     eprintln!("  run <file>       Compile and execute a .spore file");
-    eprintln!("  check <file>     Type-check a .spore file (no execution)");
+    eprintln!("  check <file...>  Type-check one or more .spore files");
     eprintln!("  holes <file>     Show hole report (JSON)");
     eprintln!("  build <file>     Compile a .spore file");
     eprintln!("  watch <file>     Watch a file and re-check on changes");
@@ -92,29 +92,63 @@ fn cmd_run(args: &[String]) -> ExitCode {
 }
 
 fn cmd_check(args: &[String]) -> ExitCode {
-    let (_, source) = match read_source(args) {
-        Ok(s) => s,
-        Err(code) => return code,
-    };
+    let files: Vec<&str> = args
+        .iter()
+        .filter(|a| !a.starts_with('-'))
+        .map(|s| s.as_str())
+        .collect();
     let json_output = args.iter().any(|a| a == "--json");
 
-    match sporec::compile(&source) {
-        Ok(()) => {
-            if json_output {
-                println!("{{\"status\":\"ok\",\"errors\":[]}}");
-            } else {
-                println!("✓ no errors");
+    if files.is_empty() {
+        eprintln!("error: missing file argument");
+        return ExitCode::FAILURE;
+    }
+
+    // Multi-file check
+    if files.len() > 1 {
+        match sporec::compile_files(&files) {
+            Ok(()) => {
+                if json_output {
+                    println!("{{\"status\":\"ok\",\"errors\":[]}}");
+                } else {
+                    println!("✓ no errors ({} files)", files.len());
+                }
+                ExitCode::SUCCESS
             }
-            ExitCode::SUCCESS
+            Err(msg) => {
+                if json_output {
+                    let escaped = escape_json(&msg);
+                    println!("{{\"status\":\"error\",\"message\":\"{escaped}\"}}");
+                } else {
+                    eprintln!("{msg}");
+                }
+                ExitCode::FAILURE
+            }
         }
-        Err(msg) => {
-            if json_output {
-                let escaped = escape_json(&msg);
-                println!("{{\"status\":\"error\",\"message\":\"{escaped}\"}}");
-            } else {
-                eprintln!("{msg}");
+    } else {
+        // Single file check (original behavior)
+        let (_, source) = match read_source(args) {
+            Ok(s) => s,
+            Err(code) => return code,
+        };
+        match sporec::compile(&source) {
+            Ok(()) => {
+                if json_output {
+                    println!("{{\"status\":\"ok\",\"errors\":[]}}");
+                } else {
+                    println!("✓ no errors");
+                }
+                ExitCode::SUCCESS
             }
-            ExitCode::FAILURE
+            Err(msg) => {
+                if json_output {
+                    let escaped = escape_json(&msg);
+                    println!("{{\"status\":\"error\",\"message\":\"{escaped}\"}}");
+                } else {
+                    eprintln!("{msg}");
+                }
+                ExitCode::FAILURE
+            }
         }
     }
 }
