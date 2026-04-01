@@ -1,22 +1,126 @@
 //! Hole report — structured output describing unfilled holes in a module.
+//!
+//! Implements the v0.3 hole info model from SEP-0005 §4.2.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use crate::types::Ty;
 
-/// Information collected about a single hole.
+// ── Source location ─────────────────────────────────────────────────
+
+/// Location in source (SEP-0005 v0.3).
+#[derive(Debug, Clone)]
+pub struct SourceLocation {
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
+}
+
+// ── Candidate scoring (Extension A) ─────────────────────────────────
+
+/// Candidate scoring vector (SEP-0005 v0.3 Extension A).
+#[derive(Debug, Clone)]
+pub struct CandidateScore {
+    pub name: String,
+    /// Type match quality [0,1]
+    pub type_match: f64,
+    /// Cost fit quality [0,1]
+    pub cost_fit: f64,
+    /// Capability fit {0,1}
+    pub capability_fit: f64,
+    /// Error coverage [0,1]
+    pub error_coverage: f64,
+}
+
+impl CandidateScore {
+    pub fn overall(&self) -> f64 {
+        0.40 * self.type_match
+            + 0.20 * self.cost_fit
+            + 0.25 * self.capability_fit
+            + 0.15 * self.error_coverage
+    }
+}
+
+// ── Confidence assessment (Extension C) ─────────────────────────────
+
+/// Confidence assessment (SEP-0005 v0.3 Extension C).
+#[derive(Debug, Clone)]
+pub struct Confidence {
+    pub type_inference: TypeInferenceConfidence,
+    pub candidate_ranking: CandidateRanking,
+    pub ambiguous_count: usize,
+    pub recommendation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeInferenceConfidence {
+    Certain,
+    Partial,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CandidateRanking {
+    UniqueBest,
+    Ambiguous,
+    NoCandidates,
+}
+
+// ── Error cluster (Extension D) ─────────────────────────────────────
+
+/// Error cluster (SEP-0005 v0.3 Extension D).
+#[derive(Debug, Clone)]
+pub struct ErrorCluster {
+    pub source: String,
+    pub errors: Vec<String>,
+    pub handling_suggestion: String,
+}
+
+// ── Cost budget ─────────────────────────────────────────────────────
+
+/// Cost budget info for hole context.
+#[derive(Debug, Clone)]
+pub struct CostBudget {
+    pub budget_total: Option<f64>,
+    pub cost_before_hole: f64,
+    pub budget_remaining: Option<f64>,
+}
+
+// ── HoleInfo v0.3 ───────────────────────────────────────────────────
+
+/// Information collected about a single hole (SEP-0005 v0.3).
 #[derive(Debug, Clone)]
 pub struct HoleInfo {
     /// Hole name (from `?name`)
     pub name: String,
+    /// Location in source
+    pub location: Option<SourceLocation>,
     /// Inferred/expected type
     pub expected_type: Ty,
+    /// What the type was inferred from (e.g. "return type of `foo`")
+    pub type_inferred_from: Option<String>,
     /// The function this hole appears in
     pub function: String,
+    /// Full enclosing function signature
+    pub enclosing_signature: Option<String>,
     /// Local bindings available at the hole site (name → type)
     pub bindings: BTreeMap<String, Ty>,
-    /// Available functions that return the expected type
-    pub suggestions: Vec<String>,
+    /// Dependency edges between bindings (Extension B)
+    pub binding_dependencies: BTreeMap<String, Vec<String>>,
+    /// Capabilities in scope
+    pub capabilities: BTreeSet<String>,
+    /// Error types that must be handled
+    pub errors_to_handle: Vec<String>,
+    /// Cost budget information
+    pub cost_budget: Option<CostBudget>,
+    /// Scored candidate list (replaces old `suggestions`)
+    pub candidates: Vec<CandidateScore>,
+    /// Other holes that depend on this hole
+    pub dependent_holes: Vec<String>,
+    /// Confidence assessment (Extension C)
+    pub confidence: Option<Confidence>,
+    /// Error clusters (Extension D)
+    pub error_clusters: Vec<ErrorCluster>,
 }
 
 /// Collected report for all holes in a module.
@@ -63,12 +167,12 @@ impl HoleReport {
                 ));
             }
             out.push_str("},\n");
-            out.push_str("      \"suggestions\": [");
-            for (j, s) in h.suggestions.iter().enumerate() {
+            out.push_str("      \"candidates\": [");
+            for (j, c) in h.candidates.iter().enumerate() {
                 if j > 0 {
                     out.push_str(", ");
                 }
-                out.push_str(&json_escape(s));
+                out.push_str(&json_escape(&c.name));
             }
             out.push_str("]\n");
             out.push_str("    }");

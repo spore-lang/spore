@@ -202,15 +202,43 @@ mod tests {
 
     #[test]
     fn same_signature_same_hash() {
-        let h1 = SigHash::compute("foo", &[Ty::Int], &Ty::Bool, &BTreeSet::new(), &BTreeSet::new(), &[]);
-        let h2 = SigHash::compute("foo", &[Ty::Int], &Ty::Bool, &BTreeSet::new(), &BTreeSet::new(), &[]);
+        let h1 = SigHash::compute(
+            "foo",
+            &[Ty::Int],
+            &Ty::Bool,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
+        let h2 = SigHash::compute(
+            "foo",
+            &[Ty::Int],
+            &Ty::Bool,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
         assert_eq!(h1, h2);
     }
 
     #[test]
     fn different_param_different_hash() {
-        let h1 = SigHash::compute("foo", &[Ty::Int], &Ty::Bool, &BTreeSet::new(), &BTreeSet::new(), &[]);
-        let h2 = SigHash::compute("foo", &[Ty::Str], &Ty::Bool, &BTreeSet::new(), &BTreeSet::new(), &[]);
+        let h1 = SigHash::compute(
+            "foo",
+            &[Ty::Int],
+            &Ty::Bool,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
+        let h2 = SigHash::compute(
+            "foo",
+            &[Ty::Str],
+            &Ty::Bool,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
         assert_ne!(h1, h2);
     }
 
@@ -228,16 +256,17 @@ mod tests {
         let hash_a = SigHash::compute("a", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
         let hash_b = SigHash::compute("b", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
         let hash_c = SigHash::compute("c", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
-        let hash_b2 = SigHash::compute("b2", &[], &Ty::Int, &BTreeSet::new(), &BTreeSet::new(), &[]);
+        let hash_b2 =
+            SigHash::compute("b2", &[], &Ty::Int, &BTreeSet::new(), &BTreeSet::new(), &[]);
 
         let mut old = SigHashMap::new();
         old.insert("foo".into(), hash_a);
         old.insert("bar".into(), hash_b);
 
         let mut new = SigHashMap::new();
-        new.insert("foo".into(), hash_a);  // unchanged
+        new.insert("foo".into(), hash_a); // unchanged
         new.insert("bar".into(), hash_b2); // changed
-        new.insert("baz".into(), hash_c);  // added
+        new.insert("baz".into(), hash_c); // added
 
         let changed = new.diff(&old);
         assert!(changed.contains(&"bar".to_string()));
@@ -247,7 +276,14 @@ mod tests {
 
     #[test]
     fn display_hex_64_chars() {
-        let h = SigHash::compute("test", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
+        let h = SigHash::compute(
+            "test",
+            &[],
+            &Ty::Unit,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
         let s = h.to_string();
         assert_eq!(s.len(), 64); // 32 bytes × 2 hex chars
     }

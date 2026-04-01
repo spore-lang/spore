@@ -334,7 +334,7 @@ fn test_hole_report_suggestions() {
     .unwrap();
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
-    assert!(hole.suggestions.contains(&"double".to_string()));
+    assert!(hole.candidates.iter().any(|c| c.name == "double"));
 }
 
 #[test]
@@ -905,20 +905,24 @@ fn record_type_basic() {
 #[test]
 fn record_width_subtyping() {
     // A record with extra fields should be accepted where fewer are expected
-    check_ok(r#"
+    check_ok(
+        r#"
         fn needs_xy(p: { x: Int, y: Int }) -> Int { 0 }
         fn provide_xyz(p: { x: Int, y: Int, z: Bool }) -> Int { needs_xy(p) }
-    "#);
+    "#,
+    );
 }
 
 // ── Batch 4 Item 2: Associated types in capabilities ───────────────────
 
 #[test]
 fn capability_with_assoc_type() {
-    check_ok(r#"
+    check_ok(
+        r#"
         capability Iterator[T] {
             type Output
             fn next(self: T) -> Int
         }
-    "#);
+    "#,
+    );
 }

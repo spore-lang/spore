@@ -201,15 +201,24 @@ impl Parser {
         if matches!(self.tokens[lookahead].node, Token::Pub) {
             lookahead += 1;
             // Skip optional `(pkg)`
-            if matches!(self.tokens.get(lookahead).map(|t| &t.node), Some(Token::LParen)) {
+            if matches!(
+                self.tokens.get(lookahead).map(|t| &t.node),
+                Some(Token::LParen)
+            ) {
                 lookahead += 1; // `(`
                 lookahead += 1; // `pkg`
                 lookahead += 1; // `)`
             }
         }
-        if matches!(self.tokens.get(lookahead).map(|t| &t.node), Some(Token::Const)) {
+        if matches!(
+            self.tokens.get(lookahead).map(|t| &t.node),
+            Some(Token::Const)
+        ) {
             self.parse_const_item()
-        } else if matches!(self.tokens.get(lookahead).map(|t| &t.node), Some(Token::Alias)) {
+        } else if matches!(
+            self.tokens.get(lookahead).map(|t| &t.node),
+            Some(Token::Alias)
+        ) {
             self.parse_alias_item()
         } else {
             self.parse_fn_item()
@@ -604,14 +613,14 @@ impl Parser {
     // ── Deriving clause ──────────────────────────────────────────────
 
     fn parse_deriving_clause(&mut self) -> Result<Vec<String>, ParseError> {
-        if let Token::Ident(kw) = self.peek() {
-            if kw == "deriving" {
-                self.advance();
-                self.expect(&Token::LBracket)?;
-                let names = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
-                self.expect(&Token::RBracket)?;
-                return Ok(names);
-            }
+        if let Token::Ident(kw) = self.peek()
+            && kw == "deriving"
+        {
+            self.advance();
+            self.expect(&Token::LBracket)?;
+            let names = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+            self.expect(&Token::RBracket)?;
+            return Ok(names);
         }
         Ok(vec![])
     }
@@ -637,10 +646,7 @@ impl Parser {
             self.expect(&Token::LBracket)?;
             let components = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
             self.expect(&Token::RBracket)?;
-            return Ok(Item::CapabilityAlias {
-                name,
-                components,
-            });
+            return Ok(Item::CapabilityAlias { name, components });
         }
 
         self.expect(&Token::LBrace)?;
@@ -662,7 +668,10 @@ impl Parser {
                 } else {
                     vec![]
                 };
-                assoc_types.push(AssocType { name: aname, bounds });
+                assoc_types.push(AssocType {
+                    name: aname,
+                    bounds,
+                });
             } else {
                 methods.push(self.parse_fn_def()?);
             }
@@ -939,10 +948,7 @@ impl Parser {
             // List literal: `[elem, ...]`
             Token::LBracket => {
                 self.advance();
-                let elems = self.parse_comma_sep(
-                    |p| p.parse_expr(),
-                    &Token::RBracket,
-                )?;
+                let elems = self.parse_comma_sep(|p| p.parse_expr(), &Token::RBracket)?;
                 self.expect(&Token::RBracket)?;
                 Ok(Expr::List(elems))
             }
@@ -968,7 +974,9 @@ impl Parser {
                     self.advance();
                     let kw = self.expect_ident()?;
                     if kw != "allows" {
-                        return Err(self.error(format!("expected `allows` after `@`, found `{kw}`")));
+                        return Err(
+                            self.error(format!("expected `allows` after `@`, found `{kw}`"))
+                        );
                     }
                     self.expect(&Token::LBracket)?;
                     let caps = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
@@ -991,9 +999,9 @@ impl Parser {
                     // expect ident "lanes"
                     let param_name = self.expect_ident()?;
                     if param_name != "lanes" {
-                        return Err(self.error(format!(
-                            "expected `lanes` parameter, got `{param_name}`"
-                        )));
+                        return Err(
+                            self.error(format!("expected `lanes` parameter, got `{param_name}`"))
+                        );
                     }
                     self.expect(&Token::Colon)?;
                     let expr = self.parse_expr()?;

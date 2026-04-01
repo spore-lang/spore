@@ -61,7 +61,10 @@ impl Lowering {
                 ast::Item::Const(c) => {
                     self.register_name(&c.name);
                 }
-                ast::Item::ImplDef(_) | ast::Item::Import(_) | ast::Item::Alias(_) | ast::Item::CapabilityAlias { .. } => {}
+                ast::Item::ImplDef(_)
+                | ast::Item::Import(_)
+                | ast::Item::Alias(_)
+                | ast::Item::CapabilityAlias { .. } => {}
             }
         }
 
@@ -222,7 +225,10 @@ impl Lowering {
             ast::TypeExpr::Refinement(base, _, _) => self.lower_type_expr(base),
             ast::TypeExpr::Record(fields) => HirTypeRef::Generic(
                 "Record".to_string(),
-                fields.iter().map(|(_, t)| self.lower_type_expr(t)).collect(),
+                fields
+                    .iter()
+                    .map(|(_, t)| self.lower_type_expr(t))
+                    .collect(),
             ),
         }
     }

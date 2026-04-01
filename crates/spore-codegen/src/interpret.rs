@@ -115,7 +115,12 @@ impl Interpreter {
                 Item::TypeDef(t) => {
                     self.type_defs.insert(t.name.clone(), t.clone());
                 }
-                Item::CapabilityDef(_) | Item::ImplDef(_) | Item::Import(_) | Item::Const(_) | Item::Alias(_) | Item::CapabilityAlias { .. } => {}
+                Item::CapabilityDef(_)
+                | Item::ImplDef(_)
+                | Item::Import(_)
+                | Item::Const(_)
+                | Item::Alias(_)
+                | Item::CapabilityAlias { .. } => {}
             }
         }
     }
@@ -191,7 +196,10 @@ impl Interpreter {
                     let func = &self.functions[name];
                     Ok(Value::Closure(Closure {
                         params: func.params.iter().map(|p| p.name.clone()).collect(),
-                        body: func.body.clone().unwrap_or(Expr::Hole(name.clone(), None, None)),
+                        body: func
+                            .body
+                            .clone()
+                            .unwrap_or(Expr::Hole(name.clone(), None, None)),
                         env: BTreeMap::new(),
                     }))
                 } else {
@@ -363,7 +371,9 @@ impl Interpreter {
                 self.eval(expr, env)
             }
 
-            Expr::Hole(name, _, _) => Err(RuntimeError::new(format!("hit unfilled hole `?{name}`"))),
+            Expr::Hole(name, _, _) => {
+                Err(RuntimeError::new(format!("hit unfilled hole `?{name}`")))
+            }
 
             Expr::Spawn(expr) => {
                 // For PoC, just evaluate synchronously

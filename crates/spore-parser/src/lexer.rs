@@ -758,12 +758,30 @@ impl<'a> Lexer<'a> {
                 Some(b'\\') => {
                     self.pos += 1;
                     match self.peek() {
-                        Some(b'n') => { buf.push('\n'); self.pos += 1; }
-                        Some(b't') => { buf.push('\t'); self.pos += 1; }
-                        Some(b'\\') => { buf.push('\\'); self.pos += 1; }
-                        Some(b'"') => { buf.push('"'); self.pos += 1; }
-                        Some(b'{') => { buf.push('{'); self.pos += 1; }
-                        Some(b'}') => { buf.push('}'); self.pos += 1; }
+                        Some(b'n') => {
+                            buf.push('\n');
+                            self.pos += 1;
+                        }
+                        Some(b't') => {
+                            buf.push('\t');
+                            self.pos += 1;
+                        }
+                        Some(b'\\') => {
+                            buf.push('\\');
+                            self.pos += 1;
+                        }
+                        Some(b'"') => {
+                            buf.push('"');
+                            self.pos += 1;
+                        }
+                        Some(b'{') => {
+                            buf.push('{');
+                            self.pos += 1;
+                        }
+                        Some(b'}') => {
+                            buf.push('}');
+                            self.pos += 1;
+                        }
                         _ => {
                             return Err(LexError {
                                 message: "invalid escape in template string".into(),

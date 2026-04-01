@@ -502,7 +502,10 @@ fn test_const_item() {
     match &m.items[0] {
         spore_parser::ast::Item::Const(c) => {
             assert_eq!(c.name, "MAX");
-            assert!(matches!(c.visibility, spore_parser::ast::Visibility::Private));
+            assert!(matches!(
+                c.visibility,
+                spore_parser::ast::Visibility::Private
+            ));
             assert!(matches!(&c.ty, spore_parser::ast::TypeExpr::Named(n) if n == "Int"));
             assert!(matches!(&c.value, spore_parser::ast::Expr::IntLit(100)));
         }
@@ -524,7 +527,6 @@ fn test_pub_const_item() {
         _ => panic!("expected const"),
     }
 }
-
 
 // ── Return / Throw / List / Char / String prefix tests ──────────────────────
 
@@ -729,7 +731,11 @@ fn test_alias_def() {
     let m = parse_ok("alias MyInt = Int");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
-        Item::Alias(AliasDef { name, visibility, target }) => {
+        Item::Alias(AliasDef {
+            name,
+            visibility,
+            target,
+        }) => {
             assert_eq!(name, "MyInt");
             assert!(matches!(visibility, Visibility::Private));
             assert!(matches!(target, TypeExpr::Named(n) if n == "Int"));
@@ -742,7 +748,11 @@ fn test_alias_def() {
 fn test_pub_alias_def() {
     let m = parse_ok("pub alias StringList = List[String]");
     match &m.items[0] {
-        Item::Alias(AliasDef { name, visibility, target }) => {
+        Item::Alias(AliasDef {
+            name,
+            visibility,
+            target,
+        }) => {
             assert_eq!(name, "StringList");
             assert!(matches!(visibility, Visibility::Pub));
             assert!(matches!(target, TypeExpr::Generic(n, _) if n == "List"));
@@ -880,16 +890,14 @@ fn test_record_type_in_param() {
     use spore_parser::ast::*;
     let m = parse_ok("fn f(p: { x: Int, y: Int }) -> Int { 0 }");
     match &m.items[0] {
-        Item::Function(f) => {
-            match &f.params[0].ty {
-                TypeExpr::Record(fields) => {
-                    assert_eq!(fields.len(), 2);
-                    assert_eq!(fields[0].0, "x");
-                    assert_eq!(fields[1].0, "y");
-                }
-                other => panic!("expected Record type, got {:?}", other),
+        Item::Function(f) => match &f.params[0].ty {
+            TypeExpr::Record(fields) => {
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[0].0, "x");
+                assert_eq!(fields[1].0, "y");
             }
-        }
+            other => panic!("expected Record type, got {:?}", other),
+        },
         _ => panic!("expected function"),
     }
 }
@@ -899,12 +907,14 @@ fn test_record_type_in_param() {
 #[test]
 fn test_capability_assoc_type() {
     use spore_parser::ast::*;
-    let m = parse_ok(r#"
+    let m = parse_ok(
+        r#"
         capability Iterator[T] {
             type Output
             fn next(self: T) -> Output
         }
-    "#);
+    "#,
+    );
     match &m.items[0] {
         Item::CapabilityDef(cap) => {
             assert_eq!(cap.name, "Iterator");
@@ -920,12 +930,14 @@ fn test_capability_assoc_type() {
 #[test]
 fn test_capability_assoc_type_with_bound() {
     use spore_parser::ast::*;
-    let m = parse_ok(r#"
+    let m = parse_ok(
+        r#"
         capability Container[T] {
             type Item: Display
             fn get(self: T) -> Item
         }
-    "#);
+    "#,
+    );
     match &m.items[0] {
         Item::CapabilityDef(cap) => {
             assert_eq!(cap.assoc_types.len(), 1);

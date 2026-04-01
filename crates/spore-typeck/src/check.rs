@@ -546,13 +546,32 @@ impl Checker {
                 // Collect hole info for the report
                 let bindings = self.env.all_bindings();
                 let expected = ty.clone();
-                let suggestions = self.find_suggestions(&expected);
+                let candidates = self.find_suggestions(&expected);
                 self.hole_report.holes.push(HoleInfo {
                     name: name.clone(),
                     expected_type: expected,
                     function: self.current_function.clone(),
                     bindings,
-                    suggestions,
+                    candidates: candidates
+                        .into_iter()
+                        .map(|s| crate::hole::CandidateScore {
+                            name: s,
+                            type_match: 0.0,
+                            cost_fit: 0.0,
+                            capability_fit: 0.0,
+                            error_coverage: 0.0,
+                        })
+                        .collect(),
+                    location: None,
+                    type_inferred_from: None,
+                    enclosing_signature: None,
+                    binding_dependencies: std::collections::BTreeMap::new(),
+                    capabilities: std::collections::BTreeSet::new(),
+                    errors_to_handle: vec![],
+                    cost_budget: None,
+                    dependent_holes: vec![],
+                    confidence: None,
+                    error_clusters: vec![],
                 });
 
                 ty
@@ -1059,9 +1078,7 @@ impl Checker {
                     } else {
                         self.err(
                             ErrorCode::E001,
-                            format!(
-                                "type mismatch in {context}: record missing field `{ename}`"
-                            ),
+                            format!("type mismatch in {context}: record missing field `{ename}`"),
                         );
                     }
                 }

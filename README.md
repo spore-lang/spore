@@ -14,13 +14,114 @@ Spore is a compiled language where function signatures are "gravity centers" —
 - **Structured Concurrency**: Task trees with cancellation propagation, channels for communication
 - **Expression-Based**: Everything is an expression, no loops (recursion + higher-order functions)
 
+## Quick Start
+
+```bash
+cargo build                             # build the compiler
+cargo run --bin spore -- run demo.sp    # run the demo program (outputs 129)
+cargo run --bin spore -- check demo.sp  # type-check only
+cargo test                              # run all tests (309 tests)
+```
+
+## Examples
+
+### Hello World
+
+```spore
+fn main() -> Int {
+    let greeting = "Hello, Spore!";
+    42
+}
+```
+
+### Structs and Pattern Matching
+
+```spore
+struct Point { x: Int, y: Int }
+
+type Shape {
+    Circle(Int),
+    Rect(Int, Int),
+}
+
+fn area(s: Shape) -> Int {
+    match s {
+        Circle(r) => r * r * 3,
+        Rect(w, h) => w * h,
+    }
+}
+```
+
+### Lambdas, Pipes, and Higher-Order Functions
+
+```spore
+fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
+
+fn main() -> Int {
+    let double = |x: Int| x * 2;
+    apply(double, 21)
+}
+```
+
+### Capabilities, Costs, and Error Sets
+
+These annotations are part of the function signature — the compiler verifies
+that callers supply the required capabilities and that costs stay within budget.
+
+```spore
+fn fetch(url: String) -> String ! [NetError, Timeout]
+    cost ≤ 1000
+    uses [NetRead]
+{
+    ?todo
+}
+```
+
+### Parallel Fetch (Design Intent — not yet runnable)
+
+```spore
+fn fetch_all(urls: List[String]) -> List[String] ! [NetError, Timeout]
+    cost ≤ urls.len * per_fetch_cost
+    uses [NetRead, Spawn]
+{
+    parallel_scope {
+        urls |> map(|url| spawn { fetch(url) })
+             |> map(|task| task.await?)
+    }
+}
+```
+
+> This illustrates the target syntax for structured concurrency with capability
+> propagation. The parser accepts it but the interpreter cannot execute it yet.
+
+### Capabilities and Implementations
+
+```spore
+capability Display[T] {
+    fn show(self: T) -> String
+}
+
+impl Display for Point {
+    fn show(self: Point) -> String { "point" }
+}
+```
+
 ## Architecture
 
 ```
 sporec (stateless compiler — pure function)
 ├── spore-parser     Source text → AST
 ├── spore-typeck     Type checking, capability & cost analysis
-└── spore-codegen    Typed AST → native code (Cranelift)
+│   ├── hir          HIR with pipe desugaring
+│   ├── capability   Capability algebra (∪/∩/hierarchy)
+│   ├── cost         4D cost vectors + cost checker
+│   ├── hole         Hole dependency graph + topological ordering
+│   ├── sig_hash     BLAKE3 256-bit signature hashing
+│   ├── incremental  Incremental compilation DB
+│   ├── module       Module registry + import resolution
+│   ├── concurrency  Structured concurrency analysis
+│   └── platform     Platform system (cli/web/embedded)
+└── spore-codegen    Tree-walk interpreter (PoC) / Cranelift (planned)
 
 spore (stateful codebase manager — handles IO)
 ├── File watching, incremental compilation
@@ -31,7 +132,9 @@ spore (stateful codebase manager — handles IO)
 
 ## Project Status
 
-**Design phase complete.** See [docs/](docs/) for comprehensive specifications.
+**Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, and cost analysis. Interpreter is a PoC tree-walking evaluator.
+
+See [docs/](docs/) for comprehensive specifications.
 
 ## Documentation
 
@@ -57,21 +160,6 @@ spore (stateful codebase manager — handles IO)
 
 ### Design Overview
 See [docs/DESIGN.md](docs/DESIGN.md) for the master design document with all confirmed decisions.
-
-## Quick Example
-
-```spore
-/// Fetch multiple URLs in parallel and return their bodies.
-fn fetch_all(urls: List[Str]) -> List[Str] ! [NetError, Timeout]
-    uses [NetRead, Spawn]
-    cost ≤ urls.len * per_fetch_cost
-{
-    parallel_scope {
-        urls |> map(|url| spawn { fetch(url) })
-             |> map(|task| task.await?)
-    }
-}
-```
 
 ## License
 
