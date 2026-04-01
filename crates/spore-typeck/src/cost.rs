@@ -286,6 +286,18 @@ fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg
         Expr::Try(inner) | Expr::Spawn(inner) | Expr::Await(inner) | Expr::Throw(inner) => {
             collect_recursive_calls(fn_name, inner, out);
         }
+        Expr::ParallelScope { lanes, body } => {
+            if let Some(lanes_expr) = lanes {
+                collect_recursive_calls(fn_name, lanes_expr, out);
+            }
+            collect_recursive_calls(fn_name, body, out);
+        }
+        Expr::Select(arms) => {
+            for arm in arms {
+                collect_recursive_calls(fn_name, &arm.source, out);
+                collect_recursive_calls(fn_name, &arm.body, out);
+            }
+        }
         Expr::Return(inner) => {
             if let Some(e) = inner {
                 collect_recursive_calls(fn_name, e, out);

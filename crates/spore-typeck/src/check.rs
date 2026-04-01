@@ -175,7 +175,7 @@ impl Checker {
                     methods,
                 );
             }
-            Item::Import(_) | Item::Const(_) => {}
+            Item::Import(_) | Item::Const(_) | Item::Alias(_) => {}
         }
     }
 
@@ -600,6 +600,38 @@ impl Checker {
             }
 
             Expr::CharLit(_) => Ty::Char,
+
+            Expr::ParallelScope { lanes, body } => {
+                if let Some(lanes_expr) = lanes {
+                    let lanes_ty = self.check_expr(lanes_expr);
+                    if lanes_ty != Ty::Int && !lanes_ty.is_error() {
+                        self.err(
+                            ErrorCode::E002,
+                            format!("parallel_scope lanes must be Int, got `{lanes_ty}`"),
+                        );
+                    }
+                }
+                self.check_expr(body)
+            }
+
+            Expr::Select(arms) => {
+                let mut result_ty: Option<Ty> = None;
+                for arm in arms {
+                    let _source_ty = self.check_expr(&arm.source);
+                    self.env.push_scope();
+                    // Bind the received value — type is unknown for now
+                    let binding_ty = self.fresh_var();
+                    self.env.define(arm.binding.clone(), binding_ty);
+                    let arm_ty = self.check_expr(&arm.body);
+                    self.env.pop_scope();
+                    if let Some(ref expected) = result_ty {
+                        self.unify(expected, &arm_ty, "select arms");
+                    } else {
+                        result_ty = Some(arm_ty);
+                    }
+                }
+                result_ty.unwrap_or(Ty::Unit)
+            }
         }
     }
 
@@ -1139,6 +1171,20 @@ impl Checker {
                     all_bindings = self.check_pattern(pat, scrutinee_ty);
                 }
                 all_bindings
+            }
+            Pattern::List(elements, _rest) => {
+                // For list patterns, the scrutinee should be a list type
+                let elem_ty = self.fresh_var();
+                let list_ty = Ty::App("List".into(), vec![elem_ty.clone()]);
+                self.unify(&list_ty, scrutinee_ty, "list pattern");
+                let mut bindings = vec![];
+                for pat in elements {
+                    bindings.extend(self.check_pattern(pat, &elem_ty));
+                }
+                if let Some(rest_name) = _rest {
+                    bindings.push((rest_name.clone(), scrutinee_ty.clone()));
+                }
+                bindings
             }
         }
     }

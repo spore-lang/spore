@@ -1,4 +1,4 @@
-use spore_parser::lexer::{Lexer, Span, Token};
+use spore_parser::lexer::{Lexer, Span, TemplatePart, Token};
 
 fn toks(src: &str) -> Vec<Token> {
     Lexer::new(src)
@@ -453,5 +453,87 @@ fn test_lambda() {
             Token::Plus,
             Token::Int(1),
         ]
+    );
+}
+
+// ── Raw strings ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_raw_string_no_escapes() {
+    assert_eq!(
+        toks_no_eof(r#"r"C:\Users\path\to\file""#),
+        vec![Token::Str(r"C:\Users\path\to\file".into())]
+    );
+}
+
+#[test]
+fn test_raw_string_preserves_backslash_n() {
+    assert_eq!(
+        toks_no_eof(r#"r"hello\nworld""#),
+        vec![Token::Str(r"hello\nworld".into())]
+    );
+}
+
+#[test]
+fn test_raw_string_empty() {
+    assert_eq!(toks_no_eof(r#"r"""#), vec![Token::Str("".into())]);
+}
+
+// ── F-strings ────────────────────────────────────────────────────────────
+
+#[test]
+fn test_fstring_no_interpolation() {
+    assert_eq!(
+        toks_no_eof(r#"f"hello world""#),
+        vec![Token::FStr(vec![TemplatePart::Lit("hello world".into())])]
+    );
+}
+
+#[test]
+fn test_fstring_simple_interpolation() {
+    assert_eq!(
+        toks_no_eof(r#"f"Hello {name}!""#),
+        vec![Token::FStr(vec![
+            TemplatePart::Lit("Hello ".into()),
+            TemplatePart::Expr("name".into()),
+            TemplatePart::Lit("!".into()),
+        ])]
+    );
+}
+
+#[test]
+fn test_fstring_multiple_exprs() {
+    assert_eq!(
+        toks_no_eof(r#"f"{a} + {b} = {c}""#),
+        vec![Token::FStr(vec![
+            TemplatePart::Expr("a".into()),
+            TemplatePart::Lit(" + ".into()),
+            TemplatePart::Expr("b".into()),
+            TemplatePart::Lit(" = ".into()),
+            TemplatePart::Expr("c".into()),
+        ])]
+    );
+}
+
+// ── T-strings ────────────────────────────────────────────────────────────
+
+#[test]
+fn test_tstring_simple() {
+    assert_eq!(
+        toks_no_eof(r#"t"Dear {customer}, order #{id}""#),
+        vec![Token::TStr(vec![
+            TemplatePart::Lit("Dear ".into()),
+            TemplatePart::Expr("customer".into()),
+            TemplatePart::Lit(", order #".into()),
+            TemplatePart::Expr("id".into()),
+        ])]
+    );
+}
+
+#[test]
+fn test_tstring_no_interpolation() {
+    assert_eq!(
+        toks_no_eof(r#"t"plain text""#),
+        vec![Token::TStr(vec![TemplatePart::Lit("plain text".into())])]
     );
 }

@@ -151,13 +151,28 @@ impl Parser {
     // ── Top-level: Module ───────────────────────────────────────────
 
     pub fn parse_module(&mut self) -> Result<Module, ParseError> {
+        // Check for optional `module name uses [...]` declaration
+        let (mod_name, uses_clause) = if self.at(&Token::Mod) {
+            self.advance();
+            let name = self.expect_ident()?;
+            let uses = if self.at(&Token::Uses) {
+                Some(self.parse_uses_clause()?)
+            } else {
+                None
+            };
+            (name, uses)
+        } else {
+            (String::new(), None)
+        };
+
         let mut items = Vec::new();
         while !self.at_eof() {
             items.push(self.parse_item()?);
         }
         Ok(Module {
-            name: String::new(),
+            name: mod_name,
             items,
+            uses_clause,
         })
     }
 
@@ -165,22 +180,23 @@ impl Parser {
 
     fn parse_item(&mut self) -> Result<Item, ParseError> {
         match self.peek() {
-            Token::Fn | Token::Pub => self.parse_fn_or_const_item(),
+            Token::Fn | Token::Pub => self.parse_fn_or_const_or_alias_item(),
             Token::Const => self.parse_const_item(),
             Token::Struct => self.parse_struct_item(),
             Token::Type => self.parse_type_item(),
             Token::Capability => self.parse_capability_item(),
             Token::Impl => self.parse_impl_item(),
             Token::Import => self.parse_import_item(),
+            Token::Alias => self.parse_alias_item(),
             _ => Err(self.error(format!(
-                "expected item (fn, pub, const, struct, type, capability, impl, import), found {:?}",
+                "expected item (fn, pub, const, struct, type, capability, impl, import, alias), found {:?}",
                 self.peek()
             ))),
         }
     }
 
-    fn parse_fn_or_const_item(&mut self) -> Result<Item, ParseError> {
-        // Peek ahead past optional visibility to decide fn vs const
+    fn parse_fn_or_const_or_alias_item(&mut self) -> Result<Item, ParseError> {
+        // Peek ahead past optional visibility to decide fn vs const vs alias
         let mut lookahead = self.pos;
         if matches!(self.tokens[lookahead].node, Token::Pub) {
             lookahead += 1;
@@ -193,9 +209,24 @@ impl Parser {
         }
         if matches!(self.tokens.get(lookahead).map(|t| &t.node), Some(Token::Const)) {
             self.parse_const_item()
+        } else if matches!(self.tokens.get(lookahead).map(|t| &t.node), Some(Token::Alias)) {
+            self.parse_alias_item()
         } else {
             self.parse_fn_item()
         }
+    }
+
+    fn parse_alias_item(&mut self) -> Result<Item, ParseError> {
+        let visibility = self.parse_visibility()?;
+        self.expect(&Token::Alias)?;
+        let name = self.expect_ident()?;
+        self.expect(&Token::Eq)?;
+        let target = self.parse_type_expr()?;
+        Ok(Item::Alias(AliasDef {
+            name,
+            visibility,
+            target,
+        }))
     }
 
     fn parse_const_item(&mut self) -> Result<Item, ParseError> {
@@ -422,6 +453,10 @@ impl Parser {
 
     fn parse_type_expr(&mut self) -> Result<TypeExpr, ParseError> {
         match self.peek().clone() {
+            Token::Self_ => {
+                self.advance();
+                Ok(TypeExpr::Named("Self".into()))
+            }
             Token::Ident(name) => {
                 self.advance();
                 // Check for generic params: `List[Int]`
@@ -855,6 +890,35 @@ impl Parser {
             // Lambda: `|params| body`
             Token::Pipe => self.parse_lambda(),
 
+            // Parallel scope: `parallel_scope { body }` or `parallel_scope(lanes: N) { body }`
+            Token::ParallelScope => {
+                self.advance();
+                let lanes = if self.at(&Token::LParen) {
+                    self.advance();
+                    // expect ident "lanes"
+                    let param_name = self.expect_ident()?;
+                    if param_name != "lanes" {
+                        return Err(self.error(format!(
+                            "expected `lanes` parameter, got `{param_name}`"
+                        )));
+                    }
+                    self.expect(&Token::Colon)?;
+                    let expr = self.parse_expr()?;
+                    self.expect(&Token::RParen)?;
+                    Some(Box::new(expr))
+                } else {
+                    None
+                };
+                let body = self.parse_block_expr()?;
+                Ok(Expr::ParallelScope {
+                    lanes,
+                    body: Box::new(body),
+                })
+            }
+
+            // Select expression
+            Token::Select => self.parse_select_expr(),
+
             // Identifier (variable or struct literal or call)
             Token::Ident(name) => {
                 self.advance();
@@ -1051,6 +1115,32 @@ impl Parser {
         Ok(Expr::Match(Box::new(scrutinee), arms))
     }
 
+    // ── Select expression ───────────────────────────────────────────
+
+    fn parse_select_expr(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&Token::Select)?;
+        self.expect(&Token::LBrace)?;
+        let mut arms = Vec::new();
+        while !self.at(&Token::RBrace) && !self.at_eof() {
+            let binding = self.expect_ident()?;
+            // expect `from` keyword
+            self.expect(&Token::From)?;
+            let source = self.parse_expr()?;
+            self.expect(&Token::FatArrow)?;
+            let body = self.parse_expr()?;
+            arms.push(SelectArm {
+                binding,
+                source,
+                body,
+            });
+            if self.at(&Token::Comma) {
+                self.advance();
+            }
+        }
+        self.expect(&Token::RBrace)?;
+        Ok(Expr::Select(arms))
+    }
+
     // ── Patterns ────────────────────────────────────────────────────
 
     fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
@@ -1114,6 +1204,31 @@ impl Parser {
             Token::Bool(b) => {
                 self.advance();
                 Ok(Pattern::BoolLit(b))
+            }
+            // List pattern: `[h, ..tail]`
+            Token::LBracket => {
+                self.advance();
+                let mut elements = Vec::new();
+                let mut rest = None;
+                while !self.at(&Token::RBracket) && !self.at_eof() {
+                    // Check for `..ident` rest binding
+                    if self.at(&Token::DotDot) {
+                        self.advance();
+                        rest = Some(self.expect_ident()?);
+                        // optional trailing comma
+                        if self.at(&Token::Comma) {
+                            self.advance();
+                        }
+                        break;
+                    }
+                    elements.push(self.parse_pattern()?);
+                    if !self.at(&Token::Comma) {
+                        break;
+                    }
+                    self.advance(); // eat comma
+                }
+                self.expect(&Token::RBracket)?;
+                Ok(Pattern::List(elements, rest))
             }
             _ => Err(self.error(format!("expected pattern, found {:?}", self.peek()))),
         }

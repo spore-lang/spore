@@ -61,17 +61,6 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             }
-            Value::Char(c) => write!(f, "{c}"),
-            Value::List(items) => {
-                write!(f, "[")?;
-                for (i, v) in items.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{v}")?;
-                }
-                write!(f, "]")
-            }
         }
     }
 }

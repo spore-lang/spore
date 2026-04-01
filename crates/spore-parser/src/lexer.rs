@@ -88,6 +88,8 @@ pub enum Token {
     Self_,
     Impl,
     ParallelScope,
+    From,
+    Alias,
 
     // ── Operators ──
     Plus,
@@ -501,6 +503,22 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // Check for scientific notation: e or E followed by optional +/- and digits
+        if matches!(self.peek(), Some(b'e') | Some(b'E')) {
+            is_float = true;
+            self.pos += 1; // consume 'e'/'E'
+            if matches!(self.peek(), Some(b'+') | Some(b'-')) {
+                self.pos += 1; // consume sign
+            }
+            while let Some(b) = self.peek() {
+                if b.is_ascii_digit() || b == b'_' {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
         let text = &self.source[start..self.pos];
         let text_clean = text.replace('_', "");
         if is_float {
@@ -805,12 +823,14 @@ impl<'a> Lexer<'a> {
             "uses" => Token::Uses,
             "throw" => Token::Throw,
             "select" => Token::Select,
-            "mod" => Token::Mod,
+            "mod" | "module" => Token::Mod,
             "pkg" => Token::Pkg,
             "in" => Token::In,
             "self" => Token::Self_,
             "impl" => Token::Impl,
             "parallel_scope" => Token::ParallelScope,
+            "from" => Token::From,
+            "alias" => Token::Alias,
             "true" => Token::Bool(true),
             "false" => Token::Bool(false),
             _ => Token::Ident(text.to_string()),

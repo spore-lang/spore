@@ -5,6 +5,8 @@
 pub struct Module {
     pub name: String,
     pub items: Vec<Item>,
+    /// `module name uses [Cap1, Cap2]` at module level.
+    pub uses_clause: Option<UsesClause>,
 }
 
 /// Top-level items in a module.
@@ -17,6 +19,15 @@ pub enum Item {
     CapabilityDef(CapabilityDef),
     ImplDef(ImplDef),
     Import(ImportDecl),
+    Alias(AliasDef),
+}
+
+/// Type alias: `alias X = Y`
+#[derive(Debug, Clone)]
+pub struct AliasDef {
+    pub name: String,
+    pub visibility: Visibility,
+    pub target: TypeExpr,
 }
 
 /// Compile-time constant definition: `const MAX_SIZE: Int = 1024`
@@ -148,6 +159,21 @@ pub enum Expr {
     List(Vec<Expr>),
     CharLit(char),
     TString(Vec<TStringPart>),
+    /// `parallel_scope { body }` or `parallel_scope(lanes: N) { body }`
+    ParallelScope {
+        lanes: Option<Box<Expr>>,
+        body: Box<Expr>,
+    },
+    /// `select { val from rx => body, ... }`
+    Select(Vec<SelectArm>),
+}
+
+/// A single arm of a `select` expression.
+#[derive(Debug, Clone)]
+pub struct SelectArm {
+    pub binding: String,
+    pub source: Expr,
+    pub body: Expr,
 }
 
 #[derive(Debug, Clone)]
@@ -214,6 +240,8 @@ pub enum Pattern {
     Constructor(String, Vec<Pattern>),
     Struct(String, Vec<(String, Pattern)>),
     Or(Vec<Pattern>),
+    /// List pattern: `[head, ..tail]` — elements + optional rest binding.
+    List(Vec<Pattern>, Option<String>),
 }
 
 #[derive(Debug, Clone)]

@@ -631,3 +631,244 @@ fn test_tstring() {
         panic!("expected tstring, got {:?}", tail);
     }
 }
+
+#[test]
+fn test_raw_string_parse() {
+    let tail = get_tail(r#"fn foo() { r"C:\Users\path" }"#);
+    match tail {
+        Expr::StrLit(s) => assert_eq!(s, r"C:\Users\path"),
+        other => panic!("expected StrLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_fstring_parse() {
+    let tail = get_tail(r#"fn foo(x: Int) { f"val={x}" }"#);
+    if let Expr::FString(parts) = tail {
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(&parts[0], FStringPart::Literal(s) if s == "val="));
+        assert!(matches!(&parts[1], FStringPart::Expr(Expr::Var(n)) if n == "x"));
+    } else {
+        panic!("expected FString, got {:?}", tail);
+    }
+}
+
+// ── Item 1: parallel_scope expression ───────────────────────────────────
+
+#[test]
+fn test_parallel_scope_basic() {
+    let tail = get_tail("fn f() -> Int { parallel_scope { 1 + 2 } }");
+    match tail {
+        Expr::ParallelScope { lanes, body } => {
+            assert!(lanes.is_none());
+            assert!(matches!(*body, Expr::Block(_, _)));
+        }
+        other => panic!("expected ParallelScope, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_parallel_scope_with_lanes() {
+    let tail = get_tail("fn f() -> Int { parallel_scope(lanes: 4) { 1 + 2 } }");
+    match tail {
+        Expr::ParallelScope { lanes, body } => {
+            assert!(matches!(*lanes.unwrap(), Expr::IntLit(4)));
+            assert!(matches!(*body, Expr::Block(_, _)));
+        }
+        other => panic!("expected ParallelScope with lanes, got {:?}", other),
+    }
+}
+
+// ── Item 2: select expression ───────────────────────────────────────────
+
+#[test]
+fn test_select_expr() {
+    let src = r#"fn f(rx1: Chan, rx2: Chan) -> Int {
+        select {
+            val from rx1 => val,
+            msg from rx2 => msg
+        }
+    }"#;
+    let tail = get_tail(src);
+    match tail {
+        Expr::Select(arms) => {
+            assert_eq!(arms.len(), 2);
+            assert_eq!(arms[0].binding, "val");
+            assert_eq!(arms[1].binding, "msg");
+        }
+        other => panic!("expected Select, got {:?}", other),
+    }
+}
+
+// ── Item 3: module uses clause ──────────────────────────────────────────
+
+#[test]
+fn test_module_uses_clause() {
+    let src = r#"module mymod uses [NetRead, FileSystem]
+        fn foo() -> Int { 42 }
+    "#;
+    let m = parse_ok(src);
+    assert_eq!(m.name, "mymod");
+    let uses = m.uses_clause.as_ref().unwrap();
+    assert_eq!(uses.resources, vec!["NetRead", "FileSystem"]);
+    assert_eq!(m.items.len(), 1);
+}
+
+#[test]
+fn test_module_without_uses() {
+    let m = parse_ok("fn foo() -> Int { 42 }");
+    assert!(m.uses_clause.is_none());
+}
+
+// ── Item 4: alias declaration ───────────────────────────────────────────
+
+use spore_parser::ast::{AliasDef, Item, TypeExpr, Visibility};
+
+#[test]
+fn test_alias_def() {
+    let m = parse_ok("alias MyInt = Int");
+    assert_eq!(m.items.len(), 1);
+    match &m.items[0] {
+        Item::Alias(AliasDef { name, visibility, target }) => {
+            assert_eq!(name, "MyInt");
+            assert!(matches!(visibility, Visibility::Private));
+            assert!(matches!(target, TypeExpr::Named(n) if n == "Int"));
+        }
+        other => panic!("expected Alias, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_pub_alias_def() {
+    let m = parse_ok("pub alias StringList = List[String]");
+    match &m.items[0] {
+        Item::Alias(AliasDef { name, visibility, target }) => {
+            assert_eq!(name, "StringList");
+            assert!(matches!(visibility, Visibility::Pub));
+            assert!(matches!(target, TypeExpr::Generic(n, _) if n == "List"));
+        }
+        other => panic!("expected Alias, got {:?}", other),
+    }
+}
+
+// ── Item 5: Self type ───────────────────────────────────────────────────
+
+#[test]
+fn test_self_type_in_param() {
+    let m = parse_ok("fn foo(other: Self) -> Self { other }");
+    match &m.items[0] {
+        Item::Function(f) => {
+            assert!(matches!(&f.params[0].ty, TypeExpr::Named(n) if n == "Self"));
+            assert!(matches!(f.return_type.as_ref().unwrap(), TypeExpr::Named(n) if n == "Self"));
+        }
+        other => panic!("expected Function, got {:?}", other),
+    }
+}
+
+// ── Item 6: list pattern ────────────────────────────────────────────────
+
+use spore_parser::ast::Pattern;
+
+#[test]
+fn test_list_pattern_basic() {
+    let src = r#"fn f(xs: List) -> Int {
+        match xs {
+            [h, ..tail] => h,
+            _ => 0
+        }
+    }"#;
+    let m = parse_ok(src);
+    match &m.items[0] {
+        Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            if let Expr::Block(_, Some(tail)) = body {
+                if let Expr::Match(_, arms) = tail.as_ref() {
+                    match &arms[0].pattern {
+                        Pattern::List(elems, rest) => {
+                            assert_eq!(elems.len(), 1);
+                            assert!(matches!(&elems[0], Pattern::Var(n) if n == "h"));
+                            assert_eq!(rest.as_deref(), Some("tail"));
+                        }
+                        other => panic!("expected List pattern, got {:?}", other),
+                    }
+                } else {
+                    panic!("expected match");
+                }
+            } else {
+                panic!("expected block");
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_list_pattern_no_rest() {
+    let src = r#"fn f(xs: List) -> Int {
+        match xs {
+            [a, b] => a,
+            _ => 0
+        }
+    }"#;
+    let m = parse_ok(src);
+    match &m.items[0] {
+        Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            if let Expr::Block(_, Some(tail)) = body {
+                if let Expr::Match(_, arms) = tail.as_ref() {
+                    match &arms[0].pattern {
+                        Pattern::List(elems, rest) => {
+                            assert_eq!(elems.len(), 2);
+                            assert!(rest.is_none());
+                        }
+                        other => panic!("expected List pattern, got {:?}", other),
+                    }
+                } else {
+                    panic!("expected match");
+                }
+            } else {
+                panic!("expected block");
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+// ── Item 7: float scientific notation ───────────────────────────────────
+
+#[test]
+fn test_float_scientific_notation() {
+    let tail = get_tail("fn f() -> Float { 1.5e10 }");
+    match tail {
+        Expr::FloatLit(v) => assert_eq!(v, 1.5e10),
+        other => panic!("expected FloatLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_float_scientific_negative_exponent() {
+    let tail = get_tail("fn f() -> Float { 2.3E-4 }");
+    match tail {
+        Expr::FloatLit(v) => assert!((v - 2.3e-4).abs() < 1e-20),
+        other => panic!("expected FloatLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_float_scientific_positive_exponent() {
+    let tail = get_tail("fn f() -> Float { 1.0e+3 }");
+    match tail {
+        Expr::FloatLit(v) => assert_eq!(v, 1.0e+3),
+        other => panic!("expected FloatLit, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_int_scientific_notation() {
+    // An integer followed by e should also become a float
+    let tail = get_tail("fn f() -> Float { 5e2 }");
+    match tail {
+        Expr::FloatLit(v) => assert_eq!(v, 5e2),
+        other => panic!("expected FloatLit, got {:?}", other),
+    }
+}

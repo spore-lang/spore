@@ -61,7 +61,7 @@ impl Lowering {
                 ast::Item::Const(c) => {
                     self.register_name(&c.name);
                 }
-                ast::Item::ImplDef(_) | ast::Item::Import(_) => {}
+                ast::Item::ImplDef(_) | ast::Item::Import(_) | ast::Item::Alias(_) => {}
             }
         }
 
@@ -83,7 +83,7 @@ impl Lowering {
                 Some(HirItem::CapabilityDef(self.lower_capability_def(c)))
             }
             ast::Item::ImplDef(i) => Some(HirItem::ImplDef(self.lower_impl_def(i))),
-            ast::Item::Import(_) | ast::Item::Const(_) => None,
+            ast::Item::Import(_) | ast::Item::Const(_) | ast::Item::Alias(_) => None,
         }
     }
 
@@ -317,6 +317,19 @@ impl Lowering {
             ast::Expr::CharLit(c) => HirExpr::CharLit(*c),
 
             ast::Expr::Hole(name, _ty_hint) => HirExpr::Hole(name.clone()),
+
+            ast::Expr::ParallelScope { body, .. } => {
+                // PoC: lower to just the body expression
+                self.lower_expr(body)
+            }
+            ast::Expr::Select(arms) => {
+                // PoC: lower to a block containing the first arm's body, or unit
+                if let Some(first) = arms.first() {
+                    self.lower_expr(&first.body)
+                } else {
+                    HirExpr::StrLit(String::new()) // empty select → unit-like
+                }
+            }
         }
     }
 
@@ -420,6 +433,13 @@ impl Lowering {
             ),
             ast::Pattern::Or(pats) => {
                 HirPattern::Or(pats.iter().map(|p| self.lower_pattern(p)).collect())
+            }
+            ast::Pattern::List(elements, _rest) => {
+                // PoC: lower list pattern as a constructor-like pattern
+                HirPattern::Constructor(
+                    "List".to_string(),
+                    elements.iter().map(|p| self.lower_pattern(p)).collect(),
+                )
             }
         }
     }

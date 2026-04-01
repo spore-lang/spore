@@ -115,7 +115,7 @@ impl Interpreter {
                 Item::TypeDef(t) => {
                     self.type_defs.insert(t.name.clone(), t.clone());
                 }
-                Item::CapabilityDef(_) | Item::ImplDef(_) | Item::Import(_) | Item::Const(_) => {}
+                Item::CapabilityDef(_) | Item::ImplDef(_) | Item::Import(_) | Item::Const(_) | Item::Alias(_) => {}
             }
         }
     }
@@ -397,6 +397,25 @@ impl Interpreter {
             }
 
             Expr::CharLit(c) => Ok(Value::Char(*c)),
+
+            Expr::ParallelScope { body, .. } => {
+                // PoC: synchronous execution
+                self.eval(body, env)
+            }
+
+            Expr::Select(arms) => {
+                // PoC: evaluate first arm synchronously
+                if let Some(arm) = arms.first() {
+                    let source_val = self.eval(&arm.source, env)?;
+                    env.push();
+                    env.define(arm.binding.clone(), source_val);
+                    let result = self.eval(&arm.body, env)?;
+                    env.pop();
+                    Ok(result)
+                } else {
+                    Ok(Value::Unit)
+                }
+            }
         }
     }
 
@@ -563,6 +582,29 @@ impl Interpreter {
                     }
                 }
                 None
+            }
+            Pattern::List(elements, rest) => {
+                if let Value::List(items) = val {
+                    if rest.is_some() {
+                        if items.len() < elements.len() {
+                            return None;
+                        }
+                    } else if items.len() != elements.len() {
+                        return None;
+                    }
+                    let mut bindings = Vec::new();
+                    for (pat, item) in elements.iter().zip(items.iter()) {
+                        let sub = self.match_pattern(pat, item)?;
+                        bindings.extend(sub);
+                    }
+                    if let Some(rest_name) = rest {
+                        let rest_items = items[elements.len()..].to_vec();
+                        bindings.push((rest_name.clone(), Value::List(rest_items)));
+                    }
+                    Some(bindings)
+                } else {
+                    None
+                }
             }
         }
     }
