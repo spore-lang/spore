@@ -123,7 +123,35 @@ impl Checker {
                         (v.name.clone(), ftys)
                     })
                     .collect();
-                self.registry.types.insert(t.name.clone(), variants);
+                self.registry.types.insert(t.name.clone(), variants.clone());
+
+                // Register each variant as a constructor in the value namespace.
+                let ret_ty = if t.type_params.is_empty() {
+                    Ty::Named(t.name.clone())
+                } else {
+                    Ty::App(
+                        t.name.clone(),
+                        t.type_params.iter().map(|p| Ty::Named(p.clone())).collect(),
+                    )
+                };
+
+                for (vname, field_tys) in &variants {
+                    if field_tys.is_empty() {
+                        // Zero-field variant: register as a value of the enum type.
+                        self.env.define(vname.clone(), ret_ty.clone());
+                    } else {
+                        // Variant with fields: register as a constructor function.
+                        self.registry.functions.insert(
+                            vname.clone(),
+                            (field_tys.clone(), ret_ty.clone(), CapSet::new()),
+                        );
+                        if !t.type_params.is_empty() {
+                            self.registry
+                                .fn_type_params
+                                .insert(vname.clone(), t.type_params.clone());
+                        }
+                    }
+                }
             }
             Item::CapabilityDef(cap) => {
                 let methods: Vec<(String, Vec<Ty>, Ty)> = cap
@@ -220,6 +248,91 @@ impl Checker {
                     format!(
                         "method `{}` is not defined in capability `{}`",
                         method.name, impl_def.capability
+                    ),
+                );
+            }
+        }
+
+        // Validate that each implemented method's signature matches the capability.
+        // Substitute capability type params (e.g., T in Display[T]) with the target type.
+        let cap_type_params = _cap_type_params;
+        let type_mapping: HashMap<String, Ty> = if cap_type_params.is_empty() {
+            HashMap::new()
+        } else if !impl_def.type_args.is_empty() {
+            cap_type_params
+                .iter()
+                .zip(impl_def.type_args.iter())
+                .map(|(param, arg)| (param.clone(), self.resolve_type(arg)))
+                .collect()
+        } else if cap_type_params.len() == 1 {
+            // Default: map the single type param to the target type
+            let mut m = HashMap::new();
+            m.insert(
+                cap_type_params[0].clone(),
+                self.resolve_type(&TypeExpr::Named(impl_def.target_type.clone())),
+            );
+            m
+        } else {
+            HashMap::new()
+        };
+
+        for method in &impl_def.methods {
+            if let Some((_expected_name, expected_params, expected_ret)) =
+                cap_methods.iter().find(|(name, _, _)| name == &method.name)
+            {
+                // Apply type param substitution to expected types
+                let expected_params: Vec<Ty> = expected_params
+                    .iter()
+                    .map(|t| self.instantiate_ty(t, &type_mapping))
+                    .collect();
+                let expected_ret = self.instantiate_ty(expected_ret, &type_mapping);
+
+                let impl_params: Vec<Ty> = method
+                    .params
+                    .iter()
+                    .map(|p| self.resolve_type(&p.ty))
+                    .collect();
+                let impl_ret = method
+                    .return_type
+                    .as_ref()
+                    .map(|t| self.resolve_type(t))
+                    .unwrap_or(Ty::Unit);
+
+                if impl_params.len() != expected_params.len() {
+                    self.err(
+                        ErrorCode::E001,
+                        format!(
+                            "method `{}` in impl `{}` for `{}` expects {} parameters, got {}",
+                            method.name,
+                            impl_def.capability,
+                            impl_def.target_type,
+                            expected_params.len(),
+                            impl_params.len()
+                        ),
+                    );
+                } else {
+                    for (i, (exp, act)) in
+                        expected_params.iter().zip(impl_params.iter()).enumerate()
+                    {
+                        self.unify(
+                            exp,
+                            act,
+                            &format!(
+                                "parameter {} of method `{}` in impl `{}` for `{}`",
+                                i + 1,
+                                method.name,
+                                impl_def.capability,
+                                impl_def.target_type
+                            ),
+                        );
+                    }
+                }
+                self.unify(
+                    &expected_ret,
+                    &impl_ret,
+                    &format!(
+                        "return type of method `{}` in impl `{}` for `{}`",
+                        method.name, impl_def.capability, impl_def.target_type
                     ),
                 );
             }
@@ -586,17 +699,25 @@ impl Checker {
             }
 
             Expr::Spawn(expr) => {
-                let _inner = self.check_expr(expr);
-                // TODO: return Task[T] type
-                Ty::Named("Task".into())
+                let inner = self.check_expr(expr);
+                Ty::App("Task".into(), vec![inner])
             }
 
             Expr::Await(expr) => {
                 let ty = self.check_expr(expr);
-                // TODO: unwrap Task[T] → T
+                let ty = self.apply_subst(&ty);
                 match ty {
-                    Ty::Named(ref n) if n == "Task" => Ty::Unit, // simplified
-                    _ => ty,
+                    Ty::App(ref name, ref args) if name == "Task" && args.len() == 1 => {
+                        args[0].clone()
+                    }
+                    Ty::Error => Ty::Error,
+                    _ => {
+                        self.err(
+                            ErrorCode::E001,
+                            format!("await expects Task[T], got `{ty}`"),
+                        );
+                        Ty::Error
+                    }
                 }
             }
 
