@@ -24,6 +24,23 @@ pub fn compile(source: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Analyze holes in Spore source and return a JSON report.
+pub fn holes(source: &str) -> Result<String, String> {
+    let ast = parse(source).map_err(|errs| {
+        errs.into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    let result = type_check(&ast).map_err(|errs| {
+        errs.into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    Ok(result.hole_report.to_json())
+}
+
 /// Run a Spore program by executing its `main` function.
 pub fn run(source: &str) -> Result<Value, String> {
     let ast = parse(source).map_err(|errs| {

@@ -926,3 +926,216 @@ fn capability_with_assoc_type() {
     "#,
     );
 }
+
+// ── Batch 5: HoleInfo v0.3, typed edges, layered sort ───────────────────
+
+#[test]
+fn hole_info_v03_has_all_fields() {
+    use spore_typeck::hole::HoleInfo;
+    use spore_typeck::types::Ty;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let info = HoleInfo {
+        name: "impl".into(),
+        location: None,
+        expected_type: Ty::Int,
+        type_inferred_from: Some("return type".into()),
+        function: "foo".into(),
+        enclosing_signature: Some("fn foo() -> Int".into()),
+        bindings: BTreeMap::new(),
+        binding_dependencies: BTreeMap::new(),
+        capabilities: BTreeSet::new(),
+        errors_to_handle: vec![],
+        cost_budget: None,
+        candidates: vec![],
+        dependent_holes: vec![],
+        confidence: None,
+        error_clusters: vec![],
+    };
+    assert_eq!(info.name, "impl");
+    assert_eq!(info.expected_type, Ty::Int);
+    assert!(info.location.is_none());
+    assert_eq!(info.type_inferred_from.as_deref(), Some("return type"));
+    assert_eq!(info.enclosing_signature.as_deref(), Some("fn foo() -> Int"));
+}
+
+#[test]
+fn candidate_score_overall_formula() {
+    use spore_typeck::hole::CandidateScore;
+
+    let cs = CandidateScore {
+        name: "foo".into(),
+        type_match: 1.0,
+        cost_fit: 1.0,
+        capability_fit: 1.0,
+        error_coverage: 1.0,
+    };
+    assert!((cs.overall() - 1.0).abs() < 1e-9);
+
+    let cs2 = CandidateScore {
+        name: "bar".into(),
+        type_match: 0.0,
+        cost_fit: 0.0,
+        capability_fit: 0.0,
+        error_coverage: 0.0,
+    };
+    assert!((cs2.overall() - 0.0).abs() < 1e-9);
+
+    // Weighted: 0.40*0.5 + 0.20*0.8 + 0.25*1.0 + 0.15*0.6
+    let cs3 = CandidateScore {
+        name: "baz".into(),
+        type_match: 0.5,
+        cost_fit: 0.8,
+        capability_fit: 1.0,
+        error_coverage: 0.6,
+    };
+    let expected = 0.40 * 0.5 + 0.20 * 0.8 + 0.25 * 1.0 + 0.15 * 0.6;
+    assert!((cs3.overall() - expected).abs() < 1e-9);
+}
+
+#[test]
+fn dependency_edge_with_kinds() {
+    use spore_typeck::hole::{DependencyEdge, EdgeKind, HoleDependencyGraph};
+
+    let mut g = HoleDependencyGraph::new();
+    g.add_dependency_typed("?b".into(), "?a".into(), EdgeKind::Type);
+    g.add_dependency_typed("?c".into(), "?a".into(), EdgeKind::Value);
+    g.add_dependency_typed("?d".into(), "?b".into(), EdgeKind::Cost);
+
+    assert_eq!(g.edges.len(), 3);
+    assert!(g.edges.contains(&DependencyEdge {
+        from: "?a".into(),
+        to: "?b".into(),
+        kind: EdgeKind::Type,
+    }));
+    assert!(g.edges.contains(&DependencyEdge {
+        from: "?a".into(),
+        to: "?c".into(),
+        kind: EdgeKind::Value,
+    }));
+    assert!(g.edges.contains(&DependencyEdge {
+        from: "?b".into(),
+        to: "?d".into(),
+        kind: EdgeKind::Cost,
+    }));
+
+    // Fast-lookup maps still work
+    assert_eq!(g.dependencies_of("?b"), vec!["?a"]);
+    assert_eq!(g.dependents_of("?a"), vec!["?b", "?c"]);
+}
+
+#[test]
+fn layered_topological_order_basic() {
+    use spore_typeck::hole::HoleDependencyGraph;
+
+    let mut g = HoleDependencyGraph::new();
+    g.add_dependency("?b".into(), "?a".into());
+    g.add_dependency("?c".into(), "?a".into());
+    g.add_dependency("?d".into(), "?b".into());
+    g.add_dependency("?d".into(), "?c".into());
+
+    let layers = g.layered_topological_order().unwrap();
+    assert_eq!(layers.len(), 3);
+    assert_eq!(layers[0], vec!["?a"]);
+    assert_eq!(layers[1], vec!["?b", "?c"]); // parallel-ready
+    assert_eq!(layers[2], vec!["?d"]);
+}
+
+#[test]
+fn layered_topological_order_single() {
+    use spore_typeck::hole::HoleDependencyGraph;
+
+    let mut g = HoleDependencyGraph::new();
+    g.add_hole("?x".into());
+    let layers = g.layered_topological_order().unwrap();
+    assert_eq!(layers, vec![vec!["?x".to_string()]]);
+}
+
+#[test]
+fn has_cycle_detects_cycles() {
+    use spore_typeck::hole::HoleDependencyGraph;
+
+    let mut g = HoleDependencyGraph::new();
+    g.add_dependency("?a".into(), "?b".into());
+    g.add_dependency("?b".into(), "?a".into());
+    assert!(g.has_cycle());
+}
+
+#[test]
+fn has_cycle_no_cycle() {
+    use spore_typeck::hole::HoleDependencyGraph;
+
+    let mut g = HoleDependencyGraph::new();
+    g.add_dependency("?b".into(), "?a".into());
+    g.add_dependency("?c".into(), "?b".into());
+    assert!(!g.has_cycle());
+}
+
+#[test]
+fn layered_topological_order_rejects_cycle() {
+    use spore_typeck::hole::HoleDependencyGraph;
+
+    let mut g = HoleDependencyGraph::new();
+    g.add_dependency("?a".into(), "?b".into());
+    g.add_dependency("?b".into(), "?a".into());
+    let err = g.layered_topological_order().unwrap_err();
+    assert!(err.contains(&"?a".to_string()));
+    assert!(err.contains(&"?b".to_string()));
+}
+
+#[test]
+fn diamond_layered_sort() {
+    // A→B, A→C, B→D, C→D should yield [[A], [B,C], [D]]
+    use spore_typeck::hole::HoleDependencyGraph;
+
+    let mut g = HoleDependencyGraph::new();
+    g.add_dependency("?B".into(), "?A".into());
+    g.add_dependency("?C".into(), "?A".into());
+    g.add_dependency("?D".into(), "?B".into());
+    g.add_dependency("?D".into(), "?C".into());
+
+    let layers = g.layered_topological_order().unwrap();
+    assert_eq!(layers.len(), 3);
+    assert_eq!(layers[0], vec!["?A"]);
+    assert_eq!(layers[1], vec!["?B", "?C"]);
+    assert_eq!(layers[2], vec!["?D"]);
+}
+
+#[test]
+fn json_includes_edge_kinds() {
+    use spore_typeck::hole::{EdgeKind, HoleDependencyGraph};
+
+    let mut g = HoleDependencyGraph::new();
+    g.add_dependency_typed("?b".into(), "?a".into(), EdgeKind::Value);
+    let json = g.to_json_string();
+    assert!(json.contains("\"edges\""));
+    assert!(json.contains("\"value\""));
+    assert!(json.contains("\"?a\""));
+    assert!(json.contains("\"?b\""));
+}
+
+#[test]
+fn hole_report_json_v03_fields() {
+    use spore_typeck::hole::HoleReport;
+
+    let report = HoleReport::new();
+    let json = report.to_json();
+    assert!(json.contains("\"dependency_graph\""));
+    assert!(json.contains("\"edges\""));
+}
+
+#[test]
+fn hole_collects_capabilities_and_errors() {
+    let module = parse(
+        r#"
+        fn helper() -> Int ! [ParseError] uses [IO] {
+            ?todo
+        }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    assert!(hole.capabilities.contains("IO"));
+    assert!(hole.errors_to_handle.contains(&"ParseError".to_string()));
+}

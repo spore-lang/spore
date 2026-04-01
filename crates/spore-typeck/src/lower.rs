@@ -142,6 +142,10 @@ impl Lowering {
             uses_clause,
             throws,
             where_clause,
+            cost_bound: f
+                .cost_clause
+                .as_ref()
+                .map(|cc| Box::new(self.lower_cost_expr(&cc.bound))),
         }
     }
 
@@ -223,11 +227,10 @@ impl Lowering {
                 ts.iter().map(|t| self.lower_type_expr(t)).collect(),
             ),
             ast::TypeExpr::Refinement(base, _, _) => self.lower_type_expr(base),
-            ast::TypeExpr::Record(fields) => HirTypeRef::Generic(
-                "Record".to_string(),
+            ast::TypeExpr::Record(fields) => HirTypeRef::Record(
                 fields
                     .iter()
-                    .map(|(_, t)| self.lower_type_expr(t))
+                    .map(|(name, t)| (name.clone(), Box::new(self.lower_type_expr(t))))
                     .collect(),
             ),
         }
@@ -454,6 +457,27 @@ impl Lowering {
                     elements.iter().map(|p| self.lower_pattern(p)).collect(),
                 )
             }
+        }
+    }
+
+    /// Lower a cost expression AST node into an HIR expression.
+    fn lower_cost_expr(&self, ce: &ast::CostExpr) -> HirExpr {
+        match ce {
+            ast::CostExpr::Literal(n) => HirExpr::IntLit(*n as i64),
+            ast::CostExpr::Var(name) => {
+                let def_id = self.resolve_name(name);
+                HirExpr::Var(name.clone(), def_id)
+            }
+            ast::CostExpr::Mul(lhs, rhs) => HirExpr::BinOp(
+                Box::new(self.lower_cost_expr(lhs)),
+                HirBinOp::Mul,
+                Box::new(self.lower_cost_expr(rhs)),
+            ),
+            ast::CostExpr::Add(lhs, rhs) => HirExpr::BinOp(
+                Box::new(self.lower_cost_expr(lhs)),
+                HirBinOp::Add,
+                Box::new(self.lower_cost_expr(rhs)),
+            ),
         }
     }
 }

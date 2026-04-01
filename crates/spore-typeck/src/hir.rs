@@ -37,6 +37,8 @@ pub struct HirFnDef {
     pub uses_clause: BTreeSet<String>,
     pub throws: Vec<HirTypeRef>,
     pub where_clause: Vec<HirTypeConstraint>,
+    /// Cost upper-bound expression: `cost <= N`
+    pub cost_bound: Option<Box<HirExpr>>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +60,8 @@ pub enum HirTypeRef {
     Named(String, DefId),
     Generic(String, Vec<HirTypeRef>),
     Function(Vec<HirTypeRef>, Box<HirTypeRef>),
+    /// Anonymous record type: `{ x: Int, y: Int }`
+    Record(Vec<(String, Box<HirTypeRef>)>),
 }
 
 #[derive(Debug, Clone, Copy)]

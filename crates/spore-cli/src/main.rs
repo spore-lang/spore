@@ -11,6 +11,7 @@ fn main() -> ExitCode {
     match args[1].as_str() {
         "run" => cmd_run(&args[2..]),
         "check" => cmd_check(&args[2..]),
+        "holes" => cmd_holes(&args[2..]),
         "build" => cmd_build(&args[2..]),
         "watch" => cmd_watch(&args[2..]),
         "--version" | "-V" => {
@@ -35,6 +36,7 @@ fn usage() -> ExitCode {
     eprintln!("COMMANDS:");
     eprintln!("  run <file>       Compile and execute a .spore file");
     eprintln!("  check <file>     Type-check a .spore file (no execution)");
+    eprintln!("  holes <file>     Show hole report (JSON)");
     eprintln!("  build <file>     Compile a .spore file");
     eprintln!("  watch <file>     Watch a file and re-check on changes");
     eprintln!("  help             Show this help message");
@@ -112,6 +114,24 @@ fn cmd_check(args: &[String]) -> ExitCode {
             } else {
                 eprintln!("{msg}");
             }
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_holes(args: &[String]) -> ExitCode {
+    let (_, source) = match read_source(args) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+
+    match sporec::holes(&source) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(msg) => {
+            eprintln!("{msg}");
             ExitCode::FAILURE
         }
     }

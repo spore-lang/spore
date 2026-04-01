@@ -543,35 +543,43 @@ impl Checker {
                     Ty::Hole(name.clone())
                 };
 
-                // Collect hole info for the report
+                // Collect hole info for the report (v0.3)
                 let bindings = self.env.all_bindings();
                 let expected = ty.clone();
-                let candidates = self.find_suggestions(&expected);
+                let suggestions = self.find_suggestions(&expected);
+
+                // Build scored candidates from simple suggestions
+                let candidates: Vec<crate::hole::CandidateScore> = suggestions
+                    .into_iter()
+                    .map(|s| crate::hole::CandidateScore {
+                        name: s,
+                        type_match: 1.0,
+                        cost_fit: 0.5,
+                        capability_fit: 1.0,
+                        error_coverage: 0.5,
+                    })
+                    .collect();
+
+                // Collect capabilities and errors in scope
+                let capabilities = self.current_caps.clone();
+                let errors_to_handle: Vec<String> = self.current_errors.iter().cloned().collect();
+
                 self.hole_report.holes.push(HoleInfo {
                     name: name.clone(),
-                    expected_type: expected,
-                    function: self.current_function.clone(),
-                    bindings,
-                    candidates: candidates
-                        .into_iter()
-                        .map(|s| crate::hole::CandidateScore {
-                            name: s,
-                            type_match: 0.0,
-                            cost_fit: 0.0,
-                            capability_fit: 0.0,
-                            error_coverage: 0.0,
-                        })
-                        .collect(),
                     location: None,
+                    expected_type: expected,
                     type_inferred_from: None,
+                    function: self.current_function.clone(),
                     enclosing_signature: None,
+                    bindings,
                     binding_dependencies: std::collections::BTreeMap::new(),
-                    capabilities: std::collections::BTreeSet::new(),
-                    errors_to_handle: vec![],
+                    capabilities,
+                    errors_to_handle,
                     cost_budget: None,
-                    dependent_holes: vec![],
+                    candidates,
+                    dependent_holes: Vec::new(),
                     confidence: None,
-                    error_clusters: vec![],
+                    error_clusters: Vec::new(),
                 });
 
                 ty

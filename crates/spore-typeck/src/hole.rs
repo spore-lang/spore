@@ -147,14 +147,48 @@ impl HoleReport {
             }
             out.push_str("    {\n");
             out.push_str(&format!("      \"name\": {},\n", json_escape(&h.name)));
+
+            // location (nullable)
+            if let Some(ref loc) = h.location {
+                out.push_str(&format!(
+                    "      \"location\": {{\"file\": {}, \"line\": {}, \"column\": {}}},\n",
+                    json_escape(&loc.file),
+                    loc.line,
+                    loc.column
+                ));
+            } else {
+                out.push_str("      \"location\": null,\n");
+            }
+
             out.push_str(&format!(
                 "      \"expected_type\": {},\n",
                 json_escape(&h.expected_type.to_string())
             ));
+
+            // type_inferred_from (nullable)
+            match h.type_inferred_from {
+                Some(ref s) => out.push_str(&format!(
+                    "      \"type_inferred_from\": {},\n",
+                    json_escape(s)
+                )),
+                None => out.push_str("      \"type_inferred_from\": null,\n"),
+            }
+
             out.push_str(&format!(
                 "      \"function\": {},\n",
                 json_escape(&h.function)
             ));
+
+            // enclosing_signature (nullable)
+            match h.enclosing_signature {
+                Some(ref s) => out.push_str(&format!(
+                    "      \"enclosing_signature\": {},\n",
+                    json_escape(s)
+                )),
+                None => out.push_str("      \"enclosing_signature\": null,\n"),
+            }
+
+            // bindings
             out.push_str("      \"bindings\": {");
             for (j, (k, v)) in h.bindings.iter().enumerate() {
                 if j > 0 {
@@ -167,14 +201,125 @@ impl HoleReport {
                 ));
             }
             out.push_str("},\n");
-            out.push_str("      \"candidates\": [");
-            for (j, c) in h.candidates.iter().enumerate() {
+
+            // binding_dependencies (Extension B)
+            out.push_str("      \"binding_dependencies\": {");
+            for (j, (k, deps)) in h.binding_dependencies.iter().enumerate() {
                 if j > 0 {
                     out.push_str(", ");
                 }
-                out.push_str(&json_escape(&c.name));
+                let items: Vec<String> = deps.iter().map(|d| json_escape(d)).collect();
+                out.push_str(&format!("{}: [{}]", json_escape(k), items.join(", ")));
+            }
+            out.push_str("},\n");
+
+            // capabilities
+            out.push_str("      \"capabilities\": [");
+            for (j, c) in h.capabilities.iter().enumerate() {
+                if j > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&json_escape(c));
+            }
+            out.push_str("],\n");
+
+            // errors_to_handle
+            out.push_str("      \"errors_to_handle\": [");
+            for (j, e) in h.errors_to_handle.iter().enumerate() {
+                if j > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&json_escape(e));
+            }
+            out.push_str("],\n");
+
+            // cost_budget (nullable)
+            if let Some(ref cb) = h.cost_budget {
+                out.push_str("      \"cost_budget\": {");
+                match cb.budget_total {
+                    Some(v) => out.push_str(&format!("\"budget_total\": {v}")),
+                    None => out.push_str("\"budget_total\": null"),
+                }
+                out.push_str(&format!(", \"cost_before_hole\": {}", cb.cost_before_hole));
+                match cb.budget_remaining {
+                    Some(v) => out.push_str(&format!(", \"budget_remaining\": {v}")),
+                    None => out.push_str(", \"budget_remaining\": null"),
+                }
+                out.push_str("},\n");
+            } else {
+                out.push_str("      \"cost_budget\": null,\n");
+            }
+
+            // candidates (v0.3 scored candidates)
+            out.push_str("      \"candidates\": [");
+            for (j, cs) in h.candidates.iter().enumerate() {
+                if j > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&format!(
+                    "{{\"name\": {}, \"type_match\": {:.2}, \"cost_fit\": {:.2}, \"capability_fit\": {:.2}, \"error_coverage\": {:.2}, \"overall\": {:.2}}}",
+                    json_escape(&cs.name),
+                    cs.type_match,
+                    cs.cost_fit,
+                    cs.capability_fit,
+                    cs.error_coverage,
+                    cs.overall(),
+                ));
+            }
+            out.push_str("],\n");
+
+            // dependent_holes
+            out.push_str("      \"dependent_holes\": [");
+            for (j, dh) in h.dependent_holes.iter().enumerate() {
+                if j > 0 {
+                    out.push_str(", ");
+                }
+                out.push_str(&json_escape(dh));
+            }
+            out.push_str("],\n");
+
+            // confidence (nullable, Extension C)
+            if let Some(ref conf) = h.confidence {
+                let ti = match conf.type_inference {
+                    TypeInferenceConfidence::Certain => "certain",
+                    TypeInferenceConfidence::Partial => "partial",
+                    TypeInferenceConfidence::Unknown => "unknown",
+                };
+                let cr = match conf.candidate_ranking {
+                    CandidateRanking::UniqueBest => "unique_best",
+                    CandidateRanking::Ambiguous => "ambiguous",
+                    CandidateRanking::NoCandidates => "no_candidates",
+                };
+                out.push_str(&format!(
+                    "      \"confidence\": {{\"type_inference\": {}, \"candidate_ranking\": {}, \"ambiguous_count\": {}",
+                    json_escape(ti), json_escape(cr), conf.ambiguous_count,
+                ));
+                if let Some(ref rec) = conf.recommendation {
+                    out.push_str(&format!(", \"recommendation\": {}", json_escape(rec)));
+                } else {
+                    out.push_str(", \"recommendation\": null");
+                }
+                out.push_str("},\n");
+            } else {
+                out.push_str("      \"confidence\": null,\n");
+            }
+
+            // error_clusters (Extension D)
+            out.push_str("      \"error_clusters\": [");
+            for (j, ec) in h.error_clusters.iter().enumerate() {
+                if j > 0 {
+                    out.push_str(", ");
+                }
+                let errs: Vec<String> = ec.errors.iter().map(|e| json_escape(e)).collect();
+                out.push_str(&format!(
+                    "{{\"source\": {}, \"errors\": [{}], \"handling_suggestion\": {}}}",
+                    json_escape(&ec.source),
+                    errs.join(", "),
+                    json_escape(&ec.handling_suggestion),
+                ));
             }
             out.push_str("]\n");
+
             out.push_str("    }");
         }
         out.push_str("\n  ],\n");
@@ -186,6 +331,27 @@ impl HoleReport {
     }
 }
 
+// ── Typed dependency edges (SEP-0005 §5) ────────────────────────────
+
+/// Kind of dependency between two holes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum EdgeKind {
+    /// h2's expected type depends on h1's output
+    Type,
+    /// h2's bindings trace back to h1's output
+    Value,
+    /// h2's cost budget depends on h1's actual cost
+    Cost,
+}
+
+/// A typed edge between two holes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DependencyEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: EdgeKind,
+}
+
 /// A dependency graph between typed holes.
 ///
 /// If hole A's type depends on hole B (e.g., A's expected type contains
@@ -193,7 +359,9 @@ impl HoleReport {
 /// may help resolve A's type.
 #[derive(Debug, Clone, Default)]
 pub struct HoleDependencyGraph {
-    /// hole_name → set of holes it depends on
+    /// Typed edges between holes
+    pub edges: Vec<DependencyEdge>,
+    /// hole_name → set of holes it depends on (fast lookup)
     pub dependencies: HashMap<String, HashSet<String>>,
     /// hole_name → set of holes that depend on it
     pub dependents: HashMap<String, HashSet<String>>,
@@ -214,9 +382,20 @@ impl HoleDependencyGraph {
     }
 
     /// Record that `hole` depends on `dependency` (filling dependency may help resolve hole).
+    /// Defaults to `EdgeKind::Type`.
     pub fn add_dependency(&mut self, hole: String, dependency: String) {
+        self.add_dependency_typed(hole, dependency, EdgeKind::Type);
+    }
+
+    /// Record a typed dependency: `hole` depends on `dependency` via `kind`.
+    pub fn add_dependency_typed(&mut self, hole: String, dependency: String, kind: EdgeKind) {
         self.add_hole(hole.clone());
         self.add_hole(dependency.clone());
+        self.edges.push(DependencyEdge {
+            from: dependency.clone(),
+            to: hole.clone(),
+            kind,
+        });
         self.dependencies
             .entry(hole.clone())
             .or_default()
@@ -354,6 +533,114 @@ impl HoleDependencyGraph {
         self.nodes.is_empty()
     }
 
+    /// Check if the graph has cycles (SEP-0005 §5).
+    pub fn has_cycle(&self) -> bool {
+        let mut in_degree: HashMap<&String, usize> = HashMap::new();
+        for node in &self.nodes {
+            in_degree.insert(node, self.dependencies.get(node).map_or(0, |d| d.len()));
+        }
+        let mut queue: VecDeque<&String> = in_degree
+            .iter()
+            .filter(|&(_, &d)| d == 0)
+            .map(|(&n, _)| n)
+            .collect();
+        let mut count = 0;
+        while let Some(node) = queue.pop_front() {
+            count += 1;
+            if let Some(deps) = self.dependents.get(node) {
+                for dep in deps {
+                    if let Some(deg) = in_degree.get_mut(dep) {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            queue.push_back(dep);
+                        }
+                    }
+                }
+            }
+        }
+        count < self.nodes.len()
+    }
+
+    /// Compute parallel-ready fill layers per SEP-0005 §5.6.
+    ///
+    /// Returns `Ok(layers)` where `layers[0]` can be filled first (in parallel),
+    /// `layers[1]` after `layers[0]` is done, etc.
+    /// Returns `Err` with cycle node names if the graph has cycles.
+    pub fn layered_topological_order(&self) -> Result<Vec<Vec<String>>, Vec<String>> {
+        if self.has_cycle() {
+            // Find cycle nodes: those not reachable by Kahn's algorithm
+            let mut in_degree: HashMap<&String, usize> = HashMap::new();
+            for node in &self.nodes {
+                in_degree.insert(node, self.dependencies.get(node).map_or(0, |d| d.len()));
+            }
+            let mut queue: VecDeque<&String> = in_degree
+                .iter()
+                .filter(|&(_, &d)| d == 0)
+                .map(|(&n, _)| n)
+                .collect();
+            let mut processed: HashSet<&String> = HashSet::new();
+            while let Some(node) = queue.pop_front() {
+                processed.insert(node);
+                if let Some(deps) = self.dependents.get(node) {
+                    for dep in deps {
+                        if let Some(deg) = in_degree.get_mut(dep) {
+                            *deg -= 1;
+                            if *deg == 0 {
+                                queue.push_back(dep);
+                            }
+                        }
+                    }
+                }
+            }
+            let mut cycle_nodes: Vec<String> = self
+                .nodes
+                .iter()
+                .filter(|n| !processed.contains(n))
+                .cloned()
+                .collect();
+            cycle_nodes.sort();
+            return Err(cycle_nodes);
+        }
+
+        // Build layers using Kahn's algorithm variant
+        let mut in_degree: HashMap<&String, usize> = HashMap::new();
+        for node in &self.nodes {
+            in_degree.insert(node, self.dependencies.get(node).map_or(0, |d| d.len()));
+        }
+
+        let mut remaining: HashSet<&String> = self.nodes.iter().collect();
+        let mut layers = Vec::new();
+
+        while !remaining.is_empty() {
+            let mut ready: Vec<String> = remaining
+                .iter()
+                .filter(|&&n| in_degree.get(n).copied().unwrap_or(0) == 0)
+                .map(|&n| n.clone())
+                .collect();
+
+            if ready.is_empty() {
+                break; // shouldn't happen since we already checked for cycles
+            }
+
+            ready.sort();
+
+            for name in &ready {
+                remaining.remove(name);
+                if let Some(deps) = self.dependents.get(name) {
+                    for dep in deps {
+                        if let Some(deg) = in_degree.get_mut(dep) {
+                            *deg = deg.saturating_sub(1);
+                        }
+                    }
+                }
+            }
+
+            layers.push(ready);
+        }
+
+        Ok(layers)
+    }
+
     /// Serialize to a JSON string (no serde dependency).
     pub fn to_json_string(&self) -> String {
         let mut out = String::from("{\n");
@@ -372,6 +659,28 @@ impl HoleDependencyGraph {
             out.push_str(&format!("{}: [{}]", json_escape(hole), items.join(", ")));
         }
         out.push_str("},\n");
+
+        // Typed edges
+        out.push_str("    \"edges\": [");
+        let mut sorted_edges: Vec<&DependencyEdge> = self.edges.iter().collect();
+        sorted_edges.sort_by(|a, b| (&a.from, &a.to).cmp(&(&b.from, &b.to)));
+        for (i, edge) in sorted_edges.iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            let kind_str = match edge.kind {
+                EdgeKind::Type => "type",
+                EdgeKind::Value => "value",
+                EdgeKind::Cost => "cost",
+            };
+            out.push_str(&format!(
+                "{{\"from\": {}, \"to\": {}, \"kind\": {}}}",
+                json_escape(&edge.from),
+                json_escape(&edge.to),
+                json_escape(kind_str),
+            ));
+        }
+        out.push_str("],\n");
 
         // Roots
         out.push_str("    \"roots\": [");
