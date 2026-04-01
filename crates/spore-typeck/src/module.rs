@@ -2,7 +2,27 @@
 
 use std::collections::{HashMap, HashSet};
 
+use spore_parser::ast::Visibility;
+
 use crate::types::Ty;
+
+/// Visibility of an exported symbol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SymbolVisibility {
+    Private,
+    PubPkg,
+    Pub,
+}
+
+impl From<&Visibility> for SymbolVisibility {
+    fn from(v: &Visibility) -> Self {
+        match v {
+            Visibility::Private => SymbolVisibility::Private,
+            Visibility::PubPkg => SymbolVisibility::PubPkg,
+            Visibility::Pub => SymbolVisibility::Pub,
+        }
+    }
+}
 
 /// Represents a compiled module's public interface.
 #[derive(Debug, Clone, Default)]
@@ -17,6 +37,8 @@ pub struct ModuleInterface {
     pub structs: HashMap<String, Vec<String>>,
     /// Exported capabilities
     pub capabilities: HashSet<String>,
+    /// Visibility of each symbol
+    pub visibilities: HashMap<String, SymbolVisibility>,
 }
 
 impl ModuleInterface {
@@ -25,6 +47,18 @@ impl ModuleInterface {
             path,
             ..Default::default()
         }
+    }
+
+    /// Set visibility for a symbol.
+    pub fn set_visibility(&mut self, name: &str, vis: SymbolVisibility) {
+        self.visibilities.insert(name.to_string(), vis);
+    }
+
+    /// Get visibility of a symbol (defaults to Pub for unset entries, e.g. prelude).
+    pub fn visibility(&self, name: &str) -> &SymbolVisibility {
+        self.visibilities
+            .get(name)
+            .unwrap_or(&SymbolVisibility::Pub)
     }
 
     /// Get the fully-qualified module name.
@@ -85,7 +119,7 @@ impl ModuleRegistry {
     }
 
     /// Resolve an import: check that the module exists and the requested names
-    /// are exported.
+    /// are exported, enforcing visibility.
     pub fn resolve_import(
         &self,
         module_path: &[String],
@@ -99,6 +133,15 @@ impl ModuleRegistry {
         for name in requested_names {
             if !module.exports(name) {
                 return Err(ModuleError::SymbolNotFound {
+                    module: module_path.join("."),
+                    symbol: name.clone(),
+                });
+            }
+
+            // Enforce visibility
+            let vis = module.visibility(name);
+            if *vis == SymbolVisibility::Private {
+                return Err(ModuleError::PrivateSymbol {
                     module: module_path.join("."),
                     symbol: name.clone(),
                 });
@@ -164,6 +207,7 @@ pub enum ImportedSymbol {
 pub enum ModuleError {
     ModuleNotFound(String),
     SymbolNotFound { module: String, symbol: String },
+    PrivateSymbol { module: String, symbol: String },
 }
 
 impl std::fmt::Display for ModuleError {
@@ -172,6 +216,12 @@ impl std::fmt::Display for ModuleError {
             ModuleError::ModuleNotFound(m) => write!(f, "module `{m}` not found"),
             ModuleError::SymbolNotFound { module, symbol } => {
                 write!(f, "symbol `{symbol}` not found in module `{module}`")
+            }
+            ModuleError::PrivateSymbol { module, symbol } => {
+                write!(
+                    f,
+                    "symbol `{symbol}` in module `{module}` is private and not accessible"
+                )
             }
         }
     }
@@ -258,5 +308,30 @@ mod tests {
         reg.register(ModuleInterface::new(vec!["Zebra".into()]));
         reg.register(ModuleInterface::new(vec!["Alpha".into()]));
         assert_eq!(reg.all_modules(), vec!["Alpha", "Zebra"]);
+    }
+
+    #[test]
+    fn resolve_import_private_symbol() {
+        let mut reg = ModuleRegistry::new();
+        let mut m = ModuleInterface::new(vec!["Lib".into()]);
+        m.functions.insert("secret".into(), (vec![], Ty::Unit));
+        m.set_visibility("secret", SymbolVisibility::Private);
+        reg.register(m);
+
+        let result = reg.resolve_import(&["Lib".into()], &["secret".into()]);
+        assert!(matches!(result, Err(ModuleError::PrivateSymbol { .. })));
+    }
+
+    #[test]
+    fn resolve_import_pub_pkg_symbol() {
+        let mut reg = ModuleRegistry::new();
+        let mut m = ModuleInterface::new(vec!["Lib".into()]);
+        m.functions.insert("internal".into(), (vec![], Ty::Unit));
+        m.set_visibility("internal", SymbolVisibility::PubPkg);
+        reg.register(m);
+
+        // pub(pkg) is accessible (same package assumed for now)
+        let result = reg.resolve_import(&["Lib".into()], &["internal".into()]);
+        assert!(result.is_ok());
     }
 }
