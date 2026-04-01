@@ -455,10 +455,14 @@ fn test_cost_multiple_functions() {
         result.cost_results.get("double"),
         Some(CostResult::Constant(1))
     ));
-    assert!(matches!(
-        result.cost_results.get("quadruple"),
-        Some(CostResult::Constant(1))
-    ));
+    assert!(
+        matches!(
+            result.cost_results.get("quadruple"),
+            Some(CostResult::Constant(3))
+        ),
+        "expected Constant(3) after callee propagation (1 base + 2 double calls), got {:?}",
+        result.cost_results.get("quadruple")
+    );
 }
 
 #[test]
@@ -494,6 +498,105 @@ fn test_cost_structural_countdown() {
         matches!(result.cost_results.get("countdown"), Some(CostResult::Structural(p)) if p == "n"),
         "expected Structural(\"n\"), got {:?}",
         result.cost_results.get("countdown")
+    );
+}
+
+// ── Cost enforcement (K0001) ─────────────────────────────────────────────
+
+#[test]
+fn cost_budget_exceeded_emits_k0001() {
+    // Body has callee costs exceeding the declared budget of 2
+    let errs = check_err_with_codes(
+        r#"
+        fn expensive(x: Int) -> Int cost <= 100 { x + x }
+        fn cheap(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.0 == ErrorCode::K0001),
+        "expected K0001 for cost budget violation, got: {errs:?}"
+    );
+}
+
+#[test]
+fn cost_budget_within_limit_no_error() {
+    // Budget of 1000 is generous enough for a simple function
+    check_ok("fn simple(x: Int) -> Int cost <= 1000 { x + x }");
+}
+
+#[test]
+fn unbounded_skips_cost_analysis() {
+    // @unbounded should not emit any cost error regardless of body
+    let module = parse(
+        r#"
+        @unbounded
+        fn wild(n: Int) -> Int { if n >= 100 { n } else { wild(n + 1) } }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("wild"), Some(CostResult::Unbounded)),
+        "expected Unbounded for @unbounded function, got {:?}",
+        result.cost_results.get("wild")
+    );
+}
+
+#[test]
+fn callee_cost_propagation() {
+    // helper costs Constant(1), caller calls helper 3 times → 1 + 3 = 4
+    let module = parse(
+        r#"
+        fn helper(x: Int) -> Int { x + x }
+        fn caller(a: Int) -> Int { helper(a) + helper(a) + helper(a) }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(
+            result.cost_results.get("caller"),
+            Some(CostResult::Constant(4))
+        ),
+        "expected Constant(4) after propagation, got {:?}",
+        result.cost_results.get("caller")
+    );
+}
+
+#[test]
+fn structural_recursion_still_detected() {
+    // Classic structural recursion: factorial(n - 1)
+    let module =
+        parse("fn factorial(n: Int) -> Int { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
+            .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("factorial"), Some(CostResult::Structural(p)) if p == "n"),
+        "expected Structural(\"n\") for factorial, got {:?}",
+        result.cost_results.get("factorial")
+    );
+}
+
+#[test]
+fn sep0006_cost_violation_uses_k0xxx() {
+    // Verify K0001 code is used in display format
+    let module = parse(
+        r#"
+        fn expensive(x: Int) -> Int cost <= 100 { x + x }
+        fn over_budget(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
+    "#,
+    )
+    .unwrap();
+    let errs = type_check(&module).unwrap_err();
+    let k_errors: Vec<_> = errs.iter().filter(|e| e.code == ErrorCode::K0001).collect();
+    assert!(
+        !k_errors.is_empty(),
+        "expected at least one K0001 error, got: {errs:?}"
+    );
+    let output = k_errors[0].to_string();
+    assert!(
+        output.contains("[K0001]"),
+        "display should use [K0001] code, got: {output}"
     );
 }
 

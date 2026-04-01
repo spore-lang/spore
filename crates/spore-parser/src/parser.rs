@@ -188,10 +188,24 @@ impl Parser {
             Token::Impl => self.parse_impl_item(),
             Token::Import => self.parse_import_item(),
             Token::Alias => self.parse_alias_item(),
+            Token::At => self.parse_annotated_item(),
             _ => Err(self.error(format!(
-                "expected item (fn, pub, const, struct, type, capability, impl, import, alias), found {:?}",
+                "expected item (fn, pub, const, struct, type, capability, impl, import, alias, @annotation), found {:?}",
                 self.peek()
             ))),
+        }
+    }
+
+    fn parse_annotated_item(&mut self) -> Result<Item, ParseError> {
+        self.expect(&Token::At)?;
+        let annotation = self.expect_ident()?;
+        match annotation.as_str() {
+            "unbounded" => {
+                let mut fn_def = self.parse_fn_def()?;
+                fn_def.is_unbounded = true;
+                Ok(Item::Function(fn_def))
+            }
+            _ => Err(self.error(format!("unknown annotation `@{annotation}`"))),
         }
     }
 
@@ -337,6 +351,7 @@ impl Parser {
             where_clause,
             cost_clause,
             uses_clause,
+            is_unbounded: false,
             body,
         })
     }
