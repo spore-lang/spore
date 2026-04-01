@@ -37,13 +37,25 @@ pub struct PlatformConfig {
 
 impl Platform {
     /// Create a CLI platform (most common).
+    ///
+    /// Grants all SEP-0003 atomic capabilities plus implementation-specific
+    /// extensions for full CLI access.
     pub fn cli() -> Self {
         let capabilities = CapabilitySet::from_names([
-            "Console".into(),
+            // ── SEP-0003 atomic capabilities ──
             "FileRead".into(),
             "FileWrite".into(),
             "NetRead".into(),
             "NetWrite".into(),
+            "StateRead".into(),
+            "StateWrite".into(),
+            "Spawn".into(),
+            "Clock".into(),
+            "Random".into(),
+            "Compute".into(),
+            "Exit".into(),
+            // ── Implementation-specific extensions (not in SEP-0003) ──
+            "Console".into(),
             "Env".into(),
             "Process".into(),
         ]);
@@ -63,9 +75,20 @@ impl Platform {
     }
 
     /// Create a web/WASI platform.
+    ///
+    /// Grants a subset of SEP-0003 capabilities appropriate for sandboxed
+    /// web environments, plus the Console extension.
     pub fn web() -> Self {
-        let capabilities =
-            CapabilitySet::from_names(["Console".into(), "NetRead".into(), "NetWrite".into()]);
+        let capabilities = CapabilitySet::from_names([
+            // ── SEP-0003 atomic capabilities ──
+            "NetRead".into(),
+            "NetWrite".into(),
+            "Compute".into(),
+            "Random".into(),
+            "Clock".into(),
+            // ── Implementation-specific extensions (not in SEP-0003) ──
+            "Console".into(),
+        ]);
 
         Self {
             name: "web".into(),
@@ -213,9 +236,23 @@ mod tests {
     #[test]
     fn cli_platform_has_capabilities() {
         let p = Platform::cli();
-        assert!(p.grants("Console"));
+        // SEP-0003 atomic capabilities
         assert!(p.grants("FileRead"));
+        assert!(p.grants("FileWrite"));
         assert!(p.grants("NetRead"));
+        assert!(p.grants("NetWrite"));
+        assert!(p.grants("StateRead"));
+        assert!(p.grants("StateWrite"));
+        assert!(p.grants("Spawn"));
+        assert!(p.grants("Clock"));
+        assert!(p.grants("Random"));
+        assert!(p.grants("Compute"));
+        assert!(p.grants("Exit"));
+        // Implementation-specific extensions
+        assert!(p.grants("Console"));
+        assert!(p.grants("Env"));
+        assert!(p.grants("Process"));
+        // Not granted
         assert!(!p.grants("Gpu"));
     }
 

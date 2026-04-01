@@ -35,6 +35,15 @@ impl<T> Spanned<T> {
     }
 }
 
+/// Part of an f-string or t-string at the token level.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TemplatePart {
+    /// Literal text segment.
+    Lit(String),
+    /// Raw source text of an interpolated expression.
+    Expr(String),
+}
+
 /// Spore token types.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -42,7 +51,12 @@ pub enum Token {
     Int(i64),
     Float(f64),
     Str(String),
+    Char(char),
     Bool(bool),
+    /// f-string template parts: `f"Hello {name}"`
+    FStr(Vec<TemplatePart>),
+    /// t-string template parts: `t"Dear {customer}"`
+    TStr(Vec<TemplatePart>),
 
     // ── Identifier ──
     Ident(String),
@@ -60,6 +74,7 @@ pub enum Token {
     Capability,
     Import,
     As,
+    Const,
     Spawn,
     Await,
     Where,
@@ -360,14 +375,30 @@ impl<'a> Lexer<'a> {
             // ── slash (already handled // and /* above, so this is division) ──
             b'/' => Ok(Spanned::new(Token::Slash, Span::new(start, self.pos))),
 
+            // ── char literal ──
+            b'\'' => self.read_char(start),
+
             // ── string literal ──
             b'"' => self.read_string(start),
 
             // ── number literal ──
             b'0'..=b'9' => self.read_number(start),
 
-            // ── identifier or keyword ──
-            b'a'..=b'z' | b'A'..=b'Z' | b'_' => self.read_ident_or_keyword(start),
+            // ── identifier or keyword (with prefix-string detection) ──
+            b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
+                // Check for r", f", t" prefix strings
+                if matches!(b, b'r' | b'f' | b't') && self.peek() == Some(b'"') {
+                    // Don't consume `"` — let the read methods handle it
+                    match b {
+                        b'r' => self.read_raw_string(start),
+                        b'f' => self.read_template_string(start, true),
+                        b't' => self.read_template_string(start, false),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    self.read_ident_or_keyword(start)
+                }
+            }
 
             _ => {
                 // Try to skip unknown UTF-8 char
@@ -551,6 +582,194 @@ impl<'a> Lexer<'a> {
         Ok(Spanned::new(Token::Str(buf), Span::new(start, self.pos)))
     }
 
+    // ── char literal ────────────────────────────────────────────────────
+
+    fn read_char(&mut self, start: usize) -> Result<Spanned<Token>, LexError> {
+        let ch = match self.peek() {
+            None => {
+                return Err(LexError {
+                    message: "unterminated char literal".into(),
+                    span: Span::new(start, self.pos),
+                });
+            }
+            Some(b'\\') => {
+                self.pos += 1;
+                match self.peek() {
+                    Some(b'n') => {
+                        self.pos += 1;
+                        '\n'
+                    }
+                    Some(b't') => {
+                        self.pos += 1;
+                        '\t'
+                    }
+                    Some(b'\\') => {
+                        self.pos += 1;
+                        '\\'
+                    }
+                    Some(b'\'') => {
+                        self.pos += 1;
+                        '\''
+                    }
+                    Some(b'0') => {
+                        self.pos += 1;
+                        '\0'
+                    }
+                    _ => {
+                        return Err(LexError {
+                            message: "invalid escape sequence in char literal".into(),
+                            span: Span::new(self.pos - 1, self.pos + 1),
+                        });
+                    }
+                }
+            }
+            Some(b'\'') => {
+                return Err(LexError {
+                    message: "empty char literal".into(),
+                    span: Span::new(start, self.pos + 1),
+                });
+            }
+            Some(_) => {
+                let c = self.source[self.pos..].chars().next().unwrap();
+                self.pos += c.len_utf8();
+                c
+            }
+        };
+
+        if self.peek() != Some(b'\'') {
+            return Err(LexError {
+                message: "unterminated char literal (expected closing ')".into(),
+                span: Span::new(start, self.pos),
+            });
+        }
+        self.pos += 1; // closing quote
+
+        Ok(Spanned::new(Token::Char(ch), Span::new(start, self.pos)))
+    }
+
+    // ── raw string: r"..." ──────────────────────────────────────────────
+
+    fn read_raw_string(&mut self, start: usize) -> Result<Spanned<Token>, LexError> {
+        // pos is on `"` (prefix `r` already consumed by next_token)
+        self.pos += 1; // consume opening `"`
+        let mut buf = String::new();
+        loop {
+            match self.peek() {
+                None => {
+                    return Err(LexError {
+                        message: "unterminated raw string".into(),
+                        span: Span::new(start, self.pos),
+                    });
+                }
+                Some(b'"') => {
+                    self.pos += 1;
+                    break;
+                }
+                Some(_) => {
+                    let ch = self.source[self.pos..].chars().next().unwrap();
+                    buf.push(ch);
+                    self.pos += ch.len_utf8();
+                }
+            }
+        }
+        Ok(Spanned::new(Token::Str(buf), Span::new(start, self.pos)))
+    }
+
+    // ── template string: f"..." / t"..." ────────────────────────────────
+
+    fn read_template_string(
+        &mut self,
+        start: usize,
+        is_fstr: bool,
+    ) -> Result<Spanned<Token>, LexError> {
+        // pos is on `"` (prefix already consumed)
+        self.pos += 1; // consume opening `"`
+        let mut parts = Vec::new();
+        let mut buf = String::new();
+
+        loop {
+            match self.peek() {
+                None => {
+                    return Err(LexError {
+                        message: "unterminated template string".into(),
+                        span: Span::new(start, self.pos),
+                    });
+                }
+                Some(b'"') => {
+                    self.pos += 1;
+                    if !buf.is_empty() {
+                        parts.push(TemplatePart::Lit(std::mem::take(&mut buf)));
+                    }
+                    break;
+                }
+                Some(b'{') => {
+                    self.pos += 1;
+                    if !buf.is_empty() {
+                        parts.push(TemplatePart::Lit(std::mem::take(&mut buf)));
+                    }
+                    // Collect expression source until matching `}`
+                    let mut depth = 1u32;
+                    let expr_start = self.pos;
+                    while depth > 0 {
+                        match self.peek() {
+                            None => {
+                                return Err(LexError {
+                                    message: "unterminated interpolation in template string".into(),
+                                    span: Span::new(expr_start, self.pos),
+                                });
+                            }
+                            Some(b'{') => {
+                                depth += 1;
+                                self.pos += 1;
+                            }
+                            Some(b'}') => {
+                                depth -= 1;
+                                if depth > 0 {
+                                    self.pos += 1;
+                                }
+                            }
+                            Some(_) => {
+                                self.pos += 1;
+                            }
+                        }
+                    }
+                    let expr_src = self.source[expr_start..self.pos].to_string();
+                    parts.push(TemplatePart::Expr(expr_src));
+                    self.pos += 1; // consume closing `}`
+                }
+                Some(b'\\') => {
+                    self.pos += 1;
+                    match self.peek() {
+                        Some(b'n') => { buf.push('\n'); self.pos += 1; }
+                        Some(b't') => { buf.push('\t'); self.pos += 1; }
+                        Some(b'\\') => { buf.push('\\'); self.pos += 1; }
+                        Some(b'"') => { buf.push('"'); self.pos += 1; }
+                        Some(b'{') => { buf.push('{'); self.pos += 1; }
+                        Some(b'}') => { buf.push('}'); self.pos += 1; }
+                        _ => {
+                            return Err(LexError {
+                                message: "invalid escape in template string".into(),
+                                span: Span::new(self.pos - 1, self.pos + 1),
+                            });
+                        }
+                    }
+                }
+                Some(_) => {
+                    let ch = self.source[self.pos..].chars().next().unwrap();
+                    buf.push(ch);
+                    self.pos += ch.len_utf8();
+                }
+            }
+        }
+
+        let tok = if is_fstr {
+            Token::FStr(parts)
+        } else {
+            Token::TStr(parts)
+        };
+        Ok(Spanned::new(tok, Span::new(start, self.pos)))
+    }
+
     // ── ident / keyword ─────────────────────────────────────────────────
 
     fn read_ident_or_keyword(&mut self, start: usize) -> Result<Spanned<Token>, LexError> {
@@ -568,6 +787,7 @@ impl<'a> Lexer<'a> {
         let tok = match text {
             "fn" => Token::Fn,
             "let" => Token::Let,
+            "const" => Token::Const,
             "if" => Token::If,
             "else" => Token::Else,
             "match" => Token::Match,

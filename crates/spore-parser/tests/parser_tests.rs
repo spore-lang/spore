@@ -492,3 +492,142 @@ fn test_fn_no_type_params() {
         _ => panic!("expected function"),
     }
 }
+
+// ── Const declarations ──────────────────────────────────────────────────
+
+#[test]
+fn test_const_item() {
+    let m = parse_ok("const MAX: Int = 100");
+    assert_eq!(m.items.len(), 1);
+    match &m.items[0] {
+        spore_parser::ast::Item::Const(c) => {
+            assert_eq!(c.name, "MAX");
+            assert!(matches!(c.visibility, spore_parser::ast::Visibility::Private));
+            assert!(matches!(&c.ty, spore_parser::ast::TypeExpr::Named(n) if n == "Int"));
+            assert!(matches!(&c.value, spore_parser::ast::Expr::IntLit(100)));
+        }
+        _ => panic!("expected const"),
+    }
+}
+
+#[test]
+fn test_pub_const_item() {
+    let m = parse_ok("pub const NAME: String = \"hello\"");
+    assert_eq!(m.items.len(), 1);
+    match &m.items[0] {
+        spore_parser::ast::Item::Const(c) => {
+            assert_eq!(c.name, "NAME");
+            assert!(matches!(c.visibility, spore_parser::ast::Visibility::Pub));
+            assert!(matches!(&c.ty, spore_parser::ast::TypeExpr::Named(n) if n == "String"));
+            assert!(matches!(&c.value, spore_parser::ast::Expr::StrLit(_)));
+        }
+        _ => panic!("expected const"),
+    }
+}
+
+
+// ── Return / Throw / List / Char / String prefix tests ──────────────────────
+
+use spore_parser::ast::{Expr, FStringPart, TStringPart};
+
+fn get_fn_body(src: &str) -> Expr {
+    let m = parse_ok(src);
+    let f = match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => f,
+        _ => panic!("expected function"),
+    };
+    f.body.clone().expect("expected body")
+}
+
+fn get_tail(src: &str) -> Expr {
+    let body = get_fn_body(src);
+    if let Expr::Block(_, Some(tail)) = body {
+        *tail
+    } else {
+        panic!("expected block with tail, got {:?}", body);
+    }
+}
+
+#[test]
+fn test_return_expr() {
+    let tail = get_tail("fn foo(x: Int) -> Int { return x }");
+    assert!(matches!(tail, Expr::Return(Some(_))));
+}
+
+#[test]
+fn test_return_no_value() {
+    let tail = get_tail("fn foo() { return }");
+    assert!(matches!(tail, Expr::Return(None)));
+}
+
+#[test]
+fn test_throw_expr() {
+    let tail = get_tail(r#"fn foo() { throw "error" }"#);
+    assert!(matches!(tail, Expr::Throw(_)));
+}
+
+#[test]
+fn test_list_literal() {
+    let tail = get_tail("fn foo() { [1, 2, 3] }");
+    if let Expr::List(elems) = tail {
+        assert_eq!(elems.len(), 3);
+    } else {
+        panic!("expected list literal");
+    }
+}
+
+#[test]
+fn test_empty_list() {
+    let tail = get_tail("fn foo() { [] }");
+    if let Expr::List(elems) = tail {
+        assert_eq!(elems.len(), 0);
+    } else {
+        panic!("expected empty list");
+    }
+}
+
+#[test]
+fn test_char_literal() {
+    let tail = get_tail("fn foo() { 'a' }");
+    assert!(matches!(tail, Expr::CharLit('a')));
+}
+
+#[test]
+fn test_char_escape() {
+    let tail = get_tail("fn foo() { '\\n' }");
+    assert!(matches!(tail, Expr::CharLit('\n')));
+}
+
+#[test]
+fn test_raw_string() {
+    let tail = get_tail("fn foo() { r\"C:\\Users\\path\" }");
+    if let Expr::StrLit(s) = tail {
+        assert_eq!(s, "C:\\Users\\path");
+    } else {
+        panic!("expected raw string, got {:?}", tail);
+    }
+}
+
+#[test]
+fn test_fstring() {
+    let tail = get_tail("fn foo(name: Str) { f\"hello {name}\" }");
+    if let Expr::FString(parts) = tail {
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(&parts[0], FStringPart::Literal(s) if s == "hello "));
+        assert!(matches!(&parts[1], FStringPart::Expr(Expr::Var(n)) if n == "name"));
+    } else {
+        panic!("expected fstring, got {:?}", tail);
+    }
+}
+
+#[test]
+fn test_tstring() {
+    let tail = get_tail("fn foo(name: Str) { t\"dear {name}\" }");
+    if let Expr::TString(parts) = tail {
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(&parts[0], TStringPart::Literal(s) if s == "dear "));
+        assert!(matches!(&parts[1], TStringPart::Expr(Expr::Var(n)) if n == "name"));
+    } else {
+        panic!("expected tstring, got {:?}", tail);
+    }
+}

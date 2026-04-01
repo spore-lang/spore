@@ -11,11 +11,21 @@ pub struct Module {
 #[derive(Debug, Clone)]
 pub enum Item {
     Function(FnDef),
+    Const(ConstDef),
     StructDef(StructDef),
     TypeDef(TypeDef),
     CapabilityDef(CapabilityDef),
     ImplDef(ImplDef),
     Import(ImportDecl),
+}
+
+/// Compile-time constant definition: `const MAX_SIZE: Int = 1024`
+#[derive(Debug, Clone)]
+pub struct ConstDef {
+    pub name: String,
+    pub visibility: Visibility,
+    pub ty: TypeExpr,
+    pub value: Expr,
 }
 
 /// Function definition with full Spore signature.
@@ -133,10 +143,21 @@ pub enum Expr {
     StructLit(String, Vec<(String, Expr)>),
     Spawn(Box<Expr>),
     Await(Box<Expr>),
+    Return(Option<Box<Expr>>),
+    Throw(Box<Expr>),
+    List(Vec<Expr>),
+    CharLit(char),
+    TString(Vec<TStringPart>),
 }
 
 #[derive(Debug, Clone)]
 pub enum FStringPart {
+    Literal(String),
+    Expr(Expr),
+}
+
+#[derive(Debug, Clone)]
+pub enum TStringPart {
     Literal(String),
     Expr(Expr),
 }

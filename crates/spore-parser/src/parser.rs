@@ -4,7 +4,7 @@
 
 use crate::ast::*;
 use crate::error::ParseError;
-use crate::lexer::{Span, Spanned, Token};
+use crate::lexer::{Span, Spanned, TemplatePart, Token};
 
 // ── Precedence table (Pratt parsing) ─────────────────────────────────────
 
@@ -165,17 +165,53 @@ impl Parser {
 
     fn parse_item(&mut self) -> Result<Item, ParseError> {
         match self.peek() {
-            Token::Fn | Token::Pub => self.parse_fn_item(),
+            Token::Fn | Token::Pub => self.parse_fn_or_const_item(),
+            Token::Const => self.parse_const_item(),
             Token::Struct => self.parse_struct_item(),
             Token::Type => self.parse_type_item(),
             Token::Capability => self.parse_capability_item(),
             Token::Impl => self.parse_impl_item(),
             Token::Import => self.parse_import_item(),
             _ => Err(self.error(format!(
-                "expected item (fn, pub, struct, type, capability, impl, import), found {:?}",
+                "expected item (fn, pub, const, struct, type, capability, impl, import), found {:?}",
                 self.peek()
             ))),
         }
+    }
+
+    fn parse_fn_or_const_item(&mut self) -> Result<Item, ParseError> {
+        // Peek ahead past optional visibility to decide fn vs const
+        let mut lookahead = self.pos;
+        if matches!(self.tokens[lookahead].node, Token::Pub) {
+            lookahead += 1;
+            // Skip optional `(pkg)`
+            if matches!(self.tokens.get(lookahead).map(|t| &t.node), Some(Token::LParen)) {
+                lookahead += 1; // `(`
+                lookahead += 1; // `pkg`
+                lookahead += 1; // `)`
+            }
+        }
+        if matches!(self.tokens.get(lookahead).map(|t| &t.node), Some(Token::Const)) {
+            self.parse_const_item()
+        } else {
+            self.parse_fn_item()
+        }
+    }
+
+    fn parse_const_item(&mut self) -> Result<Item, ParseError> {
+        let visibility = self.parse_visibility()?;
+        self.expect(&Token::Const)?;
+        let name = self.expect_ident()?;
+        self.expect(&Token::Colon)?;
+        let ty = self.parse_type_expr()?;
+        self.expect(&Token::Eq)?;
+        let value = self.parse_expr()?;
+        Ok(Item::Const(ConstDef {
+            name,
+            visibility,
+            ty,
+            value,
+        }))
     }
 
     fn parse_fn_item(&mut self) -> Result<Item, ParseError> {
@@ -716,6 +752,16 @@ impl Parser {
                 self.advance();
                 Ok(Expr::StrLit(s))
             }
+            // f-string
+            Token::FStr(parts) => {
+                self.advance();
+                self.expand_template_parts(&parts, true)
+            }
+            // t-string
+            Token::TStr(parts) => {
+                self.advance();
+                self.expand_template_parts(&parts, false)
+            }
             // Bool literal
             Token::Bool(b) => {
                 self.advance();
@@ -756,8 +802,41 @@ impl Parser {
             // Return expression
             Token::Return => {
                 self.advance();
+                // If next token can't start an expression, return None
+                if self.at_eof()
+                    || self.at(&Token::RBrace)
+                    || self.at(&Token::Semicolon)
+                    || self.at(&Token::RParen)
+                {
+                    Ok(Expr::Return(None))
+                } else {
+                    let expr = self.parse_expr()?;
+                    Ok(Expr::Return(Some(Box::new(expr))))
+                }
+            }
+
+            // Throw expression
+            Token::Throw => {
+                self.advance();
                 let expr = self.parse_expr()?;
-                Ok(expr) // TODO: add Return to AST if needed
+                Ok(Expr::Throw(Box::new(expr)))
+            }
+
+            // List literal: `[elem, ...]`
+            Token::LBracket => {
+                self.advance();
+                let elems = self.parse_comma_sep(
+                    |p| p.parse_expr(),
+                    &Token::RBracket,
+                )?;
+                self.expect(&Token::RBracket)?;
+                Ok(Expr::List(elems))
+            }
+
+            // Char literal
+            Token::Char(c) => {
+                self.advance();
+                Ok(Expr::CharLit(c))
             }
 
             // Hole: `?name` or `?name: Type`
@@ -802,6 +881,55 @@ impl Parser {
 
             _ => Err(self.error(format!("expected expression, found {:?}", self.peek()))),
         }
+    }
+
+    // ── Template-string helpers ────────────────────────────────────
+
+    /// Convert lexer-level `TemplatePart`s into `Expr::FString` or
+    /// `Expr::TString` by sub-parsing each expression source fragment.
+    fn expand_template_parts(
+        &self,
+        parts: &[TemplatePart],
+        is_fstr: bool,
+    ) -> Result<Expr, ParseError> {
+        if is_fstr {
+            let mut ast_parts = Vec::new();
+            for part in parts {
+                match part {
+                    TemplatePart::Lit(s) => ast_parts.push(FStringPart::Literal(s.clone())),
+                    TemplatePart::Expr(src) => {
+                        ast_parts.push(FStringPart::Expr(self.parse_sub_expr(src)?));
+                    }
+                }
+            }
+            Ok(Expr::FString(ast_parts))
+        } else {
+            let mut ast_parts = Vec::new();
+            for part in parts {
+                match part {
+                    TemplatePart::Lit(s) => ast_parts.push(TStringPart::Literal(s.clone())),
+                    TemplatePart::Expr(src) => {
+                        ast_parts.push(TStringPart::Expr(self.parse_sub_expr(src)?));
+                    }
+                }
+            }
+            Ok(Expr::TString(ast_parts))
+        }
+    }
+
+    /// Parse a standalone expression from a source fragment (used for
+    /// interpolated expressions inside f/t-strings).
+    fn parse_sub_expr(&self, src: &str) -> Result<Expr, ParseError> {
+        use crate::lexer::Lexer;
+        let tokens = Lexer::new(src).tokenize().map_err(|errs| {
+            let e = &errs[0];
+            ParseError {
+                message: e.message.clone(),
+                span: e.span,
+            }
+        })?;
+        let mut sub = Parser::new(tokens);
+        sub.parse_expr()
     }
 
     // ── Lambda ──────────────────────────────────────────────────────

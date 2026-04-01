@@ -143,6 +143,10 @@ pub enum HirExpr {
     Try(Box<HirExpr>),
     Spawn(Box<HirExpr>),
     Await(Box<HirExpr>),
+    Return(Option<Box<HirExpr>>),
+    Throw(Box<HirExpr>),
+    List(Vec<HirExpr>),
+    CharLit(char),
 
     // Holes (preserved for IDE support)
     Hole(String),

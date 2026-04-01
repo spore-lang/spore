@@ -115,7 +115,7 @@ impl Interpreter {
                 Item::TypeDef(t) => {
                     self.type_defs.insert(t.name.clone(), t.clone());
                 }
-                Item::CapabilityDef(_) | Item::ImplDef(_) | Item::Import(_) => {}
+                Item::CapabilityDef(_) | Item::ImplDef(_) | Item::Import(_) | Item::Const(_) => {}
             }
         }
     }
@@ -162,6 +162,19 @@ impl Interpreter {
                     match part {
                         FStringPart::Literal(s) => result.push_str(s),
                         FStringPart::Expr(e) => {
+                            let val = self.eval(e, env)?;
+                            result.push_str(&val.to_string());
+                        }
+                    }
+                }
+                Ok(Value::Str(result))
+            }
+            Expr::TString(parts) => {
+                let mut result = String::new();
+                for part in parts {
+                    match part {
+                        TStringPart::Literal(s) => result.push_str(s),
+                        TStringPart::Expr(e) => {
                             let val = self.eval(e, env)?;
                             result.push_str(&val.to_string());
                         }
@@ -361,6 +374,29 @@ impl Interpreter {
                 // For PoC, just evaluate synchronously
                 self.eval(expr, env)
             }
+
+            Expr::Return(expr) => {
+                if let Some(inner) = expr {
+                    self.eval(inner, env)
+                } else {
+                    Ok(Value::Unit)
+                }
+            }
+
+            Expr::Throw(expr) => {
+                let val = self.eval(expr, env)?;
+                Err(RuntimeError::new(format!("throw: {val}")))
+            }
+
+            Expr::List(elems) => {
+                let vals: Vec<Value> = elems
+                    .iter()
+                    .map(|e| self.eval(e, env))
+                    .collect::<Result<_>>()?;
+                Ok(Value::List(vals))
+            }
+
+            Expr::CharLit(c) => Ok(Value::Char(*c)),
         }
     }
 

@@ -175,7 +175,7 @@ impl Checker {
                     methods,
                 );
             }
-            Item::Import(_) => {}
+            Item::Import(_) | Item::Const(_) => {}
         }
     }
 
@@ -298,6 +298,7 @@ impl Checker {
             Expr::StrLit(_) => Ty::Str,
             Expr::BoolLit(_) => Ty::Bool,
             Expr::FString(_) => Ty::Str,
+            Expr::TString(_) => Ty::Str,
 
             Expr::Var(name) => {
                 if let Some(ty) = self.env.lookup(name) {
@@ -571,6 +572,34 @@ impl Checker {
                     _ => ty,
                 }
             }
+
+            Expr::Return(expr) => {
+                if let Some(inner) = expr {
+                    self.check_expr(inner)
+                } else {
+                    Ty::Unit
+                }
+            }
+
+            Expr::Throw(expr) => {
+                self.check_expr(expr);
+                Ty::Never
+            }
+
+            Expr::List(elems) => {
+                if elems.is_empty() {
+                    Ty::App("List".into(), vec![self.fresh_var()])
+                } else {
+                    let first_ty = self.check_expr(&elems[0]);
+                    for elem in &elems[1..] {
+                        let elem_ty = self.check_expr(elem);
+                        self.unify(&first_ty, &elem_ty, "list elements");
+                    }
+                    Ty::App("List".into(), vec![first_ty])
+                }
+            }
+
+            Expr::CharLit(_) => Ty::Char,
         }
     }
 

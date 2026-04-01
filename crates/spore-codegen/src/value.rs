@@ -10,6 +10,7 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     Str(String),
+    Char(char),
     Unit,
     /// Struct instance: (type name, fields)
     Struct(String, BTreeMap<String, Value>),
@@ -17,6 +18,8 @@ pub enum Value {
     Closure(Closure),
     /// Built-in function
     Builtin(String),
+    /// List of values
+    List(Vec<Value>),
 }
 
 /// A captured closure.
@@ -34,6 +37,7 @@ impl fmt::Display for Value {
             Value::Float(n) => write!(f, "{n}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Str(s) => write!(f, "{s}"),
+            Value::Char(c) => write!(f, "'{c}'"),
             Value::Unit => write!(f, "()"),
             Value::Struct(name, fields) => {
                 write!(f, "{name} {{ ")?;
@@ -47,6 +51,27 @@ impl fmt::Display for Value {
             }
             Value::Closure(c) => write!(f, "<closure({})>", c.params.join(", ")),
             Value::Builtin(name) => write!(f, "<builtin:{name}>"),
+            Value::List(elems) => {
+                write!(f, "[")?;
+                for (i, e) in elems.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{e}")?;
+                }
+                write!(f, "]")
+            }
+            Value::Char(c) => write!(f, "{c}"),
+            Value::List(items) => {
+                write!(f, "[")?;
+                for (i, v) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, "]")
+            }
         }
     }
 }

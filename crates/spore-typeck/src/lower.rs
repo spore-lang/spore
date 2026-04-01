@@ -58,6 +58,9 @@ impl Lowering {
                 ast::Item::CapabilityDef(c) => {
                     self.register_name(&c.name);
                 }
+                ast::Item::Const(c) => {
+                    self.register_name(&c.name);
+                }
                 ast::Item::ImplDef(_) | ast::Item::Import(_) => {}
             }
         }
@@ -80,7 +83,7 @@ impl Lowering {
                 Some(HirItem::CapabilityDef(self.lower_capability_def(c)))
             }
             ast::Item::ImplDef(i) => Some(HirItem::ImplDef(self.lower_impl_def(i))),
-            ast::Item::Import(_) => None,
+            ast::Item::Import(_) | ast::Item::Const(_) => None,
         }
     }
 
@@ -227,6 +230,9 @@ impl Lowering {
             // Desugar f-string into nested string concatenation.
             ast::Expr::FString(parts) => self.lower_fstring(parts),
 
+            // Desugar t-string the same way (template strings evaluate to Str).
+            ast::Expr::TString(parts) => self.lower_tstring(parts),
+
             ast::Expr::Var(name) => {
                 let def_id = self.resolve_name(name);
                 HirExpr::Var(name.clone(), def_id)
@@ -301,6 +307,15 @@ impl Lowering {
             ast::Expr::Spawn(inner) => HirExpr::Spawn(Box::new(self.lower_expr(inner))),
             ast::Expr::Await(inner) => HirExpr::Await(Box::new(self.lower_expr(inner))),
 
+            ast::Expr::Return(inner) => {
+                HirExpr::Return(inner.as_ref().map(|e| Box::new(self.lower_expr(e))))
+            }
+            ast::Expr::Throw(inner) => HirExpr::Throw(Box::new(self.lower_expr(inner))),
+            ast::Expr::List(elems) => {
+                HirExpr::List(elems.iter().map(|e| self.lower_expr(e)).collect())
+            }
+            ast::Expr::CharLit(c) => HirExpr::CharLit(*c),
+
             ast::Expr::Hole(name, _ty_hint) => HirExpr::Hole(name.clone()),
         }
     }
@@ -317,6 +332,33 @@ impl Lowering {
                 ast::FStringPart::Literal(s) => HirExpr::StrLit(s.clone()),
                 ast::FStringPart::Expr(e) => {
                     // Wrap interpolated expression in a to_string call.
+                    let inner = self.lower_expr(e);
+                    HirExpr::Call(
+                        Box::new(HirExpr::Var("to_string".to_string(), UNRESOLVED)),
+                        vec![inner],
+                    )
+                }
+            })
+            .collect();
+
+        let mut result = lowered.remove(0);
+        for part in lowered {
+            result = HirExpr::BinOp(Box::new(result), HirBinOp::Add, Box::new(part));
+        }
+        result
+    }
+
+    /// Desugar a t-string into nested `Add` concatenation of string parts.
+    fn lower_tstring(&mut self, parts: &[ast::TStringPart]) -> HirExpr {
+        if parts.is_empty() {
+            return HirExpr::StrLit(String::new());
+        }
+
+        let mut lowered: Vec<HirExpr> = parts
+            .iter()
+            .map(|part| match part {
+                ast::TStringPart::Literal(s) => HirExpr::StrLit(s.clone()),
+                ast::TStringPart::Expr(e) => {
                     let inner = self.lower_expr(e);
                     HirExpr::Call(
                         Box::new(HirExpr::Var("to_string".to_string(), UNRESOLVED)),

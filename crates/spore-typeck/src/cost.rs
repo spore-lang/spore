@@ -283,8 +283,18 @@ fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg
         Expr::FieldAccess(inner, _) => {
             collect_recursive_calls(fn_name, inner, out);
         }
-        Expr::Try(inner) | Expr::Spawn(inner) | Expr::Await(inner) => {
+        Expr::Try(inner) | Expr::Spawn(inner) | Expr::Await(inner) | Expr::Throw(inner) => {
             collect_recursive_calls(fn_name, inner, out);
+        }
+        Expr::Return(inner) => {
+            if let Some(e) = inner {
+                collect_recursive_calls(fn_name, e, out);
+            }
+        }
+        Expr::List(elems) => {
+            for e in elems {
+                collect_recursive_calls(fn_name, e, out);
+            }
         }
         Expr::StructLit(_, fields) => {
             for (_, e) in fields {
@@ -298,11 +308,19 @@ fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg
                 }
             }
         }
+        Expr::TString(parts) => {
+            for part in parts {
+                if let ast::TStringPart::Expr(e) = part {
+                    collect_recursive_calls(fn_name, e, out);
+                }
+            }
+        }
         // Leaves — no recursion
         Expr::IntLit(_)
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
+        | Expr::CharLit(_)
         | Expr::Var(_)
         | Expr::Hole(_, _) => {}
     }
