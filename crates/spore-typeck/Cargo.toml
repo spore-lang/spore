@@ -7,4 +7,5 @@ description = "Spore type checker and capability/cost analysis"
 license.workspace = true
 
 [dependencies]
+blake3.workspace = true
 spore-parser = { path = "../spore-parser" }
