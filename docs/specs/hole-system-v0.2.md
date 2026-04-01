@@ -25,7 +25,6 @@ Every hole has a name. Anonymous holes are forbidden—naming is how humans and 
 
 ```spore
 fn calculate_tax(income: Money, region: Region) -> Money ! [InvalidRegion]
-with [pure, deterministic]
     uses [TaxTable]
     cost ≤ 500
 {
@@ -41,7 +40,6 @@ When the developer wants to constrain a hole beyond what the compiler infers, an
 
 ```spore
 fn format_report(data: Vec<Transaction>) -> String ! []
-with [pure]
     cost ≤ 1000
 {
     let header = build_header(data)
@@ -59,7 +57,6 @@ A function may contain any number of holes. Each independently named, independen
 
 ```spore
 fn reconcile(ledger: Ledger, transactions: Vec<Tx>) -> Ledger ! [Mismatch]
-with [pure]
     cost ≤ 5000
 {
     let grouped = group_by_account(transactions)
@@ -75,7 +72,6 @@ Holes can appear anywhere an expression is expected, including inside function a
 
 ```spore
 fn render(page: Page) -> Html ! [TemplateError]
-with [pure]
     uses [Templates]
     cost ≤ 800
 {
@@ -102,7 +98,7 @@ IDENT      ::= [a-z_][a-zA-Z0-9_]*
 
 Holes are expressions. They can appear in any expression context. They cannot appear in:
 - Type positions (see §8.2 for *type holes*, a separate concept)
-- Signature positions (parameter types, return types, error lists, `with`/`cost`/`uses` clauses)
+- Signature positions (parameter types, return types, error lists, `cost`/`uses` clauses) (`with` removed in v0.4 — properties are now auto-inferred from `uses`.)
 - Module-level declarations (a hole cannot replace a function declaration)
 
 ---
@@ -115,7 +111,6 @@ A hole's type is the **intersection** of all constraints imposed by its context:
 
 ```spore
 fn example(x: Int, y: String) -> Bool ! []
-with [pure]
 {
     let a: Int = ?h1         -- type of ?h1 is Int (from let binding)
     let b = if a > 0 {
@@ -146,14 +141,12 @@ A caller that invokes a partial function becomes partial itself, transitively. T
 
 ```spore
 fn outer() -> Int ! []
-with [pure]
     cost ≤ 1000
 {
     inner() + 1    -- outer is now partial because inner is partial
 }
 
 fn inner() -> Int ! []
-with [pure]
     cost ≤ 200
 {
     ?placeholder
@@ -178,7 +171,6 @@ If a hole appears in one branch of a `match`, other branches can still execute n
 
 ```spore
 fn describe(shape: Shape) -> String ! []
-with [pure]
 {
     match shape {
         Circle(r)    => "circle with radius " ++ show(r),
@@ -197,7 +189,6 @@ If the scrutinee of a `match` is itself a hole, the compiler reports **all branc
 
 ```spore
 fn classify(data: RawData) -> Category ! [ParseError]
-with [pure]
 {
     match ?parsed_data {         -- hole as scrutinee
         Valid(v)   => categorize(v),
@@ -340,7 +331,6 @@ When simulation reaches a hole, it emits:
 
 ```spore
 fn route(request: Request) -> Response ! [NotFound, Unauthorized]
-with [deterministic]
     uses [Auth, Database]
     cost ≤ 3000
 {
@@ -391,7 +381,6 @@ Summary:
 
 ```spore
 fn pipeline(data: Vec<Record>) -> Summary ! [DataError]
-with [pure]
     cost ≤ 10000
 {
     let cleaned = clean(data)          -- cost: 200
@@ -411,7 +400,6 @@ A developer writes a hole to mark an unfinished piece of logic:
 
 ```spore
 fn send_notification(user: User, event: Event) -> NotifyResult ! [DeliveryFailed]
-with [deterministic]
     uses [EmailService, PushService]
     cost ≤ 500
 {
@@ -497,7 +485,6 @@ Filling one hole may reveal new holes that were previously unreachable:
 
 ```spore
 fn process(input: RawData) -> Output ! [ProcessError]
-with [pure]
     cost ≤ 5000
 {
     let parsed = ?parse_step
@@ -649,7 +636,6 @@ Example:
 
 ```spore
 fn pipeline(xs: Vec<Int>) -> Vec<Int> ! []
-with [pure]
     cost ≤ 1000
 {
     let a = sort(xs)          -- cost: 200
@@ -676,7 +662,6 @@ Holes inherit the enclosing function's `uses` list. A filling can only call func
 
 ```spore
 fn sync_data(src: Database, dst: Database) -> SyncResult ! [SyncError]
-with [deterministic]
     uses [DatabaseRead, DatabaseWrite, AuditLog]
     cost ≤ 10000
 {
@@ -719,7 +704,6 @@ The enclosing function's declared error list (`! [Err1, Err2]`) flows into the h
 
 ```spore
 fn fetch_and_parse(url: Url) -> Document ! [NetworkError, ParseError, Timeout]
-with [deterministic]
     uses [Http]
     cost ≤ 3000
 {
@@ -758,7 +742,6 @@ fn generate_invoice(
     items: Vec<LineItem>,
     tax_region: TaxRegion,
 ) -> Invoice ! [TaxCalculationError, InvalidLineItem]
-with [pure, deterministic]
     uses [TaxTable]
     cost ≤ 5000
 {
@@ -921,7 +904,6 @@ A hole that references itself is meaningless—holes are not executable. The com
 
 ```spore
 fn factorial(n: Int) -> Int ! []
-with [pure]
     cost ≤ 1000
 {
     if n <= 1 { 1 }
@@ -933,7 +915,6 @@ This is fine—`?factorial_step` is just a hole of type `Int`. It does **not** c
 
 ```spore
 fn bad(n: Int) -> Int ! []
-with [pure]
 {
     ?self_ref + bad(n - 1)   -- bad is partial, but the recursive structure is fine
 }
@@ -953,7 +934,6 @@ Type holes are syntactically distinct from value holes: they use `?T_name` in **
 
 ```spore
 fn convert(input: ?InputType) -> ?OutputType ! []
-with [pure]
 {
     ?conversion_logic
 }
@@ -983,7 +963,6 @@ When a hole has contradictory constraints from its context, the compiler reports
 
 ```spore
 fn conflicted(flag: Bool) -> Int ! []
-with [pure]
 {
     let x: String = ?ambiguous   -- constraint 1: String (from let binding)
     let y: Int = x               -- constraint 2: Int (from assignment)
@@ -1008,7 +987,6 @@ An empty function body is syntactic sugar for a single unnamed hole. The compile
 
 ```spore
 fn not_yet_implemented(x: Int, y: Int) -> Int ! [OverflowError]
-with [pure, deterministic]
     cost ≤ 100
 {
 }
@@ -1039,7 +1017,6 @@ Closures can contain holes. The hole captures the closure's bindings:
 
 ```spore
 fn make_processor(config: Config) -> Fn(Data) -> Result ! [ProcessError]
-with [pure]
 {
     |data: Data| -> Result ! [ProcessError] {
         ?process_with_config
@@ -1064,7 +1041,6 @@ A hole in a `pure` function is itself pure by definition (it does nothing). The 
 
 ```spore
 fn pure_fn(x: Int) -> Int ! []
-with [pure]
 {
     ?must_be_pure   -- ok: hole is inert
 }

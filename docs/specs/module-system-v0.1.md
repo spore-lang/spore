@@ -104,7 +104,6 @@ import billing.types
 import billing.tax
 
 pub fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
-    with [deterministic]
     cost ≤ 3000
     uses [PaymentGateway, AuditLog]
 {
@@ -114,14 +113,12 @@ pub fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
 }
 
 fn build_line_items(items: Vec<Item>, tax: TaxResult) -> Vec<LineItem>
-    with [pure]
     cost ≤ 500
 {
     items |> map(fn(item) -> to_line_item(item, tax))
 }
 
 fn finalize(customer: Customer, items: Vec<LineItem>) -> Invoice ! [ValidationError]
-    with [deterministic]
     cost ≤ 1000
     uses [AuditLog]
 {
@@ -517,7 +514,6 @@ The `sig` hash `a3f7c2` (truncated for display; full hash is 32 hex characters) 
 
 ```
 fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
-    with [deterministic]
     cost ≤ 3000
     uses [PaymentGateway, AuditLog]
 ```
@@ -690,7 +686,6 @@ module billing.invoice uses [PaymentGateway, AuditLog]
 
 -- ERROR: FileWrite is not in the module's capability ceiling
 pub fn export_to_file(invoice: Invoice) -> Unit ! [IoError]
-    with [deterministic]
     uses [FileWrite]
 {
     ...
@@ -790,7 +785,6 @@ import billing.invoice
 -- [PaymentGateway, AuditLog]. Those capabilities must be available
 -- in the platform, but handler itself only needs what IT directly uses.
 pub fn handle_create_invoice(req: Request) -> Response ! [ApiError]
-    with [deterministic]
     uses [PaymentGateway, AuditLog]   -- must declare because generate_invoice needs them
 {
     let order = parse_order(req.body)
@@ -837,7 +831,7 @@ name = "invoice-service"
 version = "0.1.0"
 type = "application"
 
-[platform]
+[platforms]
 name = "spore-cli"
 version = "0.5.0"
 source = "https://packages.spore-lang.org/spore-cli/0.5.0@sha256:a1b2c3d4..."
@@ -900,7 +894,6 @@ module platform.main
 
 -- Platform-provided capability: Stdout
 pub fn stdout_write(message: String) -> Unit ! [IoError]
-    with [idempotent]
     uses [RawSyscall]       -- only platforms have RawSyscall
 {
     -- This is the only place where raw system calls happen
@@ -909,7 +902,6 @@ pub fn stdout_write(message: String) -> Unit ! [IoError]
 
 -- Platform-provided capability: FileRead
 pub fn file_read(path: FilePath) -> Bytes ! [IoError, FileNotFound]
-    with [deterministic]
     uses [RawSyscall]
 {
     let fd = syscall.open(path.to_string(), OpenMode.Read)
@@ -920,7 +912,6 @@ pub fn file_read(path: FilePath) -> Bytes ! [IoError, FileNotFound]
 
 -- Platform-provided capability: Clock
 pub fn clock_now() -> Timestamp
-    with [nondeterministic]
     uses [RawSyscall]
 {
     syscall.clock_gettime()
@@ -937,7 +928,6 @@ import billing.invoice
 import std.io
 
 pub fn main(args: Vec<String>) -> Unit ! [AppError]
-    with [deterministic]
     uses [Stdout, FileRead, PaymentGateway, AuditLog]
 {
     let order = load_order(args.get(1))
@@ -946,7 +936,6 @@ pub fn main(args: Vec<String>) -> Unit ! [AppError]
 }
 
 fn load_order(path: String) -> Order ! [IoError, ParseError]
-    with [deterministic]
     uses [FileRead]
 {
     let content = std.io.read_file(FilePath.new(path))
@@ -1266,7 +1255,6 @@ import billing.invoice
 import billing.errors
 
 pub fn handle_create(req: Request) -> Response ! [billing.errors.BillingError, ParseError]
-    with [deterministic]
     uses [PaymentGateway, AuditLog]
 {
     let order = parse_request(req)    -- may raise ParseError
@@ -1761,8 +1749,8 @@ visibility    ::= 'pub' | 'pub(pkg)'
 
 -- Declarations
 fn_decl       ::= visibility? 'fn' IDENT generics? '(' params ')' '->' type ('!' error_list)?
-                   with_clause? cost_clause? where_clause? uses_clause? block
-with_clause   ::= 'with' effect_list
+                   cost_clause? where_clause? uses_clause? block
+-- with_clause removed in v0.4 — properties are now auto-inferred from `uses`.
 cost_clause   ::= 'cost' '≤' NUMBER
 where_clause  ::= 'where' constraint (',' constraint)*
 uses_clause   ::= 'uses' capability_list

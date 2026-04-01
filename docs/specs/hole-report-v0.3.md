@@ -321,7 +321,6 @@ v0.2 的 `bindings` 列表是扁平结构——Agent 看到 `customer`、`amount
 
 ```spore
 fn charge_customer(customer: Customer, amount: Money) -> ChargeResult ! [PaymentFailed]
-with [deterministic]
     uses [PaymentGateway]
     cost ≤ 2000
 {
@@ -492,7 +491,6 @@ v0.2 的 `errors_to_handle: ["PaymentFailed", "GatewayTimeout"]` 是扁平列表
 
 ```spore
 fn process_payment(card: Card, amount: Money) -> Receipt ! [PaymentFailed, GatewayTimeout, InvalidCard]
-with [deterministic]
     uses [PaymentGateway]
     cost ≤ 3000
 {
@@ -886,7 +884,6 @@ while line = read_line(stdin):
 ```spore
 -- src/orders.spore
 fn process_order(order: Order) -> Receipt ! [ValidationError, PaymentFailed, OutOfStock]
-with [deterministic]
     uses [Inventory, PaymentGateway, EmailService]
     cost ≤ 10000
 {
@@ -900,7 +897,6 @@ with [deterministic]
 
 -- src/auth.spore
 fn check_auth(token: Token) -> User ! [Unauthorized]
-with [deterministic]
     uses [AuthService]
     cost ≤ 500
 {

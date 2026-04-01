@@ -129,7 +129,6 @@ function trace_type_source(tv: TypeVar) -> Source:
 
 ```spore
 fn process_order(order: RawOrder) -> Receipt ! [ValidationError, PaymentError]
-with [deterministic]
     uses [PaymentGateway, Inventory]
     cost ≤ 5000
 {
@@ -556,7 +555,6 @@ Hole Dependency Graph (6 holes, 5 edges):
 module OrderPipeline
 
 fn handle_order(raw: RawOrder) -> FinalStatus ! [ValidationErr, PaymentErr, NotifyErr]
-with [deterministic]
     uses [PaymentGateway, Inventory, EmailService]
     cost ≤ 10000
 {
