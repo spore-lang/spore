@@ -836,7 +836,7 @@ fn impl_unknown_capability_error() {
 #[test]
 fn error_code_type_mismatch() {
     let errs = check_err_with_codes(r#"fn f() -> Int { "oops" }"#);
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E001));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0001));
 }
 
 #[test]
@@ -845,15 +845,15 @@ fn error_code_in_display_output() {
     let errs = type_check(&module).unwrap_err();
     let output = errs[0].to_string();
     assert!(
-        output.contains("[E001]"),
-        "display should contain [E001], got: {output}"
+        output.contains("[E0001]"),
+        "display should contain [E0001], got: {output}"
     );
 }
 
 #[test]
 fn error_code_undefined_variable() {
     let errs = check_err_with_codes("fn f() -> Int { x }");
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E101));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0004));
 }
 
 #[test]
@@ -864,13 +864,13 @@ fn error_code_wrong_arg_count() {
         fn main() -> Int { add(1) }
     "#,
     );
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E201));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0007));
 }
 
 #[test]
 fn error_code_cannot_call_non_function() {
     let errs = check_err_with_codes("fn f() -> Int { let x: Int = 1; x(2) }");
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E202));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0008));
 }
 
 #[test]
@@ -881,7 +881,7 @@ fn error_code_missing_capabilities() {
         fn process() -> String { fetch("http://example.com") }
     "#,
     );
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E401));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::C0001));
 }
 
 #[test]
@@ -892,7 +892,7 @@ fn error_code_no_such_field() {
         fn f() -> Int { let p = Point { x: 1, y: 2 }; p.z }
     "#,
     );
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E501));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0015));
 }
 
 // ── Batch 4 Item 1: Anonymous record types ─────────────────────────────
@@ -1274,4 +1274,62 @@ fn await_non_task_is_error() {
     "#,
     );
     assert!(errs.iter().any(|e| e.contains("await expects Task[T]")));
+}
+
+// ── SEP-0006 diagnostic code scheme tests ────────────────────────────
+
+#[test]
+fn sep0006_type_errors_use_e0xxx() {
+    // Type mismatch → E0001
+    let errs = check_err_with_codes(r#"fn f() -> Int { "oops" }"#);
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0001));
+
+    // Undefined variable → E0004
+    let errs = check_err_with_codes("fn f() -> Int { x }");
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0004));
+
+    // Wrong arg count → E0007
+    let errs = check_err_with_codes(
+        r#"
+        fn add(a: Int, b: Int) -> Int { a }
+        fn main() -> Int { add(1) }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0007));
+}
+
+#[test]
+fn sep0006_capability_violations_use_c0xxx() {
+    // Missing capabilities → C0001
+    let errs = check_err_with_codes(
+        r#"
+        fn fetch(url: String) -> String uses [NetRead] { "data" }
+        fn process() -> String { fetch("http://example.com") }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::C0001));
+}
+
+#[test]
+fn sep0006_display_format_four_digits() {
+    let module = parse(r#"fn f() -> Int { "oops" }"#).unwrap();
+    let errs = type_check(&module).unwrap_err();
+    let output = errs[0].to_string();
+    assert!(
+        output.contains("[E0001]"),
+        "display should use 4-digit code [E0001], got: {output}"
+    );
+}
+
+#[test]
+fn sep0006_no_old_three_digit_codes() {
+    // Verify that display output never contains old-style 3-digit codes
+    let module = parse(r#"fn f() -> Int { "oops" }"#).unwrap();
+    let errs = type_check(&module).unwrap_err();
+    let output = errs[0].to_string();
+    // Old code would have been [E001]; new code is [E0001]
+    assert!(
+        !output.contains("[E001]"),
+        "should not contain old 3-digit code [E001], got: {output}"
+    );
 }

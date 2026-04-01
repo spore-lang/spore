@@ -43,6 +43,7 @@ fn usage() -> ExitCode {
     eprintln!();
     eprintln!("OPTIONS:");
     eprintln!("  --json           Output results as JSON (run, check, watch)");
+    eprintln!("  --verbose        Show detailed type inference and cost info (check)");
     eprintln!("  -V, --version    Print version");
     eprintln!("  -h, --help       Print help");
     ExitCode::FAILURE
@@ -98,6 +99,7 @@ fn cmd_check(args: &[String]) -> ExitCode {
         .map(|s| s.as_str())
         .collect();
     let json_output = args.iter().any(|a| a == "--json");
+    let verbose = args.iter().any(|a| a == "--verbose");
 
     if files.is_empty() {
         eprintln!("error: missing file argument");
@@ -126,28 +128,42 @@ fn cmd_check(args: &[String]) -> ExitCode {
             }
         }
     } else {
-        // Single file check (original behavior)
+        // Single file check
         let (_, source) = match read_source(args) {
             Ok(s) => s,
             Err(code) => return code,
         };
-        match sporec::compile(&source) {
-            Ok(()) => {
-                if json_output {
-                    println!("{{\"status\":\"ok\",\"errors\":[]}}");
-                } else {
-                    println!("✓ no errors");
+
+        if verbose {
+            match sporec::check_verbose(&source) {
+                Ok(detail) => {
+                    print!("{detail}");
+                    ExitCode::SUCCESS
                 }
-                ExitCode::SUCCESS
-            }
-            Err(msg) => {
-                if json_output {
-                    let escaped = escape_json(&msg);
-                    println!("{{\"status\":\"error\",\"message\":\"{escaped}\"}}");
-                } else {
+                Err(msg) => {
                     eprintln!("{msg}");
+                    ExitCode::FAILURE
                 }
-                ExitCode::FAILURE
+            }
+        } else {
+            match sporec::compile(&source) {
+                Ok(()) => {
+                    if json_output {
+                        println!("{{\"status\":\"ok\",\"errors\":[]}}");
+                    } else {
+                        println!("✓ no errors");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(msg) => {
+                    if json_output {
+                        let escaped = escape_json(&msg);
+                        println!("{{\"status\":\"error\",\"message\":\"{escaped}\"}}");
+                    } else {
+                        eprintln!("{msg}");
+                    }
+                    ExitCode::FAILURE
+                }
             }
         }
     }
@@ -242,7 +258,7 @@ fn check_and_report(path: &str, source: &str, json: bool) {
         Ok(()) => {
             if json {
                 println!(
-                    "{{\"event\":\"check\",\"file\":\"{path}\",\"status\":\"ok\",\"errors\":[],\"timestamp\":{ts}}}"
+                    "{{\"event\":\"compile_result\",\"file\":\"{path}\",\"status\":\"ok\",\"errors\":[],\"timestamp\":{ts}}}"
                 );
             } else {
                 eprintln!("[{ts}] ✓ `{path}` — no errors");
@@ -252,13 +268,18 @@ fn check_and_report(path: &str, source: &str, json: bool) {
             if json {
                 let escaped = escape_json(&msg);
                 println!(
-                    "{{\"event\":\"check\",\"file\":\"{path}\",\"status\":\"error\",\"message\":\"{escaped}\",\"timestamp\":{ts}}}"
+                    "{{\"event\":\"compile_result\",\"file\":\"{path}\",\"status\":\"error\",\"message\":\"{escaped}\",\"timestamp\":{ts}}}"
                 );
             } else {
                 eprintln!("[{ts}] ✗ `{path}`:");
                 eprintln!("{msg}");
             }
         }
+    }
+
+    // Emit hole_graph_update event if there are holes (JSON mode only)
+    if json && let Some(summary) = sporec::hole_summary(source) {
+        println!("{}", summary.to_json());
     }
 }
 

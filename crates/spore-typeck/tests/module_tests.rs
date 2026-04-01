@@ -94,7 +94,7 @@ fn f() { secret_fn() }
 
     let errs = check_with_registry(src, registry).unwrap_err();
     assert!(
-        errs.iter().any(|(code, _)| *code == ErrorCode::M003),
+        errs.iter().any(|(code, _)| *code == ErrorCode::M0003),
         "expected M003 (private symbol), got: {errs:?}"
     );
 }
@@ -195,7 +195,7 @@ fn f() -> Int { 42 }
 
     let errs = check_with_registry(src, registry).unwrap_err();
     assert!(
-        errs.iter().any(|(code, _)| *code == ErrorCode::M001),
+        errs.iter().any(|(code, _)| *code == ErrorCode::M0001),
         "expected M001 (module not found), got: {errs:?}"
     );
 }
@@ -212,7 +212,7 @@ fn f() -> Int { 42 }
     let errs = check_with_registry(src, registry).unwrap_err();
     let m001_errors: Vec<_> = errs
         .iter()
-        .filter(|(code, _)| *code == ErrorCode::M001)
+        .filter(|(code, _)| *code == ErrorCode::M0001)
         .collect();
     assert!(!m001_errors.is_empty(), "expected M001 error");
     assert!(
