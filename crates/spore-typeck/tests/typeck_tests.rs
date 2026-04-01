@@ -1139,3 +1139,139 @@ fn hole_collects_capabilities_and_errors() {
     assert!(hole.capabilities.contains("IO"));
     assert!(hole.errors_to_handle.contains(&"ParseError".to_string()));
 }
+
+// ── Enum constructor in expression position ────────────────────────────
+
+#[test]
+fn enum_constructor_call() {
+    check_ok(
+        r#"
+        type Shape { Circle(Int), Rect(Int, Int) }
+        fn make_circle() -> Shape { Circle(3) }
+        fn make_rect() -> Shape { Rect(6, 7) }
+    "#,
+    );
+}
+
+#[test]
+fn enum_constructor_zero_field_as_value() {
+    check_ok(
+        r#"
+        type Color { Red, Green, Blue }
+        fn get_red() -> Color { Red }
+    "#,
+    );
+}
+
+#[test]
+fn enum_constructor_match_still_works() {
+    check_ok(
+        r#"
+        type Option { Some(Int), None }
+        fn unwrap_or(opt: Option, default: Int) -> Int {
+            match opt {
+                Some(value) => value,
+                None => default,
+            }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn enum_constructor_wrong_arg_count() {
+    let errs = check_err(
+        r#"
+        type Shape { Circle(Int), Rect(Int, Int) }
+        fn bad() -> Shape { Rect(1) }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("expects 2 arguments")));
+}
+
+#[test]
+fn enum_constructor_wrong_arg_type() {
+    let errs = check_err(
+        r#"
+        type Shape { Circle(Int), Rect(Int, Int) }
+        fn bad() -> Shape { Circle("hello") }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("type mismatch")));
+}
+
+// ── Impl block signature validation ────────────────────────────────────
+
+#[test]
+fn impl_wrong_return_type() {
+    let errs = check_err(
+        r#"
+        capability Stringify[T] {
+            fn to_string(self: T) -> String
+        }
+        struct Num { val: Int }
+        impl Stringify for Num {
+            fn to_string(self: Num) -> Int { 42 }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("type mismatch")));
+}
+
+#[test]
+fn impl_wrong_param_type() {
+    let errs = check_err(
+        r#"
+        capability Adder[T] {
+            fn add(self: T, n: Int) -> Int
+        }
+        struct Counter { val: Int }
+        impl Adder for Counter {
+            fn add(self: Counter, n: String) -> Int { 0 }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("type mismatch")));
+}
+
+#[test]
+fn impl_correct_signature_ok() {
+    check_ok(
+        r#"
+        capability Display[T] {
+            fn show(self: T) -> String
+        }
+        struct Point { x: Int, y: Int }
+        impl Display for Point {
+            fn show(self: Point) -> String { "point" }
+        }
+    "#,
+    );
+}
+
+// ── spawn / await Task[T] typing ───────────────────────────────────────
+
+#[test]
+fn spawn_wraps_in_task() {
+    check_ok(
+        r#"
+        fn work() -> Int { 42 }
+        fn run() -> Int {
+            let t = spawn work();
+            await t
+        }
+    "#,
+    );
+}
+
+#[test]
+fn await_non_task_is_error() {
+    let errs = check_err(
+        r#"
+        fn run() -> Int {
+            await 42
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("await expects Task[T]")));
+}
