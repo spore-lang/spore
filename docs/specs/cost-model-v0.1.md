@@ -21,16 +21,17 @@
 
 ### 2.1 代价维度
 
-内部维护三个独立维度：
+内部维护四个独立维度：
 
 | 维度 | 缩写 | 含义 | 单位名 |
 |------|------|------|--------|
 | 计算 | `C` | CPU 操作步数 | op（operation） |
 | 分配 | `A` | 堆内存分配量 | cell（抽象内存单元） |
 | 读写 | `W` | IO/副作用操作次数 | call（外部调用次数） |
+| 并发宽度 | `P` | 并行执行通道数 | lane（并行通道） |
 
-**签名层面**：三维折算为单一标量 `cost`（加权求和）。
-**查询层面**：`langc --query-cost fn_name` 返回完整三维明细 + 分解。
+**签名层面**：C, A, W 三个维度折算为单一标量 `cost`（加权求和）；`P` 作为独立维度报告，默认不参与标量求和。
+**查询层面**：`sporec --query-cost fn_name` 返回完整四维明细 + 分解。
 
 ### 2.2 标量折算公式
 
@@ -38,7 +39,7 @@
 cost = C × 1 + A × α + W × β
 ```
 
-其中 `α`, `β` 是项目级可配置权重（在 `lang.toml` 里设定）：
+其中 `α`, `β` 是项目级可配置权重（在 `spore.toml` 里设定）：
 
 ```toml
 [cost]
@@ -135,7 +136,7 @@ cost(x |> f |> g |> h) = cost(x) + cost(f) + cost(g) + cost(h)
 ### 5.1 有界迭代（fold/map/filter）
 
 ```
-fn sum_list(items: List<Int>) -> Int {
+fn sum_list(items: List[Int]) -> Int {
     items |> fold(start: 0, step: fn(acc, x) -> acc + x)
 }
 ```
@@ -154,7 +155,7 @@ cost(sum_list) = N × 2 + 5    -- 其中 N = len(items)
 
 签名中的 `cost ≤ K` 约束此时意味着：
 - 编译器验证 `N × 2 + 5 ≤ K` 在给定 N 范围内成立
-- 如果参数类型带有大小约束（如 `List<Int, max: 1000>`），编译器可以验证
+- 如果参数类型带有大小约束（如 `List[Int, max: 1000]`），编译器可以验证
 - 如果无大小约束，编译器要求开发者明确声明
 
 ### 5.2 有界类型（Bounded Types）
@@ -162,7 +163,7 @@ cost(sum_list) = N × 2 + 5    -- 其中 N = len(items)
 为了让代价系统在编译时可验证，引入大小约束类型：
 
 ```
-fn process_batch(items: List<Order, max: 500>) -> BatchResult ! [TooLarge]
+fn process_batch(items: List[Order, max: 500]) -> BatchResult ! [TooLarge]
     cost ≤ 25000
     uses [Compute]
 {
@@ -170,7 +171,7 @@ fn process_batch(items: List<Order, max: 500>) -> BatchResult ! [TooLarge]
 }
 ```
 
-`List<Order, max: 500>` 表示编译器保证此列表最多 500 个元素。
+`List[Order, max: 500]` 表示编译器保证此列表最多 500 个元素。
 超过时在调用点产生 `TooLarge` 错误（由 runtime 检查，但代价分析在编译时以 500 为上界）。
 
 ### 5.3 结构递归（Structural Recursion）
@@ -178,7 +179,7 @@ fn process_batch(items: List<Order, max: 500>) -> BatchResult ! [TooLarge]
 结构递归（每次递归参数严格变小）是可证终止的，代价可以推导：
 
 ```
-fn tree_depth<T>(tree: Tree<T>) -> Int {
+fn tree_depth[T](tree: Tree[T]) -> Int {
     match tree {
         Leaf(_) => 0
         Node(left, _, right) => 1 + max(tree_depth(left), tree_depth(right))
@@ -187,7 +188,7 @@ fn tree_depth<T>(tree: Tree<T>) -> Int {
 ```
 
 代价 = `D × (cost_per_level)` 其中 D = 树深度。
-编译器要求 `Tree<T>` 有 `max_depth` 约束或代价为符号表达式。
+编译器要求 `Tree[T]` 有 `max_depth` 约束或代价为符号表达式。
 
 ### 5.4 一般递归
 
@@ -243,7 +244,7 @@ fn safe_fib(n: Int) -> Int ! [CostExceeded]
 当代价依赖输入大小时，编译器维护符号表达式而非具体数字：
 
 ```
-fn sort<T>(items: List<T, max: N>) -> List<T, max: N>
+fn sort[T](items: List[T, max: N]) -> List[T, max: N]
     where T: Ord
     cost ≤ N × log(N) × 3 + N
     uses [Compute]
@@ -297,22 +298,22 @@ fn sort<T>(items: List<T, max: N>) -> List<T, max: N>
 
 ```bash
 # 查看函数代价概要
-$ langc --query-cost parse_config
+$ sporec --query-cost parse_config
 {
   "function": "parse_config",
   "cost_scalar": 187,
   "cost_declared": "≤ 200",
   "status": "within_bound",
-  "dimensions": { "compute": 180, "alloc": 3, "io": 0 },
+  "dimensions": { "compute": 180, "alloc": 3, "io": 0, "parallel": 0 },
   "breakdown": [
-    { "call": "toml.parse",     "compute": 120, "alloc": 2, "io": 0 },
-    { "call": "validate_keys",  "compute": 45,  "alloc": 1, "io": 0 },
-    { "expr": "self",           "compute": 15,  "alloc": 0, "io": 0 }
+    { "call": "toml.parse",     "compute": 120, "alloc": 2, "io": 0, "parallel": 0 },
+    { "call": "validate_keys",  "compute": 45,  "alloc": 1, "io": 0, "parallel": 0 },
+    { "expr": "self",           "compute": 15,  "alloc": 0, "io": 0, "parallel": 0 }
   ]
 }
 
 # 查看符号代价（泛型/参数化函数）
-$ langc --query-cost sort
+$ sporec --query-cost sort
 {
   "function": "sort",
   "cost_symbolic": "N × log(N) × 3 + N",
@@ -371,21 +372,14 @@ fn process(data: Data) -> Result ! [ProcessError]
    - 泛型函数的代价在**调用点**通过模拟执行计算：编译器将具体类型参数代入后重新执行代价分析。
    - 签名层面只需为特定类型约束声明代价上界，例如：
      ```
-     fn map<T, U>(f: T -> U, items: List<T, max: N>) -> List<U, max: N>
+     fn map[T, U](f: T -> U, items: List[T, max: N]) -> List[U, max: N]
          where T: Sized, U: Sized
          cost ≤ N × cost(f) + N
      ```
    - `cost(f)` 在每个调用点已知（因为 `f` 已被具体化），编译器直接代入计算即可。
    - 不支持对未具体化的高阶类型参数进行抽象代价推理——这保持了系统的简单性和确定性。
 
-2. **并发/异步的代价模型**：引入第 4 个代价维度——**并发宽度**。
-
-   | 维度 | 缩写 | 含义 | 单位名 |
-   |------|------|------|--------|
-   | 计算 | `C` | CPU 操作步数 | op（operation） |
-   | 分配 | `A` | 堆内存分配量 | cell（抽象内存单元） |
-   | 读写 | `W` | IO/副作用操作次数 | call（外部调用次数） |
-   | 并发宽度 | `P` | 并行执行通道数 | lane（并行通道） |
+2. **并发/异步的代价模型**：第 4 维度**并发宽度**（`P`）的组合规则。
 
    - 顺序代价维度（C, A, W）在并行分支间取 `max`：
      ```

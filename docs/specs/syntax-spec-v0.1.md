@@ -60,8 +60,8 @@ Spore 是一门**表达式为中心**（expression-based）的编程语言，设
 14. **后缀类型注解** (Postfix type annotations)
     使用 `name: Type` 语法。
 
-15. **内联 trait 实现** (Inline trait implementation)
-    在类型声明处使用 `implements [...]` 声明 trait 实现（Roc 风格）。
+15. **自动派生** (Auto-deriving)
+    在类型声明处使用 `deriving [...]` 自动派生 trait 实现。手动实现使用 `impl Trait for Type { ... }` 块。
 
 ---
 
@@ -82,7 +82,7 @@ const       static      async       await       move
 ref         self        super       crate       enum
 union       unsafe      extern      macro       mod
 true        false       Some        None        Ok
-Err         Result      Option      Ref         implements
+Err         Result      Option      Ref         deriving
 ```
 
 ### 2.2 操作符 (Operators)
@@ -252,7 +252,7 @@ struct User {
     name: String,
     email: String,
     age: U32,
-} implements [Display, Serialize]
+} deriving [Debug, Serialize]
 ```
 
 #### 3.1.2 元组结构体 (Tuple struct)
@@ -1928,7 +1928,8 @@ fn main() {
 | `struct` | 结构体定义 (Struct definition) |
 | `type` | 类型别名/枚举定义 (Type alias/enum definition) |
 | `capability` | Trait 定义 (Trait definition) |
-| `implements` | Trait 实现声明 (Trait implementation declaration) |
+| `impl` | Trait 实现块 (Trait implementation block) |
+| `deriving` | 自动派生声明 (Auto-derive declaration) |
 | `pub` / `pub(pkg)` | 可见性修饰符 (Visibility modifiers) |
 | `module` | 模块定义 (Module definition) |
 | `import` | 导入模块 (Import module) |
@@ -2002,7 +2003,7 @@ Program       = { Module | Function | Struct | Type | Capability }
 Module        = "module" Ident "uses" "[" [ Ident { "," Ident } ] "]" Block
 Function      = "fn" Ident [ TypeParams ] "(" [ Params ] ")" [ "->" Type ]
                 [ "!" "[" Types "]" ] [ WhereClause ] [ UsesClause ] [ CostClause ] Block
-Struct        = "struct" Ident [ TypeParams ] StructBody [ "implements" "[" Capabilities "]" ]
+Struct        = "struct" Ident [ TypeParams ] StructBody [ "deriving" "[" Capabilities "]" ]
 Type          = "type" Ident [ TypeParams ] "=" TypeDef
 Capability    = "capability" Ident [ TypeParams ] "{" { CapabilityItem } "}"
 
@@ -2035,7 +2036,7 @@ Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
 12. **无循环**：鼓励递归 + TCO，函数式纯度
 13. **`if` 表达式**：统一控制流与表达式
 14. **后缀类型**：`name: Type` 与主流语言一致
-15. **内联 `implements`**：简化 trait 实现，Roc 风格
+15. **`deriving` + `impl`**：自动派生常见 trait，手动实现用 `impl` 块
 16. **`struct`/`type`**：清晰区分记录与求和类型
 17. **`capability` 关键字**：统一 trait 与能力系统
 18. **TCO 保证**：递归无忧

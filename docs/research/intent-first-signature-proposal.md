@@ -161,9 +161,9 @@ contract {
 ```spore
 module news.digest
 
-import spore.net::fetch_text
-import spore.time::now
-import project.platform::NetRead as Http
+import spore.net.fetch_text
+import spore.time.now
+import project.platform.NetRead as Http
 
 pub type FetchError {
     Timeout,
@@ -249,7 +249,7 @@ impl Summarizer[Article] for Article {
         };
 
         if article.body.len == 0 {
-            throw FetchError::EmptyBody
+            throw FetchError.EmptyBody
         }
 
         let ranked =
