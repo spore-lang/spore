@@ -243,8 +243,46 @@ impl ModuleRegistry {
             ],
         );
         prelude.types.insert("List".into(), vec![]);
+        prelude.types.insert(
+            "Ordering".into(),
+            vec!["Less".into(), "Equal".into(), "Greater".into()],
+        );
 
         // ── IO builtins ──────────────────────────────────────────
+
+        // Option functions
+        prelude.functions.insert(
+            "unwrap_or".into(),
+            (vec![Ty::Var(0), Ty::Var(1)], Ty::Var(1)),
+        );
+        prelude.functions.insert(
+            "map_option".into(),
+            (vec![Ty::Var(0), Ty::Var(1)], Ty::Var(2)),
+        );
+        prelude
+            .functions
+            .insert("is_some".into(), (vec![Ty::Var(0)], Ty::Bool));
+        prelude
+            .functions
+            .insert("is_none".into(), (vec![Ty::Var(0)], Ty::Bool));
+
+        // Result functions
+        prelude.functions.insert(
+            "unwrap_or_result".into(),
+            (vec![Ty::Var(0), Ty::Var(1)], Ty::Var(1)),
+        );
+        prelude.functions.insert(
+            "map_result".into(),
+            (vec![Ty::Var(0), Ty::Var(1)], Ty::Var(2)),
+        );
+        prelude
+            .functions
+            .insert("is_ok".into(), (vec![Ty::Var(0)], Ty::Bool));
+        prelude
+            .functions
+            .insert("is_err".into(), (vec![Ty::Var(0)], Ty::Bool));
+
+        // IO functions
         prelude
             .functions
             .insert("print".into(), (vec![Ty::Str], Ty::Unit));

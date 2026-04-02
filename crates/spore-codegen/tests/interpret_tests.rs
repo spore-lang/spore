@@ -624,6 +624,109 @@ fn test_placeholder_pipe_chain() {
     );
     // add(1, 2) = 3, mul(3, 3) = 9
     assert_eq!(v.as_int(), Some(9));
+
+// ── Stdlib: parse each stdlib file ──────────────────────────────────────
+
+#[test]
+fn test_stdlib_prelude_parses() {
+    let src = include_str!("../../../stdlib/prelude.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("prelude.sp parse error: {e:?}"));
+}
+
+#[test]
+fn test_stdlib_math_parses() {
+    let src = include_str!("../../../stdlib/math.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("math.sp parse error: {e:?}"));
+}
+
+#[test]
+fn test_stdlib_string_parses() {
+    let src = include_str!("../../../stdlib/string.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("string.sp parse error: {e:?}"));
+}
+
+#[test]
+fn test_stdlib_collections_parses() {
+    let src = include_str!("../../../stdlib/collections.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("collections.sp parse error: {e:?}"));
+}
+
+// ── Stdlib: runtime tests ───────────────────────────────────────────────
+
+#[test]
+fn test_stdlib_unwrap_or_some() {
+    // unwrap_or comes from prelude stdlib; no need to redefine Option/unwrap_or
+    let v = run_main("fn main() -> Int { unwrap_or(Some(42), 0) }");
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_stdlib_unwrap_or_none() {
+    let v = run_main("fn main() -> Int { unwrap_or(None, 0) }");
+    assert_eq!(v.as_int(), Some(0));
+}
+
+#[test]
+fn test_stdlib_is_some_true() {
+    let v = run_main("fn main() -> Bool { is_some(Some(1)) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_some_false() {
+    let v = run_main("fn main() -> Bool { is_some(None) }");
+    assert_eq!(v.as_bool(), Some(false));
+}
+
+#[test]
+fn test_stdlib_is_none_true() {
+    let v = run_main("fn main() -> Bool { is_none(None) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_ok() {
+    let v = run_main("fn main() -> Bool { is_ok(Ok(1)) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_err() {
+    let v = run_main(r#"fn main() -> Bool { is_err(Err("bad")) }"#);
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_unwrap_or_result_ok() {
+    let v = run_main("fn main() -> Int { unwrap_or_result(Ok(42), 0) }");
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_stdlib_unwrap_or_result_err() {
+    let v = run_main(r#"fn main() -> Int { unwrap_or_result(Err("bad"), 0) }"#);
+    assert_eq!(v.as_int(), Some(0));
+}
+
+#[test]
+fn test_stdlib_math_clamp() {
+    let v = run_main("fn main() -> Int { clamp(15, 0, 10) }");
+    assert_eq!(v.as_int(), Some(10));
+}
+
+#[test]
+fn test_stdlib_string_is_empty() {
+    let v = run_main(r#"fn main() -> Bool { is_empty("") }"#);
+    assert_eq!(v.as_bool(), Some(true));
+
+    let v2 = run_main(r#"fn main() -> Bool { is_empty("hi") }"#);
+    assert_eq!(v2.as_bool(), Some(false));
+}
+
+#[test]
+fn test_stdlib_string_is_not_empty() {
+    let v = run_main(r#"fn main() -> Bool { is_not_empty("hi") }"#);
+    assert_eq!(v.as_bool(), Some(true));
 }
 
 // ── Foreign fn interpreter error ────────────────────────────────────────

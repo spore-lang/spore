@@ -160,6 +160,22 @@ impl Interpreter {
         }
     }
 
+    /// Load the standard library (embedded at compile time).
+    pub fn load_stdlib(&mut self) {
+        static STDLIB_SOURCES: &[&str] = &[
+            include_str!("../../../stdlib/prelude.sp"),
+            include_str!("../../../stdlib/math.sp"),
+            include_str!("../../../stdlib/string.sp"),
+            include_str!("../../../stdlib/collections.sp"),
+        ];
+
+        for source in STDLIB_SOURCES {
+            if let Ok(module) = spore_parser::parse(source) {
+                self.load_module(&module);
+            }
+        }
+    }
+
     /// Load a module's declarations.
     pub fn load_module(&mut self, module: &Module) {
         for item in &module.items {

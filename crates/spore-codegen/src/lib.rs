@@ -16,6 +16,7 @@ use value::Value;
 pub fn run(module: &Module) -> Result<Value, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
+    interp.load_stdlib();
     interp.load_module(module);
     interp.call_function("main", vec![])
 }
@@ -24,6 +25,7 @@ pub fn run(module: &Module) -> Result<Value, RuntimeError> {
 pub fn call(module: &Module, name: &str, args: Vec<Value>) -> Result<Value, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
+    interp.load_stdlib();
     interp.load_module(module);
     interp.call_function(name, args)
 }
