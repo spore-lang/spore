@@ -20,7 +20,7 @@ use std::collections::HashMap;
 
 use check::Checker;
 use cost::{CostAnalyzer, CostChecker, CostResult, CostVector};
-use error::TypeError;
+use error::{ErrorCode, TypeError};
 use hole::HoleReport;
 use module::ModuleRegistry;
 use spore_parser::ast::Module;
@@ -59,6 +59,17 @@ pub fn type_check_with_registry(
     // Build four-dimensional cost vectors
     let mut cost_checker = CostChecker::new();
     cost_checker.check_all(&cost_analyzer);
+
+    // Convert cost budget violations into K0001 type errors
+    for (fn_name, declared, actual) in cost_analyzer.violations() {
+        checker.errors.push(TypeError::new(
+            ErrorCode::K0001,
+            format!(
+                "function `{fn_name}` exceeds its declared cost budget: \
+                 actual cost {actual} > declared bound {declared}"
+            ),
+        ));
+    }
 
     if checker.errors.is_empty() {
         Ok(CheckResult {

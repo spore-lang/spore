@@ -40,7 +40,7 @@ pub enum ErrorCode {
     // (reserved for future use)
 
     // ── Cost violations (K0xxx) ─────────────────────────────────────
-    // (reserved for future use)
+    K0001, // cost budget exceeded
 
     // ── Hole diagnostics (H0xxx) ────────────────────────────────────
     // (reserved for future use)
@@ -73,6 +73,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::E0017 => "E0017",
             ErrorCode::C0001 => "C0001",
             ErrorCode::C0002 => "C0002",
+            ErrorCode::K0001 => "K0001",
             ErrorCode::M0001 => "M0001",
             ErrorCode::M0002 => "M0002",
             ErrorCode::M0003 => "M0003",
