@@ -191,6 +191,8 @@ impl Interpreter {
             Expr::Var(name) => {
                 if let Some(val) = env.lookup(name) {
                     Ok(val.clone())
+                } else if let Some((_, 0)) = self.is_enum_variant(name) {
+                    Ok(Value::Enum(name.clone(), vec![]))
                 } else if self.functions.contains_key(name) {
                     // Return a closure wrapping the named function
                     let func = &self.functions[name];
@@ -256,14 +258,34 @@ impl Interpreter {
                     .map(|a| self.eval(a, env))
                     .collect::<Result<_>>()?;
 
-                // Direct function call by name
-                if let Expr::Var(name) = callee.as_ref()
-                    && self.functions.contains_key(name)
-                {
-                    return self.call_function(name, arg_vals);
+                if let Expr::Var(name) = callee.as_ref() {
+                    // 1. Enum variant constructor
+                    if let Some((_, arity)) = self.is_enum_variant(name)
+                        && arg_vals.len() == arity
+                    {
+                        return Ok(Value::Enum(name.clone(), arg_vals));
+                    }
+                    // 2. Builtin function
+                    if let Some(result) = self.try_call_builtin(name, &arg_vals)? {
+                        return Ok(result);
+                    }
+                    // 3. User-defined function
+                    if self.functions.contains_key(name) {
+                        return self.call_function(name, arg_vals);
+                    }
                 }
-                // Method call: Expr::FieldAccess was turned into Call(FieldAccess(...), args)
-                // For now just evaluate callee and call as closure
+
+                // 4. Method call: receiver.method(args)
+                if let Expr::FieldAccess(receiver, method) = callee.as_ref() {
+                    let recv_val = self.eval(receiver, env)?;
+                    let mut full_args = vec![recv_val];
+                    full_args.extend(arg_vals.clone());
+                    if let Some(result) = self.try_call_builtin(method, &full_args)? {
+                        return Ok(result);
+                    }
+                }
+
+                // 5. Closure / value call
                 let callee_val = self.eval(callee, env)?;
                 self.call_value(&callee_val, arg_vals)
             }
@@ -367,8 +389,17 @@ impl Interpreter {
             }
 
             Expr::Try(expr) => {
-                // For PoC, try just evaluates the inner expression
-                self.eval(expr, env)
+                let val = self.eval(expr, env)?;
+                match &val {
+                    Value::Enum(variant, fields) if variant == "Ok" && fields.len() == 1 => {
+                        Ok(fields[0].clone())
+                    }
+                    Value::Enum(variant, _) if variant == "Err" => {
+                        Err(RuntimeError::new(format!("uncaught error: {val}")))
+                    }
+                    // If not a Result, pass through (backward compat)
+                    _ => Ok(val),
+                }
             }
 
             Expr::Hole(name, _, _) => {
@@ -521,7 +552,429 @@ impl Interpreter {
                 }
                 self.eval(&closure.body, &mut env)
             }
+            Value::Builtin(name) => self
+                .try_call_builtin(name, &args)?
+                .ok_or_else(|| RuntimeError::new(format!("unknown builtin `{name}`"))),
             _ => Err(RuntimeError::new(format!("cannot call {callee}"))),
+        }
+    }
+
+    // ── Enum variant lookup ───────────────────────────────────────
+
+    /// Check if a name is a known enum variant. Returns (type_name, arity).
+    fn is_enum_variant(&self, name: &str) -> Option<(&str, usize)> {
+        for (type_name, typedef) in &self.type_defs {
+            for variant in &typedef.variants {
+                if variant.name == name {
+                    return Some((type_name, variant.fields.len()));
+                }
+            }
+        }
+        None
+    }
+
+    // ── Builtin functions ───────────────────────────────────────────
+
+    fn try_call_builtin(&self, name: &str, args: &[Value]) -> Result<Option<Value>> {
+        match name {
+            // ── List builtins ──────────────────────────────────────
+            "len" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("len: missing argument"))?;
+                match list {
+                    Value::List(v) => Ok(Some(Value::Int(v.len() as i64))),
+                    Value::Str(s) => Ok(Some(Value::Int(s.len() as i64))),
+                    _ => Err(RuntimeError::new(format!(
+                        "len: expected List or String, got {}",
+                        list.type_name()
+                    ))),
+                }
+            }
+            "map" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("map: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                let f = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("map: missing function"))?;
+                let results: Vec<Value> = list
+                    .iter()
+                    .map(|item| self.call_value(f, vec![item.clone()]))
+                    .collect::<Result<_>>()?;
+                Ok(Some(Value::List(results)))
+            }
+            "filter" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("filter: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                let pred = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("filter: missing predicate"))?;
+                let mut results = Vec::new();
+                for item in list {
+                    let v = self.call_value(pred, vec![item.clone()])?;
+                    if v.as_bool().unwrap_or(false) {
+                        results.push(item.clone());
+                    }
+                }
+                Ok(Some(Value::List(results)))
+            }
+            "fold" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("fold: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                let init = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("fold: missing init"))?
+                    .clone();
+                let f = args
+                    .get(2)
+                    .ok_or_else(|| RuntimeError::new("fold: missing function"))?;
+                let mut acc = init;
+                for item in list {
+                    acc = self.call_value(f, vec![acc, item.clone()])?;
+                }
+                Ok(Some(acc))
+            }
+            "each" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("each: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                let f = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("each: missing function"))?;
+                for item in list {
+                    self.call_value(f, vec![item.clone()])?;
+                }
+                Ok(Some(Value::Unit))
+            }
+            "append" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("append: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                let item = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("append: missing item"))?;
+                let mut new_list = list.clone();
+                new_list.push(item.clone());
+                Ok(Some(Value::List(new_list)))
+            }
+            "prepend" => {
+                let item = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("prepend: missing item"))?;
+                let list = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("prepend: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                let mut new_list = vec![item.clone()];
+                new_list.extend(list.iter().cloned());
+                Ok(Some(Value::List(new_list)))
+            }
+            "head" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("head: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                list.first()
+                    .cloned()
+                    .map(Some)
+                    .ok_or_else(|| RuntimeError::new("head: empty list"))
+            }
+            "tail" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("tail: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                if list.is_empty() {
+                    return Err(RuntimeError::new("tail: empty list"));
+                }
+                Ok(Some(Value::List(list[1..].to_vec())))
+            }
+            "reverse" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("reverse: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                let mut rev = list.clone();
+                rev.reverse();
+                Ok(Some(Value::List(rev)))
+            }
+            "range" => {
+                let start = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("range: missing start"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("range: start must be Int"))?;
+                let end = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("range: missing end"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("range: end must be Int"))?;
+                let list: Vec<Value> = (start..end).map(Value::Int).collect();
+                Ok(Some(Value::List(list)))
+            }
+            "contains" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("contains: missing list"))?
+                    .as_list()
+                    .map_err(RuntimeError::new)?;
+                let item = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("contains: missing item"))?;
+                let found = list.iter().any(|v| value_eq(v, item));
+                Ok(Some(Value::Bool(found)))
+            }
+
+            // ── String builtins ────────────────────────────────────
+            "string_length" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("string_length: missing arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("string_length: expected String"))?;
+                Ok(Some(Value::Int(s.len() as i64)))
+            }
+            "split" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("split: missing string"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("split: expected String"))?
+                    .to_owned();
+                let sep = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("split: missing separator"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("split: separator must be String"))?
+                    .to_owned();
+                let parts: Vec<Value> = s.split(&sep).map(|p| Value::Str(p.to_owned())).collect();
+                Ok(Some(Value::List(parts)))
+            }
+            "trim" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("trim: missing arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("trim: expected String"))?;
+                Ok(Some(Value::Str(s.trim().to_owned())))
+            }
+            "to_upper" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("to_upper: missing arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("to_upper: expected String"))?;
+                Ok(Some(Value::Str(s.to_uppercase())))
+            }
+            "to_lower" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("to_lower: missing arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("to_lower: expected String"))?;
+                Ok(Some(Value::Str(s.to_lowercase())))
+            }
+            "starts_with" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("starts_with: missing string"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("starts_with: expected String"))?
+                    .to_owned();
+                let prefix = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("starts_with: missing prefix"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("starts_with: prefix must be String"))?
+                    .to_owned();
+                Ok(Some(Value::Bool(s.starts_with(&prefix))))
+            }
+            "ends_with" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("ends_with: missing string"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("ends_with: expected String"))?
+                    .to_owned();
+                let suffix = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("ends_with: missing suffix"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("ends_with: suffix must be String"))?
+                    .to_owned();
+                Ok(Some(Value::Bool(s.ends_with(&suffix))))
+            }
+            "char_at" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("char_at: missing string"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("char_at: expected String"))?
+                    .to_owned();
+                let idx_i64 = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("char_at: missing index"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("char_at: index must be Int"))?;
+                if idx_i64 < 0 {
+                    return Err(RuntimeError::new(format!(
+                        "char_at: index cannot be negative, got {idx_i64}"
+                    )));
+                }
+                let idx = idx_i64 as usize;
+                let ch = s.chars().nth(idx).ok_or_else(|| {
+                    RuntimeError::new(format!("char_at: index {idx} out of bounds"))
+                })?;
+                Ok(Some(Value::Str(ch.to_string())))
+            }
+            "substring" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("substring: missing string"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("substring: expected String"))?
+                    .to_owned();
+                let start_i64 = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("substring: missing start"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("substring: start must be Int"))?;
+                if start_i64 < 0 {
+                    return Err(RuntimeError::new(format!(
+                        "substring: start cannot be negative, got {start_i64}"
+                    )));
+                }
+                let start = start_i64 as usize;
+                let end_i64 = args
+                    .get(2)
+                    .ok_or_else(|| RuntimeError::new("substring: missing end"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("substring: end must be Int"))?;
+                if end_i64 < 0 {
+                    return Err(RuntimeError::new(format!(
+                        "substring: end cannot be negative, got {end_i64}"
+                    )));
+                }
+                let end = end_i64 as usize;
+                let sub: String = s
+                    .chars()
+                    .skip(start)
+                    .take(end.saturating_sub(start))
+                    .collect();
+                Ok(Some(Value::Str(sub)))
+            }
+            "replace" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("replace: missing string"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("replace: expected String"))?
+                    .to_owned();
+                let from = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("replace: missing from"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("replace: from must be String"))?
+                    .to_owned();
+                let to = args
+                    .get(2)
+                    .ok_or_else(|| RuntimeError::new("replace: missing to"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("replace: to must be String"))?
+                    .to_owned();
+                Ok(Some(Value::Str(s.replace(&from, &to))))
+            }
+            "to_string" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("to_string: missing arg"))?;
+                Ok(Some(Value::Str(val.to_string())))
+            }
+
+            // ── Math builtins ──────────────────────────────────────
+            "abs" => {
+                let n = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("abs: missing arg"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("abs: expected Int"))?;
+                Ok(Some(Value::Int(n.saturating_abs())))
+            }
+            "min" => {
+                let a = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("min: missing first arg"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("min: expected Int"))?;
+                let b = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("min: missing second arg"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("min: expected Int"))?;
+                Ok(Some(Value::Int(a.min(b))))
+            }
+            "max" => {
+                let a = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("max: missing first arg"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("max: expected Int"))?;
+                let b = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("max: missing second arg"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("max: expected Int"))?;
+                Ok(Some(Value::Int(a.max(b))))
+            }
+
+            // ── IO builtins ────────────────────────────────────────
+            "print" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("print: missing arg"))?;
+                print!("{val}");
+                Ok(Some(Value::Unit))
+            }
+            "println" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("println: missing arg"))?;
+                println!("{val}");
+                Ok(Some(Value::Unit))
+            }
+            "read_line" => {
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_line(&mut buf)
+                    .map_err(|e| RuntimeError::new(format!("read_line: {e}")))?;
+                // Remove trailing newline
+                if buf.ends_with('\n') {
+                    buf.pop();
+                    if buf.ends_with('\r') {
+                        buf.pop();
+                    }
+                }
+                Ok(Some(Value::Str(buf)))
+            }
+
+            _ => Ok(None),
         }
     }
 
@@ -553,7 +1006,22 @@ impl Interpreter {
                 }
             }
             Pattern::Constructor(name, sub_pats) => {
-                // For enum variants: match against Struct("VariantName", fields)
+                // Match against Enum variant
+                if let Value::Enum(vname, fields) = val {
+                    if vname != name {
+                        return None;
+                    }
+                    if fields.len() != sub_pats.len() {
+                        return None;
+                    }
+                    let mut bindings = Vec::new();
+                    for (sp, field_val) in sub_pats.iter().zip(fields.iter()) {
+                        let sub_bindings = self.match_pattern(sp, field_val)?;
+                        bindings.extend(sub_bindings);
+                    }
+                    return Some(bindings);
+                }
+                // Also match against Struct with numeric field names (legacy)
                 if let Value::Struct(vname, fields) = val {
                     if vname != name {
                         return None;
@@ -565,6 +1033,10 @@ impl Interpreter {
                         bindings.extend(sub_bindings);
                     }
                     Some(bindings)
+                } else if sub_pats.is_empty()
+                    && matches!(val, Value::Enum(vname, fields) if vname == name && fields.is_empty())
+                {
+                    Some(vec![])
                 } else {
                     None
                 }
@@ -617,6 +1089,27 @@ impl Interpreter {
                 }
             }
         }
+    }
+}
+
+/// Structural equality for values (used by `contains`).
+fn value_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => x == y,
+        (Value::Float(x), Value::Float(y)) => x == y,
+        (Value::Bool(x), Value::Bool(y)) => x == y,
+        (Value::Str(x), Value::Str(y)) => x == y,
+        (Value::Char(x), Value::Char(y)) => x == y,
+        (Value::Unit, Value::Unit) => true,
+        (Value::List(x), Value::List(y)) => {
+            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| value_eq(a, b))
+        }
+        (Value::Enum(n1, f1), Value::Enum(n2, f2)) => {
+            n1 == n2
+                && f1.len() == f2.len()
+                && f1.iter().zip(f2.iter()).all(|(a, b)| value_eq(a, b))
+        }
+        _ => false,
     }
 }
 

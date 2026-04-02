@@ -15,7 +15,20 @@ fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
 
 fn double(x: Int) -> Int { x * 2 }
 
-// 4. Hole (typed placeholder — resolved at type-check time)
+// 4. Enum + pattern matching
+type Shape {
+    Circle(Int),
+    Rect(Int, Int),
+}
+
+fn area(s: Shape) -> Int {
+    match s {
+        Circle(r) => r * r * 3,
+        Rect(w, h) => w * h,
+    }
+}
+
+// 5. Hole (typed placeholder — resolved at type-check time)
 fn todo_example() -> Int { ?todo }
 
 // Entry point — runs in the tree-walk interpreter
@@ -26,6 +39,11 @@ fn main() -> Int {
     let tripled = apply(|x: Int| x * 3, 14);
     let piped = 10 |> double;
 
-    // sum=42, d=25, tripled=42, piped=20
-    sum + d + tripled + piped
+    // Enum + pattern matching
+    let c = Circle(5);
+    let a = area(c);
+
+    // sum=42, d=25, tripled=42, piped=20, a=75
+    // 42 + 25 + 42 + 20 + 75 = 204
+    sum + d + tripled + piped + a
 }
