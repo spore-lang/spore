@@ -198,9 +198,9 @@ impl CostAnalyzer {
 
             for callee in &callee_names {
                 match self.results.get(callee) {
-                    Some(CostResult::Constant(k)) => total += k,
+                    Some(CostResult::Constant(k)) => total = total.saturating_add(*k),
                     Some(CostResult::Declared(expr)) => match expr {
-                        CostExpr::Const(k) => total += k,
+                        CostExpr::Const(k) => total = total.saturating_add(*k),
                         _ => {
                             upgraded = true;
                             break;
@@ -730,7 +730,7 @@ impl std::fmt::Display for CostVector {
 fn add_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
     match (a, b) {
         (CostExpr::Const(0), other) | (other, CostExpr::Const(0)) => other.clone(),
-        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x + y),
+        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x.saturating_add(*y)),
         (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
         _ => CostExpr::Unbounded, // Conservative: can't simplify symbolic
     }
@@ -751,7 +751,7 @@ fn mul_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
     match (a, b) {
         (CostExpr::Const(0), _) | (_, CostExpr::Const(0)) => CostExpr::Const(0),
         (CostExpr::Const(1), other) | (other, CostExpr::Const(1)) => other.clone(),
-        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x * y),
+        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x.saturating_mul(*y)),
         (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
         _ => CostExpr::Unbounded,
     }
