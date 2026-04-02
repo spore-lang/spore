@@ -364,7 +364,13 @@ impl Checker {
                     methods,
                 );
             }
-            Item::Import(_) | Item::Const(_) | Item::Alias(_) | Item::CapabilityAlias { .. } => {}
+            Item::Import(_) | Item::Const(_) | Item::CapabilityAlias { .. } => {}
+            Item::Alias(alias_def) => {
+                let resolved = self.resolve_type(&alias_def.target);
+                self.registry
+                    .type_aliases
+                    .insert(alias_def.name.clone(), resolved);
+            }
         }
     }
 
@@ -1096,6 +1102,10 @@ impl Checker {
                 let ty = if let Some(te) = ty_ann {
                     let declared = self.resolve_type(te);
                     self.unify(&declared, &init_ty, &format!("let binding `{name}`"));
+                    // Check refinement predicate on constant initializers
+                    if let Ty::Refined(_, ref var_name, ref pred) = declared {
+                        self.check_refinement_on_expr(init, var_name, pred, name);
+                    }
                     declared
                 } else {
                     init_ty
@@ -1120,7 +1130,14 @@ impl Checker {
                 "Char" => Ty::Char,
                 "()" => Ty::Unit,
                 "Never" => Ty::Never,
-                _ => Ty::Named(name.clone()),
+                _ => {
+                    // Check type aliases (supports refined aliases like `alias Port = Int if ...`)
+                    if let Some(ty) = self.registry.type_aliases.get(name) {
+                        ty.clone()
+                    } else {
+                        Ty::Named(name.clone())
+                    }
+                }
             },
             TypeExpr::Generic(name, args) => {
                 let resolved: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
@@ -1133,9 +1150,9 @@ impl Checker {
                 let ptys: Vec<Ty> = params.iter().map(|p| self.resolve_type(p)).collect();
                 Ty::Fn(ptys, Box::new(self.resolve_type(ret)), CapSet::new())
             }
-            TypeExpr::Refinement(base, _, _) => {
-                // For PoC, ignore refinement predicates — just use base type
-                self.resolve_type(base)
+            TypeExpr::Refinement(base, var_name, pred_expr) => {
+                let base_ty = self.resolve_type(base);
+                Ty::Refined(Box::new(base_ty), var_name.clone(), pred_expr.clone())
             }
             TypeExpr::Record(fields) => {
                 let resolved = fields
@@ -1182,6 +1199,9 @@ impl Checker {
                     .map(|(n, t)| (n.clone(), self.apply_subst(t)))
                     .collect(),
             ),
+            Ty::Refined(base, var, pred) => {
+                Ty::Refined(Box::new(self.apply_subst(base)), var.clone(), pred.clone())
+            }
             _ => ty.clone(),
         }
     }
@@ -1197,6 +1217,7 @@ impl Checker {
             Ty::App(_, args) => args.iter().any(|a| self.occurs_in(id, a)),
             Ty::Tuple(ts) => ts.iter().any(|t| self.occurs_in(id, t)),
             Ty::Record(fields) => fields.iter().any(|(_, t)| self.occurs_in(id, t)),
+            Ty::Refined(base, _, _) => self.occurs_in(id, base),
             _ => false,
         }
     }
@@ -1233,6 +1254,11 @@ impl Checker {
                     .iter()
                     .map(|(n, t)| (n.clone(), self.instantiate_ty(t, mapping)))
                     .collect(),
+            ),
+            Ty::Refined(base, var, pred) => Ty::Refined(
+                Box::new(self.instantiate_ty(base, mapping)),
+                var.clone(),
+                pred.clone(),
             ),
             _ => ty.clone(),
         }
@@ -1376,6 +1402,21 @@ impl Checker {
                         );
                     }
                 }
+            }
+            // Refined ↔ Refined: unify bases (predicate compatibility checked separately)
+            (Ty::Refined(b1, _, _), Ty::Refined(b2, _, _)) => {
+                let base1 = (**b1).clone();
+                let base2 = (**b2).clone();
+                self.unify(&base1, &base2, context);
+            }
+            // Refined is subtype of its base type (strip refinement)
+            (Ty::Refined(base, _, _), other) => {
+                let base = (**base).clone();
+                self.unify(&base, other, context);
+            }
+            (other, Ty::Refined(base, _, _)) => {
+                let base = (**base).clone();
+                self.unify(other, &base, context);
             }
             _ => {
                 self.err(
@@ -1623,6 +1664,36 @@ impl Checker {
 
     fn err(&mut self, code: ErrorCode, message: String) {
         self.errors.push(TypeError::new(code, message));
+    }
+
+    /// Check a refinement predicate against a constant expression.
+    /// If the init expression is a constant, evaluate the predicate.
+    /// If not constant, skip (runtime check needed).
+    fn check_refinement_on_expr(
+        &mut self,
+        init: &Expr,
+        var_name: &str,
+        pred: &Expr,
+        binding_name: &str,
+    ) {
+        use crate::refinement::{eval_refinement_predicate, expr_to_const};
+        if let Some(cv) = expr_to_const(init) {
+            match eval_refinement_predicate(pred, var_name, &cv) {
+                Ok(true) => {} // predicate satisfied
+                Ok(false) => {
+                    self.err(
+                        ErrorCode::R0001,
+                        format!(
+                            "refinement predicate violated for `{binding_name}`: \
+                             value does not satisfy the type constraint"
+                        ),
+                    );
+                }
+                Err(_reason) => {
+                    // Predicate not decidable at compile time — skip
+                }
+            }
+        }
     }
 
     /// Find registered functions whose return type matches the expected type.

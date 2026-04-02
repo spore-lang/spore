@@ -13,6 +13,7 @@ pub mod incremental;
 pub mod lower;
 pub mod module;
 pub mod platform;
+pub mod refinement;
 pub mod sig_hash;
 pub mod types;
 
