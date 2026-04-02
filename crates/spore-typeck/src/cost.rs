@@ -60,9 +60,64 @@ pub enum CostResult {
     Unknown(String),
 }
 
+/// Known I/O (capability-gated) function names.
+const IO_FUNCTIONS: &[&str] = &[
+    "print",
+    "println",
+    "eprintln",
+    "eprint",
+    "read_line",
+    "read",
+    "write",
+    "open",
+    "close",
+    "send",
+    "recv",
+];
+
+fn is_io_function(name: &str) -> bool {
+    IO_FUNCTIONS.contains(&name)
+}
+
+/// Compute cost of a binary op in the *compute* dimension (SEP-0004 table).
+fn binop_compute_cost(op: &BinOp, is_float: bool) -> u64 {
+    match op {
+        BinOp::Add | BinOp::Sub | BinOp::Mul => {
+            if is_float {
+                2
+            } else {
+                1
+            }
+        }
+        BinOp::Div | BinOp::Mod => {
+            if is_float {
+                3
+            } else {
+                2
+            }
+        }
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => 1,
+        // Logical, bitwise, shift — 1 op each.
+        BinOp::And
+        | BinOp::Or
+        | BinOp::BitAnd
+        | BinOp::BitOr
+        | BinOp::BitXor
+        | BinOp::Shl
+        | BinOp::Shr => 1,
+    }
+}
+
+/// Best-effort check: is this expression obviously a float?
+fn is_float_expr(expr: &Expr) -> bool {
+    matches!(expr, Expr::FloatLit(_))
+}
+
 /// Analyze cost for functions in a module.
 pub struct CostAnalyzer {
     results: HashMap<String, CostResult>,
+    /// Per-function four-dimensional cost vectors computed by AST walk.
+    cost_vectors: HashMap<String, CostVector>,
     /// Functions whose body cost exceeds their declared budget.
     /// Each entry: (fn_name, declared_bound, actual_cost).
     violations: Vec<(String, CostExpr, CostExpr)>,
@@ -78,6 +133,7 @@ impl CostAnalyzer {
     pub fn new() -> Self {
         CostAnalyzer {
             results: HashMap::new(),
+            cost_vectors: HashMap::new(),
             violations: Vec::new(),
         }
     }
@@ -96,12 +152,23 @@ impl CostAnalyzer {
         &self.violations
     }
 
+    /// Four-dimensional cost vectors computed by AST walk.
+    pub fn cost_vectors(&self) -> &HashMap<String, CostVector> {
+        &self.cost_vectors
+    }
+
     /// Analyze all functions in a module.
     pub fn analyze_module(&mut self, module: &Module) {
-        // First pass: analyze each function independently
+        // First pass: analyze each function independently (1D CostResult)
         for item in &module.items {
             if let Item::Function(fn_def) = item {
                 self.analyze_function(fn_def);
+            }
+        }
+        // 4D vector pass: walk each function body for per-expression costs
+        for item in &module.items {
+            if let Item::Function(fn_def) = item {
+                self.analyze_function_vector(fn_def);
             }
         }
         // Second pass: propagate callee costs into callers
@@ -165,6 +232,249 @@ impl CostAnalyzer {
                 .insert(fn_name.clone(), CostResult::Declared(d));
         } else {
             self.results.insert(fn_name.clone(), body_cost);
+        }
+    }
+
+    /// Compute the four-dimensional [`CostVector`] for a single function.
+    fn analyze_function_vector(&mut self, fn_def: &FnDef) {
+        let fn_name = &fn_def.name;
+
+        if fn_def.is_unbounded {
+            self.cost_vectors.insert(
+                fn_name.clone(),
+                CostVector {
+                    compute: CostExpr::Unbounded,
+                    alloc: CostExpr::Unbounded,
+                    io: CostExpr::Unbounded,
+                    parallel: CostExpr::Unbounded,
+                },
+            );
+            return;
+        }
+
+        let body = match &fn_def.body {
+            Some(b) => b,
+            None => {
+                self.cost_vectors
+                    .insert(fn_name.clone(), CostVector::zero());
+                return;
+            }
+        };
+
+        let base_cv = self.analyze_expr_cost(body);
+
+        // If the 1D analysis found structural recursion, scale the body cost.
+        let cv = match self.results.get(fn_name) {
+            Some(CostResult::Structural(param)) => base_cv.scale(&CostExpr::Linear(param.clone())),
+            _ => base_cv,
+        };
+
+        self.cost_vectors.insert(fn_name.clone(), cv);
+    }
+
+    /// Walk an expression and return its four-dimensional cost.
+    fn analyze_expr_cost(&self, expr: &Expr) -> CostVector {
+        match expr {
+            // --- Leaves (zero cost) ---
+            Expr::IntLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) | Expr::CharLit(_) => {
+                CostVector::zero()
+            }
+            Expr::Var(_) => CostVector::zero(),
+
+            // String literal: alloc = ⌈len/8⌉
+            Expr::StrLit(s) => {
+                let cells = (s.len() as u64).div_ceil(8);
+                CostVector::constant(0, cells, 0, 0)
+            }
+
+            // Binary operation
+            Expr::BinOp(lhs, op, rhs) => {
+                let lhs_cost = self.analyze_expr_cost(lhs);
+                let rhs_cost = self.analyze_expr_cost(rhs);
+                let is_float = is_float_expr(lhs) || is_float_expr(rhs);
+                let op_cv = CostVector::constant(binop_compute_cost(op, is_float), 0, 0, 0);
+                lhs_cost.seq(&rhs_cost).seq(&op_cv)
+            }
+
+            // Unary operation: 1 compute op
+            Expr::UnaryOp(_, inner) => {
+                let inner_cost = self.analyze_expr_cost(inner);
+                inner_cost.seq(&CostVector::constant(1, 0, 0, 0))
+            }
+
+            // Function call
+            Expr::Call(callee, args) => {
+                let mut total = CostVector::zero();
+                for arg in args {
+                    total = total.seq(&self.analyze_expr_cost(arg));
+                }
+                // Call overhead: 3 compute ops
+                total = total.seq(&CostVector::constant(3, 0, 0, 0));
+
+                if let Expr::Var(name) = callee.as_ref() {
+                    if is_io_function(name) {
+                        total = total.seq(&CostVector::constant(0, 0, 1, 0));
+                    }
+                    if let Some(callee_cv) = self.cost_vectors.get(name) {
+                        total = total.seq(callee_cv);
+                    }
+                }
+                total
+            }
+
+            // If expression: cond + max(then, else)
+            Expr::If(cond, then_br, else_br) => {
+                let cond_cost = self.analyze_expr_cost(cond);
+                let then_cost = self.analyze_expr_cost(then_br);
+                let else_cost = else_br
+                    .as_ref()
+                    .map(|e| self.analyze_expr_cost(e))
+                    .unwrap_or_else(CostVector::zero);
+                let branch_max = CostVector {
+                    compute: max_cost(&then_cost.compute, &else_cost.compute),
+                    alloc: max_cost(&then_cost.alloc, &else_cost.alloc),
+                    io: max_cost(&then_cost.io, &else_cost.io),
+                    parallel: max_cost(&then_cost.parallel, &else_cost.parallel),
+                };
+                cond_cost.seq(&branch_max)
+            }
+
+            // Match: scrutinee + max(arm bodies) + arms×1 compute
+            Expr::Match(scrutinee, arms) => {
+                let scrutinee_cost = self.analyze_expr_cost(scrutinee);
+                let arm_count = arms.len() as u64;
+
+                let mut max_arm = CostVector::zero();
+                for arm in arms {
+                    let mut arm_cost = self.analyze_expr_cost(&arm.body);
+                    if let Some(guard) = &arm.guard {
+                        arm_cost = self.analyze_expr_cost(guard).seq(&arm_cost);
+                    }
+                    max_arm = CostVector {
+                        compute: max_cost(&max_arm.compute, &arm_cost.compute),
+                        alloc: max_cost(&max_arm.alloc, &arm_cost.alloc),
+                        io: max_cost(&max_arm.io, &arm_cost.io),
+                        parallel: max_cost(&max_arm.parallel, &arm_cost.parallel),
+                    };
+                }
+                scrutinee_cost
+                    .seq(&max_arm)
+                    .seq(&CostVector::constant(arm_count, 0, 0, 0))
+            }
+
+            // Block: sequential composition of statements + optional tail
+            Expr::Block(stmts, tail) => {
+                let mut total = CostVector::zero();
+                for stmt in stmts {
+                    total = total.seq(&self.analyze_stmt_cost(stmt));
+                }
+                if let Some(tail_expr) = tail {
+                    total = total.seq(&self.analyze_expr_cost(tail_expr));
+                }
+                total
+            }
+
+            // Struct literal: alloc = field_count cells
+            Expr::StructLit(_, fields) => {
+                let mut total = CostVector::zero();
+                for (_, e) in fields {
+                    total = total.seq(&self.analyze_expr_cost(e));
+                }
+                total.seq(&CostVector::constant(0, fields.len() as u64, 0, 0))
+            }
+
+            // List literal: alloc = element_count + 1 cells
+            Expr::List(elems) => {
+                let mut total = CostVector::zero();
+                for e in elems {
+                    total = total.seq(&self.analyze_expr_cost(e));
+                }
+                total.seq(&CostVector::constant(0, elems.len() as u64 + 1, 0, 0))
+            }
+
+            // Lambda: alloc = captured_var_count (0 without scope analysis)
+            Expr::Lambda(params, _body) => {
+                // Approximate capture count as parameter count.
+                CostVector::constant(0, params.len() as u64, 0, 0)
+            }
+
+            // Spawn: +1 parallel lane
+            Expr::Spawn(inner) => self
+                .analyze_expr_cost(inner)
+                .seq(&CostVector::constant(0, 0, 0, 1)),
+
+            Expr::Await(inner) | Expr::Try(inner) | Expr::Throw(inner) => {
+                self.analyze_expr_cost(inner)
+            }
+
+            Expr::Return(inner) => inner
+                .as_ref()
+                .map(|e| self.analyze_expr_cost(e))
+                .unwrap_or_else(CostVector::zero),
+
+            // Pipe: sequential
+            Expr::Pipe(lhs, rhs) => self
+                .analyze_expr_cost(lhs)
+                .seq(&self.analyze_expr_cost(rhs)),
+
+            Expr::FieldAccess(inner, _) => self.analyze_expr_cost(inner),
+
+            // FString / TString: sum of parts + 1 alloc cell
+            Expr::FString(parts) => {
+                let mut total = CostVector::zero();
+                for part in parts {
+                    if let ast::FStringPart::Expr(e) = part {
+                        total = total.seq(&self.analyze_expr_cost(e));
+                    }
+                }
+                total.seq(&CostVector::constant(0, 1, 0, 0))
+            }
+            Expr::TString(parts) => {
+                let mut total = CostVector::zero();
+                for part in parts {
+                    if let ast::TStringPart::Expr(e) = part {
+                        total = total.seq(&self.analyze_expr_cost(e));
+                    }
+                }
+                total.seq(&CostVector::constant(0, 1, 0, 0))
+            }
+
+            // Parallel scope: +1 parallel lane
+            Expr::ParallelScope { lanes, body } => {
+                let mut total = CostVector::zero();
+                if let Some(lanes_expr) = lanes {
+                    total = total.seq(&self.analyze_expr_cost(lanes_expr));
+                }
+                total
+                    .seq(&self.analyze_expr_cost(body))
+                    .seq(&CostVector::constant(0, 0, 0, 1))
+            }
+
+            // Select: max of arm costs
+            Expr::Select(arms) => {
+                let mut max_arm = CostVector::zero();
+                for arm in arms {
+                    let arm_cost = self
+                        .analyze_expr_cost(&arm.source)
+                        .seq(&self.analyze_expr_cost(&arm.body));
+                    max_arm = CostVector {
+                        compute: max_cost(&max_arm.compute, &arm_cost.compute),
+                        alloc: max_cost(&max_arm.alloc, &arm_cost.alloc),
+                        io: max_cost(&max_arm.io, &arm_cost.io),
+                        parallel: max_cost(&max_arm.parallel, &arm_cost.parallel),
+                    };
+                }
+                max_arm
+            }
+
+            Expr::Hole(_, _, _) => CostVector::constant(1, 0, 0, 0),
+        }
+    }
+
+    /// Walk a statement and return its cost.
+    fn analyze_stmt_cost(&self, stmt: &Stmt) -> CostVector {
+        match stmt {
+            Stmt::Let(_, _, expr) | Stmt::Expr(expr) => self.analyze_expr_cost(expr),
         }
     }
 
@@ -787,25 +1097,24 @@ impl CostChecker {
     /// Derive [`CostVector`]s for every function already analyzed by `analyzer`.
     pub fn check_all(&mut self, analyzer: &CostAnalyzer) {
         for (name, result) in analyzer.results() {
-            let cv = Self::cost_vector_from_result(result);
+            let cv = if let Some(vec) = analyzer.cost_vectors().get(name) {
+                vec.clone()
+            } else {
+                Self::cost_vector_from_result(result)
+            };
             self.costs.insert(name.clone(), cv);
         }
     }
 
-    /// Build a [`CostVector`] from a single [`CostResult`].
+    /// Fallback: build a [`CostVector`] from a [`CostResult`] when no AST-derived
+    /// vector is available.
     fn cost_vector_from_result(result: &CostResult) -> CostVector {
         let compute = cost_result_to_expr(result);
 
-        // I/O call depth: structural recursion ⇒ O(n), otherwise O(1).
-        let io = match result {
-            CostResult::Structural(_) => CostExpr::Linear("n".into()),
-            _ => CostExpr::Const(1),
-        };
-
-        // Alloc: conservatively mirrors compute for now.
-        let alloc = compute.clone();
-
-        // Parallel: 0 by default (spawns are not yet tracked by CostAnalyzer).
+        // Without an AST walk we cannot know alloc/io/parallel, so default
+        // them conservatively to zero (pure, no allocation, no parallelism).
+        let alloc = CostExpr::Const(0);
+        let io = CostExpr::Const(0);
         let parallel = CostExpr::Const(0);
 
         CostVector {
@@ -1007,7 +1316,7 @@ mod tests {
     #[test]
     fn cost_checker_constant_function() {
         let mut analyzer = CostAnalyzer::new();
-        // Manually insert a constant result to test the checker.
+        // Manually insert a constant result to test the fallback path.
         analyzer
             .results_mut()
             .insert("foo".into(), CostResult::Constant(1));
@@ -1017,7 +1326,10 @@ mod tests {
 
         let cv = checker.costs.get("foo").expect("foo should be analyzed");
         assert_eq!(cv.compute, CostExpr::Const(1));
-        assert_eq!(cv.io, CostExpr::Const(1));
+        // Fallback: no AST → io/alloc/parallel default to 0.
+        assert_eq!(cv.io, CostExpr::Const(0));
+        assert_eq!(cv.alloc, CostExpr::Const(0));
+        assert_eq!(cv.parallel, CostExpr::Const(0));
         assert!(cv.is_bounded());
     }
 
@@ -1033,7 +1345,205 @@ mod tests {
 
         let cv = checker.costs.get("bar").expect("bar should be analyzed");
         assert_eq!(cv.compute, CostExpr::Linear("n".into()));
-        assert_eq!(cv.io, CostExpr::Linear("n".into()));
+        // Fallback: no AST walk → io defaults to 0.
+        assert_eq!(cv.io, CostExpr::Const(0));
         assert!(cv.is_bounded());
+    }
+
+    // -----------------------------------------------------------------------
+    // 4D per-expression cost tests (SEP-0004)
+    // -----------------------------------------------------------------------
+
+    /// Helper: create a fresh analyzer to use `analyze_expr_cost`.
+    fn expr_cost(expr: &Expr) -> CostVector {
+        let analyzer = CostAnalyzer::new();
+        analyzer.analyze_expr_cost(expr)
+    }
+
+    #[test]
+    fn pure_arithmetic_4d() {
+        // `a + b * c`  (all int) → compute = 1+1 = 2, alloc = 0, io = 0, parallel = 0
+        let expr = Expr::BinOp(
+            Box::new(Expr::Var("a".into())),
+            BinOp::Add,
+            Box::new(Expr::BinOp(
+                Box::new(Expr::Var("b".into())),
+                BinOp::Mul,
+                Box::new(Expr::Var("c".into())),
+            )),
+        );
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.compute, CostExpr::Const(2));
+        assert_eq!(cv.alloc, CostExpr::Const(0));
+        assert_eq!(cv.io, CostExpr::Const(0));
+        assert_eq!(cv.parallel, CostExpr::Const(0));
+    }
+
+    #[test]
+    fn float_div_cost() {
+        // `1.0 / 2.0` → compute = 3 (float div)
+        let expr = Expr::BinOp(
+            Box::new(Expr::FloatLit(1.0)),
+            BinOp::Div,
+            Box::new(Expr::FloatLit(2.0)),
+        );
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.compute, CostExpr::Const(3));
+        assert_eq!(cv.alloc, CostExpr::Const(0));
+    }
+
+    #[test]
+    fn int_div_cost() {
+        // `10 / 3` → compute = 2 (int div)
+        let expr = Expr::BinOp(
+            Box::new(Expr::IntLit(10)),
+            BinOp::Div,
+            Box::new(Expr::IntLit(3)),
+        );
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.compute, CostExpr::Const(2));
+    }
+
+    #[test]
+    fn struct_creation_alloc() {
+        // `Point { x: 1, y: 2, z: 3 }` → alloc = 3 (field count)
+        let expr = Expr::StructLit(
+            "Point".into(),
+            vec![
+                ("x".into(), Expr::IntLit(1)),
+                ("y".into(), Expr::IntLit(2)),
+                ("z".into(), Expr::IntLit(3)),
+            ],
+        );
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.alloc, CostExpr::Const(3));
+        assert_eq!(cv.compute, CostExpr::Const(0));
+        assert_eq!(cv.io, CostExpr::Const(0));
+    }
+
+    #[test]
+    fn list_creation_alloc() {
+        // `[1, 2, 3]` → alloc = 3 + 1 = 4
+        let expr = Expr::List(vec![Expr::IntLit(1), Expr::IntLit(2), Expr::IntLit(3)]);
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.alloc, CostExpr::Const(4));
+    }
+
+    #[test]
+    fn string_literal_alloc() {
+        // 16-char string → alloc = ceil(16/8) = 2
+        let expr = Expr::StrLit("hello, world!!!!".into());
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.alloc, CostExpr::Const(2));
+        assert_eq!(cv.compute, CostExpr::Const(0));
+    }
+
+    #[test]
+    fn println_call_io() {
+        // `println(x)` → io = 1, compute = 3 (call overhead)
+        let expr = Expr::Call(
+            Box::new(Expr::Var("println".into())),
+            vec![Expr::Var("x".into())],
+        );
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.io, CostExpr::Const(1));
+        assert_eq!(cv.compute, CostExpr::Const(3));
+        assert_eq!(cv.parallel, CostExpr::Const(0));
+    }
+
+    #[test]
+    fn pure_call_no_io() {
+        // `foo(1)` → io = 0 (not in IO_FUNCTIONS)
+        let expr = Expr::Call(Box::new(Expr::Var("foo".into())), vec![Expr::IntLit(1)]);
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.io, CostExpr::Const(0));
+        assert_eq!(cv.compute, CostExpr::Const(3)); // call overhead only
+    }
+
+    #[test]
+    fn spawn_parallel() {
+        // `spawn(expr)` → parallel = 1
+        let expr = Expr::Spawn(Box::new(Expr::IntLit(42)));
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.parallel, CostExpr::Const(1));
+    }
+
+    #[test]
+    fn sequential_block_4d() {
+        // Block: { let x = 1 + 2; println(x) }
+        // Stmt1: compute=1, alloc=0, io=0
+        // Stmt2: compute=3, alloc=0, io=1
+        // Total: compute=4, alloc=0, io=1, parallel=0
+        let block = Expr::Block(
+            vec![
+                Stmt::Let(
+                    "x".into(),
+                    None,
+                    Expr::BinOp(
+                        Box::new(Expr::IntLit(1)),
+                        BinOp::Add,
+                        Box::new(Expr::IntLit(2)),
+                    ),
+                ),
+                Stmt::Expr(Expr::Call(
+                    Box::new(Expr::Var("println".into())),
+                    vec![Expr::Var("x".into())],
+                )),
+            ],
+            None,
+        );
+        let cv = expr_cost(&block);
+        assert_eq!(cv.compute, CostExpr::Const(4));
+        assert_eq!(cv.alloc, CostExpr::Const(0));
+        assert_eq!(cv.io, CostExpr::Const(1));
+        assert_eq!(cv.parallel, CostExpr::Const(0));
+    }
+
+    #[test]
+    fn if_branch_max() {
+        // if true { 1 + 2 } else { 3 * 4 }
+        // cond: 0, then: compute=1, else: compute=1 → max=1
+        // total compute = 0 + 1 = 1
+        let expr = Expr::If(
+            Box::new(Expr::BoolLit(true)),
+            Box::new(Expr::BinOp(
+                Box::new(Expr::IntLit(1)),
+                BinOp::Add,
+                Box::new(Expr::IntLit(2)),
+            )),
+            Some(Box::new(Expr::BinOp(
+                Box::new(Expr::IntLit(3)),
+                BinOp::Mul,
+                Box::new(Expr::IntLit(4)),
+            ))),
+        );
+        let cv = expr_cost(&expr);
+        assert_eq!(cv.compute, CostExpr::Const(1));
+        assert_eq!(cv.alloc, CostExpr::Const(0));
+    }
+
+    #[test]
+    fn io_function_detection() {
+        assert!(is_io_function("print"));
+        assert!(is_io_function("println"));
+        assert!(is_io_function("read_line"));
+        assert!(is_io_function("open"));
+        assert!(!is_io_function("foo"));
+        assert!(!is_io_function("map"));
+    }
+
+    #[test]
+    fn binop_compute_costs() {
+        assert_eq!(binop_compute_cost(&BinOp::Add, false), 1);
+        assert_eq!(binop_compute_cost(&BinOp::Add, true), 2);
+        assert_eq!(binop_compute_cost(&BinOp::Div, false), 2);
+        assert_eq!(binop_compute_cost(&BinOp::Div, true), 3);
+        assert_eq!(binop_compute_cost(&BinOp::Eq, false), 1);
+    }
+
+    #[test]
+    fn var_read_zero_cost() {
+        let cv = expr_cost(&Expr::Var("x".into()));
+        assert_eq!(cv, CostVector::zero());
     }
 }
