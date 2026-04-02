@@ -2,73 +2,81 @@
 
 use std::fmt;
 
-/// Error codes for the Spore type checker.
+/// Error codes for the Spore type checker (SEP-0006 scheme).
+///
+/// Prefixes:
+///   E0xxx — Type errors
+///   W0xxx — Warnings
+///   C0xxx — Capability violations
+///   K0xxx — Cost violations
+///   H0xxx — Hole diagnostics
+///   M0xxx — Module errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
-    // Type mismatch errors (E0xx)
-    E001, // type mismatch
-    E002, // cannot apply operator to type
-    E003, // infinite type (occurs check)
+    // ── Type errors (E0xxx) ─────────────────────────────────────────
+    E0001, // type mismatch
+    E0002, // cannot apply operator to type
+    E0003, // infinite type (occurs check)
+    E0004, // undefined variable
+    E0005, // undefined struct
+    E0006, // unknown variant
+    E0007, // wrong number of arguments
+    E0008, // cannot call non-function
+    E0009, // pipe target not a function
+    E0010, // non-exhaustive match
+    E0011, // pattern type mismatch
+    E0012, // missing error types in throws
+    E0013, // impl missing method
+    E0014, // extra method in impl
+    E0015, // no such field
+    E0016, // type has no fields
+    E0017, // match guard must be Bool
 
-    // Definition errors (E1xx)
-    E101, // undefined variable
-    E102, // undefined struct
-    E103, // unknown variant
-    E104, // unknown capability
+    // ── Capability violations (C0xxx) ───────────────────────────────
+    C0001, // missing capabilities
+    C0002, // unknown capability
 
-    // Function/call errors (E2xx)
-    E201, // wrong number of arguments
-    E202, // cannot call non-function
-    E203, // pipe target not a function
+    // ── Warnings (W0xxx) ────────────────────────────────────────────
+    // (reserved for future use)
 
-    // Pattern errors (E3xx)
-    E301, // non-exhaustive match
-    E302, // pattern type mismatch
+    // ── Cost violations (K0xxx) ─────────────────────────────────────
+    K0001, // cost budget exceeded
 
-    // Capability/effect errors (E4xx)
-    E401, // missing capabilities
-    E402, // missing error types in throws
-    E403, // impl missing method
-    E404, // extra method in impl
+    // ── Hole diagnostics (H0xxx) ────────────────────────────────────
+    // (reserved for future use)
 
-    // Field errors (E5xx)
-    E501, // no such field
-    E502, // type has no fields
-
-    // Guard errors (E6xx)
-    E601, // match guard must be Bool
-
-    // Module errors (M0xx)
-    M001, // module not found
-    M002, // symbol not found in module
-    M003, // private symbol not accessible
+    // ── Module errors (M0xxx) ───────────────────────────────────────
+    M0001, // module not found
+    M0002, // symbol not found in module
+    M0003, // private symbol not accessible
 }
 
 impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let code = match self {
-            ErrorCode::E001 => "E001",
-            ErrorCode::E002 => "E002",
-            ErrorCode::E003 => "E003",
-            ErrorCode::E101 => "E101",
-            ErrorCode::E102 => "E102",
-            ErrorCode::E103 => "E103",
-            ErrorCode::E104 => "E104",
-            ErrorCode::E201 => "E201",
-            ErrorCode::E202 => "E202",
-            ErrorCode::E203 => "E203",
-            ErrorCode::E301 => "E301",
-            ErrorCode::E302 => "E302",
-            ErrorCode::E401 => "E401",
-            ErrorCode::E402 => "E402",
-            ErrorCode::E403 => "E403",
-            ErrorCode::E404 => "E404",
-            ErrorCode::E501 => "E501",
-            ErrorCode::E502 => "E502",
-            ErrorCode::E601 => "E601",
-            ErrorCode::M001 => "M001",
-            ErrorCode::M002 => "M002",
-            ErrorCode::M003 => "M003",
+            ErrorCode::E0001 => "E0001",
+            ErrorCode::E0002 => "E0002",
+            ErrorCode::E0003 => "E0003",
+            ErrorCode::E0004 => "E0004",
+            ErrorCode::E0005 => "E0005",
+            ErrorCode::E0006 => "E0006",
+            ErrorCode::E0007 => "E0007",
+            ErrorCode::E0008 => "E0008",
+            ErrorCode::E0009 => "E0009",
+            ErrorCode::E0010 => "E0010",
+            ErrorCode::E0011 => "E0011",
+            ErrorCode::E0012 => "E0012",
+            ErrorCode::E0013 => "E0013",
+            ErrorCode::E0014 => "E0014",
+            ErrorCode::E0015 => "E0015",
+            ErrorCode::E0016 => "E0016",
+            ErrorCode::E0017 => "E0017",
+            ErrorCode::C0001 => "C0001",
+            ErrorCode::C0002 => "C0002",
+            ErrorCode::K0001 => "K0001",
+            ErrorCode::M0001 => "M0001",
+            ErrorCode::M0002 => "M0002",
+            ErrorCode::M0003 => "M0003",
         };
         write!(f, "{code}")
     }

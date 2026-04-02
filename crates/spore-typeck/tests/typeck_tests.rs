@@ -455,10 +455,14 @@ fn test_cost_multiple_functions() {
         result.cost_results.get("double"),
         Some(CostResult::Constant(1))
     ));
-    assert!(matches!(
-        result.cost_results.get("quadruple"),
-        Some(CostResult::Constant(1))
-    ));
+    assert!(
+        matches!(
+            result.cost_results.get("quadruple"),
+            Some(CostResult::Constant(3))
+        ),
+        "expected Constant(3) after callee propagation (1 base + 2 double calls), got {:?}",
+        result.cost_results.get("quadruple")
+    );
 }
 
 #[test]
@@ -494,6 +498,105 @@ fn test_cost_structural_countdown() {
         matches!(result.cost_results.get("countdown"), Some(CostResult::Structural(p)) if p == "n"),
         "expected Structural(\"n\"), got {:?}",
         result.cost_results.get("countdown")
+    );
+}
+
+// ── Cost enforcement (K0001) ─────────────────────────────────────────────
+
+#[test]
+fn cost_budget_exceeded_emits_k0001() {
+    // Body has callee costs exceeding the declared budget of 2
+    let errs = check_err_with_codes(
+        r#"
+        fn expensive(x: Int) -> Int cost <= 100 { x + x }
+        fn cheap(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.0 == ErrorCode::K0001),
+        "expected K0001 for cost budget violation, got: {errs:?}"
+    );
+}
+
+#[test]
+fn cost_budget_within_limit_no_error() {
+    // Budget of 1000 is generous enough for a simple function
+    check_ok("fn simple(x: Int) -> Int cost <= 1000 { x + x }");
+}
+
+#[test]
+fn unbounded_skips_cost_analysis() {
+    // @unbounded should not emit any cost error regardless of body
+    let module = parse(
+        r#"
+        @unbounded
+        fn wild(n: Int) -> Int { if n >= 100 { n } else { wild(n + 1) } }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("wild"), Some(CostResult::Unbounded)),
+        "expected Unbounded for @unbounded function, got {:?}",
+        result.cost_results.get("wild")
+    );
+}
+
+#[test]
+fn callee_cost_propagation() {
+    // helper costs Constant(1), caller calls helper 3 times → 1 + 3 = 4
+    let module = parse(
+        r#"
+        fn helper(x: Int) -> Int { x + x }
+        fn caller(a: Int) -> Int { helper(a) + helper(a) + helper(a) }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(
+            result.cost_results.get("caller"),
+            Some(CostResult::Constant(4))
+        ),
+        "expected Constant(4) after propagation, got {:?}",
+        result.cost_results.get("caller")
+    );
+}
+
+#[test]
+fn structural_recursion_still_detected() {
+    // Classic structural recursion: factorial(n - 1)
+    let module =
+        parse("fn factorial(n: Int) -> Int { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
+            .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("factorial"), Some(CostResult::Structural(p)) if p == "n"),
+        "expected Structural(\"n\") for factorial, got {:?}",
+        result.cost_results.get("factorial")
+    );
+}
+
+#[test]
+fn sep0006_cost_violation_uses_k0xxx() {
+    // Verify K0001 code is used in display format
+    let module = parse(
+        r#"
+        fn expensive(x: Int) -> Int cost <= 100 { x + x }
+        fn over_budget(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
+    "#,
+    )
+    .unwrap();
+    let errs = type_check(&module).unwrap_err();
+    let k_errors: Vec<_> = errs.iter().filter(|e| e.code == ErrorCode::K0001).collect();
+    assert!(
+        !k_errors.is_empty(),
+        "expected at least one K0001 error, got: {errs:?}"
+    );
+    let output = k_errors[0].to_string();
+    assert!(
+        output.contains("[K0001]"),
+        "display should use [K0001] code, got: {output}"
     );
 }
 
@@ -836,7 +939,7 @@ fn impl_unknown_capability_error() {
 #[test]
 fn error_code_type_mismatch() {
     let errs = check_err_with_codes(r#"fn f() -> Int { "oops" }"#);
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E001));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0001));
 }
 
 #[test]
@@ -845,15 +948,15 @@ fn error_code_in_display_output() {
     let errs = type_check(&module).unwrap_err();
     let output = errs[0].to_string();
     assert!(
-        output.contains("[E001]"),
-        "display should contain [E001], got: {output}"
+        output.contains("[E0001]"),
+        "display should contain [E0001], got: {output}"
     );
 }
 
 #[test]
 fn error_code_undefined_variable() {
     let errs = check_err_with_codes("fn f() -> Int { x }");
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E101));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0004));
 }
 
 #[test]
@@ -864,13 +967,13 @@ fn error_code_wrong_arg_count() {
         fn main() -> Int { add(1) }
     "#,
     );
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E201));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0007));
 }
 
 #[test]
 fn error_code_cannot_call_non_function() {
     let errs = check_err_with_codes("fn f() -> Int { let x: Int = 1; x(2) }");
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E202));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0008));
 }
 
 #[test]
@@ -881,7 +984,7 @@ fn error_code_missing_capabilities() {
         fn process() -> String { fetch("http://example.com") }
     "#,
     );
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E401));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::C0001));
 }
 
 #[test]
@@ -892,7 +995,7 @@ fn error_code_no_such_field() {
         fn f() -> Int { let p = Point { x: 1, y: 2 }; p.z }
     "#,
     );
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::E501));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0015));
 }
 
 // ── Batch 4 Item 1: Anonymous record types ─────────────────────────────
@@ -1274,4 +1377,62 @@ fn await_non_task_is_error() {
     "#,
     );
     assert!(errs.iter().any(|e| e.contains("await expects Task[T]")));
+}
+
+// ── SEP-0006 diagnostic code scheme tests ────────────────────────────
+
+#[test]
+fn sep0006_type_errors_use_e0xxx() {
+    // Type mismatch → E0001
+    let errs = check_err_with_codes(r#"fn f() -> Int { "oops" }"#);
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0001));
+
+    // Undefined variable → E0004
+    let errs = check_err_with_codes("fn f() -> Int { x }");
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0004));
+
+    // Wrong arg count → E0007
+    let errs = check_err_with_codes(
+        r#"
+        fn add(a: Int, b: Int) -> Int { a }
+        fn main() -> Int { add(1) }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::E0007));
+}
+
+#[test]
+fn sep0006_capability_violations_use_c0xxx() {
+    // Missing capabilities → C0001
+    let errs = check_err_with_codes(
+        r#"
+        fn fetch(url: String) -> String uses [NetRead] { "data" }
+        fn process() -> String { fetch("http://example.com") }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::C0001));
+}
+
+#[test]
+fn sep0006_display_format_four_digits() {
+    let module = parse(r#"fn f() -> Int { "oops" }"#).unwrap();
+    let errs = type_check(&module).unwrap_err();
+    let output = errs[0].to_string();
+    assert!(
+        output.contains("[E0001]"),
+        "display should use 4-digit code [E0001], got: {output}"
+    );
+}
+
+#[test]
+fn sep0006_no_old_three_digit_codes() {
+    // Verify that display output never contains old-style 3-digit codes
+    let module = parse(r#"fn f() -> Int { "oops" }"#).unwrap();
+    let errs = type_check(&module).unwrap_err();
+    let output = errs[0].to_string();
+    // Old code would have been [E001]; new code is [E0001]
+    assert!(
+        !output.contains("[E001]"),
+        "should not contain old 3-digit code [E001], got: {output}"
+    );
 }

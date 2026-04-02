@@ -63,6 +63,9 @@ pub enum CostResult {
 /// Analyze cost for functions in a module.
 pub struct CostAnalyzer {
     results: HashMap<String, CostResult>,
+    /// Functions whose body cost exceeds their declared budget.
+    /// Each entry: (fn_name, declared_bound, actual_cost).
+    violations: Vec<(String, CostExpr, CostExpr)>,
 }
 
 impl Default for CostAnalyzer {
@@ -75,6 +78,7 @@ impl CostAnalyzer {
     pub fn new() -> Self {
         CostAnalyzer {
             results: HashMap::new(),
+            violations: Vec::new(),
         }
     }
 
@@ -87,34 +91,52 @@ impl CostAnalyzer {
         &mut self.results
     }
 
+    /// Budget violations found during analysis.
+    pub fn violations(&self) -> &[(String, CostExpr, CostExpr)] {
+        &self.violations
+    }
+
     /// Analyze all functions in a module.
     pub fn analyze_module(&mut self, module: &Module) {
+        // First pass: analyze each function independently
         for item in &module.items {
             if let Item::Function(fn_def) = item {
                 self.analyze_function(fn_def);
             }
         }
+        // Second pass: propagate callee costs into callers
+        self.propagate_callee_costs(module);
+        // Third pass: check declared budgets against actual costs
+        self.check_budgets(module);
     }
 
     /// Analyze cost for a single function definition.
     pub fn analyze_function(&mut self, fn_def: &FnDef) {
         let fn_name = &fn_def.name;
 
-        // Check for `cost ≤ expr` clause
-        if let Some(cost_clause) = &fn_def.cost_clause {
-            self.results.insert(
-                fn_name.clone(),
-                CostResult::Declared(ast_cost_to_cost_expr(&cost_clause.bound)),
-            );
+        // @unbounded → skip analysis entirely
+        if fn_def.is_unbounded {
+            self.results.insert(fn_name.clone(), CostResult::Unbounded);
             return;
         }
+
+        // If there's a cost clause, record the declared cost for callers,
+        // but also analyze the body (budget checking happens later).
+        let declared = fn_def
+            .cost_clause
+            .as_ref()
+            .map(|cc| ast_cost_to_cost_expr(&cc.bound));
 
         let body = match &fn_def.body {
             Some(b) => b,
             None => {
                 // Hole body — treat as constant (no code to analyze)
-                self.results
-                    .insert(fn_name.clone(), CostResult::Constant(1));
+                let result = if let Some(d) = declared {
+                    CostResult::Declared(d)
+                } else {
+                    CostResult::Constant(1)
+                };
+                self.results.insert(fn_name.clone(), result);
                 return;
             }
         };
@@ -125,22 +147,143 @@ impl CostAnalyzer {
         let mut calls = Vec::new();
         collect_recursive_calls(fn_name, body, &mut calls);
 
-        if calls.is_empty() {
+        let body_cost = if calls.is_empty() {
             // Non-recursive → constant cost
-            self.results
-                .insert(fn_name.clone(), CostResult::Constant(1));
+            CostResult::Constant(1)
         } else if let Some(decreasing_param) = detect_structural_recursion(fn_name, &params, &calls)
         {
-            self.results
-                .insert(fn_name.clone(), CostResult::Structural(decreasing_param));
+            CostResult::Structural(decreasing_param)
         } else {
-            self.results.insert(
-                fn_name.clone(),
-                CostResult::Unknown(format!(
-                    "cannot determine cost for recursive function `{fn_name}`"
-                )),
-            );
+            CostResult::Unknown(format!(
+                "cannot determine cost for recursive function `{fn_name}`"
+            ))
+        };
+
+        // Store the declared cost (if any) or the analyzed body cost
+        if let Some(d) = declared {
+            self.results
+                .insert(fn_name.clone(), CostResult::Declared(d));
+        } else {
+            self.results.insert(fn_name.clone(), body_cost);
         }
+    }
+
+    /// Propagate callee costs into caller functions.
+    ///
+    /// For each non-recursive constant-cost function, walk its body to find
+    /// all function call sites and sum callee costs.
+    fn propagate_callee_costs(&mut self, module: &Module) {
+        let mut updates: Vec<(String, CostResult)> = Vec::new();
+
+        for item in &module.items {
+            let Item::Function(fn_def) = item else {
+                continue;
+            };
+            let fn_name = &fn_def.name;
+            let Some(body) = &fn_def.body else { continue };
+
+            let current = self.results.get(fn_name).cloned();
+            let base_cost = match &current {
+                Some(CostResult::Constant(k)) => *k,
+                _ => continue, // only propagate into constant-cost functions
+            };
+
+            let callee_names = collect_callee_names(fn_name, body);
+            if callee_names.is_empty() {
+                continue;
+            }
+
+            let mut total = base_cost;
+            let mut upgraded = false;
+
+            for callee in &callee_names {
+                match self.results.get(callee) {
+                    Some(CostResult::Constant(k)) => total = total.saturating_add(*k),
+                    Some(CostResult::Declared(expr)) => match expr {
+                        CostExpr::Const(k) => total = total.saturating_add(*k),
+                        _ => {
+                            upgraded = true;
+                            break;
+                        }
+                    },
+                    Some(
+                        CostResult::Structural(_) | CostResult::Unbounded | CostResult::Unknown(_),
+                    ) => {
+                        upgraded = true;
+                        break;
+                    }
+                    None => {} // unknown function (built-in, etc.) — ignore
+                }
+            }
+
+            if !upgraded && total != base_cost {
+                updates.push((fn_name.clone(), CostResult::Constant(total)));
+            }
+        }
+
+        for (name, result) in updates {
+            self.results.insert(name, result);
+        }
+    }
+
+    /// Check declared cost budgets against actual/propagated costs.
+    fn check_budgets(&mut self, module: &Module) {
+        for item in &module.items {
+            let Item::Function(fn_def) = item else {
+                continue;
+            };
+            if fn_def.is_unbounded {
+                continue;
+            }
+            let Some(cost_clause) = &fn_def.cost_clause else {
+                continue;
+            };
+            let fn_name = &fn_def.name;
+            let declared = ast_cost_to_cost_expr(&cost_clause.bound);
+
+            // Compute actual body cost (re-analyze without the declared shortcut)
+            let actual = self.compute_body_cost(fn_def);
+
+            if exceeds_budget(&actual, &declared) {
+                self.violations.push((fn_name.clone(), declared, actual));
+            }
+        }
+    }
+
+    /// Compute the actual body cost for budget comparison, including callee costs.
+    fn compute_body_cost(&self, fn_def: &FnDef) -> CostExpr {
+        let fn_name = &fn_def.name;
+        let Some(body) = &fn_def.body else {
+            return CostExpr::Const(1);
+        };
+
+        let params: Vec<String> = fn_def.params.iter().map(|p| p.name.clone()).collect();
+        let mut calls = Vec::new();
+        collect_recursive_calls(fn_name, body, &mut calls);
+
+        let base = if calls.is_empty() {
+            CostExpr::Const(1)
+        } else if let Some(param) = detect_structural_recursion(fn_name, &params, &calls) {
+            CostExpr::Linear(param)
+        } else {
+            CostExpr::Unbounded
+        };
+
+        // Add callee costs
+        let callee_names = collect_callee_names(fn_name, body);
+        let mut total = base;
+        for callee in &callee_names {
+            let callee_cost = match self.results.get(callee) {
+                Some(CostResult::Constant(k)) => CostExpr::Const(*k),
+                Some(CostResult::Declared(expr)) => expr.clone(),
+                Some(CostResult::Structural(p)) => CostExpr::Linear(p.clone()),
+                Some(CostResult::Unbounded) => CostExpr::Unbounded,
+                Some(CostResult::Unknown(_)) => CostExpr::Unbounded,
+                None => CostExpr::Const(0),
+            };
+            total = add_cost(&total, &callee_cost);
+        }
+        total
     }
 }
 
@@ -360,6 +503,143 @@ fn is_positive_int(expr: &Expr) -> bool {
     matches!(expr, Expr::IntLit(n) if *n > 0)
 }
 
+/// Walk the AST collecting names of non-recursive function calls.
+///
+/// Returns one entry per call site (duplicates allowed).
+fn collect_callee_names(self_name: &str, expr: &Expr) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_callee_names_inner(self_name, expr, &mut out);
+    out
+}
+
+fn collect_callee_names_inner(self_name: &str, expr: &Expr, out: &mut Vec<String>) {
+    match expr {
+        Expr::Call(callee, args) => {
+            if let Expr::Var(name) = callee.as_ref()
+                && name != self_name
+            {
+                out.push(name.clone());
+            }
+            collect_callee_names_inner(self_name, callee, out);
+            for arg in args {
+                collect_callee_names_inner(self_name, arg, out);
+            }
+        }
+        Expr::BinOp(lhs, _, rhs) => {
+            collect_callee_names_inner(self_name, lhs, out);
+            collect_callee_names_inner(self_name, rhs, out);
+        }
+        Expr::UnaryOp(_, inner) => {
+            collect_callee_names_inner(self_name, inner, out);
+        }
+        Expr::If(cond, then_br, else_br) => {
+            collect_callee_names_inner(self_name, cond, out);
+            collect_callee_names_inner(self_name, then_br, out);
+            if let Some(e) = else_br {
+                collect_callee_names_inner(self_name, e, out);
+            }
+        }
+        Expr::Block(stmts, tail) => {
+            for stmt in stmts {
+                match stmt {
+                    Stmt::Let(_, _, e) | Stmt::Expr(e) => {
+                        collect_callee_names_inner(self_name, e, out);
+                    }
+                }
+            }
+            if let Some(tail_expr) = tail {
+                collect_callee_names_inner(self_name, tail_expr, out);
+            }
+        }
+        Expr::Match(scrutinee, arms) => {
+            collect_callee_names_inner(self_name, scrutinee, out);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    collect_callee_names_inner(self_name, guard, out);
+                }
+                collect_callee_names_inner(self_name, &arm.body, out);
+            }
+        }
+        Expr::Lambda(_, body) => {
+            collect_callee_names_inner(self_name, body, out);
+        }
+        Expr::Pipe(lhs, rhs) => {
+            collect_callee_names_inner(self_name, lhs, out);
+            collect_callee_names_inner(self_name, rhs, out);
+        }
+        Expr::FieldAccess(inner, _) => {
+            collect_callee_names_inner(self_name, inner, out);
+        }
+        Expr::Try(inner) | Expr::Spawn(inner) | Expr::Await(inner) | Expr::Throw(inner) => {
+            collect_callee_names_inner(self_name, inner, out);
+        }
+        Expr::ParallelScope { lanes, body } => {
+            if let Some(lanes_expr) = lanes {
+                collect_callee_names_inner(self_name, lanes_expr, out);
+            }
+            collect_callee_names_inner(self_name, body, out);
+        }
+        Expr::Select(arms) => {
+            for arm in arms {
+                collect_callee_names_inner(self_name, &arm.source, out);
+                collect_callee_names_inner(self_name, &arm.body, out);
+            }
+        }
+        Expr::Return(inner) => {
+            if let Some(e) = inner {
+                collect_callee_names_inner(self_name, e, out);
+            }
+        }
+        Expr::List(elems) => {
+            for e in elems {
+                collect_callee_names_inner(self_name, e, out);
+            }
+        }
+        Expr::StructLit(_, fields) => {
+            for (_, e) in fields {
+                collect_callee_names_inner(self_name, e, out);
+            }
+        }
+        Expr::FString(parts) => {
+            for part in parts {
+                if let ast::FStringPart::Expr(e) = part {
+                    collect_callee_names_inner(self_name, e, out);
+                }
+            }
+        }
+        Expr::TString(parts) => {
+            for part in parts {
+                if let ast::TStringPart::Expr(e) = part {
+                    collect_callee_names_inner(self_name, e, out);
+                }
+            }
+        }
+        // Leaves — no calls
+        Expr::IntLit(_)
+        | Expr::FloatLit(_)
+        | Expr::StrLit(_)
+        | Expr::BoolLit(_)
+        | Expr::CharLit(_)
+        | Expr::Var(_)
+        | Expr::Hole(_, _, _) => {}
+    }
+}
+
+/// Check if an actual cost exceeds a declared budget.
+fn exceeds_budget(actual: &CostExpr, budget: &CostExpr) -> bool {
+    match (actual, budget) {
+        // Constant actual vs constant budget — straightforward comparison
+        (CostExpr::Const(actual_n), CostExpr::Const(budget_n)) => actual_n > budget_n,
+        // Unbounded actual always exceeds a finite budget
+        (CostExpr::Unbounded, CostExpr::Const(_)) => true,
+        // Symbolic actual (Linear, Add, Mul, etc.) exceeds a constant budget
+        // (conservative: we can't prove it fits)
+        (_, CostExpr::Const(_)) => true,
+        // If budget is also symbolic, we can't decide — don't flag
+        _ => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Four-dimensional cost model (SEP-0004)
 // ---------------------------------------------------------------------------
@@ -450,7 +730,7 @@ impl std::fmt::Display for CostVector {
 fn add_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
     match (a, b) {
         (CostExpr::Const(0), other) | (other, CostExpr::Const(0)) => other.clone(),
-        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x + y),
+        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x.saturating_add(*y)),
         (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
         _ => CostExpr::Unbounded, // Conservative: can't simplify symbolic
     }
@@ -471,7 +751,7 @@ fn mul_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
     match (a, b) {
         (CostExpr::Const(0), _) | (_, CostExpr::Const(0)) => CostExpr::Const(0),
         (CostExpr::Const(1), other) | (other, CostExpr::Const(1)) => other.clone(),
-        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x * y),
+        (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x.saturating_mul(*y)),
         (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
         _ => CostExpr::Unbounded,
     }

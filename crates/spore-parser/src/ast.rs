@@ -65,6 +65,8 @@ pub struct FnDef {
     pub cost_clause: Option<CostClause>,
     /// Resource dependencies: `uses [Memory, FileSystem]`
     pub uses_clause: Option<UsesClause>,
+    /// `@unbounded` annotation — skip cost analysis.
+    pub is_unbounded: bool,
     /// None means this is a hole (?name)
     pub body: Option<Expr>,
 }

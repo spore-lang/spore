@@ -1,5 +1,6 @@
 use spore_codegen::value::Value;
 use spore_parser::parse;
+use spore_typeck::CheckResult;
 use spore_typeck::module::ModuleRegistry;
 use spore_typeck::{type_check, type_check_with_registry};
 
@@ -100,4 +101,92 @@ pub fn run(source: &str) -> Result<Value, String> {
             .join("\n")
     })?;
     spore_codegen::run(&ast).map_err(|e| e.to_string())
+}
+
+/// Type-check with verbose output: returns detailed analysis including type
+/// inference context, capability annotations, and cost summaries.
+pub fn check_verbose(source: &str) -> Result<String, String> {
+    let ast = parse(source).map_err(|errs| {
+        errs.into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    let result = type_check(&ast).map_err(|errs| {
+        errs.into_iter()
+            .map(|e| format!("  {e}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    Ok(format_verbose_result(&result))
+}
+
+/// Summarise a successful CheckResult for --verbose output.
+fn format_verbose_result(result: &CheckResult) -> String {
+    let mut out = String::new();
+    out.push_str("✓ no errors\n");
+
+    // Type inference summary
+    out.push_str("\n── Type Inference ──\n");
+    out.push_str(&format!(
+        "  holes: {} total\n",
+        result.hole_report.holes.len()
+    ));
+    for h in &result.hole_report.holes {
+        out.push_str(&format!("    ?{}: expected {}\n", h.name, h.expected_type));
+    }
+
+    // Cost analysis
+    if !result.cost_vectors.is_empty() {
+        out.push_str("\n── Cost Analysis ──\n");
+        for (fn_name, cv) in &result.cost_vectors {
+            out.push_str(&format!(
+                "  {fn_name}: compute={}, alloc={}, io={}, parallel={}\n",
+                cv.compute, cv.alloc, cv.io, cv.parallel
+            ));
+        }
+    }
+
+    out
+}
+
+/// Return a hole graph summary suitable for NDJSON watch events.
+pub fn hole_summary(source: &str) -> Option<HoleSummary> {
+    let ast = parse(source).ok()?;
+    let result = type_check(&ast).ok()?;
+    let report = &result.hole_report;
+    let graph = &report.dependency_graph;
+
+    let holes_total = report.holes.len();
+    if holes_total == 0 {
+        return None;
+    }
+
+    let ready_to_fill = graph.roots().len();
+    let blocked = holes_total.saturating_sub(ready_to_fill);
+
+    Some(HoleSummary {
+        holes_total,
+        filled_this_cycle: 0,
+        ready_to_fill,
+        blocked,
+    })
+}
+
+/// Summary of hole status for a single check cycle.
+#[derive(Debug, Clone)]
+pub struct HoleSummary {
+    pub holes_total: usize,
+    pub filled_this_cycle: usize,
+    pub ready_to_fill: usize,
+    pub blocked: usize,
+}
+
+impl HoleSummary {
+    pub fn to_json(&self) -> String {
+        format!(
+            "{{\"event\":\"hole_graph_update\",\"holes_total\":{},\"filled_this_cycle\":{},\"ready_to_fill\":{},\"blocked\":{}}}",
+            self.holes_total, self.filled_this_cycle, self.ready_to_fill, self.blocked
+        )
+    }
 }
