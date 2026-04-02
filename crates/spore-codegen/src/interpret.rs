@@ -828,12 +828,17 @@ impl Interpreter {
                     .as_str()
                     .ok_or_else(|| RuntimeError::new("char_at: expected String"))?
                     .to_owned();
-                let idx = args
+                let idx_i64 = args
                     .get(1)
                     .ok_or_else(|| RuntimeError::new("char_at: missing index"))?
                     .as_int()
-                    .ok_or_else(|| RuntimeError::new("char_at: index must be Int"))?
-                    as usize;
+                    .ok_or_else(|| RuntimeError::new("char_at: index must be Int"))?;
+                if idx_i64 < 0 {
+                    return Err(RuntimeError::new(format!(
+                        "char_at: index cannot be negative, got {idx_i64}"
+                    )));
+                }
+                let idx = idx_i64 as usize;
                 let ch = s.chars().nth(idx).ok_or_else(|| {
                     RuntimeError::new(format!("char_at: index {idx} out of bounds"))
                 })?;
@@ -846,18 +851,28 @@ impl Interpreter {
                     .as_str()
                     .ok_or_else(|| RuntimeError::new("substring: expected String"))?
                     .to_owned();
-                let start = args
+                let start_i64 = args
                     .get(1)
                     .ok_or_else(|| RuntimeError::new("substring: missing start"))?
                     .as_int()
-                    .ok_or_else(|| RuntimeError::new("substring: start must be Int"))?
-                    as usize;
-                let end = args
+                    .ok_or_else(|| RuntimeError::new("substring: start must be Int"))?;
+                if start_i64 < 0 {
+                    return Err(RuntimeError::new(format!(
+                        "substring: start cannot be negative, got {start_i64}"
+                    )));
+                }
+                let start = start_i64 as usize;
+                let end_i64 = args
                     .get(2)
                     .ok_or_else(|| RuntimeError::new("substring: missing end"))?
                     .as_int()
-                    .ok_or_else(|| RuntimeError::new("substring: end must be Int"))?
-                    as usize;
+                    .ok_or_else(|| RuntimeError::new("substring: end must be Int"))?;
+                if end_i64 < 0 {
+                    return Err(RuntimeError::new(format!(
+                        "substring: end cannot be negative, got {end_i64}"
+                    )));
+                }
+                let end = end_i64 as usize;
                 let sub: String = s
                     .chars()
                     .skip(start)
@@ -900,7 +915,7 @@ impl Interpreter {
                     .ok_or_else(|| RuntimeError::new("abs: missing arg"))?
                     .as_int()
                     .ok_or_else(|| RuntimeError::new("abs: expected Int"))?;
-                Ok(Some(Value::Int(n.abs())))
+                Ok(Some(Value::Int(n.saturating_abs())))
             }
             "min" => {
                 let a = args
