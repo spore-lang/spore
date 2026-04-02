@@ -18,9 +18,9 @@ Spore is a compiled language where function signatures are "gravity centers" —
 
 ```bash
 cargo build                             # build the compiler
-cargo run --bin spore -- run demo.sp    # run the demo program (outputs 129)
+cargo run --bin spore -- run demo.sp    # run the demo program (outputs 204)
 cargo run --bin spore -- check demo.sp  # type-check only
-cargo test                              # run all tests (309 tests)
+cargo test --all                        # run all tests
 ```
 
 ## Examples
@@ -132,7 +132,7 @@ spore (stateful codebase manager — handles IO)
 
 ## Project Status
 
-**Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, and cost analysis. Interpreter is a PoC tree-walking evaluator.
+**Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, and cost analysis. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, and try-operator support.
 
 See [docs/](docs/) for comprehensive specifications.
 

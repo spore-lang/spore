@@ -236,3 +236,253 @@ fn test_bitwise_and() {
     let v = run_main("fn main() -> Int { 0xFF & 0x0F }");
     assert_eq!(v.as_int(), Some(0x0F));
 }
+
+// ── Enum constructors ───────────────────────────────────────────────────
+
+#[test]
+fn test_enum_zero_arg() {
+    let v = run_main(
+        "type Color { Red, Green, Blue }
+         fn main() -> Color { Red }",
+    );
+    assert_eq!(v.to_string(), "Red");
+}
+
+#[test]
+fn test_enum_with_fields() {
+    let v = run_main(
+        "type Option[T] { Some(T), None }
+         fn main() -> Option[Int] { Some(42) }",
+    );
+    assert_eq!(v.to_string(), "Some(42)");
+}
+
+#[test]
+fn test_enum_match() {
+    let v = run_main(
+        "type Option[T] { Some(T), None }
+         fn main() -> Int {
+             let x = Some(42);
+             match x {
+                 Some(n) => n,
+                 None => 0,
+             }
+         }",
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_enum_match_zero_arg() {
+    let v = run_main(
+        "type Option[T] { Some(T), None }
+         fn main() -> Int {
+             let x = None;
+             match x {
+                 Some(n) => n,
+                 None => 0,
+             }
+         }",
+    );
+    assert_eq!(v.as_int(), Some(0));
+}
+
+// ── Try operator ────────────────────────────────────────────────────────
+
+#[test]
+fn test_try_ok() {
+    let v = run_main(
+        "type Result[T, E] { Ok(T), Err(E) }
+         fn main() -> Int {
+             let r = Ok(42);
+             r?
+         }",
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+#[should_panic(expected = "uncaught error")]
+fn test_try_err() {
+    run_main(
+        r#"type Result[T, E] { Ok(T), Err(E) }
+         fn main() -> Int {
+             let r = Err("bad");
+             r?
+         }"#,
+    );
+}
+
+// ── List builtins ───────────────────────────────────────────────────────
+
+#[test]
+fn test_len() {
+    let v = run_main("fn main() -> Int { len([1, 2, 3]) }");
+    assert_eq!(v.as_int(), Some(3));
+}
+
+#[test]
+fn test_map() {
+    let v = run_main("fn main() -> List[Int] { map([1, 2, 3], |x: Int| x * 2) }");
+    let list = v.as_list().unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[0].as_int(), Some(2));
+    assert_eq!(list[1].as_int(), Some(4));
+    assert_eq!(list[2].as_int(), Some(6));
+}
+
+#[test]
+fn test_filter() {
+    let v = run_main("fn main() -> List[Int] { filter([1, 2, 3, 4], |x: Int| x > 2) }");
+    let list = v.as_list().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].as_int(), Some(3));
+    assert_eq!(list[1].as_int(), Some(4));
+}
+
+#[test]
+fn test_fold() {
+    let v = run_main("fn main() -> Int { fold([1, 2, 3], 0, |acc: Int, x: Int| acc + x) }");
+    assert_eq!(v.as_int(), Some(6));
+}
+
+#[test]
+fn test_range() {
+    let v = run_main("fn main() -> List[Int] { range(0, 5) }");
+    let list = v.as_list().unwrap();
+    assert_eq!(list.len(), 5);
+    for (i, item) in list.iter().enumerate() {
+        assert_eq!(item.as_int(), Some(i as i64));
+    }
+}
+
+#[test]
+fn test_append() {
+    let v = run_main("fn main() -> List[Int] { append([1, 2], 3) }");
+    let list = v.as_list().unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[2].as_int(), Some(3));
+}
+
+#[test]
+fn test_reverse() {
+    let v = run_main("fn main() -> List[Int] { reverse([1, 2, 3]) }");
+    let list = v.as_list().unwrap();
+    assert_eq!(list[0].as_int(), Some(3));
+    assert_eq!(list[1].as_int(), Some(2));
+    assert_eq!(list[2].as_int(), Some(1));
+}
+
+#[test]
+fn test_head_tail() {
+    let v = run_main("fn main() -> Int { head([10, 20, 30]) }");
+    assert_eq!(v.as_int(), Some(10));
+
+    let v2 = run_main("fn main() -> List[Int] { tail([10, 20, 30]) }");
+    let list = v2.as_list().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].as_int(), Some(20));
+}
+
+#[test]
+fn test_contains() {
+    let v = run_main("fn main() -> Bool { contains([1, 2, 3], 2) }");
+    assert_eq!(v.as_bool(), Some(true));
+
+    let v2 = run_main("fn main() -> Bool { contains([1, 2, 3], 5) }");
+    assert_eq!(v2.as_bool(), Some(false));
+}
+
+// ── String builtins ─────────────────────────────────────────────────────
+
+#[test]
+fn test_string_length() {
+    let v = run_main(r#"fn main() -> Int { string_length("hello") }"#);
+    assert_eq!(v.as_int(), Some(5));
+}
+
+#[test]
+fn test_trim() {
+    let v = run_main(r#"fn main() -> String { trim("  hi  ") }"#);
+    assert_eq!(v.as_str(), Some("hi"));
+}
+
+#[test]
+fn test_to_upper_lower() {
+    let v = run_main(r#"fn main() -> String { to_upper("hello") }"#);
+    assert_eq!(v.as_str(), Some("HELLO"));
+
+    let v2 = run_main(r#"fn main() -> String { to_lower("HELLO") }"#);
+    assert_eq!(v2.as_str(), Some("hello"));
+}
+
+#[test]
+fn test_split() {
+    let v = run_main(r#"fn main() -> List[String] { split("a,b,c", ",") }"#);
+    let list = v.as_list().unwrap();
+    assert_eq!(list.len(), 3);
+    assert_eq!(list[0].as_str(), Some("a"));
+    assert_eq!(list[2].as_str(), Some("c"));
+}
+
+#[test]
+fn test_starts_ends_with() {
+    let v = run_main(r#"fn main() -> Bool { starts_with("hello", "hel") }"#);
+    assert_eq!(v.as_bool(), Some(true));
+
+    let v2 = run_main(r#"fn main() -> Bool { ends_with("hello", "llo") }"#);
+    assert_eq!(v2.as_bool(), Some(true));
+}
+
+#[test]
+fn test_replace() {
+    let v = run_main(r#"fn main() -> String { replace("hello world", "world", "spore") }"#);
+    assert_eq!(v.as_str(), Some("hello spore"));
+}
+
+#[test]
+fn test_to_string() {
+    let v = run_main(r#"fn main() -> String { to_string(42) }"#);
+    assert_eq!(v.as_str(), Some("42"));
+}
+
+#[test]
+fn test_substring() {
+    let v = run_main(r#"fn main() -> String { substring("hello", 1, 4) }"#);
+    assert_eq!(v.as_str(), Some("ell"));
+}
+
+// ── Math builtins ───────────────────────────────────────────────────────
+
+#[test]
+fn test_abs() {
+    let v = run_main("fn main() -> Int { abs(-5) }");
+    assert_eq!(v.as_int(), Some(5));
+}
+
+#[test]
+fn test_min_max() {
+    let v = run_main("fn main() -> Int { min(3, 7) }");
+    assert_eq!(v.as_int(), Some(3));
+
+    let v2 = run_main("fn main() -> Int { max(3, 7) }");
+    assert_eq!(v2.as_int(), Some(7));
+}
+
+// ── IO builtins ─────────────────────────────────────────────────────────
+
+#[test]
+fn test_println_runs() {
+    let v = run_main(r#"fn main() -> Unit { println("hello") }"#);
+    // println returns Unit
+    assert_eq!(v.to_string(), "()");
+}
+
+// ── Each builtin ────────────────────────────────────────────────────────
+
+#[test]
+fn test_each() {
+    // each should return Unit; we just verify it doesn't crash
+    let v = run_main(r#"fn main() -> Unit { each([1, 2, 3], |x: Int| println(to_string(x))) }"#);
+    assert_eq!(v.to_string(), "()");
+}
