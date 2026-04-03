@@ -133,7 +133,7 @@ pub enum TypeExpr {
     Tuple(Vec<TypeExpr>),
     /// Function type with optional error set: `fn(Int) -> Int ! ParseError | IoError`
     Function(Vec<TypeExpr>, Box<TypeExpr>, Vec<TypeExpr>),
-    /// Refinement type using `if`: `{ x: Int if x > 0 }`
+    /// Refinement type using `when`: `{ x: Int when x > 0 }`
     ///
     /// Fields: base type, binding name, predicate expression.
     Refinement(Box<TypeExpr>, String, Box<Expr>),

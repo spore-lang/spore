@@ -477,8 +477,8 @@ impl Parser {
 
     fn parse_type_expr(&mut self) -> Result<TypeExpr, ParseError> {
         let base = self.parse_type_expr_base()?;
-        // Check for refinement: `Type if predicate`
-        if self.at(&Token::If) {
+        // Check for refinement: `Type when predicate`
+        if self.at(&Token::When) {
             self.advance();
             let pred = self.parse_expr()?;
             // Use "self" as the default binding variable name

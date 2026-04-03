@@ -158,7 +158,7 @@ impl fmt::Display for Ty {
             }
             Ty::Var(id) => write!(f, "?T{id}"),
             Ty::Hole(name) => write!(f, "?{name}"),
-            Ty::Refined(base, _var, _pred) => write!(f, "{base} if <predicate>"),
+            Ty::Refined(base, _var, _pred) => write!(f, "{base} when <predicate>"),
             Ty::Error => write!(f, "<error>"),
         }
     }
