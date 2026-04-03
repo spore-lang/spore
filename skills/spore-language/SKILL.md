@@ -1,9 +1,9 @@
 ---
 name: spore-language
 description: >
-  Guide for writing Spore programs using intent-first design.
-  Use when writing, reviewing, filling holes in, or reasoning about .spore files,
-  or when designing Spore program architecture.
+  Use for any task involving the Spore language, including writing, reviewing,
+  debugging, or reasoning about Spore code, `.spore` files, `.sp` files,
+  holes, and Spore program architecture.
 ---
 
 # Spore Language Skill
