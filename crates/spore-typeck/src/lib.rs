@@ -48,8 +48,9 @@ pub fn type_check(module: &Module) -> Result<CheckResult, Vec<TypeError>> {
 /// Type-check a parsed Spore module with a shared module registry.
 pub fn type_check_with_registry(
     module: &Module,
-    registry: ModuleRegistry,
+    mut registry: ModuleRegistry,
 ) -> Result<CheckResult, Vec<TypeError>> {
+    registry.register_prelude();
     let mut checker = Checker::with_module_registry(registry);
     checker.check_module(module);
 

@@ -1567,3 +1567,79 @@ fn f() -> Int { positive(5) }
 "#,
     );
 }
+// ── Runtime builtin type checking (issue #14) ────────────────────────────
+
+#[test]
+fn builtin_println_type_checks() {
+    check_ok(r#"fn main() { println("hello") }"#);
+}
+
+#[test]
+fn builtin_println_wrong_arg_type() {
+    let errs = check_err(r#"fn main() { println(42) }"#);
+    assert!(
+        errs.iter().any(|e| e.contains("argument")),
+        "expected argument type mismatch for println(Int), got: {errs:?}"
+    );
+}
+
+#[test]
+fn builtin_read_line_type_checks() {
+    check_ok(r#"fn main() -> String { read_line() }"#);
+}
+
+#[test]
+fn builtin_string_length_type_checks() {
+    check_ok(r#"fn f() -> Int { string_length("abc") }"#);
+}
+
+#[test]
+fn builtin_print_still_works() {
+    check_ok(r#"fn main() { print("hi") }"#);
+}
+
+#[test]
+fn builtin_to_string_type_checks() {
+    check_ok(r#"fn f() -> String { to_string(42) }"#);
+}
+
+#[test]
+fn builtin_math_abs_type_checks() {
+    check_ok("fn f() -> Int { abs(-1) }");
+}
+
+#[test]
+fn builtin_math_min_max_type_checks() {
+    check_ok("fn f() -> Int { min(1, 2) }");
+    check_ok("fn f() -> Int { max(1, 2) }");
+}
+
+#[test]
+fn builtin_trim_type_checks() {
+    check_ok(r#"fn f() -> String { trim("  hi  ") }"#);
+}
+
+#[test]
+fn builtin_starts_with_type_checks() {
+    check_ok(r#"fn f() -> Bool { starts_with("hello", "he") }"#);
+}
+
+#[test]
+fn builtin_program_using_builtins() {
+    // End-to-end: a program that uses multiple builtins should type check
+    check_ok(
+        r#"
+        fn greet(name: String) -> String {
+            let upper = to_upper(name)
+            let len = string_length(upper)
+            upper
+        }
+
+        fn main() {
+            println("start")
+            let result = greet("world")
+            println(result)
+        }
+        "#,
+    );
+}
