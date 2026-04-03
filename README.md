@@ -132,31 +132,21 @@ spore (stateful codebase manager — handles IO)
 
 ## Project Status
 
-**Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, and cost analysis. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, and try-operator support.
+**Compiler infrastructure implemented.** Parser is feature-complete for the current syntax direction. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, and cost analysis. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, and try-operator support.
 
-See [docs/](docs/) for comprehensive specifications.
+See [docs/DESIGN.md](docs/DESIGN.md) for the implementation-oriented overview in this repo.
+Authoritative language and system specifications now live in
+[`spore-evolution`](https://github.com/spore-lang/spore-evolution).
 
 ## Documentation
 
-### Specifications
+### Design and specs
 | Document | Description |
 |----------|-------------|
-| [Syntax Spec](docs/specs/syntax-spec-v0.1.md) | Complete syntax reference |
-| [Signature Syntax](docs/specs/signature-syntax-v0.2.md) | Function signature design |
-| [Type System](docs/specs/type-system-v0.1.md) | Type system specification |
-| [Module System](docs/specs/module-system-v0.1.md) | Module & dual hash system |
-| [Hole System](docs/specs/hole-system-v0.2.md) | Hole system for Agent collaboration |
-| [Cost Model](docs/specs/cost-model-v0.1.md) | 4-dimension cost analysis |
-| [Compiler Output](docs/specs/compiler-output-v0.1.md) | Diagnostic format (3 modes) |
-| [Concurrency](docs/specs/concurrency-model-v0.1.md) | Structured concurrency model |
-| [Package Management](docs/specs/package-management-v0.1.md) | Content-addressed packages |
-| [Platform System](docs/specs/platform-system-v0.1.md) | IO through effect handlers |
-| [Incremental Compilation](docs/specs/incremental-compilation-v0.1.md) | Watch mode & incremental builds |
-| [Effect Algebra](docs/specs/effect-algebra-v0.1.md) | Capability set algebra & composition |
-| [Recursion Analysis](docs/specs/recursion-analysis-v0.1.md) | Three-tier recursive cost analysis |
-| [Cost Decidability](docs/specs/cost-decidability-v0.1.md) | CostExpr grammar & decidability proof |
-| [Hole Report v0.3](docs/specs/hole-report-v0.3.md) | Extended HoleReport & Agent protocol |
-| [Hole Dependency Graph](docs/specs/hole-dependency-graph-v0.1.md) | Hole DAG & parallel fill algorithm |
+| [docs/DESIGN.md](docs/DESIGN.md) | Local implementation-oriented design overview |
+| [spore-evolution/VISION.md](https://github.com/spore-lang/spore-evolution/blob/main/VISION.md) | Design philosophy and principles |
+| [spore-evolution/ROADMAP.md](https://github.com/spore-lang/spore-evolution/blob/main/ROADMAP.md) | Long-term goals by system area |
+| [spore-evolution/seps/](https://github.com/spore-lang/spore-evolution/tree/main/seps) | Authoritative SEPs for syntax, type system, holes, compiler architecture, concurrency, packages, and standard library |
 
 ### Design Overview
 See [docs/DESIGN.md](docs/DESIGN.md) for the master design document with all confirmed decisions.

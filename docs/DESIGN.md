@@ -32,7 +32,7 @@ fn name(params) -> ReturnType ! [Errors]
 > - `uses [Capabilities]` — 能力集声明（独立子句）
 > - `cost ≤ N` — 代价上界（独立子句）
 >
-> 细化类型谓词语法同步变更: `where |n| n > 0` → `if |n| n > 0`
+> 细化类型谓词语法同步变更: `where |n| n > 0` → `when |n| n > 0`
 >
 > **v0.3→v0.4 变更**: 移除 `with [...]` 子句。函数属性（pure, deterministic, total）从 `uses` 自动推断：
 > - `uses []` → pure + deterministic + total
@@ -60,6 +60,12 @@ fn name(params) -> ReturnType ! [Errors]
 - HoleReport JSON: 完整上下文（类型、绑定、能力、代价预算、候选函数）
 - CLI: `sporec --holes`, `sporec --query-hole ?name`, `spore holes --suggest-order`
 
+### 意图编程工作流
+- 先讨论整体架构，再写签名、类型与 holes，先把系统骨架说清楚
+- 设计关键点必须先形成明确决策，再继续细化实现
+- 细节实现按 hole 依赖顺序逐步补全，而不是一开始就把函数体写满
+- 编译器始终输出人类可读与机器可读的同一份上下文，便于协作补全与审阅
+
 ### 模块系统（v0.1）
 - 一文件一模块: `src/billing/invoice.spore` → `billing.invoice`
 - 双 hash 寻址:
@@ -77,7 +83,7 @@ fn name(params) -> ReturnType ! [Errors]
 - Capability = Trait（统一机制，capability 是 trait 语法糖）
 - 关联类型 + GAT 支持
 - 无 HKT（关联类型 + GAT 已足够，避免错误信息灾难）
-- 细化类型: L0 可判定谓词（`if |n| n > 0`）+ L1 抽象解释传播（无 SMT）
+- 细化类型: L0 可判定谓词（`when |n| n > 0`）+ L1 抽象解释传播（无 SMT）
 - Sealed enum（穷尽匹配）
 - 签名必须完整注解，函数体内推断
 - Const generics（值级类型参数）
@@ -137,39 +143,31 @@ fn name(params) -> ReturnType ! [Errors]
 - `struct` 记录 + `type` 枚举/ADT
 - `capability` 关键字（= trait）
 - 函数属性（pure, deterministic, total）— 从 `uses` 自动推断，无需关键字
-- `if` 子句用于细化类型谓词（`if |n| n > 0`），不再使用 `where`
+- `when` 子句用于细化类型谓词（`when |n| n > 0`），不再使用 `where`
 - `where` 关键字仅保留用于泛型约束（`where T: Constraint`）
 - 基本类型: I32/I64/U32/U64/F32/F64/Bool/Str + List[T]/Map[K,V]/Set[T]
 
 ## 设计文档索引
 
-### 规格文档 (docs/specs/)
-- [signature-syntax-v0.2.md](specs/signature-syntax-v0.2.md) — 签名语法完整草案（v0.3 拆分子句语法见 DESIGN.md）
-- [cost-model-v0.1.md](specs/cost-model-v0.1.md) — 代价模型完整设计
-- [hole-system-v0.2.md](specs/hole-system-v0.2.md) — Hole 系统完整设计
-- [module-system-v0.1.md](specs/module-system-v0.1.md) — 模块系统设计（含双 hash）
-- [type-system-v0.1.md](specs/type-system-v0.1.md) — 类型系统设计
-- [compiler-output-v0.1.md](specs/compiler-output-v0.1.md) — 编译器输出格式设计
-- [compiler-pipeline-v0.1.md](specs/compiler-pipeline-v0.1.md) — 编译器 Pipeline 架构
-- [concurrency-model-v0.1.md](specs/concurrency-model-v0.1.md) — 并发模型设计
-- [package-management-v0.1.md](specs/package-management-v0.1.md) — 包管理系统设计
-- [platform-system-v0.1.md](specs/platform-system-v0.1.md) — Platform 系统设计
-- [incremental-compilation-v0.1.md](specs/incremental-compilation-v0.1.md) — 增量编译与 Watch 模式
-- [syntax-spec-v0.1.md](specs/syntax-spec-v0.1.md) — 语法规格
+### 权威规范来源
+- [spore-evolution/VISION.md](https://github.com/spore-lang/spore-evolution/blob/main/VISION.md) — 设计理念与原则
+- [spore-evolution/ROADMAP.md](https://github.com/spore-lang/spore-evolution/blob/main/ROADMAP.md) — 按系统模块组织的长期目标
+- [SEP-0001 Core Syntax](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0001-core-syntax.md) — 语法与签名
+- [SEP-0002 Type System](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0002-type-system.md) — 类型系统与细化类型
+- [SEP-0003 Effect & Capability System](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0003-effect-capability-system.md) — 能力、effect、平台交互
+- [SEP-0004 Cost Analysis](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0004-cost-analysis.md) — 代价模型与可判定性
+- [SEP-0005 Hole System](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0005-hole-system.md) — hole 协议与协作流程
+- [SEP-0006 Compiler Architecture](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0006-compiler-architecture.md) — 编译器架构、输出、watch、增量编译
+- [SEP-0007 Concurrency Model](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0007-concurrency-model.md) — 并发模型
+- [SEP-0008 Module & Package System](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0008-module-package-system.md) — 模块、包、平台、内容寻址
+- [SEP-0009 Standard Library](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0009-standard-library.md) — 标准库边界
 
-### 调研文档 (docs/research/)
-- [syntax-comparison-v0.1.md](research/syntax-comparison-v0.1.md) — 参考语言语法对比
-- [module-system-research.md](research/module-system-research.md) — 10 语言模块系统调研
-- [type-research-dependent.md](research/type-research-dependent.md) — 依赖类型调研（7 语言）
-- [type-research-practical.md](research/type-research-practical.md) — 实用类型系统调研（7 语言）
+### 仍保留的本地研究文档
+- [type-research-dependent.md](research/type-research-dependent.md) — 依赖类型与 refinement 光谱调研
+- [type-research-practical.md](research/type-research-practical.md) — 实用类型系统调研
 - [type-research-tradeoffs.md](research/type-research-tradeoffs.md) — 类型系统权衡分析
-- [concurrency-research.md](research/concurrency-research.md) — 13 并发模型调研
-- [pkg-management-research.md](research/pkg-management-research.md) — 10 语言包管理调研
-- [hot-reload-research.md](research/hot-reload-research.md) — 12 系统热重载调研
-- [syntax-research.md](research/syntax-research.md) — 10 语言语法设计调研
-- [impl-stack-research.md](research/impl-stack-research.md) — 10 语言编译器实现栈调研
-- [codegen-comparison.md](research/codegen-comparison.md) — LLVM vs Cranelift 深度对比
-- [intent-first-signature-proposal.md](research/intent-first-signature-proposal.md) — 面向人类/Agent 的签名分层与 contract 提案
+- [hot-reload-research.md](research/hot-reload-research.md) — 运行时热更新方向的未来探索
+- [intent-first-signature-proposal.md](research/intent-first-signature-proposal.md) — intent / contract 方向的未来草案
 
 ### 标准库（极简）
 - **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Str, Option[T], Result[T,E], 基本操作符, |>, ?
