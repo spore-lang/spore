@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use spore_parser::ast::*;
 
+use crate::effect_handler::EffectHandler;
 use crate::value::{Closure, Value};
 
 /// Runtime error during evaluation.
@@ -42,6 +43,8 @@ pub struct Interpreter {
     structs: BTreeMap<String, StructDef>,
     /// Global type definitions
     type_defs: BTreeMap<String, TypeDef>,
+    /// Effect handlers for capability-gated operations (e.g. I/O).
+    effect_handlers: Vec<Box<dyn EffectHandler>>,
 }
 
 /// A local variable environment (stack of scopes).
@@ -99,6 +102,7 @@ impl Interpreter {
             functions: BTreeMap::new(),
             structs: BTreeMap::new(),
             type_defs: BTreeMap::new(),
+            effect_handlers: Vec::new(),
         }
     }
 
@@ -123,6 +127,22 @@ impl Interpreter {
                 | Item::CapabilityAlias { .. } => {}
             }
         }
+    }
+
+    /// Register an effect handler for capability-gated operations.
+    pub fn register_effect_handler(&mut self, handler: Box<dyn EffectHandler>) {
+        self.effect_handlers.push(handler);
+    }
+
+    /// Try dispatching an operation through registered effect handlers.
+    fn try_dispatch_effect(&self, name: &str, args: &[Value]) -> Result<Option<Value>> {
+        for handler in &self.effect_handlers {
+            if handler.operations().contains(&name) {
+                let result = handler.handle(name, args).map_err(RuntimeError::new)?;
+                return Ok(Some(result));
+            }
+        }
+        Ok(None)
     }
 
     /// Call a named function with arguments.
@@ -265,11 +285,15 @@ impl Interpreter {
                     {
                         return Ok(Value::Enum(name.clone(), arg_vals));
                     }
-                    // 2. Builtin function
+                    // 2. Effect handler dispatch (capability-gated I/O)
+                    if let Some(result) = self.try_dispatch_effect(name, &arg_vals)? {
+                        return Ok(result);
+                    }
+                    // 3. Builtin function (pure Compute operations)
                     if let Some(result) = self.try_call_builtin(name, &arg_vals)? {
                         return Ok(result);
                     }
-                    // 3. User-defined function
+                    // 4. User-defined function
                     if self.functions.contains_key(name) {
                         return self.call_function(name, arg_vals);
                     }
@@ -944,36 +968,8 @@ impl Interpreter {
                 Ok(Some(Value::Int(a.max(b))))
             }
 
-            // ── IO builtins ────────────────────────────────────────
-            "print" => {
-                let val = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("print: missing arg"))?;
-                print!("{val}");
-                Ok(Some(Value::Unit))
-            }
-            "println" => {
-                let val = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("println: missing arg"))?;
-                println!("{val}");
-                Ok(Some(Value::Unit))
-            }
-            "read_line" => {
-                let mut buf = String::new();
-                std::io::stdin()
-                    .read_line(&mut buf)
-                    .map_err(|e| RuntimeError::new(format!("read_line: {e}")))?;
-                // Remove trailing newline
-                if buf.ends_with('\n') {
-                    buf.pop();
-                    if buf.ends_with('\r') {
-                        buf.pop();
-                    }
-                }
-                Ok(Some(Value::Str(buf)))
-            }
-
+            // ── IO operations are dispatched through effect handlers ──
+            // (print, println, read_line are handled by CliPlatformHandler)
             _ => Ok(None),
         }
     }

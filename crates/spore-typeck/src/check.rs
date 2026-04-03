@@ -11,6 +11,7 @@ use crate::hole::{HoleDependencyGraph, HoleInfo, HoleReport};
 use crate::module::{ImportedSymbol, ModuleError, ModuleRegistry};
 use std::collections::{HashMap, HashSet};
 
+use crate::capability::{CapabilityHierarchy, default_hierarchy};
 use crate::types::{CapSet, ErrorSet, Ty};
 
 pub struct Checker {
@@ -31,6 +32,8 @@ pub struct Checker {
     next_var_id: u32,
     /// Substitution map: type variable ID → resolved type.
     substitution: HashMap<u32, Ty>,
+    /// Capability hierarchy for expanding parent caps (e.g. IO → 6 leaves).
+    hierarchy: CapabilityHierarchy,
 }
 
 impl Checker {
@@ -47,6 +50,7 @@ impl Checker {
             expected_return_type: None,
             next_var_id: 0,
             substitution: HashMap::new(),
+            hierarchy: default_hierarchy(),
         }
     }
 
@@ -64,6 +68,7 @@ impl Checker {
             expected_return_type: None,
             next_var_id: 0,
             substitution: HashMap::new(),
+            hierarchy: default_hierarchy(),
         }
     }
 
@@ -227,7 +232,12 @@ impl Checker {
                 let caps: CapSet = f
                     .uses_clause
                     .as_ref()
-                    .map(|uc| uc.resources.iter().cloned().collect())
+                    .map(|uc| {
+                        let raw = crate::capability::CapabilitySet::from_names(
+                            uc.resources.iter().cloned(),
+                        );
+                        self.hierarchy.expand(&raw).to_btreeset()
+                    })
                     .unwrap_or_default();
                 self.registry
                     .functions
@@ -498,12 +508,16 @@ impl Checker {
     fn check_fn(&mut self, f: &FnDef) {
         let Some(body) = &f.body else { return };
 
-        // Set current function's capability set
+        // Set current function's capability set (with hierarchy expansion)
         let prev_caps = std::mem::replace(
             &mut self.current_caps,
             f.uses_clause
                 .as_ref()
-                .map(|uc| uc.resources.iter().cloned().collect())
+                .map(|uc| {
+                    let raw =
+                        crate::capability::CapabilitySet::from_names(uc.resources.iter().cloned());
+                    self.hierarchy.expand(&raw).to_btreeset()
+                })
                 .unwrap_or_default(),
         );
 
