@@ -44,7 +44,7 @@ pub fn expr_to_const(expr: &Expr) -> Option<ConstValue> {
         Expr::BoolLit(b) => Some(ConstValue::Bool(*b)),
         Expr::StrLit(s) => Some(ConstValue::Str(s.clone())),
         Expr::UnaryOp(UnaryOp::Neg, inner) => match inner.as_ref() {
-            Expr::IntLit(n) => Some(ConstValue::Int(-n)),
+            Expr::IntLit(n) => n.checked_neg().map(ConstValue::Int),
             Expr::FloatLit(f) => Some(ConstValue::Float(-f)),
             _ => None,
         },
@@ -91,7 +91,10 @@ fn eval_expr(expr: &Expr, var_name: &str, value: &ConstValue) -> Result<ConstVal
         Expr::UnaryOp(op, inner) => {
             let v = eval_expr(inner, var_name, value)?;
             match (op, &v) {
-                (UnaryOp::Neg, ConstValue::Int(n)) => Ok(ConstValue::Int(-n)),
+                (UnaryOp::Neg, ConstValue::Int(n)) => n
+                    .checked_neg()
+                    .map(ConstValue::Int)
+                    .ok_or_else(|| "integer overflow in refinement predicate".into()),
                 (UnaryOp::Neg, ConstValue::Float(f)) => Ok(ConstValue::Float(-f)),
                 (UnaryOp::Not, ConstValue::Bool(b)) => Ok(ConstValue::Bool(!b)),
                 _ => Err(format!("unsupported unary op `{op:?}` on {}", describe(&v))),
@@ -113,9 +116,18 @@ fn eval_binop(l: &ConstValue, op: &BinOp, r: &ConstValue) -> Result<ConstValue, 
     match (l, r) {
         // Int × Int
         (ConstValue::Int(a), ConstValue::Int(b)) => match op {
-            BinOp::Add => Ok(ConstValue::Int(a + b)),
-            BinOp::Sub => Ok(ConstValue::Int(a - b)),
-            BinOp::Mul => Ok(ConstValue::Int(a * b)),
+            BinOp::Add => a
+                .checked_add(*b)
+                .map(ConstValue::Int)
+                .ok_or_else(|| "integer overflow in refinement predicate".into()),
+            BinOp::Sub => a
+                .checked_sub(*b)
+                .map(ConstValue::Int)
+                .ok_or_else(|| "integer overflow in refinement predicate".into()),
+            BinOp::Mul => a
+                .checked_mul(*b)
+                .map(ConstValue::Int)
+                .ok_or_else(|| "integer overflow in refinement predicate".into()),
             BinOp::Lt => Ok(ConstValue::Bool(*a < *b)),
             BinOp::Le => Ok(ConstValue::Bool(*a <= *b)),
             BinOp::Gt => Ok(ConstValue::Bool(*a > *b)),
@@ -233,5 +245,23 @@ mod tests {
         );
         assert!(eval_refinement_predicate(&pred, "x", &ConstValue::Int(1)).unwrap());
         assert!(!eval_refinement_predicate(&pred, "x", &ConstValue::Int(0)).unwrap());
+    }
+
+    #[test]
+    fn test_integer_add_overflow_is_undecidable() {
+        let pred = binop(
+            binop(var_expr("x"), BinOp::Add, int_expr(1)),
+            BinOp::Gt,
+            int_expr(0),
+        );
+        let err = eval_refinement_predicate(&pred, "x", &ConstValue::Int(i64::MAX)).unwrap_err();
+        assert!(err.contains("overflow"));
+    }
+
+    #[test]
+    fn test_integer_neg_overflow_is_undecidable() {
+        let pred = Expr::UnaryOp(UnaryOp::Neg, Box::new(var_expr("x")));
+        let err = eval_expr(&pred, "x", &ConstValue::Int(i64::MIN)).unwrap_err();
+        assert!(err.contains("overflow"));
     }
 }
