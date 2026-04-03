@@ -591,6 +591,8 @@ impl Checker {
                     // bare function name as value — return its function type
                     let (params, ret, caps) = self.registry.functions[name].clone();
                     Ty::Fn(params, Box::new(ret), caps)
+                } else if let Some((params, ret)) = self.lookup_module_function(name) {
+                    Ty::Fn(params, Box::new(ret), CapSet::new())
                 } else {
                     self.err(ErrorCode::E0004, format!("undefined variable `{name}`"));
                     Ty::Error
@@ -1057,6 +1059,32 @@ impl Checker {
             self.check_cap_propagation(&callee_caps);
             return self.apply_subst(&ret_ty);
         }
+
+        // Direct call by name: check module registry (prelude builtins)
+        if let Expr::Var(name) = callee
+            && let Some((param_tys, ret_ty)) = self.lookup_module_function(name)
+        {
+            if param_tys.len() != args.len() {
+                self.err(
+                    ErrorCode::E0007,
+                    format!(
+                        "function `{name}` expects {} arguments, got {}",
+                        param_tys.len(),
+                        args.len()
+                    ),
+                );
+                return ret_ty;
+            }
+            for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
+                let arg_ty = self.check_expr(arg_expr);
+                self.unify(
+                    expected,
+                    &arg_ty,
+                    &format!("argument {} of `{name}`", i + 1),
+                );
+            }
+            return ret_ty;
+        }
         // Could be a variable holding a function
 
         // Method call: `obj.method(args)` — callee is FieldAccess
@@ -1116,6 +1144,18 @@ impl Checker {
                 self.check_expr(expr);
             }
         }
+    }
+
+    // ── Module registry lookup ──────────────────────────────────────
+
+    /// Look up a function in the module registry (e.g. prelude builtins).
+    fn lookup_module_function(&self, name: &str) -> Option<(Vec<Ty>, Ty)> {
+        for module in self.module_registry.all_interfaces() {
+            if let Some((params, ret)) = module.functions.get(name) {
+                return Some((params.clone(), ret.clone()));
+            }
+        }
+        None
     }
 
     // ── Type resolution ─────────────────────────────────────────────

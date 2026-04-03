@@ -175,12 +175,80 @@ impl ModuleRegistry {
             .insert("Result".into(), vec!["Ok".into(), "Err".into()]);
         prelude.types.insert("List".into(), vec![]);
 
+        // ── IO builtins ──────────────────────────────────────────
         prelude
             .functions
             .insert("print".into(), (vec![Ty::Str], Ty::Unit));
         prelude
             .functions
+            .insert("println".into(), (vec![Ty::Str], Ty::Unit));
+        prelude
+            .functions
+            .insert("read_line".into(), (vec![], Ty::Str));
+
+        // ── String builtins ──────────────────────────────────────
+        prelude
+            .functions
+            .insert("string_length".into(), (vec![Ty::Str], Ty::Int));
+        prelude.functions.insert(
+            "split".into(),
+            (vec![Ty::Str, Ty::Str], Ty::Named("List".into())),
+        );
+        prelude
+            .functions
+            .insert("trim".into(), (vec![Ty::Str], Ty::Str));
+        prelude
+            .functions
+            .insert("to_upper".into(), (vec![Ty::Str], Ty::Str));
+        prelude
+            .functions
+            .insert("to_lower".into(), (vec![Ty::Str], Ty::Str));
+        prelude
+            .functions
+            .insert("starts_with".into(), (vec![Ty::Str, Ty::Str], Ty::Bool));
+        prelude
+            .functions
+            .insert("ends_with".into(), (vec![Ty::Str, Ty::Str], Ty::Bool));
+        prelude
+            .functions
+            .insert("char_at".into(), (vec![Ty::Str, Ty::Int], Ty::Str));
+        prelude.functions.insert(
+            "substring".into(),
+            (vec![Ty::Str, Ty::Int, Ty::Int], Ty::Str),
+        );
+        prelude
+            .functions
+            .insert("replace".into(), (vec![Ty::Str, Ty::Str, Ty::Str], Ty::Str));
+        prelude
+            .functions
+            .insert("to_string".into(), (vec![Ty::Int], Ty::Str));
+        prelude
+            .functions
             .insert("toString".into(), (vec![Ty::Int], Ty::Str));
+
+        // ── Math builtins ────────────────────────────────────────
+        prelude
+            .functions
+            .insert("abs".into(), (vec![Ty::Int], Ty::Int));
+        prelude
+            .functions
+            .insert("min".into(), (vec![Ty::Int, Ty::Int], Ty::Int));
+        prelude
+            .functions
+            .insert("max".into(), (vec![Ty::Int, Ty::Int], Ty::Int));
+
+        // ── List builtins ────────────────────────────────────────
+        prelude
+            .functions
+            .insert("len".into(), (vec![Ty::Named("List".into())], Ty::Int));
+        prelude.functions.insert(
+            "range".into(),
+            (vec![Ty::Int, Ty::Int], Ty::Named("List".into())),
+        );
+        prelude.functions.insert(
+            "reverse".into(),
+            (vec![Ty::Named("List".into())], Ty::Named("List".into())),
+        );
 
         self.register(prelude);
     }
@@ -190,6 +258,11 @@ impl ModuleRegistry {
         let mut paths: Vec<String> = self.modules.keys().cloned().collect();
         paths.sort();
         paths
+    }
+
+    /// Get all registered module interfaces.
+    pub fn all_interfaces(&self) -> impl Iterator<Item = &ModuleInterface> {
+        self.modules.values()
     }
 }
 
