@@ -920,8 +920,9 @@ impl Parser {
         match self.peek().clone() {
             // Unary operators
             tok if prefix_bp(&tok).is_some() => {
-                let bp = prefix_bp(&tok).unwrap();
-                let op = token_to_unaryop(&tok).unwrap();
+                let bp = prefix_bp(&tok).expect("prefix_bp: unreachable - token already matched");
+                let op = token_to_unaryop(&tok)
+                    .expect("token_to_unaryop: unreachable - token already matched");
                 self.advance();
                 let expr = self.parse_expr_bp(bp)?;
                 Ok(Expr::UnaryOp(op, Box::new(expr)))
