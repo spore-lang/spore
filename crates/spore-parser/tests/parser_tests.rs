@@ -947,3 +947,91 @@ fn test_capability_assoc_type_with_bound() {
         _ => panic!("expected CapabilityDef"),
     }
 }
+
+// ── Placeholder partial application ─────────────────────────────────────
+
+/// Extract the tail expression from a function body (which is a Block).
+fn body_tail(f: &spore_parser::ast::FnDef) -> &spore_parser::ast::Expr {
+    match f.body.as_ref().unwrap() {
+        spore_parser::ast::Expr::Block(_, Some(tail)) => tail.as_ref(),
+        other => other,
+    }
+}
+
+#[test]
+fn test_placeholder_desugars_to_lambda() {
+    use spore_parser::ast::*;
+    let m = parse_ok("fn main() -> Int { f(_, 2) }");
+    match &m.items[0] {
+        Item::Function(f) => {
+            let expr = body_tail(f);
+            assert!(
+                matches!(expr, Expr::Lambda(params, _) if params.len() == 1 && params[0].name == "_p0"),
+                "expected Lambda with 1 placeholder param, got: {expr:?}"
+            );
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_placeholder_multi_params() {
+    use spore_parser::ast::*;
+    let m = parse_ok("fn main() -> Int { f(_, b, _) }");
+    match &m.items[0] {
+        Item::Function(f) => {
+            let expr = body_tail(f);
+            match expr {
+                Expr::Lambda(params, inner) => {
+                    assert_eq!(params.len(), 2);
+                    assert_eq!(params[0].name, "_p0");
+                    assert_eq!(params[1].name, "_p1");
+                    assert!(matches!(inner.as_ref(), Expr::Call(_, args) if args.len() == 3));
+                }
+                _ => panic!("expected Lambda, got: {expr:?}"),
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_no_placeholder_no_desugar() {
+    use spore_parser::ast::*;
+    let m = parse_ok("fn main() -> Int { f(a, 2) }");
+    match &m.items[0] {
+        Item::Function(f) => {
+            let expr = body_tail(f);
+            assert!(
+                matches!(expr, Expr::Call(_, _)),
+                "expected Call, got: {expr:?}"
+            );
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_wildcard_in_match_unchanged() {
+    use spore_parser::ast::*;
+    let m = parse_ok(
+        r#"
+        fn main() -> Int {
+            match 1 {
+                _ => 42,
+            }
+        }
+    "#,
+    );
+    match &m.items[0] {
+        Item::Function(f) => {
+            let expr = body_tail(f);
+            if let Expr::Match(_, arms) = expr {
+                assert!(matches!(arms[0].pattern, Pattern::Wildcard));
+            } else {
+                panic!("expected match, got: {expr:?}");
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}

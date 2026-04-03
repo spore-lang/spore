@@ -468,6 +468,11 @@ impl CostAnalyzer {
             }
 
             Expr::Hole(_, _, _) => CostVector::constant(1, 0, 0, 0),
+
+            // Placeholder is desugared to Lambda by the parser; should never reach here
+            Expr::Placeholder => {
+                unreachable!("Placeholder should be desugared before cost analysis")
+            }
         }
     }
 
@@ -787,7 +792,8 @@ fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg
         | Expr::BoolLit(_)
         | Expr::CharLit(_)
         | Expr::Var(_)
-        | Expr::Hole(_, _, _) => {}
+        | Expr::Hole(_, _, _)
+        | Expr::Placeholder => {}
     }
 }
 
@@ -931,7 +937,8 @@ fn collect_callee_names_inner(self_name: &str, expr: &Expr, out: &mut Vec<String
         | Expr::BoolLit(_)
         | Expr::CharLit(_)
         | Expr::Var(_)
-        | Expr::Hole(_, _, _) => {}
+        | Expr::Hole(_, _, _)
+        | Expr::Placeholder => {}
     }
 }
 
