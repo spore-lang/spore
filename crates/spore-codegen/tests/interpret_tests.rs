@@ -486,3 +486,159 @@ fn test_each() {
     let v = run_main(r#"fn main() -> Unit { each([1, 2, 3], |x: Int| println(to_string(x))) }"#);
     assert_eq!(v.to_string(), "()");
 }
+
+// ── File I/O builtins ───────────────────────────────────────────────────
+
+#[test]
+fn test_file_write_then_read() {
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test_rw");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("hello.txt");
+    let src = format!(
+        r#"fn main() -> String {{ let _ = file_write("{p}", "hello spore"); file_read("{p}") }}"#,
+        p = path.display()
+    );
+    let v = run_main(&src);
+    assert_eq!(v.as_str(), Some("hello spore"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_file_exists() {
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test_exists");
+    let _ = std::fs::create_dir_all(&dir);
+    let existing = dir.join("exists.txt");
+    std::fs::write(&existing, "data").unwrap();
+
+    let src_yes = format!(
+        r#"fn main() -> Bool {{ file_exists("{p}") }}"#,
+        p = existing.display()
+    );
+    assert_eq!(run_main(&src_yes).as_bool(), Some(true));
+
+    let src_no = format!(
+        r#"fn main() -> Bool {{ file_exists("{p}/no_such_file.txt") }}"#,
+        p = dir.display()
+    );
+    assert_eq!(run_main(&src_no).as_bool(), Some(false));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_dir_list() {
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test_dirlist");
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::write(dir.join("a.txt"), "").unwrap();
+    std::fs::write(dir.join("b.txt"), "").unwrap();
+
+    let src = format!(
+        r#"fn main() -> List[String] {{ dir_list("{p}") }}"#,
+        p = dir.display()
+    );
+    let v = run_main(&src);
+    let list = v.as_list().unwrap();
+    let mut names: Vec<&str> = list.iter().filter_map(|v| v.as_str()).collect();
+    names.sort();
+    assert_eq!(names, vec!["a.txt", "b.txt"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_file_mkdir() {
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test_mkdir/a/b/c");
+    let _ = std::fs::remove_dir_all(
+        std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test_mkdir"),
+    );
+    let src = format!(
+        r#"fn main() -> Bool {{ let _ = file_mkdir("{p}"); file_exists("{p}") }}"#,
+        p = dir.display()
+    );
+    let v = run_main(&src);
+    assert_eq!(v.as_bool(), Some(true));
+    let _ = std::fs::remove_dir_all(
+        std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test_mkdir"),
+    );
+}
+
+// ── Process execution builtins ──────────────────────────────────────────
+
+#[test]
+fn test_process_run() {
+    let v = run_main(r#"fn main() -> String { process_run("echo", ["hello"]) }"#);
+    assert_eq!(v.as_str().unwrap().trim(), "hello");
+}
+
+#[test]
+fn test_process_run_status() {
+    let v = run_main(r#"fn main() -> Int { process_run_status("true", []) }"#);
+    assert_eq!(v.as_int(), Some(0));
+
+    let v2 = run_main(r#"fn main() -> Int { process_run_status("false", []) }"#);
+    assert_eq!(v2.as_int(), Some(1));
+}
+
+// ── Environment variable builtins ───────────────────────────────────────
+
+#[test]
+fn test_env_set_then_get() {
+    let v = run_main(
+        r#"fn main() -> String {
+            let _ = env_set("SPORE_TEST_KEY_42", "spore_value");
+            let result = env_get("SPORE_TEST_KEY_42");
+            match result {
+                Some(v) => v,
+                None => "missing",
+            }
+        }"#,
+    );
+    assert_eq!(v.as_str(), Some("spore_value"));
+}
+
+#[test]
+fn test_env_get_missing() {
+    let v = run_main(
+        r#"fn main() -> String {
+            let result = env_get("SPORE_NONEXISTENT_KEY_999");
+            match result {
+                Some(v) => v,
+                None => "none",
+            }
+        }"#,
+    );
+    assert_eq!(v.as_str(), Some("none"));
+}
+
+// ── Collection utility builtins ─────────────────────────────────────────
+
+#[test]
+fn test_join() {
+    let v = run_main(r#"fn main() -> String { join(["a", "b", "c"], ", ") }"#);
+    assert_eq!(v.as_str(), Some("a, b, c"));
+}
+
+#[test]
+fn test_join_empty() {
+    let v = run_main(r#"fn main() -> String { join([], "-") }"#);
+    assert_eq!(v.as_str(), Some(""));
+}
+
+#[test]
+fn test_is_empty() {
+    let v = run_main("fn main() -> Bool { is_empty([]) }");
+    assert_eq!(v.as_bool(), Some(true));
+
+    let v2 = run_main("fn main() -> Bool { is_empty([1]) }");
+    assert_eq!(v2.as_bool(), Some(false));
+}
+
+#[test]
+fn test_length() {
+    let v = run_main("fn main() -> Int { length([10, 20, 30]) }");
+    assert_eq!(v.as_int(), Some(3));
+}
+
+#[test]
+fn test_length_string() {
+    let v = run_main(r#"fn main() -> Int { length("hello") }"#);
+    assert_eq!(v.as_int(), Some(5));
+}

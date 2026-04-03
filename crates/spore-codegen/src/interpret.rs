@@ -968,8 +968,217 @@ impl Interpreter {
                 Ok(Some(Value::Int(a.max(b))))
             }
 
-            // ── IO operations are dispatched through effect handlers ──
-            // (print, println, read_line are handled by CliPlatformHandler)
+            // ── IO builtins ────────────────────────────────────────
+            "print" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("print: missing arg"))?;
+                print!("{val}");
+                Ok(Some(Value::Unit))
+            }
+            "println" => {
+                let val = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("println: missing arg"))?;
+                println!("{val}");
+                Ok(Some(Value::Unit))
+            }
+            "read_line" => {
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_line(&mut buf)
+                    .map_err(|e| RuntimeError::new(format!("read_line: {e}")))?;
+                // Remove trailing newline
+                if buf.ends_with('\n') {
+                    buf.pop();
+                    if buf.ends_with('\r') {
+                        buf.pop();
+                    }
+                }
+                Ok(Some(Value::Str(buf)))
+            }
+
+            // ── File I/O builtins ────────────────────────────────────
+            "file_read" => {
+                let path = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("file_read: missing path arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("file_read: expected String"))?;
+                let content = std::fs::read_to_string(path)
+                    .map_err(|e| RuntimeError::new(format!("file_read: {e}")))?;
+                Ok(Some(Value::Str(content)))
+            }
+            "file_exists" => {
+                let path = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("file_exists: missing path arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("file_exists: expected String"))?;
+                Ok(Some(Value::Bool(std::path::Path::new(path).exists())))
+            }
+            "dir_list" => {
+                let path = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("dir_list: missing path arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("dir_list: expected String"))?;
+                let entries = std::fs::read_dir(path)
+                    .map_err(|e| RuntimeError::new(format!("dir_list: {e}")))?
+                    .filter_map(|entry| entry.ok())
+                    .map(|entry| Value::Str(entry.file_name().to_string_lossy().into_owned()))
+                    .collect();
+                Ok(Some(Value::List(entries)))
+            }
+            "file_write" => {
+                let path = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("file_write: missing path arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("file_write: expected String path"))?;
+                let content = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("file_write: missing content arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("file_write: expected String content"))?;
+                std::fs::write(path, content)
+                    .map_err(|e| RuntimeError::new(format!("file_write: {e}")))?;
+                Ok(Some(Value::Unit))
+            }
+            "file_mkdir" => {
+                let path = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("file_mkdir: missing path arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("file_mkdir: expected String"))?;
+                std::fs::create_dir_all(path)
+                    .map_err(|e| RuntimeError::new(format!("file_mkdir: {e}")))?;
+                Ok(Some(Value::Unit))
+            }
+
+            // ── Process execution builtins ───────────────────────────
+            "process_run" => {
+                let cmd = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("process_run: missing cmd arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("process_run: expected String cmd"))?;
+                let cmd_args: Vec<String> = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("process_run: missing args arg"))?
+                    .as_list()
+                    .map_err(|e| RuntimeError::new(format!("process_run: {e}")))?
+                    .iter()
+                    .map(|v| {
+                        v.as_str()
+                            .map(|s| s.to_owned())
+                            .ok_or_else(|| RuntimeError::new("process_run: arg must be String"))
+                    })
+                    .collect::<Result<_>>()?;
+                let output = std::process::Command::new(cmd)
+                    .args(&cmd_args)
+                    .output()
+                    .map_err(|e| RuntimeError::new(format!("process_run: {e}")))?;
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                Ok(Some(Value::Str(stdout)))
+            }
+            "process_run_status" => {
+                let cmd = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("process_run_status: missing cmd arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("process_run_status: expected String cmd"))?;
+                let cmd_args: Vec<String> = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("process_run_status: missing args arg"))?
+                    .as_list()
+                    .map_err(|e| RuntimeError::new(format!("process_run_status: {e}")))?
+                    .iter()
+                    .map(|v| {
+                        v.as_str().map(|s| s.to_owned()).ok_or_else(|| {
+                            RuntimeError::new("process_run_status: arg must be String")
+                        })
+                    })
+                    .collect::<Result<_>>()?;
+                let status = std::process::Command::new(cmd)
+                    .args(&cmd_args)
+                    .status()
+                    .map_err(|e| RuntimeError::new(format!("process_run_status: {e}")))?;
+                Ok(Some(Value::Int(status.code().unwrap_or(-1) as i64)))
+            }
+
+            // ── Environment variable builtins ────────────────────────
+            "env_get" => {
+                let key = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("env_get: missing key arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("env_get: expected String"))?;
+                match std::env::var(key) {
+                    Ok(val) => Ok(Some(Value::Enum("Some".into(), vec![Value::Str(val)]))),
+                    Err(_) => Ok(Some(Value::Enum("None".into(), vec![]))),
+                }
+            }
+            "env_set" => {
+                let key = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("env_set: missing key arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("env_set: expected String key"))?;
+                let val = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("env_set: missing value arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("env_set: expected String value"))?;
+                // SAFETY: we are single-threaded in the interpreter
+                unsafe { std::env::set_var(key, val) };
+                Ok(Some(Value::Unit))
+            }
+
+            // ── Collection utility builtins ──────────────────────────
+            "join" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("join: missing list arg"))?
+                    .as_list()
+                    .map_err(|e| RuntimeError::new(format!("join: {e}")))?;
+                let sep = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("join: missing sep arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("join: expected String separator"))?;
+                let parts: Vec<String> = list
+                    .iter()
+                    .map(|v| {
+                        v.as_str()
+                            .map(|s| s.to_owned())
+                            .ok_or_else(|| RuntimeError::new("join: list elements must be String"))
+                    })
+                    .collect::<Result<_>>()?;
+                Ok(Some(Value::Str(parts.join(sep))))
+            }
+            "is_empty" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("is_empty: missing list arg"))?
+                    .as_list()
+                    .map_err(|e| RuntimeError::new(format!("is_empty: {e}")))?;
+                Ok(Some(Value::Bool(list.is_empty())))
+            }
+            "length" => {
+                let list = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("length: missing arg"))?;
+                match list {
+                    Value::List(v) => Ok(Some(Value::Int(v.len() as i64))),
+                    Value::Str(s) => Ok(Some(Value::Int(s.len() as i64))),
+                    _ => Err(RuntimeError::new(format!(
+                        "length: expected List or String, got {}",
+                        list.type_name()
+                    ))),
+                }
+            }
+
             _ => Ok(None),
         }
     }
