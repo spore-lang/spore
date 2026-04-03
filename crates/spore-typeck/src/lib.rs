@@ -139,14 +139,6 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                 iface.capabilities.insert(cap.name.clone());
                 iface.set_visibility(&cap.name, SymbolVisibility::from(&cap.visibility));
             }
-            Item::TraitDef(td) => {
-                iface.capabilities.insert(td.name.clone());
-                iface.set_visibility(&td.name, SymbolVisibility::from(&td.visibility));
-            }
-            Item::EffectDef(ed) => {
-                iface.capabilities.insert(ed.name.clone());
-                iface.set_visibility(&ed.name, SymbolVisibility::from(&ed.visibility));
-            }
             _ => {}
         }
     }

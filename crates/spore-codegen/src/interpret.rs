@@ -167,6 +167,9 @@ impl Interpreter {
             include_str!("../../../stdlib/math.sp"),
             include_str!("../../../stdlib/string.sp"),
             include_str!("../../../stdlib/collections.sp"),
+            include_str!("../../../stdlib/dict.sp"),
+            include_str!("../../../stdlib/set.sp"),
+            include_str!("../../../stdlib/char.sp"),
         ];
 
         for source in STDLIB_SOURCES {
@@ -1009,6 +1012,30 @@ impl Interpreter {
                     Some(pos) => Ok(Some(Value::Int(pos as i64))),
                     None => Ok(Some(Value::Int(-1))),
                 }
+            }
+
+            // ── Char builtins ──────────────────────────────────────
+            "char_to_int" => {
+                let s = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("char_to_int: missing arg"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("char_to_int: expected String"))?;
+                let ch = s
+                    .chars()
+                    .next()
+                    .ok_or_else(|| RuntimeError::new("char_to_int: empty string"))?;
+                Ok(Some(Value::Int(ch as i64)))
+            }
+            "int_to_char" => {
+                let n = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("int_to_char: missing arg"))?
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("int_to_char: expected Int"))?;
+                let ch = char::from_u32(n as u32)
+                    .ok_or_else(|| RuntimeError::new("int_to_char: invalid code point"))?;
+                Ok(Some(Value::Str(ch.to_string())))
             }
 
             // ── IO operations are dispatched through effect handlers ──

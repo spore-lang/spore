@@ -245,7 +245,11 @@ impl ModuleRegistry {
         prelude.types.insert("List".into(), vec![]);
         prelude.types.insert(
             "Ordering".into(),
-            vec!["Less".into(), "Equal".into(), "Greater".into()],
+            vec![
+                ("Less".into(), vec![]),
+                ("Equal".into(), vec![]),
+                ("Greater".into(), vec![]),
+            ],
         );
 
         // ── IO builtins ──────────────────────────────────────────
