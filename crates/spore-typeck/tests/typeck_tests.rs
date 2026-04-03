@@ -1436,3 +1436,134 @@ fn sep0006_no_old_three_digit_codes() {
         "should not contain old 3-digit code [E001], got: {output}"
     );
 }
+
+// ── Refinement type tests (L0) ──────────────────────────────────────────
+
+#[test]
+fn refinement_let_binding_satisfied() {
+    // 5 > 0 is true, so this should pass
+    check_ok(
+        r#"
+fn f() -> Int {
+    let x: Int when self > 0 = 5
+    x
+}
+"#,
+    );
+}
+
+#[test]
+fn refinement_let_binding_violated() {
+    // -1 > 0 is false, should emit R0001
+    let errs = check_err_with_codes(
+        r#"
+fn f() -> Int {
+    let x: Int when self > 0 = -1
+    x
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|(code, _)| *code == ErrorCode::R0001),
+        "expected R0001, got: {errs:?}"
+    );
+}
+
+#[test]
+fn refinement_subtype_of_base() {
+    // A refined Int should be accepted where Int is expected
+    check_ok(
+        r#"
+fn add(a: Int, b: Int) -> Int { a + b }
+fn f() -> Int {
+    let x: Int when self > 0 = 5
+    add(x, 3)
+}
+"#,
+    );
+}
+
+#[test]
+fn refinement_alias_definition() {
+    // alias Port = Int when ... should register and be usable
+    check_ok(
+        r#"
+alias Port = Int when self >= 1 && self <= 65535
+fn get_port() -> Int {
+    let p: Port = 80
+    p
+}
+"#,
+    );
+}
+
+#[test]
+fn refinement_alias_violated() {
+    // 0 is not in 1..=65535
+    let errs = check_err_with_codes(
+        r#"
+alias Port = Int when self >= 1 && self <= 65535
+fn get_port() -> Int {
+    let p: Port = 0
+    p
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|(code, _)| *code == ErrorCode::R0001),
+        "expected R0001, got: {errs:?}"
+    );
+}
+
+#[test]
+fn refinement_string_len() {
+    // "hello".len() > 0 is true
+    check_ok(
+        r#"
+fn f() -> String {
+    let s: String when self.len() > 0 = "hello"
+    s
+}
+"#,
+    );
+}
+
+#[test]
+fn refinement_string_len_violated() {
+    // "".len() > 0 is false
+    let errs = check_err_with_codes(
+        r#"
+fn f() -> String {
+    let s: String when self.len() > 0 = ""
+    s
+}
+"#,
+    );
+    assert!(
+        errs.iter().any(|(code, _)| *code == ErrorCode::R0001),
+        "expected R0001, got: {errs:?}"
+    );
+}
+
+#[test]
+fn refinement_type_display() {
+    // Verify Display impl shows "Int when <predicate>"
+    let ty = Ty::Refined(
+        Box::new(Ty::Int),
+        "self".into(),
+        Box::new(spore_parser::ast::Expr::BoolLit(true)),
+    );
+    let display = format!("{ty}");
+    assert_eq!(display, "Int when <predicate>");
+}
+
+#[test]
+fn refinement_fn_param_with_refined_type() {
+    // Function with refined parameter type should typecheck
+    check_ok(
+        r#"
+fn positive(x: Int when self > 0) -> Int { x }
+fn f() -> Int { positive(5) }
+"#,
+    );
+}

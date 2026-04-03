@@ -476,6 +476,23 @@ impl Parser {
     // ── Type expressions ────────────────────────────────────────────
 
     fn parse_type_expr(&mut self) -> Result<TypeExpr, ParseError> {
+        let base = self.parse_type_expr_base()?;
+        // Check for refinement: `Type when predicate`
+        if self.at(&Token::When) {
+            self.advance();
+            let pred = self.parse_expr()?;
+            // Use "self" as the default binding variable name
+            Ok(TypeExpr::Refinement(
+                Box::new(base),
+                "self".into(),
+                Box::new(pred),
+            ))
+        } else {
+            Ok(base)
+        }
+    }
+
+    fn parse_type_expr_base(&mut self) -> Result<TypeExpr, ParseError> {
         match self.peek().clone() {
             Token::Self_ => {
                 self.advance();
@@ -1057,6 +1074,12 @@ impl Parser {
                 } else {
                     Ok(Expr::Var(name))
                 }
+            }
+
+            // `self` as expression (e.g., in refinement predicates)
+            Token::Self_ => {
+                self.advance();
+                Ok(Expr::Var("self".into()))
             }
 
             _ => Err(self.error(format!("expected expression, found {:?}", self.peek()))),

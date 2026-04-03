@@ -95,11 +95,12 @@ fn test_identifiers() {
 #[test]
 fn test_keywords() {
     assert_eq!(
-        toks_no_eof("fn let if else match return"),
+        toks_no_eof("fn let if when else match return"),
         vec![
             Token::Fn,
             Token::Let,
             Token::If,
+            Token::When,
             Token::Else,
             Token::Match,
             Token::Return

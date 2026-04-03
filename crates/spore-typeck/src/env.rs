@@ -83,4 +83,6 @@ pub struct TypeRegistry {
     /// Trait implementations: (capability_name, type_name) → method impls: [(method_name, param_types, return_type)]
     #[allow(clippy::type_complexity)]
     pub impls: HashMap<(String, String), Vec<(String, Vec<Ty>, Ty)>>,
+    /// Type aliases: name → resolved Ty (supports refinement aliases like `alias Port = Int when ...`)
+    pub type_aliases: HashMap<String, Ty>,
 }

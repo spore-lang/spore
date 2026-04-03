@@ -1,6 +1,7 @@
 //! Internal type representation for Spore's type checker.
 
 use std::collections::BTreeSet;
+use std::fmt;
 
 /// A set of capabilities (effects) required by a function.
 pub type CapSet = BTreeSet<String>;
@@ -10,7 +11,7 @@ pub type ErrorSet = BTreeSet<String>;
 
 /// The internal type representation used during type checking.
 /// This is separate from the AST's `TypeExpr` — resolved and normalized.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Ty {
     /// Primitive types
     Int,
@@ -44,6 +45,10 @@ pub enum Ty {
     /// Anonymous record type: `{ x: Int, y: Int }`
     Record(Vec<(String, Ty)>),
 
+    /// Refinement type: base type with decidable predicate.
+    /// L0 only supports: comparisons, arithmetic on constants, len(), boolean connectives.
+    Refined(Box<Ty>, String, Box<spore_parser::ast::Expr>),
+
     /// Error sentinel — allows type checking to continue after errors
     Error,
 }
@@ -58,10 +63,45 @@ impl Ty {
     pub fn is_error(&self) -> bool {
         matches!(self, Ty::Error)
     }
+
+    /// Extract the base type, stripping refinement if present.
+    pub fn base_type(&self) -> &Ty {
+        match self {
+            Ty::Refined(base, _, _) => base.base_type(),
+            other => other,
+        }
+    }
 }
 
-impl std::fmt::Display for Ty {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl PartialEq for Ty {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Ty::Int, Ty::Int)
+            | (Ty::Float, Ty::Float)
+            | (Ty::Bool, Ty::Bool)
+            | (Ty::Str, Ty::Str)
+            | (Ty::Char, Ty::Char)
+            | (Ty::Unit, Ty::Unit)
+            | (Ty::Never, Ty::Never)
+            | (Ty::Error, Ty::Error) => true,
+            (Ty::Named(a), Ty::Named(b)) => a == b,
+            (Ty::App(n1, a1), Ty::App(n2, a2)) => n1 == n2 && a1 == a2,
+            (Ty::Tuple(a), Ty::Tuple(b)) => a == b,
+            (Ty::Fn(p1, r1, c1), Ty::Fn(p2, r2, c2)) => p1 == p2 && r1 == r2 && c1 == c2,
+            (Ty::Var(a), Ty::Var(b)) => a == b,
+            (Ty::Hole(a), Ty::Hole(b)) => a == b,
+            (Ty::Record(a), Ty::Record(b)) => a == b,
+            // Refined types: compare base and var name only (predicates checked separately)
+            (Ty::Refined(b1, v1, _), Ty::Refined(b2, v2, _)) => b1 == b2 && v1 == v2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Ty {}
+
+impl fmt::Display for Ty {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Ty::Int => write!(f, "Int"),
             Ty::Float => write!(f, "Float"),
@@ -118,6 +158,7 @@ impl std::fmt::Display for Ty {
             }
             Ty::Var(id) => write!(f, "?T{id}"),
             Ty::Hole(name) => write!(f, "?{name}"),
+            Ty::Refined(base, _var, _pred) => write!(f, "{base} when <predicate>"),
             Ty::Error => write!(f, "<error>"),
         }
     }
