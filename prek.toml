@@ -16,7 +16,7 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/tombi-toml/tombi-pre-commit"
-rev = "v0.7.0"
+rev = "v0.7.27"
 hooks = [
   { id = "tombi-format", exclude = "^Cargo\\.lock$" },
   { id = "tombi-lint" },
@@ -34,4 +34,25 @@ repo = "https://github.com/zrr1999/zendev"
 rev = "v0.0.4"
 hooks = [
   { id = "zendev-commit-msg" },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  {
+    id = "cargo-fmt",
+    name = "cargo-fmt",
+    entry = "cargo fmt --all --",
+    language = "system",
+    types = ["rust"],
+    pass_filenames = false
+  },
+  {
+    id = "cargo-clippy",
+    name = "cargo-clippy",
+    entry = "cargo clippy --all-targets -- -D warnings",
+    language = "system",
+    types = ["rust"],
+    pass_filenames = false
+  },
 ]
