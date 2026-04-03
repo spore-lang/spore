@@ -974,6 +974,43 @@ impl Interpreter {
                 Ok(Some(Value::Int(a.max(b))))
             }
 
+            // ── List concat ──────────────────────────────────────
+            "concat" => {
+                let a = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("concat: missing first list"))?
+                    .as_list()
+                    .map_err(|e| RuntimeError::new(format!("concat: {e}")))?
+                    .clone();
+                let b = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("concat: missing second list"))?
+                    .as_list()
+                    .map_err(|e| RuntimeError::new(format!("concat: {e}")))?;
+                let mut result = a;
+                result.extend(b.iter().cloned());
+                Ok(Some(Value::List(result)))
+            }
+
+            // ── String index_of ──────────────────────────────────
+            "string_index_of" => {
+                let haystack = args
+                    .first()
+                    .ok_or_else(|| RuntimeError::new("string_index_of: missing string"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("string_index_of: expected String"))?
+                    .to_string();
+                let needle = args
+                    .get(1)
+                    .ok_or_else(|| RuntimeError::new("string_index_of: missing needle"))?
+                    .as_str()
+                    .ok_or_else(|| RuntimeError::new("string_index_of: needle must be String"))?;
+                match haystack.find(needle) {
+                    Some(pos) => Ok(Some(Value::Int(pos as i64))),
+                    None => Ok(Some(Value::Int(-1))),
+                }
+            }
+
             // ── IO operations are dispatched through effect handlers ──
             // (print, println, read_line are handled by CliPlatformHandler)
             _ => Ok(None),
