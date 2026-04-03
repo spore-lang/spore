@@ -346,6 +346,11 @@ impl Lowering {
                     HirExpr::StrLit(String::new()) // empty select → unit-like
                 }
             }
+            ast::Expr::Placeholder => {
+                unreachable!(
+                    "`_` placeholder should have been desugared into a lambda by the parser"
+                )
+            }
         }
     }
 

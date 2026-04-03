@@ -176,6 +176,11 @@ pub enum Expr {
     },
     /// `select { val from rx => body, ... }`
     Select(Vec<SelectArm>),
+    /// Placeholder for partial application — desugared to lambda parameter.
+    /// `f(_, 2)` desugars to `|_p0| f(_p0, 2)`.
+    /// Should never reach codegen; the parser rewrites calls containing
+    /// placeholders into `Lambda(params, Call(...))`.
+    Placeholder,
 }
 
 /// A single arm of a `select` expression.

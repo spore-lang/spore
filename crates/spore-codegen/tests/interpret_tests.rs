@@ -486,3 +486,82 @@ fn test_each() {
     let v = run_main(r#"fn main() -> Unit { each([1, 2, 3], |x: Int| println(to_string(x))) }"#);
     assert_eq!(v.to_string(), "()");
 }
+
+// ── Placeholder partial application ─────────────────────────────────────
+
+#[test]
+fn test_placeholder_single() {
+    // `add(_, 5)` creates a unary closure; calling it with 3 yields 8
+    let v = run_main(
+        r#"
+        fn add(a: Int, b: Int) -> Int { a + b }
+        fn main() -> Int {
+            let add5 = add(_, 5)
+            add5(3)
+        }
+    "#,
+    );
+    assert_eq!(v.as_int(), Some(8));
+}
+
+#[test]
+fn test_placeholder_multi() {
+    // `sub(_, _)` with two placeholders creates a binary closure
+    let v = run_main(
+        r#"
+        fn sub(a: Int, b: Int) -> Int { a - b }
+        fn main() -> Int {
+            let f = sub(_, _)
+            f(1, 2)
+        }
+    "#,
+    );
+    assert_eq!(v.as_int(), Some(-1));
+}
+
+#[test]
+fn test_placeholder_pipe() {
+    // `5 |> add(_, 3)` desugars rhs to a closure, then pipe calls it with 5
+    let v = run_main(
+        r#"
+        fn add(a: Int, b: Int) -> Int { a + b }
+        fn main() -> Int {
+            5 |> add(_, 3)
+        }
+    "#,
+    );
+    assert_eq!(v.as_int(), Some(8));
+}
+
+#[test]
+fn test_placeholder_nested_calls() {
+    // Nested partial application with composition
+    let v = run_main(
+        r#"
+        fn add(a: Int, b: Int) -> Int { a + b }
+        fn mul(a: Int, b: Int) -> Int { a * b }
+        fn main() -> Int {
+            let f = add(_, 10)
+            let g = mul(_, 3)
+            f(g(2))
+        }
+    "#,
+    );
+    // mul(2, 3) = 6, add(6, 10) = 16
+    assert_eq!(v.as_int(), Some(16));
+}
+
+#[test]
+fn test_placeholder_pipe_chain() {
+    let v = run_main(
+        r#"
+        fn add(a: Int, b: Int) -> Int { a + b }
+        fn mul(a: Int, b: Int) -> Int { a * b }
+        fn main() -> Int {
+            1 |> add(_, 2) |> mul(_, 3)
+        }
+    "#,
+    );
+    // add(1, 2) = 3, mul(3, 3) = 9
+    assert_eq!(v.as_int(), Some(9));
+}

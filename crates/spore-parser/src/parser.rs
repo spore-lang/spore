@@ -78,6 +78,41 @@ fn token_to_unaryop(tok: &Token) -> Option<UnaryOp> {
     })
 }
 
+// ── Placeholder desugaring ───────────────────────────────────────────────
+
+/// If any argument is `Expr::Placeholder`, rewrite the call into a lambda:
+///
+///   `f(a, _, c, _)` → `|_p0: _, _p1: _| f(a, _p0, c, _p1)`
+///
+/// Only inspects the immediate argument list (not nested calls).
+fn desugar_placeholder_call(callee: Box<Expr>, args: Vec<Expr>) -> Expr {
+    let has_placeholder = args.iter().any(|a| matches!(a, Expr::Placeholder));
+    if !has_placeholder {
+        return Expr::Call(callee, args);
+    }
+
+    let mut counter = 0usize;
+    let mut params = Vec::new();
+    let new_args: Vec<Expr> = args
+        .into_iter()
+        .map(|a| {
+            if matches!(a, Expr::Placeholder) {
+                let name = format!("_p{counter}");
+                counter += 1;
+                params.push(Param {
+                    name: name.clone(),
+                    ty: TypeExpr::Named("_".to_string()),
+                });
+                Expr::Var(name)
+            } else {
+                a
+            }
+        })
+        .collect();
+
+    Expr::Lambda(params, Box::new(Expr::Call(callee, new_args)))
+}
+
 // ── Parser ───────────────────────────────────────────────────────────────
 
 pub struct Parser {
@@ -818,7 +853,7 @@ impl Parser {
                             let args = self.parse_comma_sep(|p| p.parse_expr(), &Token::RParen)?;
                             self.expect(&Token::RParen)?;
                             let callee = Expr::FieldAccess(Box::new(lhs), field);
-                            lhs = Expr::Call(Box::new(callee), args);
+                            lhs = desugar_placeholder_call(Box::new(callee), args);
                         } else {
                             lhs = Expr::FieldAccess(Box::new(lhs), field);
                         }
@@ -828,7 +863,7 @@ impl Parser {
                         self.advance();
                         let args = self.parse_comma_sep(|p| p.parse_expr(), &Token::RParen)?;
                         self.expect(&Token::RParen)?;
-                        lhs = Expr::Call(Box::new(lhs), args);
+                        lhs = desugar_placeholder_call(Box::new(lhs), args);
                     }
                     Token::LBracket => {
                         // generic instantiation call: `foo[T](args)` — parse [T] as generic
@@ -1051,6 +1086,12 @@ impl Parser {
 
             // Select expression
             Token::Select => self.parse_select_expr(),
+
+            // Placeholder `_` in expression position (partial application)
+            Token::Ident(ref name) if name == "_" => {
+                self.advance();
+                Ok(Expr::Placeholder)
+            }
 
             // Identifier (variable or struct literal or call)
             Token::Ident(name) => {

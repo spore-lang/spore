@@ -951,6 +951,12 @@ impl Checker {
                 }
                 result_ty.unwrap_or(Ty::Unit)
             }
+
+            Expr::Placeholder => {
+                unreachable!(
+                    "`_` placeholder should have been desugared into a lambda by the parser"
+                )
+            }
         }
     }
 
