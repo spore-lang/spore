@@ -94,6 +94,8 @@ impl ModuleInterface {
 #[derive(Debug, Clone, Default)]
 pub struct ModuleRegistry {
     modules: HashMap<String, ModuleInterface>,
+    /// Track module dependencies for cycle detection: module → [modules it imports from].
+    dependencies: HashMap<String, Vec<String>>,
 }
 
 impl ModuleRegistry {
@@ -105,6 +107,64 @@ impl ModuleRegistry {
     pub fn register(&mut self, module: ModuleInterface) {
         let key = module.qualified_name();
         self.modules.insert(key, module);
+    }
+
+    /// Record that `importing_module` depends on `imported_module`.
+    pub fn record_dependency(&mut self, importing_module: &str, imported_module: &str) {
+        self.dependencies
+            .entry(importing_module.to_string())
+            .or_default()
+            .push(imported_module.to_string());
+    }
+
+    /// Check for circular dependencies and return any cycles found.
+    ///
+    /// Uses DFS with temporary (in-stack) and permanent (visited) marks.
+    pub fn detect_cycles(&self) -> Vec<Vec<String>> {
+        let mut visited: HashSet<String> = HashSet::new();
+        let mut in_stack: HashSet<String> = HashSet::new();
+        let mut cycles: Vec<Vec<String>> = Vec::new();
+        let mut stack: Vec<String> = Vec::new();
+
+        let mut all_modules: Vec<&String> = self.dependencies.keys().collect();
+        all_modules.sort(); // deterministic order
+        for module in all_modules {
+            if !visited.contains(module) {
+                self.dfs_detect(module, &mut visited, &mut in_stack, &mut stack, &mut cycles);
+            }
+        }
+        cycles
+    }
+
+    fn dfs_detect(
+        &self,
+        node: &str,
+        visited: &mut HashSet<String>,
+        in_stack: &mut HashSet<String>,
+        stack: &mut Vec<String>,
+        cycles: &mut Vec<Vec<String>>,
+    ) {
+        visited.insert(node.to_string());
+        in_stack.insert(node.to_string());
+        stack.push(node.to_string());
+
+        if let Some(deps) = self.dependencies.get(node) {
+            for dep in deps {
+                if !visited.contains(dep.as_str()) {
+                    self.dfs_detect(dep, visited, in_stack, stack, cycles);
+                } else if in_stack.contains(dep.as_str()) {
+                    // Found a cycle — extract the cycle path from the stack
+                    if let Some(pos) = stack.iter().position(|n| n == dep) {
+                        let mut cycle: Vec<String> = stack[pos..].to_vec();
+                        cycle.push(dep.clone()); // close the cycle
+                        cycles.push(cycle);
+                    }
+                }
+            }
+        }
+
+        stack.pop();
+        in_stack.remove(node);
     }
 
     /// Look up a module by its path segments.
@@ -281,6 +341,7 @@ pub enum ModuleError {
     ModuleNotFound(String),
     SymbolNotFound { module: String, symbol: String },
     PrivateSymbol { module: String, symbol: String },
+    CircularDependency(Vec<String>),
 }
 
 impl std::fmt::Display for ModuleError {
@@ -295,6 +356,9 @@ impl std::fmt::Display for ModuleError {
                     f,
                     "symbol `{symbol}` in module `{module}` is private and not accessible"
                 )
+            }
+            ModuleError::CircularDependency(cycle) => {
+                write!(f, "circular module dependency: {}", cycle.join(" -> "))
             }
         }
     }
@@ -406,5 +470,54 @@ mod tests {
         // pub(pkg) is accessible (same package assumed for now)
         let result = reg.resolve_import(&["Lib".into()], &["internal".into()]);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn detect_cycle_a_imports_b_imports_a() {
+        let mut reg = ModuleRegistry::new();
+        reg.record_dependency("A", "B");
+        reg.record_dependency("B", "A");
+        let cycles = reg.detect_cycles();
+        assert!(!cycles.is_empty(), "expected a cycle between A and B");
+        let cycle = &cycles[0];
+        assert!(
+            cycle.first() == cycle.last(),
+            "cycle should close on itself"
+        );
+    }
+
+    #[test]
+    fn detect_cycle_three_modules() {
+        let mut reg = ModuleRegistry::new();
+        reg.record_dependency("A", "B");
+        reg.record_dependency("B", "C");
+        reg.record_dependency("C", "A");
+        let cycles = reg.detect_cycles();
+        assert!(!cycles.is_empty(), "expected a cycle among A, B, C");
+        let cycle = &cycles[0];
+        assert!(
+            cycle.first() == cycle.last(),
+            "cycle should close on itself"
+        );
+        assert!(cycle.len() == 4, "cycle path should be [A, B, C, A]");
+    }
+
+    #[test]
+    fn no_cycle_linear_chain() {
+        let mut reg = ModuleRegistry::new();
+        reg.record_dependency("A", "B");
+        reg.record_dependency("B", "C");
+        let cycles = reg.detect_cycles();
+        assert!(cycles.is_empty(), "expected no cycles in a linear chain");
+    }
+
+    #[test]
+    fn detect_self_import_cycle() {
+        let mut reg = ModuleRegistry::new();
+        reg.record_dependency("A", "A");
+        let cycles = reg.detect_cycles();
+        assert!(!cycles.is_empty(), "expected a self-import cycle");
+        let cycle = &cycles[0];
+        assert_eq!(cycle, &vec!["A".to_string(), "A".to_string()]);
     }
 }

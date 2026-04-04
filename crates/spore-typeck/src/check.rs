@@ -26,6 +26,8 @@ pub struct Checker {
     current_errors: ErrorSet,
     /// Name of the function currently being checked.
     current_function: String,
+    /// Name of the module currently being checked.
+    current_module_name: String,
     /// Declared return type of the current function (for hole inference).
     expected_return_type: Option<Ty>,
     /// Next type variable ID for fresh type variables.
@@ -47,6 +49,7 @@ impl Checker {
             current_caps: CapSet::new(),
             current_errors: ErrorSet::new(),
             current_function: String::new(),
+            current_module_name: String::new(),
             expected_return_type: None,
             next_var_id: 0,
             substitution: HashMap::new(),
@@ -65,6 +68,7 @@ impl Checker {
             current_caps: CapSet::new(),
             current_errors: ErrorSet::new(),
             current_function: String::new(),
+            current_module_name: String::new(),
             expected_return_type: None,
             next_var_id: 0,
             substitution: HashMap::new(),
@@ -74,6 +78,7 @@ impl Checker {
 
     /// Type-check an entire module.
     pub fn check_module(&mut self, module: &Module) {
+        self.current_module_name = module.name.clone();
         // First pass: register all top-level declarations
         for item in &module.items {
             self.register_item(item);
@@ -83,6 +88,13 @@ impl Checker {
             if let Item::Import(import) = item {
                 self.resolve_import(import);
             }
+        }
+        // Check for circular module dependencies
+        for cycle in self.module_registry.detect_cycles() {
+            self.err(
+                ErrorCode::M0101,
+                format!("circular module dependency: {}", cycle.join(" -> ")),
+            );
         }
         // Second pass: check function bodies
         for item in &module.items {
@@ -113,6 +125,8 @@ impl Checker {
                     .resolve_import(&path_segments, &all_names)
                 {
                     Ok(resolved) => {
+                        self.module_registry
+                            .record_dependency(&self.current_module_name, path);
                         self.import_resolved_symbols(&module, &resolved, alias);
                     }
                     Err(ModuleError::PrivateSymbol { symbol, module: m }) => {
@@ -132,6 +146,12 @@ impl Checker {
                     Err(ModuleError::ModuleNotFound(m)) => {
                         self.err(ErrorCode::M0001, format!("module `{m}` not found"));
                     }
+                    Err(ModuleError::CircularDependency(cycle)) => {
+                        self.err(
+                            ErrorCode::M0101,
+                            format!("circular module dependency: {}", cycle.join(" -> ")),
+                        );
+                    }
                 }
                 let _ = alias; // alias available for qualified access
             }
@@ -150,6 +170,8 @@ impl Checker {
                     .resolve_import(&path_segments, &all_names)
                 {
                     Ok(resolved) => {
+                        self.module_registry
+                            .record_dependency(&self.current_module_name, path);
                         self.import_resolved_symbols(&module, &resolved, name);
                     }
                     Err(ModuleError::PrivateSymbol { symbol, module: m }) => {
@@ -168,6 +190,12 @@ impl Checker {
                     }
                     Err(ModuleError::ModuleNotFound(m)) => {
                         self.err(ErrorCode::M0001, format!("module `{m}` not found"));
+                    }
+                    Err(ModuleError::CircularDependency(cycle)) => {
+                        self.err(
+                            ErrorCode::M0101,
+                            format!("circular module dependency: {}", cycle.join(" -> ")),
+                        );
                     }
                 }
             }
