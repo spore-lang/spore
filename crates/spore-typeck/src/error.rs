@@ -189,6 +189,8 @@ impl ErrorCode {
             W0101 | W0102 | W0103 | W0104 | W0201 | W0202 | W0301 | W0302 | W0401 | W0402 => {
                 Severity::Warning
             }
+            // Cost budget diagnostics are warnings (SEP-0004)
+            K0101 | K0102 | K0001 => Severity::Warning,
             // Hole diagnostics are informational
             H0101 | H0102 | H0103 | H0201 | H0202 | H0203 | H0301 | H0302 => Severity::Info,
             // Everything else is an error
@@ -537,9 +539,12 @@ mod tests {
 
     #[test]
     fn severity_correct_for_each_category() {
+        // K0101, K0102, K0001 are warnings per SEP-0004
+        let cost_warning_codes: std::collections::HashSet<&str> =
+            ["K0101", "K0102", "K0001"].into_iter().collect();
         for code in all_error_codes() {
             let s = code.to_string();
-            let expected = if s.starts_with('W') {
+            let expected = if s.starts_with('W') || cost_warning_codes.contains(s.as_str()) {
                 Severity::Warning
             } else if s.starts_with('H') {
                 Severity::Info

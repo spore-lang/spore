@@ -44,10 +44,11 @@ fn usage() -> ExitCode {
     eprintln!("  help             Show this help message");
     eprintln!();
     eprintln!("OPTIONS:");
-    eprintln!("  --json           Output results as JSON (run, check, watch)");
-    eprintln!("  --verbose        Show detailed type inference and cost info (check)");
-    eprintln!("  -V, --version    Print version");
-    eprintln!("  -h, --help       Print help");
+    eprintln!("  --json             Output results as JSON (run, check, watch)");
+    eprintln!("  --verbose          Show detailed type inference and cost info (check)");
+    eprintln!("  --deny-warnings    Treat warnings as errors (check)");
+    eprintln!("  -V, --version      Print version");
+    eprintln!("  -h, --help         Print help");
     ExitCode::FAILURE
 }
 
@@ -102,6 +103,7 @@ fn cmd_check(args: &[String]) -> ExitCode {
         .collect();
     let json_output = args.iter().any(|a| a == "--json");
     let verbose = args.iter().any(|a| a == "--verbose");
+    let deny_warnings = args.iter().any(|a| a == "--deny-warnings");
 
     if files.is_empty() {
         eprintln!("error: missing file argument");
@@ -111,7 +113,11 @@ fn cmd_check(args: &[String]) -> ExitCode {
     // Multi-file check
     if files.len() > 1 {
         match sporec::compile_files(&files) {
-            Ok(()) => {
+            Ok(output) => {
+                print_warnings(&output.warnings, json_output);
+                if deny_warnings && !output.warnings.is_empty() {
+                    return ExitCode::FAILURE;
+                }
                 if json_output {
                     println!("{{\"status\":\"ok\",\"errors\":[]}}");
                 } else {
@@ -149,7 +155,11 @@ fn cmd_check(args: &[String]) -> ExitCode {
             }
         } else {
             match sporec::compile(&source) {
-                Ok(()) => {
+                Ok(output) => {
+                    print_warnings(&output.warnings, json_output);
+                    if deny_warnings && !output.warnings.is_empty() {
+                        return ExitCode::FAILURE;
+                    }
                     if json_output {
                         println!("{{\"status\":\"ok\",\"errors\":[]}}");
                     } else {
@@ -167,6 +177,18 @@ fn cmd_check(args: &[String]) -> ExitCode {
                     ExitCode::FAILURE
                 }
             }
+        }
+    }
+}
+
+/// Print warnings to stderr (or as JSON to stdout).
+fn print_warnings(warnings: &[String], json: bool) {
+    for w in warnings {
+        if json {
+            let escaped = escape_json(w);
+            println!("{{\"severity\":\"warning\",\"message\":\"{escaped}\"}}");
+        } else {
+            eprintln!("warning: {w}");
         }
     }
 }
@@ -266,7 +288,10 @@ fn cmd_build(args: &[String]) -> ExitCode {
     };
 
     match sporec::compile(&source) {
-        Ok(()) => {
+        Ok(output) => {
+            for w in &output.warnings {
+                eprintln!("warning: {w}");
+            }
             println!("✓ compiled successfully (interpreter mode — no binary output yet)");
             ExitCode::SUCCESS
         }
@@ -327,7 +352,18 @@ fn cmd_watch(args: &[String]) -> ExitCode {
 fn check_and_report(path: &str, source: &str, json: bool) {
     let ts = timestamp();
     match sporec::compile(source) {
-        Ok(()) => {
+        Ok(output) => {
+            // Emit warnings
+            for w in &output.warnings {
+                if json {
+                    let escaped = escape_json(w);
+                    println!(
+                        "{{\"event\":\"warning\",\"file\":\"{path}\",\"message\":\"{escaped}\",\"timestamp\":{ts}}}"
+                    );
+                } else {
+                    eprintln!("[{ts}] warning: {w}");
+                }
+            }
             if json {
                 println!(
                     "{{\"event\":\"compile_result\",\"file\":\"{path}\",\"status\":\"ok\",\"errors\":[],\"timestamp\":{ts}}}"

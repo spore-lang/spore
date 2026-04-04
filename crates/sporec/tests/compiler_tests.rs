@@ -112,3 +112,45 @@ fn compile_error_uses_new_codes() {
         "should not contain old 3-digit code"
     );
 }
+
+// ── Cost enforcement tests ──────────────────────────────────────────
+
+#[test]
+fn cost_violation_emits_warning_not_error() {
+    // A function that declares cost <= 2 but calls expensive(cost=100) twice
+    // should succeed (warnings are not errors) but include a K0101 warning.
+    let output = compile(
+        r#"
+        fn expensive(x: Int) -> Int cost <= 100 { x + x }
+        fn cheap(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
+    "#,
+    )
+    .expect("cost violations should be warnings, not errors");
+    assert!(
+        output.warnings.iter().any(|w| w.contains("K0101")),
+        "expected K0101 warning, got warnings: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn no_cost_annotation_no_warning() {
+    // A function with no cost annotation should produce no warnings.
+    let output = compile("fn f(x: Int) -> Int { x + x }").unwrap();
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings for unannotated function, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn cost_within_budget_no_warning() {
+    // A function whose inferred cost fits within the budget.
+    let output = compile("fn f(x: Int) -> Int cost <= 1000 { x + x }").unwrap();
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings when within budget, got: {:?}",
+        output.warnings
+    );
+}

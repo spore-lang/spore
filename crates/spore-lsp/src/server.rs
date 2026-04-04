@@ -182,7 +182,24 @@ impl Default for LspServer {
 /// Returns a `Vec<Value>` of LSP Diagnostic objects.
 pub fn build_diagnostics(source: &str) -> Vec<Value> {
     match sporec::compile(source) {
-        Ok(()) => vec![],
+        Ok(output) => {
+            // Emit cost warnings as LSP Warning diagnostics (severity 2)
+            output
+                .warnings
+                .iter()
+                .map(|w| {
+                    json!({
+                        "range": {
+                            "start": { "line": 0, "character": 0 },
+                            "end": { "line": 0, "character": 0 }
+                        },
+                        "severity": 2,
+                        "source": "spore",
+                        "message": w
+                    })
+                })
+                .collect()
+        }
         Err(err_msg) => err_msg
             .lines()
             .filter(|line| !line.is_empty())
