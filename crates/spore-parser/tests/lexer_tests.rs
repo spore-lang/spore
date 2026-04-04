@@ -538,3 +538,13 @@ fn test_tstring_no_interpolation() {
         vec![Token::TStr(vec![TemplatePart::Lit("plain text".into())])]
     );
 }
+
+// ── Foreign keyword ──────────────────────────────────────────────────────
+
+#[test]
+fn test_foreign_keyword() {
+    assert_eq!(
+        toks_no_eof("foreign fn malloc"),
+        vec![Token::Foreign, Token::Fn, Token::Ident("malloc".into())]
+    );
+}

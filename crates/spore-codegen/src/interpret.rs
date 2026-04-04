@@ -168,6 +168,9 @@ impl Interpreter {
 
         match &func.body {
             Some(body) => self.eval(body, &mut env),
+            None if func.is_foreign => Err(RuntimeError::new(format!(
+                "foreign function `{name}` is not available in interpreter mode"
+            ))),
             None => Err(RuntimeError::new(format!(
                 "function `{name}` has no body (hole)"
             ))),

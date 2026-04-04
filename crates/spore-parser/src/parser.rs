@@ -215,7 +215,7 @@ impl Parser {
 
     fn parse_item(&mut self) -> Result<Item, ParseError> {
         match self.peek() {
-            Token::Fn | Token::Pub => self.parse_fn_or_const_or_alias_item(),
+            Token::Fn | Token::Pub | Token::Foreign => self.parse_fn_or_const_or_alias_item(),
             Token::Const => self.parse_const_item(),
             Token::Struct => self.parse_struct_item(),
             Token::Type => self.parse_type_item(),
@@ -258,6 +258,13 @@ impl Parser {
                 lookahead += 1; // `pkg`
                 lookahead += 1; // `)`
             }
+        }
+        // Skip optional `foreign` keyword
+        if matches!(
+            self.tokens.get(lookahead).map(|t| &t.node),
+            Some(Token::Foreign)
+        ) {
+            lookahead += 1;
         }
         if matches!(
             self.tokens.get(lookahead).map(|t| &t.node),
@@ -310,6 +317,14 @@ impl Parser {
     fn parse_fn_def(&mut self) -> Result<FnDef, ParseError> {
         // optional visibility
         let visibility = self.parse_visibility()?;
+
+        // optional `foreign` keyword
+        let is_foreign = if self.at(&Token::Foreign) {
+            self.advance();
+            true
+        } else {
+            false
+        };
 
         self.expect(&Token::Fn)?;
         let name = self.expect_ident()?;
@@ -387,6 +402,7 @@ impl Parser {
             cost_clause,
             uses_clause,
             is_unbounded: false,
+            is_foreign,
             body,
         })
     }
