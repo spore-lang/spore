@@ -506,15 +506,42 @@ fn test_cost_structural_countdown() {
 #[test]
 fn cost_budget_exceeded_emits_k0001() {
     // Body has callee costs exceeding the declared budget of 2
-    let errs = check_err_with_codes(
+    // Cost violations are now warnings (SEP-0004), not errors
+    let module = parse(
         r#"
         fn expensive(x: Int) -> Int cost <= 100 { x + x }
         fn cheap(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
     "#,
-    );
+    )
+    .unwrap();
+    let result = type_check(&module).expect("cost violations should be warnings, not errors");
     assert!(
-        errs.iter().any(|e| e.0 == ErrorCode::K0001),
-        "expected K0001 for cost budget violation, got: {errs:?}"
+        result.warnings.iter().any(|w| w.code == ErrorCode::K0101),
+        "expected K0101 warning for cost budget violation, got warnings: {:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn no_cost_annotation_no_warning() {
+    // A function with no cost annotation should not produce any cost warnings
+    let module = parse("fn f(x: Int) -> Int { x + x }").unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        result.warnings.is_empty(),
+        "expected no warnings for unannotated function, got: {:?}",
+        result.warnings
+    );
+}
+
+#[test]
+fn cost_warning_severity_is_warning() {
+    // Verify K0101 has Warning severity, not Error
+    use spore_typeck::error::Severity;
+    assert_eq!(
+        ErrorCode::K0101.severity(),
+        Severity::Warning,
+        "K0101 should be Warning severity per SEP-0004"
     );
 }
 
@@ -579,7 +606,7 @@ fn structural_recursion_still_detected() {
 
 #[test]
 fn sep0006_cost_violation_uses_k0xxx() {
-    // Verify K0001 code is used in display format
+    // Verify K0101 code is used for cost violations (SEP-0004: warnings)
     let module = parse(
         r#"
         fn expensive(x: Int) -> Int cost <= 100 { x + x }
@@ -587,16 +614,21 @@ fn sep0006_cost_violation_uses_k0xxx() {
     "#,
     )
     .unwrap();
-    let errs = type_check(&module).unwrap_err();
-    let k_errors: Vec<_> = errs.iter().filter(|e| e.code == ErrorCode::K0001).collect();
+    let result = type_check(&module).expect("cost violations should be warnings, not errors");
+    let k_warnings: Vec<_> = result
+        .warnings
+        .iter()
+        .filter(|w| w.code == ErrorCode::K0101)
+        .collect();
     assert!(
-        !k_errors.is_empty(),
-        "expected at least one K0001 error, got: {errs:?}"
+        !k_warnings.is_empty(),
+        "expected at least one K0101 warning, got: {:?}",
+        result.warnings
     );
-    let output = k_errors[0].to_string();
+    let output = k_warnings[0].to_string();
     assert!(
-        output.contains("[K0001]"),
-        "display should use [K0001] code, got: {output}"
+        output.contains("[K0101]"),
+        "display should use [K0101] code, got: {output}"
     );
 }
 

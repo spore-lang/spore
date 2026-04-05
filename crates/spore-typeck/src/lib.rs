@@ -32,6 +32,8 @@ pub struct CheckResult {
     pub hole_report: HoleReport,
     pub cost_results: HashMap<String, CostResult>,
     pub cost_vectors: HashMap<String, CostVector>,
+    /// Cost budget warnings (SEP-0004: violations are warnings, not errors).
+    pub warnings: Vec<TypeError>,
 }
 
 /// Lower an AST module to HIR.
@@ -62,10 +64,11 @@ pub fn type_check_with_registry(
     let mut cost_checker = CostChecker::new();
     cost_checker.check_all(&cost_analyzer);
 
-    // Convert cost budget violations into K0001 type errors
+    // Convert cost budget violations into K0101 warnings (SEP-0004)
+    let mut warnings = Vec::new();
     for (fn_name, declared, actual) in cost_analyzer.violations() {
-        checker.errors.push(TypeError::new(
-            ErrorCode::K0001,
+        warnings.push(TypeError::new(
+            ErrorCode::K0101,
             format!(
                 "function `{fn_name}` exceeds its declared cost budget: \
                  actual cost {actual} > declared bound {declared}"
@@ -78,6 +81,7 @@ pub fn type_check_with_registry(
             hole_report: checker.hole_report,
             cost_results: cost_analyzer.results().clone(),
             cost_vectors: cost_checker.costs,
+            warnings,
         })
     } else {
         Err(checker.errors)

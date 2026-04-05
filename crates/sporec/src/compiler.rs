@@ -5,26 +5,35 @@ use spore_typeck::CheckResult;
 use spore_typeck::module::ModuleRegistry;
 use spore_typeck::{type_check, type_check_with_registry};
 
+/// Warnings collected during compilation (cost budget violations, etc.).
+#[derive(Debug, Clone, Default)]
+pub struct CompileOutput {
+    pub warnings: Vec<String>,
+}
+
 /// Compile Spore source code to output.
 ///
 /// This is the core compiler pipeline:
 /// 1. Parse (source text → AST)
 /// 2. Type check (AST → Typed AST)
 /// 3. Code gen (Typed AST → native code)
-pub fn compile(source: &str) -> Result<(), String> {
+///
+/// Returns warnings (e.g. cost budget violations) on success.
+pub fn compile(source: &str) -> Result<CompileOutput, String> {
     let ast = parse(source).map_err(|errs| {
         errs.into_iter()
             .map(|e| e.to_string())
             .collect::<Vec<_>>()
             .join("\n")
     })?;
-    let _result = type_check(&ast).map_err(|errs| {
+    let result = type_check(&ast).map_err(|errs| {
         errs.into_iter()
             .map(|e| e.to_string())
             .collect::<Vec<_>>()
             .join("\n")
     })?;
-    Ok(())
+    let warnings = result.warnings.iter().map(|w| w.to_string()).collect();
+    Ok(CompileOutput { warnings })
 }
 
 /// Compile multiple Spore source files together with shared module resolution.
@@ -32,7 +41,9 @@ pub fn compile(source: &str) -> Result<(), String> {
 /// 1. Parses each source into an AST
 /// 2. Builds a ModuleRegistry from all modules
 /// 3. Type-checks each module with access to the shared registry
-pub fn compile_files(paths: &[&str]) -> Result<(), String> {
+///
+/// Returns warnings on success.
+pub fn compile_files(paths: &[&str]) -> Result<CompileOutput, String> {
     let mut modules = Vec::new();
 
     // Phase 1: Parse all files
@@ -55,16 +66,26 @@ pub fn compile_files(paths: &[&str]) -> Result<(), String> {
 
     // Phase 3: Type-check each module with the shared registry
     let mut all_errors = Vec::new();
+    let mut all_warnings = Vec::new();
     for (path, ast) in &modules {
-        if let Err(errs) = type_check_with_registry(ast, registry.clone()) {
-            for e in errs {
-                all_errors.push(format!("{path}: {e}"));
+        match type_check_with_registry(ast, registry.clone()) {
+            Ok(result) => {
+                for w in &result.warnings {
+                    all_warnings.push(format!("{path}: {w}"));
+                }
+            }
+            Err(errs) => {
+                for e in errs {
+                    all_errors.push(format!("{path}: {e}"));
+                }
             }
         }
     }
 
     if all_errors.is_empty() {
-        Ok(())
+        Ok(CompileOutput {
+            warnings: all_warnings,
+        })
     } else {
         Err(all_errors.join("\n"))
     }
@@ -159,6 +180,14 @@ fn format_verbose_result(result: &CheckResult) -> String {
                 "  {fn_name}: compute={}, alloc={}, io={}, parallel={}\n",
                 cv.compute, cv.alloc, cv.io, cv.parallel
             ));
+        }
+    }
+
+    // Cost warnings
+    if !result.warnings.is_empty() {
+        out.push_str("\n── Cost Warnings ──\n");
+        for w in &result.warnings {
+            out.push_str(&format!("  warning[{}]: {}\n", w.code, w.message));
         }
     }
 
