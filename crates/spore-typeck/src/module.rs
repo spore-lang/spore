@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use spore_parser::ast::Visibility;
 
-use crate::types::Ty;
+use crate::types::{CapSet, Ty};
 
 /// Visibility of an exported symbol.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,6 +285,9 @@ impl ModuleRegistry {
         prelude
             .functions
             .insert("toString".into(), (vec![Ty::Int], Ty::Str));
+        prelude
+            .functions
+            .insert("string_index_of".into(), (vec![Ty::Str, Ty::Str], Ty::Int));
 
         // ── Math builtins ────────────────────────────────────────
         prelude
@@ -298,16 +301,90 @@ impl ModuleRegistry {
             .insert("max".into(), (vec![Ty::Int, Ty::Int], Ty::Int));
 
         // ── List builtins ────────────────────────────────────────
+        // Use Ty::App("List", [Ty::Var(N)]) for generic list types.
+        // Var IDs are instantiated to fresh variables on each lookup.
+        let list_t = Ty::App("List".into(), vec![Ty::Var(0)]);
+        let list_u = Ty::App("List".into(), vec![Ty::Var(1)]);
+
         prelude
             .functions
-            .insert("len".into(), (vec![Ty::Named("List".into())], Ty::Int));
+            .insert("len".into(), (vec![list_t.clone()], Ty::Int));
         prelude.functions.insert(
             "range".into(),
-            (vec![Ty::Int, Ty::Int], Ty::Named("List".into())),
+            (
+                vec![Ty::Int, Ty::Int],
+                Ty::App("List".into(), vec![Ty::Int]),
+            ),
+        );
+        prelude
+            .functions
+            .insert("reverse".into(), (vec![list_t.clone()], list_t.clone()));
+        prelude.functions.insert(
+            "map".into(),
+            (
+                vec![
+                    list_t.clone(),
+                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Var(1)), CapSet::new()),
+                ],
+                list_u.clone(),
+            ),
         );
         prelude.functions.insert(
-            "reverse".into(),
-            (vec![Ty::Named("List".into())], Ty::Named("List".into())),
+            "filter".into(),
+            (
+                vec![
+                    list_t.clone(),
+                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Bool), CapSet::new()),
+                ],
+                list_t.clone(),
+            ),
+        );
+        prelude.functions.insert(
+            "fold".into(),
+            (
+                vec![
+                    list_t.clone(),
+                    Ty::Var(1),
+                    Ty::Fn(
+                        vec![Ty::Var(1), Ty::Var(0)],
+                        Box::new(Ty::Var(1)),
+                        CapSet::new(),
+                    ),
+                ],
+                Ty::Var(1),
+            ),
+        );
+        prelude.functions.insert(
+            "each".into(),
+            (
+                vec![
+                    list_t.clone(),
+                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Unit), CapSet::new()),
+                ],
+                Ty::Unit,
+            ),
+        );
+        prelude.functions.insert(
+            "append".into(),
+            (vec![list_t.clone(), Ty::Var(0)], list_t.clone()),
+        );
+        prelude.functions.insert(
+            "prepend".into(),
+            (vec![list_t.clone(), Ty::Var(0)], list_t.clone()),
+        );
+        prelude
+            .functions
+            .insert("head".into(), (vec![list_t.clone()], Ty::Var(0)));
+        prelude
+            .functions
+            .insert("tail".into(), (vec![list_t.clone()], list_t.clone()));
+        prelude.functions.insert(
+            "contains".into(),
+            (vec![list_t.clone(), Ty::Var(0)], Ty::Bool),
+        );
+        prelude.functions.insert(
+            "concat".into(),
+            (vec![list_t.clone(), list_t.clone()], list_t.clone()),
         );
 
         self.register(prelude);

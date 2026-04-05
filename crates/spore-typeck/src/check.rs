@@ -1183,13 +1183,87 @@ impl Checker {
     // ── Module registry lookup ──────────────────────────────────────
 
     /// Look up a function in the module registry (e.g. prelude builtins).
-    fn lookup_module_function(&self, name: &str) -> Option<(Vec<Ty>, Ty)> {
-        for module in self.module_registry.all_interfaces() {
-            if let Some((params, ret)) = module.functions.get(name) {
-                return Some((params.clone(), ret.clone()));
-            }
+    /// Instantiates fresh type variables for each `Ty::Var` in the signature
+    /// to avoid collisions with the checker's own variable counter.
+    fn lookup_module_function(&mut self, name: &str) -> Option<(Vec<Ty>, Ty)> {
+        // First pass: find the signature (immutable borrow of module_registry)
+        let found = self
+            .module_registry
+            .all_interfaces()
+            .find_map(|module| module.functions.get(name))
+            .map(|(params, ret)| (params.clone(), ret.clone()));
+
+        let (params, ret) = found?;
+
+        // Collect all Var IDs used in the signature
+        let mut var_ids = std::collections::BTreeSet::new();
+        for p in &params {
+            Self::collect_vars(p, &mut var_ids);
         }
-        None
+        Self::collect_vars(&ret, &mut var_ids);
+        if var_ids.is_empty() {
+            return Some((params, ret));
+        }
+        // Map old IDs → fresh variables (mutable borrow of self)
+        let mapping: std::collections::BTreeMap<u32, Ty> = var_ids
+            .into_iter()
+            .map(|id| (id, self.fresh_var()))
+            .collect();
+        let params = params
+            .iter()
+            .map(|t| Self::replace_vars(t, &mapping))
+            .collect();
+        let ret = Self::replace_vars(&ret, &mapping);
+        Some((params, ret))
+    }
+
+    /// Collect all `Ty::Var` IDs from a type.
+    fn collect_vars(ty: &Ty, ids: &mut std::collections::BTreeSet<u32>) {
+        match ty {
+            Ty::Var(id) => {
+                ids.insert(*id);
+            }
+            Ty::App(_, args) => {
+                for a in args {
+                    Self::collect_vars(a, ids);
+                }
+            }
+            Ty::Fn(params, ret, _) => {
+                for p in params {
+                    Self::collect_vars(p, ids);
+                }
+                Self::collect_vars(ret, ids);
+            }
+            Ty::Tuple(ts) => {
+                for t in ts {
+                    Self::collect_vars(t, ids);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Replace `Ty::Var` IDs according to a mapping.
+    fn replace_vars(ty: &Ty, mapping: &std::collections::BTreeMap<u32, Ty>) -> Ty {
+        match ty {
+            Ty::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
+            Ty::App(name, args) => Ty::App(
+                name.clone(),
+                args.iter()
+                    .map(|a| Self::replace_vars(a, mapping))
+                    .collect(),
+            ),
+            Ty::Fn(params, ret, caps) => Ty::Fn(
+                params
+                    .iter()
+                    .map(|p| Self::replace_vars(p, mapping))
+                    .collect(),
+                Box::new(Self::replace_vars(ret, mapping)),
+                caps.clone(),
+            ),
+            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| Self::replace_vars(t, mapping)).collect()),
+            _ => ty.clone(),
+        }
     }
 
     // ── Type resolution ─────────────────────────────────────────────
