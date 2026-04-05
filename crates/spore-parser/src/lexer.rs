@@ -91,6 +91,7 @@ pub enum Token {
     ParallelScope,
     From,
     Alias,
+    Foreign,
 
     // ── Operators ──
     Plus,
@@ -851,6 +852,7 @@ impl<'a> Lexer<'a> {
             "parallel_scope" => Token::ParallelScope,
             "from" => Token::From,
             "alias" => Token::Alias,
+            "foreign" => Token::Foreign,
             "true" => Token::Bool(true),
             "false" => Token::Bool(false),
             _ => Token::Ident(text.to_string()),

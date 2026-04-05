@@ -67,6 +67,8 @@ pub struct FnDef {
     pub uses_clause: Option<UsesClause>,
     /// `@unbounded` annotation — skip cost analysis.
     pub is_unbounded: bool,
+    /// `foreign fn` — implemented by host platform, no body.
+    pub is_foreign: bool,
     /// None means this is a hole (?name)
     pub body: Option<Expr>,
 }

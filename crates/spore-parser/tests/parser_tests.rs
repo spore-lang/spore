@@ -1035,3 +1035,50 @@ fn test_wildcard_in_match_unchanged() {
         _ => panic!("expected function"),
     }
 }
+
+// ── Foreign fn ───────────────────────────────────────────────────────────
+
+#[test]
+fn test_foreign_fn_basic() {
+    let m = parse_ok("foreign fn c_add(a: Int, b: Int) -> Int");
+    assert_eq!(m.items.len(), 1);
+    match &m.items[0] {
+        Item::Function(f) => {
+            assert_eq!(f.name, "c_add");
+            assert!(f.is_foreign);
+            assert!(f.body.is_none());
+            assert_eq!(f.params.len(), 2);
+            assert!(f.return_type.is_some());
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_foreign_fn_with_uses() {
+    let m = parse_ok("foreign fn read_file(path: String) -> String uses [FileRead]");
+    match &m.items[0] {
+        Item::Function(f) => {
+            assert_eq!(f.name, "read_file");
+            assert!(f.is_foreign);
+            assert!(f.body.is_none());
+            let uses = f.uses_clause.as_ref().unwrap();
+            assert_eq!(uses.resources, vec!["FileRead"]);
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_foreign_fn_no_return_type() {
+    let m = parse_ok("foreign fn log(msg: String)");
+    match &m.items[0] {
+        Item::Function(f) => {
+            assert_eq!(f.name, "log");
+            assert!(f.is_foreign);
+            assert!(f.body.is_none());
+            assert!(f.return_type.is_none());
+        }
+        _ => panic!("expected function"),
+    }
+}

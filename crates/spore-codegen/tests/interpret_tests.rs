@@ -565,3 +565,20 @@ fn test_placeholder_pipe_chain() {
     // add(1, 2) = 3, mul(3, 3) = 9
     assert_eq!(v.as_int(), Some(9));
 }
+
+// ── Foreign fn interpreter error ────────────────────────────────────────
+
+#[test]
+fn test_foreign_fn_runtime_error() {
+    let src = r#"
+        foreign fn read_file(path: String) -> String
+        fn main() -> String { read_file("test.txt") }
+    "#;
+    let module = parse(src).unwrap();
+    let err = spore_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("foreign function `read_file` is not available in interpreter mode"),
+        "unexpected error: {err}"
+    );
+}

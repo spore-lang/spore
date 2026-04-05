@@ -1643,3 +1643,24 @@ fn builtin_program_using_builtins() {
         "#,
     );
 }
+
+// ── Foreign fn type-checking ────────────────────────────────────────────
+
+#[test]
+fn test_foreign_fn_typechecks() {
+    check_ok(
+        r#"
+        foreign fn read_file(path: String) -> String uses [FileRead]
+        "#,
+    );
+}
+
+#[test]
+fn test_foreign_fn_callable_signature() {
+    check_ok(
+        r#"
+        foreign fn add(a: Int, b: Int) -> Int
+        fn main() -> Int { add(1, 2) }
+        "#,
+    );
+}
