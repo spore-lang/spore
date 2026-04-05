@@ -162,6 +162,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Return the first `char` starting at byte offset `pos`, or `'\0'` if
+    /// the slice is empty (should never happen when callers guard with a
+    /// bounds check, but avoids a panic on malformed input).
+    fn peek_char_at(&self, pos: usize) -> char {
+        self.source[pos..].chars().next().unwrap_or('\0')
+    }
+
     /// Tokenise the entire source, returning all tokens ending with `Eof`.
     pub fn tokenize(&mut self) -> Result<Vec<Spanned<Token>>, Vec<LexError>> {
         let mut tokens = Vec::new();
@@ -406,7 +413,7 @@ impl<'a> Lexer<'a> {
 
             _ => {
                 // Try to skip unknown UTF-8 char
-                let ch = self.source[start..].chars().next().unwrap();
+                let ch = self.peek_char_at(start);
                 self.pos = start + ch.len_utf8();
                 Err(LexError {
                     message: format!("unexpected character: '{ch}'"),
@@ -592,7 +599,7 @@ impl<'a> Lexer<'a> {
                 }
                 Some(_) => {
                     // Handle arbitrary UTF-8 chars
-                    let ch = self.source[self.pos..].chars().next().unwrap();
+                    let ch = self.peek_char_at(self.pos);
                     buf.push(ch);
                     self.pos += ch.len_utf8();
                 }
@@ -650,7 +657,7 @@ impl<'a> Lexer<'a> {
                 });
             }
             Some(_) => {
-                let c = self.source[self.pos..].chars().next().unwrap();
+                let c = self.peek_char_at(self.pos);
                 self.pos += c.len_utf8();
                 c
             }
@@ -686,7 +693,7 @@ impl<'a> Lexer<'a> {
                     break;
                 }
                 Some(_) => {
-                    let ch = self.source[self.pos..].chars().next().unwrap();
+                    let ch = self.peek_char_at(self.pos);
                     buf.push(ch);
                     self.pos += ch.len_utf8();
                 }
@@ -793,7 +800,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 Some(_) => {
-                    let ch = self.source[self.pos..].chars().next().unwrap();
+                    let ch = self.peek_char_at(self.pos);
                     buf.push(ch);
                     self.pos += ch.len_utf8();
                 }
