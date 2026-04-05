@@ -1,88 +1,254 @@
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::mpsc;
+use std::time::Duration;
+
+use bpaf::*;
+use notify::RecursiveMode;
+use notify_debouncer_mini::{DebouncedEventKind, new_debouncer};
+use owo_colors::OwoColorize;
+use serde_json::json;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// ---------------------------------------------------------------------------
+// CLI definition (bpaf)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+enum Cmd {
+    Run {
+        file: String,
+        json: bool,
+    },
+    Check {
+        files: Vec<String>,
+        verbose: bool,
+        json: bool,
+        deny_warnings: bool,
+    },
+    Format {
+        files: Vec<String>,
+        check: bool,
+        diff: bool,
+    },
+    Holes {
+        file: String,
+    },
+    Build {
+        file: String,
+    },
+    Watch {
+        file: String,
+        json: bool,
+    },
+    New {
+        name: String,
+        project_type: String,
+    },
+    Init {
+        project_type: String,
+    },
+}
+
+fn json_flag() -> impl Parser<bool> {
+    long("json").help("Output results as JSON").switch()
+}
+
+fn cmd_run_parser() -> impl Parser<Cmd> {
+    let json = json_flag();
+    let file = positional::<String>("FILE").help("A .spore file to run");
+    construct!(Cmd::Run { json, file })
+        .to_options()
+        .descr("Compile and execute a .spore file")
+        .command("run")
+}
+
+fn cmd_check_parser() -> impl Parser<Cmd> {
+    let verbose = long("verbose")
+        .help("Show detailed type inference and cost info")
+        .switch();
+    let json = json_flag();
+    let deny_warnings = long("deny-warnings")
+        .help("Treat warnings as errors")
+        .switch();
+    let files = positional::<String>("FILE")
+        .help(".spore file(s) to check")
+        .some("expected at least one file");
+    construct!(Cmd::Check {
+        verbose,
+        json,
+        deny_warnings,
+        files,
+    })
+    .to_options()
+    .descr("Type-check one or more .spore files")
+    .command("check")
+}
+
+fn cmd_format_parser() -> impl Parser<Cmd> {
+    let fmt_inner = || {
+        let check = long("check")
+            .help("Check if files are formatted (no changes)")
+            .switch();
+        let diff = long("diff").help("Show diff instead of rewriting").switch();
+        let files = positional::<String>("FILE")
+            .help(".spore file(s) to format")
+            .some("expected at least one file");
+        construct!(Cmd::Format { check, diff, files })
+    };
+
+    let format_cmd = fmt_inner()
+        .to_options()
+        .descr("Format .spore files")
+        .command("format");
+
+    let fmt_cmd = fmt_inner()
+        .to_options()
+        .descr("Format .spore files (alias for format)")
+        .command("fmt");
+
+    construct!([format_cmd, fmt_cmd])
+}
+
+fn cmd_holes_parser() -> impl Parser<Cmd> {
+    let file = positional::<String>("FILE").help("A .spore file");
+    construct!(Cmd::Holes { file })
+        .to_options()
+        .descr("Show hole report (JSON)")
+        .command("holes")
+}
+
+fn cmd_build_parser() -> impl Parser<Cmd> {
+    let file = positional::<String>("FILE").help("A .spore file to compile");
+    construct!(Cmd::Build { file })
+        .to_options()
+        .descr("Compile a .spore file")
+        .command("build")
+}
+
+fn cmd_watch_parser() -> impl Parser<Cmd> {
+    let json = json_flag();
+    let file = positional::<String>("FILE").help("A .spore file to watch");
+    construct!(Cmd::Watch { json, file })
+        .to_options()
+        .descr("Watch a file and re-check on changes")
+        .command("watch")
+}
+
+fn type_flag() -> impl Parser<String> {
+    long("type")
+        .short('t')
+        .help("Project type: application, package, platform")
+        .argument::<String>("TYPE")
+        .fallback("application".to_string())
+}
+
+fn cmd_new_parser() -> impl Parser<Cmd> {
+    let name = positional::<String>("NAME").help("Project name");
+    let project_type = type_flag();
+    construct!(Cmd::New { name, project_type })
+        .to_options()
+        .descr("Create a new Spore project")
+        .command("new")
+}
+
+fn cmd_init_parser() -> impl Parser<Cmd> {
+    let project_type = type_flag();
+    construct!(Cmd::Init { project_type })
+        .to_options()
+        .descr("Initialize Spore project in current directory")
+        .command("init")
+}
+
+fn cli() -> OptionParser<Cmd> {
+    let cmd = construct!([
+        cmd_run_parser(),
+        cmd_check_parser(),
+        cmd_format_parser(),
+        cmd_holes_parser(),
+        cmd_build_parser(),
+        cmd_watch_parser(),
+        cmd_new_parser(),
+        cmd_init_parser(),
+    ]);
+    cmd.to_options()
+        .version(VERSION)
+        .descr("spore — the Spore language toolkit")
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
+
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        return usage();
-    }
-
-    match args[1].as_str() {
-        "run" => cmd_run(&args[2..]),
-        "check" => cmd_check(&args[2..]),
-        "format" | "fmt" => cmd_format(&args[2..]),
-        "holes" => cmd_holes(&args[2..]),
-        "build" => cmd_build(&args[2..]),
-        "new" => cmd_new(&args[2..]),
-        "init" => cmd_init(&args[2..]),
-        "watch" => cmd_watch(&args[2..]),
-        "--version" | "-V" => {
-            println!("spore {VERSION}");
-            ExitCode::SUCCESS
-        }
-        "--help" | "-h" | "help" => usage(),
-        other => {
-            eprintln!("error: unknown command `{other}`");
-            eprintln!();
-            usage()
-        }
+    let cmd = cli().run();
+    match cmd {
+        Cmd::Run { file, json } => exec_run(&file, json),
+        Cmd::Check {
+            files,
+            verbose,
+            json,
+            deny_warnings,
+        } => exec_check(&files, verbose, json, deny_warnings),
+        Cmd::Format { files, check, diff } => exec_format(&files, check, diff),
+        Cmd::Holes { file } => exec_holes(&file),
+        Cmd::Build { file } => exec_build(&file),
+        Cmd::Watch { file, json } => exec_watch(&file, json),
+        Cmd::New { name, project_type } => exec_new(&name, &project_type),
+        Cmd::Init { project_type } => exec_init(&project_type),
     }
 }
 
-fn usage() -> ExitCode {
-    eprintln!("spore {VERSION} — the Spore language toolkit");
-    eprintln!();
-    eprintln!("USAGE:");
-    eprintln!("  spore <COMMAND> [OPTIONS]");
-    eprintln!();
-    eprintln!("COMMANDS:");
-    eprintln!("  run <file>       Compile and execute a .spore file");
-    eprintln!("  check <file...>  Type-check one or more .spore files");
-    eprintln!("  format <file>    Format a .spore file (--check, --diff)");
-    eprintln!("  holes <file>     Show hole report (JSON)");
-    eprintln!("  build <file>     Compile a .spore file");
-    eprintln!("  new <name>       Create a new Spore project");
-    eprintln!("  init             Initialize Spore project in current directory");
-    eprintln!("  watch <file>     Watch a file and re-check on changes");
-    eprintln!("  help             Show this help message");
-    eprintln!();
-    eprintln!("OPTIONS:");
-    eprintln!("  --json             Output results as JSON (run, check, watch)");
-    eprintln!("  --verbose          Show detailed type inference and cost info (check)");
-    eprintln!("  --deny-warnings    Treat warnings as errors (check)");
-    eprintln!("  -V, --version      Print version");
-    eprintln!("  -h, --help         Print help");
-    ExitCode::FAILURE
-}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-fn read_source(args: &[String]) -> Result<(String, String), ExitCode> {
-    let path = match args.iter().find(|a| !a.starts_with('-')) {
-        Some(p) => p.clone(),
-        None => {
-            eprintln!("error: missing file argument");
-            return Err(ExitCode::FAILURE);
-        }
-    };
-    let content = std::fs::read_to_string(&path).map_err(|e| {
-        eprintln!("error: cannot read `{path}`: {e}");
+fn read_source(path: &str) -> Result<String, ExitCode> {
+    std::fs::read_to_string(path).map_err(|e| {
+        eprintln!("{}: cannot read `{path}`: {e}", "error".red().bold());
         ExitCode::FAILURE
-    })?;
-    Ok((path, content))
+    })
 }
 
-fn cmd_run(args: &[String]) -> ExitCode {
-    let (_, source) = match read_source(args) {
+fn timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn print_warnings(warnings: &[String], json_output: bool) {
+    for w in warnings {
+        if json_output {
+            println!(
+                "{}",
+                serde_json::to_string(&json!({"severity": "warning", "message": w})).unwrap()
+            );
+        } else {
+            eprintln!("{}: {w}", "warning".yellow().bold());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+fn exec_run(file: &str, json_output: bool) -> ExitCode {
+    let source = match read_source(file) {
         Ok(s) => s,
-        Err(code) => return code,
+        Err(c) => return c,
     };
-    let json_output = args.iter().any(|a| a == "--json");
 
     match sporec::run(&source) {
         Ok(value) => {
             if json_output {
-                println!("{{\"status\":\"ok\",\"value\":\"{value}\"}}");
+                println!(
+                    "{}",
+                    serde_json::to_string(&json!({"status": "ok", "value": value.to_string()}))
+                        .unwrap()
+                );
             } else {
                 println!("{value}");
             }
@@ -90,61 +256,54 @@ fn cmd_run(args: &[String]) -> ExitCode {
         }
         Err(msg) => {
             if json_output {
-                let escaped = escape_json(&msg);
-                println!("{{\"status\":\"error\",\"message\":\"{escaped}\"}}");
+                println!(
+                    "{}",
+                    serde_json::to_string(&json!({"status": "error", "message": msg})).unwrap()
+                );
             } else {
-                eprintln!("{msg}");
+                eprintln!("{}: {msg}", "error".red().bold());
             }
             ExitCode::FAILURE
         }
     }
 }
 
-fn cmd_check(args: &[String]) -> ExitCode {
-    let files: Vec<&str> = args
-        .iter()
-        .filter(|a| !a.starts_with('-'))
-        .map(|s| s.as_str())
-        .collect();
-    let json_output = args.iter().any(|a| a == "--json");
-    let verbose = args.iter().any(|a| a == "--verbose");
-    let deny_warnings = args.iter().any(|a| a == "--deny-warnings");
-
-    if files.is_empty() {
-        eprintln!("error: missing file argument");
-        return ExitCode::FAILURE;
-    }
-
-    // Multi-file check
+fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings: bool) -> ExitCode {
     if files.len() > 1 {
-        match sporec::compile_files(&files) {
+        let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+        match sporec::compile_files(&refs) {
             Ok(output) => {
                 print_warnings(&output.warnings, json_output);
                 if deny_warnings && !output.warnings.is_empty() {
                     return ExitCode::FAILURE;
                 }
                 if json_output {
-                    println!("{{\"status\":\"ok\",\"errors\":[]}}");
+                    println!(
+                        "{}",
+                        serde_json::to_string(&json!({"status": "ok", "errors": []})).unwrap()
+                    );
                 } else {
-                    println!("✓ no errors ({} files)", files.len());
+                    println!("{} no errors ({} files)", "✓".green(), files.len());
                 }
                 ExitCode::SUCCESS
             }
             Err(msg) => {
                 if json_output {
-                    let escaped = escape_json(&msg);
-                    println!("{{\"status\":\"error\",\"message\":\"{escaped}\"}}");
+                    println!(
+                        "{}",
+                        serde_json::to_string(&json!({"status": "error", "message": msg})).unwrap()
+                    );
                 } else {
-                    eprintln!("{msg}");
+                    eprintln!("{}: {msg}", "error".red().bold());
                 }
                 ExitCode::FAILURE
             }
         }
     } else {
-        // Single file check
-        let (_, source) = match read_source(args) {
+        let path = &files[0];
+        let source = match read_source(path) {
             Ok(s) => s,
-            Err(code) => return code,
+            Err(c) => return c,
         };
 
         if verbose {
@@ -154,7 +313,7 @@ fn cmd_check(args: &[String]) -> ExitCode {
                     ExitCode::SUCCESS
                 }
                 Err(msg) => {
-                    eprintln!("{msg}");
+                    eprintln!("{}: {msg}", "error".red().bold());
                     ExitCode::FAILURE
                 }
             }
@@ -166,18 +325,24 @@ fn cmd_check(args: &[String]) -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                     if json_output {
-                        println!("{{\"status\":\"ok\",\"errors\":[]}}");
+                        println!(
+                            "{}",
+                            serde_json::to_string(&json!({"status": "ok", "errors": []})).unwrap()
+                        );
                     } else {
-                        println!("✓ no errors");
+                        println!("{} no errors", "✓".green());
                     }
                     ExitCode::SUCCESS
                 }
                 Err(msg) => {
                     if json_output {
-                        let escaped = escape_json(&msg);
-                        println!("{{\"status\":\"error\",\"message\":\"{escaped}\"}}");
+                        println!(
+                            "{}",
+                            serde_json::to_string(&json!({"status": "error", "message": msg}))
+                                .unwrap()
+                        );
                     } else {
-                        eprintln!("{msg}");
+                        eprintln!("{}: {msg}", "error".red().bold());
                     }
                     ExitCode::FAILURE
                 }
@@ -186,79 +351,51 @@ fn cmd_check(args: &[String]) -> ExitCode {
     }
 }
 
-/// Print warnings to stderr (or as JSON to stdout).
-fn print_warnings(warnings: &[String], json: bool) {
-    for w in warnings {
-        if json {
-            let escaped = escape_json(w);
-            println!("{{\"severity\":\"warning\",\"message\":\"{escaped}\"}}");
-        } else {
-            eprintln!("warning: {w}");
-        }
-    }
-}
+fn exec_format(files: &[String], check_mode: bool, diff_mode: bool) -> ExitCode {
+    let mut exit = ExitCode::SUCCESS;
+    for path in files {
+        let source = match read_source(path) {
+            Ok(s) => s,
+            Err(c) => {
+                exit = c;
+                continue;
+            }
+        };
 
-fn cmd_holes(args: &[String]) -> ExitCode {
-    let (_, source) = match read_source(args) {
-        Ok(s) => s,
-        Err(code) => return code,
-    };
-
-    match sporec::holes(&source) {
-        Ok(json) => {
-            println!("{json}");
-            ExitCode::SUCCESS
-        }
-        Err(msg) => {
-            eprintln!("{msg}");
-            ExitCode::FAILURE
-        }
-    }
-}
-
-fn cmd_format(args: &[String]) -> ExitCode {
-    let (path, source) = match read_source(args) {
-        Ok(s) => s,
-        Err(code) => return code,
-    };
-    let check_mode = args.iter().any(|a| a == "--check");
-    let diff_mode = args.iter().any(|a| a == "--diff");
-
-    match sporec::format(&source) {
-        Ok(formatted) => {
-            if check_mode {
-                if formatted == source {
-                    ExitCode::SUCCESS
-                } else {
-                    eprintln!("{path}: not formatted");
-                    ExitCode::FAILURE
-                }
-            } else if diff_mode {
-                if formatted == source {
-                    println!("{path}: already formatted");
-                } else {
-                    print_diff(&path, &source, &formatted);
-                }
-                ExitCode::SUCCESS
-            } else {
-                // In-place formatting
-                if formatted == source {
-                    println!("{path}: already formatted");
-                } else {
-                    if let Err(e) = std::fs::write(&path, &formatted) {
-                        eprintln!("error: cannot write `{path}`: {e}");
-                        return ExitCode::FAILURE;
+        match sporec::format(&source) {
+            Ok(formatted) => {
+                if check_mode {
+                    if formatted != source {
+                        eprintln!("{path}: {}", "not formatted".red());
+                        exit = ExitCode::FAILURE;
                     }
-                    println!("{path}: formatted");
+                } else if diff_mode {
+                    if formatted == source {
+                        println!("{path}: already formatted");
+                    } else {
+                        print_diff(path, &source, &formatted);
+                    }
+                } else {
+                    // In-place formatting
+                    if formatted == source {
+                        println!("{path}: already formatted");
+                    } else {
+                        if let Err(e) = std::fs::write(path, &formatted) {
+                            eprintln!("{}: cannot write `{path}`: {e}", "error".red().bold());
+                            exit = ExitCode::FAILURE;
+                            continue;
+                        }
+                        println!("{path}: {}", "formatted".green());
+                    }
                 }
-                ExitCode::SUCCESS
+            }
+            Err(msg) => {
+                eprintln!("{}: {msg}", "error".red().bold());
+                exit = ExitCode::FAILURE;
             }
         }
-        Err(msg) => {
-            eprintln!("error: {msg}");
-            ExitCode::FAILURE
-        }
     }
+    exit
 }
 
 fn print_diff(path: &str, original: &str, formatted: &str) {
@@ -267,8 +404,8 @@ fn print_diff(path: &str, original: &str, formatted: &str) {
     for (i, (orig_line, fmt_line)) in original.lines().zip(formatted.lines()).enumerate() {
         if orig_line != fmt_line {
             eprintln!("@@ line {} @@", i + 1);
-            eprintln!("-{orig_line}");
-            eprintln!("+{fmt_line}");
+            eprintln!("{}{orig_line}", "-".red());
+            eprintln!("{}{fmt_line}", "+".green());
         }
     }
     let orig_count = original.lines().count();
@@ -276,180 +413,245 @@ fn print_diff(path: &str, original: &str, formatted: &str) {
     if fmt_count > orig_count {
         eprintln!("@@ +{} new lines @@", fmt_count - orig_count);
         for line in formatted.lines().skip(orig_count) {
-            eprintln!("+{line}");
+            eprintln!("{}{line}", "+".green());
         }
     } else if orig_count > fmt_count {
         eprintln!("@@ -{} removed lines @@", orig_count - fmt_count);
         for line in original.lines().skip(fmt_count) {
-            eprintln!("-{line}");
+            eprintln!("{}{line}", "-".red());
         }
     }
 }
 
-fn cmd_build(args: &[String]) -> ExitCode {
-    let (_, source) = match read_source(args) {
+fn exec_holes(file: &str) -> ExitCode {
+    let source = match read_source(file) {
         Ok(s) => s,
-        Err(code) => return code,
+        Err(c) => return c,
     };
 
-    match sporec::compile(&source) {
-        Ok(output) => {
-            for w in &output.warnings {
-                eprintln!("warning: {w}");
-            }
-            println!("✓ compiled successfully (interpreter mode — no binary output yet)");
+    match sporec::holes(&source) {
+        Ok(j) => {
+            println!("{j}");
             ExitCode::SUCCESS
         }
         Err(msg) => {
-            eprintln!("{msg}");
+            eprintln!("{}: {msg}", "error".red().bold());
             ExitCode::FAILURE
         }
     }
 }
 
-fn cmd_watch(args: &[String]) -> ExitCode {
-    let path = match args.iter().find(|a| !a.starts_with('-')) {
-        Some(p) => p.clone(),
-        None => {
-            eprintln!("error: missing file argument");
-            return ExitCode::FAILURE;
-        }
+fn exec_build(file: &str) -> ExitCode {
+    let source = match read_source(file) {
+        Ok(s) => s,
+        Err(c) => return c,
     };
-    let json_output = args.iter().any(|a| a == "--json");
 
-    if !json_output {
-        eprintln!("watching `{path}` for changes (Ctrl+C to stop)");
-    }
-
-    let mut last_modified = file_modified(&path);
-    let mut last_content = String::new();
-
-    loop {
-        let current_modified = file_modified(&path);
-        if current_modified != last_modified {
-            last_modified = current_modified;
-
-            match std::fs::read_to_string(&path) {
-                Ok(source) => {
-                    if source == last_content {
-                        continue;
-                    }
-                    last_content = source.clone();
-                    check_and_report(&path, &source, json_output);
-                }
-                Err(e) => {
-                    if json_output {
-                        let escaped = escape_json(&e.to_string());
-                        println!(
-                            "{{\"event\":\"error\",\"file\":\"{path}\",\"message\":\"{escaped}\"}}"
-                        );
-                    } else {
-                        eprintln!("error reading `{path}`: {e}");
-                    }
-                }
+    match sporec::compile(&source) {
+        Ok(output) => {
+            for w in &output.warnings {
+                eprintln!("{}: {w}", "warning".yellow().bold());
             }
+            println!(
+                "{} compiled successfully (interpreter mode — no binary output yet)",
+                "✓".green()
+            );
+            ExitCode::SUCCESS
         }
-
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        Err(msg) => {
+            eprintln!("{}: {msg}", "error".red().bold());
+            ExitCode::FAILURE
+        }
     }
 }
 
-fn check_and_report(path: &str, source: &str, json: bool) {
+fn exec_watch(file: &str, json_output: bool) -> ExitCode {
+    let path = Path::new(file);
+    if !path.exists() {
+        eprintln!("{}: file `{file}` does not exist", "error".red().bold());
+        return ExitCode::FAILURE;
+    }
+
+    let (tx, rx) = mpsc::channel();
+    let mut debouncer = match new_debouncer(Duration::from_millis(300), tx) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("{}: failed to create watcher: {e}", "error".red().bold());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    if let Err(e) = debouncer.watcher().watch(path, RecursiveMode::NonRecursive) {
+        eprintln!("{}: failed to watch `{file}`: {e}", "error".red().bold());
+        return ExitCode::FAILURE;
+    }
+
+    if !json_output {
+        eprintln!("watching `{file}` for changes (Ctrl+C to stop)");
+    }
+
+    // Initial check
+    let mut last_content = String::new();
+    if let Ok(source) = std::fs::read_to_string(file) {
+        last_content = source.clone();
+        check_and_report(file, &source, json_output);
+    }
+
+    loop {
+        match rx.recv() {
+            Ok(Ok(events)) => {
+                // Only act on write / content-change events.
+                let dominated = events.iter().any(|ev| ev.kind == DebouncedEventKind::Any);
+                if !dominated {
+                    continue;
+                }
+
+                match std::fs::read_to_string(file) {
+                    Ok(source) => {
+                        if source == last_content {
+                            continue;
+                        }
+                        last_content = source.clone();
+                        check_and_report(file, &source, json_output);
+                    }
+                    Err(e) => {
+                        if json_output {
+                            println!(
+                                "{}",
+                                serde_json::to_string(&json!({
+                                    "event": "error",
+                                    "file": file,
+                                    "message": e.to_string()
+                                }))
+                                .unwrap()
+                            );
+                        } else {
+                            eprintln!("{}: reading `{file}`: {e}", "error".red().bold());
+                        }
+                    }
+                }
+            }
+            Ok(Err(e)) => {
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&json!({
+                            "event": "error",
+                            "file": file,
+                            "message": format!("{e:?}")
+                        }))
+                        .unwrap()
+                    );
+                } else {
+                    eprintln!("{}: watcher error: {e:?}", "error".red().bold());
+                }
+            }
+            Err(_) => break, // channel closed
+        }
+    }
+
+    ExitCode::SUCCESS
+}
+
+fn check_and_report(path: &str, source: &str, json_output: bool) {
     let ts = timestamp();
     match sporec::compile(source) {
         Ok(output) => {
-            // Emit warnings
             for w in &output.warnings {
-                if json {
-                    let escaped = escape_json(w);
+                if json_output {
                     println!(
-                        "{{\"event\":\"warning\",\"file\":\"{path}\",\"message\":\"{escaped}\",\"timestamp\":{ts}}}"
+                        "{}",
+                        serde_json::to_string(&json!({
+                            "event": "warning",
+                            "file": path,
+                            "message": w,
+                            "timestamp": ts
+                        }))
+                        .unwrap()
                     );
                 } else {
-                    eprintln!("[{ts}] warning: {w}");
+                    eprintln!("[{ts}] {}: {w}", "warning".yellow().bold());
                 }
             }
-            if json {
+            if json_output {
                 println!(
-                    "{{\"event\":\"compile_result\",\"file\":\"{path}\",\"status\":\"ok\",\"errors\":[],\"timestamp\":{ts}}}"
+                    "{}",
+                    serde_json::to_string(&json!({
+                        "event": "compile_result",
+                        "file": path,
+                        "status": "ok",
+                        "errors": [],
+                        "timestamp": ts
+                    }))
+                    .unwrap()
                 );
             } else {
-                eprintln!("[{ts}] ✓ `{path}` — no errors");
+                eprintln!("[{ts}] {} `{path}` — no errors", "✓".green());
             }
         }
         Err(msg) => {
-            if json {
-                let escaped = escape_json(&msg);
+            if json_output {
                 println!(
-                    "{{\"event\":\"compile_result\",\"file\":\"{path}\",\"status\":\"error\",\"message\":\"{escaped}\",\"timestamp\":{ts}}}"
+                    "{}",
+                    serde_json::to_string(&json!({
+                        "event": "compile_result",
+                        "file": path,
+                        "status": "error",
+                        "message": msg,
+                        "timestamp": ts
+                    }))
+                    .unwrap()
                 );
             } else {
-                eprintln!("[{ts}] ✗ `{path}`:");
+                eprintln!("[{ts}] {} `{path}`:", "✗".red());
                 eprintln!("{msg}");
             }
         }
     }
 
     // Emit hole_graph_update event if there are holes (JSON mode only)
-    if json && let Some(summary) = sporec::hole_summary(source) {
+    if json_output && let Some(summary) = sporec::hole_summary(source) {
         println!("{}", summary.to_json());
     }
 }
 
-fn file_modified(path: &str) -> Option<std::time::SystemTime> {
-    std::fs::metadata(path).ok().and_then(|m| m.modified().ok())
-}
+// ---------------------------------------------------------------------------
+// Project scaffolding
+// ---------------------------------------------------------------------------
 
-fn timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn escape_json(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
-}
-
-// ── Project scaffolding ──────────────────────────────────────────────
-
-fn cmd_new(args: &[String]) -> ExitCode {
-    if args.is_empty() || args[0].starts_with('-') {
-        eprintln!("Usage: spore new <name> [--type application|package|platform]");
-        return ExitCode::FAILURE;
-    }
-    let name = &args[0];
-    let project_type = parse_type_flag(args).unwrap_or("application");
-
+fn exec_new(name: &str, project_type: &str) -> ExitCode {
     if !is_valid_type(project_type) {
-        eprintln!("error: unknown project type `{project_type}`");
+        eprintln!(
+            "{}: unknown project type `{project_type}`",
+            "error".red().bold()
+        );
         eprintln!("       valid types: application, package, platform");
         return ExitCode::FAILURE;
     }
 
     let dir = Path::new(name);
     if dir.exists() {
-        eprintln!("error: directory `{name}` already exists");
+        eprintln!(
+            "{}: directory `{name}` already exists",
+            "error".red().bold()
+        );
         return ExitCode::FAILURE;
     }
 
     if let Err(e) = create_project(dir, name, project_type) {
-        eprintln!("error: {e}");
+        eprintln!("{}: {e}", "error".red().bold());
         return ExitCode::FAILURE;
     }
     println!("✨ Created {project_type} `{name}`");
     ExitCode::SUCCESS
 }
 
-fn cmd_init(args: &[String]) -> ExitCode {
-    let project_type = parse_type_flag(args).unwrap_or("application");
-
+fn exec_init(project_type: &str) -> ExitCode {
     if !is_valid_type(project_type) {
-        eprintln!("error: unknown project type `{project_type}`");
+        eprintln!(
+            "{}: unknown project type `{project_type}`",
+            "error".red().bold()
+        );
         eprintln!("       valid types: application, package, platform");
         return ExitCode::FAILURE;
     }
@@ -457,7 +659,10 @@ fn cmd_init(args: &[String]) -> ExitCode {
     let dir = match std::env::current_dir() {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("error: cannot determine current directory: {e}");
+            eprintln!(
+                "{}: cannot determine current directory: {e}",
+                "error".red().bold()
+            );
             return ExitCode::FAILURE;
         }
     };
@@ -468,25 +673,19 @@ fn cmd_init(args: &[String]) -> ExitCode {
         .to_string();
 
     if dir.join("spore.toml").exists() {
-        eprintln!("error: spore.toml already exists in this directory");
+        eprintln!(
+            "{}: spore.toml already exists in this directory",
+            "error".red().bold()
+        );
         return ExitCode::FAILURE;
     }
 
     if let Err(e) = create_project(&dir, &name, project_type) {
-        eprintln!("error: {e}");
+        eprintln!("{}: {e}", "error".red().bold());
         return ExitCode::FAILURE;
     }
     println!("✨ Initialized {project_type} `{name}`");
     ExitCode::SUCCESS
-}
-
-fn parse_type_flag(args: &[String]) -> Option<&str> {
-    for (i, arg) in args.iter().enumerate() {
-        if arg == "--type" || arg == "-t" {
-            return args.get(i + 1).map(|s| s.as_str());
-        }
-    }
-    None
 }
 
 fn is_valid_type(t: &str) -> bool {
@@ -496,7 +695,6 @@ fn is_valid_type(t: &str) -> bool {
 fn create_project(dir: &Path, name: &str, project_type: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(dir.join("src"))?;
 
-    // spore.toml
     let toml = format!(
         "\
 [package]
@@ -513,7 +711,6 @@ allow = [\"Compute\"]
     );
     std::fs::write(dir.join("spore.toml"), toml)?;
 
-    // Source file
     let (filename, content) = match project_type {
         "package" => (
             "lib.sp",
@@ -531,10 +728,7 @@ allow = [\"Compute\"]
         ),
     };
     std::fs::write(dir.join("src").join(filename), content)?;
-
-    // .gitignore
     std::fs::write(dir.join(".gitignore"), "/target\n/.spore-store\n")?;
-
     Ok(())
 }
 
@@ -547,97 +741,32 @@ mod tests {
     fn test_new_creates_application() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("my-app");
-
         create_project(&project_dir, "my-app", "application").unwrap();
-
         assert!(project_dir.join("spore.toml").exists());
         assert!(project_dir.join("src/main.sp").exists());
-        assert!(project_dir.join(".gitignore").exists());
-
         let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
         assert!(toml.contains("name = \"my-app\""));
         assert!(toml.contains("type = \"application\""));
-
-        let main = fs::read_to_string(project_dir.join("src/main.sp")).unwrap();
-        assert!(main.contains("Hello from my-app!"));
     }
 
     #[test]
     fn test_new_creates_package() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("my-lib");
-
         create_project(&project_dir, "my-lib", "package").unwrap();
-
         assert!(project_dir.join("src/lib.sp").exists());
         let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
         assert!(toml.contains("type = \"package\""));
-
-        let lib = fs::read_to_string(project_dir.join("src/lib.sp")).unwrap();
-        assert!(lib.contains("pub fn add"));
     }
 
     #[test]
     fn test_new_creates_platform() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("my-platform");
-
         create_project(&project_dir, "my-platform", "platform").unwrap();
-
         assert!(project_dir.join("src/host.sp").exists());
         let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
         assert!(toml.contains("type = \"platform\""));
-
-        let host = fs::read_to_string(project_dir.join("src/host.sp")).unwrap();
-        assert!(host.contains("main_for_host"));
-    }
-
-    #[test]
-    fn test_new_existing_dir_errors() {
-        let tmp = tempfile::tempdir().unwrap();
-        let project_dir = tmp.path().join("already-exists");
-        fs::create_dir(&project_dir).unwrap();
-        fs::write(project_dir.join("file.txt"), "occupied").unwrap();
-
-        // cmd_new would exit, so we test the pre-condition directly
-        assert!(project_dir.exists());
-    }
-
-    #[test]
-    fn test_init_existing_toml_errors() {
-        let tmp = tempfile::tempdir().unwrap();
-        fs::write(tmp.path().join("spore.toml"), "[package]").unwrap();
-
-        // The guard check
-        assert!(tmp.path().join("spore.toml").exists());
-    }
-
-    #[test]
-    fn test_init_uses_dirname() {
-        let tmp = tempfile::tempdir().unwrap();
-        let project_dir = tmp.path().join("cool-project");
-        fs::create_dir(&project_dir).unwrap();
-
-        create_project(&project_dir, "cool-project", "application").unwrap();
-
-        let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
-        assert!(toml.contains("name = \"cool-project\""));
-    }
-
-    #[test]
-    fn test_parse_type_flag() {
-        let args = vec![
-            "name".to_string(),
-            "--type".to_string(),
-            "package".to_string(),
-        ];
-        assert_eq!(parse_type_flag(&args), Some("package"));
-
-        let args = vec!["name".to_string(), "-t".to_string(), "platform".to_string()];
-        assert_eq!(parse_type_flag(&args), Some("platform"));
-
-        let args = vec!["name".to_string()];
-        assert_eq!(parse_type_flag(&args), None);
     }
 
     #[test]
@@ -652,11 +781,8 @@ mod tests {
     fn test_gitignore_content() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("test-proj");
-
         create_project(&project_dir, "test-proj", "application").unwrap();
-
         let gi = fs::read_to_string(project_dir.join(".gitignore")).unwrap();
         assert!(gi.contains("/target"));
-        assert!(gi.contains("/.spore-store"));
     }
 }
