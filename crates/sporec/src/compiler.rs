@@ -1,4 +1,5 @@
 use spore_codegen::value::Value;
+use spore_parser::formatter::format_module;
 use spore_parser::parse;
 use spore_typeck::CheckResult;
 use spore_typeck::module::ModuleRegistry;
@@ -101,6 +102,20 @@ pub fn run(source: &str) -> Result<Value, String> {
             .join("\n")
     })?;
     spore_codegen::run(&ast).map_err(|e| e.to_string())
+}
+
+/// Format Spore source code.
+///
+/// Parses the source into an AST and then pretty-prints it back using the
+/// canonical formatter.  Returns the formatted source text.
+pub fn format(source: &str) -> Result<String, String> {
+    let ast = parse(source).map_err(|errs| {
+        errs.into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    Ok(format_module(&ast))
 }
 
 /// Type-check with verbose output: returns detailed analysis including type

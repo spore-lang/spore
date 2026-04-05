@@ -11,6 +11,7 @@ fn main() -> ExitCode {
     match args[1].as_str() {
         "run" => cmd_run(&args[2..]),
         "check" => cmd_check(&args[2..]),
+        "format" | "fmt" => cmd_format(&args[2..]),
         "holes" => cmd_holes(&args[2..]),
         "build" => cmd_build(&args[2..]),
         "watch" => cmd_watch(&args[2..]),
@@ -36,6 +37,7 @@ fn usage() -> ExitCode {
     eprintln!("COMMANDS:");
     eprintln!("  run <file>       Compile and execute a .spore file");
     eprintln!("  check <file...>  Type-check one or more .spore files");
+    eprintln!("  format <file>    Format a .spore file (--check, --diff)");
     eprintln!("  holes <file>     Show hole report (JSON)");
     eprintln!("  build <file>     Compile a .spore file");
     eprintln!("  watch <file>     Watch a file and re-check on changes");
@@ -183,6 +185,76 @@ fn cmd_holes(args: &[String]) -> ExitCode {
         Err(msg) => {
             eprintln!("{msg}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+fn cmd_format(args: &[String]) -> ExitCode {
+    let (path, source) = match read_source(args) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let check_mode = args.iter().any(|a| a == "--check");
+    let diff_mode = args.iter().any(|a| a == "--diff");
+
+    match sporec::format(&source) {
+        Ok(formatted) => {
+            if check_mode {
+                if formatted == source {
+                    ExitCode::SUCCESS
+                } else {
+                    eprintln!("{path}: not formatted");
+                    ExitCode::FAILURE
+                }
+            } else if diff_mode {
+                if formatted == source {
+                    println!("{path}: already formatted");
+                } else {
+                    print_diff(&path, &source, &formatted);
+                }
+                ExitCode::SUCCESS
+            } else {
+                // In-place formatting
+                if formatted == source {
+                    println!("{path}: already formatted");
+                } else {
+                    if let Err(e) = std::fs::write(&path, &formatted) {
+                        eprintln!("error: cannot write `{path}`: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                    println!("{path}: formatted");
+                }
+                ExitCode::SUCCESS
+            }
+        }
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn print_diff(path: &str, original: &str, formatted: &str) {
+    eprintln!("--- {path} (original)");
+    eprintln!("+++ {path} (formatted)");
+    for (i, (orig_line, fmt_line)) in original.lines().zip(formatted.lines()).enumerate() {
+        if orig_line != fmt_line {
+            eprintln!("@@ line {} @@", i + 1);
+            eprintln!("-{orig_line}");
+            eprintln!("+{fmt_line}");
+        }
+    }
+    let orig_count = original.lines().count();
+    let fmt_count = formatted.lines().count();
+    if fmt_count > orig_count {
+        eprintln!("@@ +{} new lines @@", fmt_count - orig_count);
+        for line in formatted.lines().skip(orig_count) {
+            eprintln!("+{line}");
+        }
+    } else if orig_count > fmt_count {
+        eprintln!("@@ -{} removed lines @@", orig_count - fmt_count);
+        for line in original.lines().skip(fmt_count) {
+            eprintln!("-{line}");
         }
     }
 }

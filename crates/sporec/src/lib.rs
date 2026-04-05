@@ -4,4 +4,6 @@
 /// All IO is handled by the `spore` codebase manager.
 pub mod compiler;
 
-pub use compiler::{HoleSummary, check_verbose, compile, compile_files, hole_summary, holes, run};
+pub use compiler::{
+    HoleSummary, check_verbose, compile, compile_files, format, hole_summary, holes, run,
+};
