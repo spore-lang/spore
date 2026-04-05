@@ -1,8 +1,9 @@
 //! Module system — resolution, exports, and import validation.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
-use spore_parser::ast::Visibility;
+use spore_parser::ast::{ImportDecl, Item, Module as AstModule, Visibility};
 
 use crate::types::{CapSet, Ty};
 
@@ -401,6 +402,169 @@ impl ModuleRegistry {
     pub fn all_interfaces(&self) -> impl Iterator<Item = &ModuleInterface> {
         self.modules.values()
     }
+
+    /// Resolve all imports in a module, loading dependencies from disk as needed.
+    ///
+    /// Recursively processes transitive imports and records dependency edges.
+    /// After all imports are loaded, checks for circular dependencies.
+    pub fn resolve_imports(
+        &mut self,
+        loader: &mut ModuleLoader,
+        importing_module: &str,
+        imports: &[ImportDecl],
+    ) -> Result<(), Vec<ModuleError>> {
+        let mut errors = Vec::new();
+        self.resolve_imports_inner(loader, importing_module, imports, &mut errors);
+
+        // Check for circular dependencies after all resolution
+        let cycles = self.detect_cycles();
+        for cycle in cycles {
+            errors.push(ModuleError::CircularDependency(cycle));
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn resolve_imports_inner(
+        &mut self,
+        loader: &mut ModuleLoader,
+        importing_module: &str,
+        imports: &[ImportDecl],
+        errors: &mut Vec<ModuleError>,
+    ) {
+        for decl in imports {
+            let path = match decl {
+                ImportDecl::Import { path, .. } | ImportDecl::Alias { path, .. } => path.clone(),
+            };
+
+            self.record_dependency(importing_module, &path);
+
+            // Skip if already registered
+            if self.get_by_path(&path).is_some() {
+                continue;
+            }
+
+            // Load the module from disk
+            match loader.load_module(&path) {
+                Ok(iface) => {
+                    let iface = iface.clone();
+                    self.register(iface);
+                }
+                Err(e) => {
+                    errors.push(e);
+                    continue;
+                }
+            }
+
+            // Recursively resolve transitive imports from the loaded module
+            let sub_imports: Vec<ImportDecl> = loader
+                .get_ast(&path)
+                .map(|ast| {
+                    ast.items
+                        .iter()
+                        .filter_map(|item| match item {
+                            Item::Import(d) => Some(d.clone()),
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            if !sub_imports.is_empty() {
+                self.resolve_imports_inner(loader, &path, &sub_imports, errors);
+            }
+        }
+    }
+}
+
+/// Resolves module paths to filesystem paths and loads module interfaces.
+///
+/// The loader caches both parsed ASTs and extracted interfaces so that
+/// each module is read from disk at most once.
+pub struct ModuleLoader {
+    /// Project root directory.
+    root: PathBuf,
+    /// Cache of already-loaded module interfaces.
+    loaded: HashMap<String, ModuleInterface>,
+    /// Cache of parsed ASTs (needed for transitive import extraction and interpreter).
+    asts: HashMap<String, AstModule>,
+}
+
+impl ModuleLoader {
+    pub fn new(root: PathBuf) -> Self {
+        Self {
+            root,
+            loaded: HashMap::new(),
+            asts: HashMap::new(),
+        }
+    }
+
+    /// Resolve a dot-separated module path to a filesystem path.
+    ///
+    /// `"billing.invoice"` → `{root}/src/billing/invoice.sp`
+    pub fn resolve_path(&self, module_path: &str) -> Option<PathBuf> {
+        let rel = module_path.replace('.', "/");
+        let path = self.root.join("src").join(&rel).with_extension("sp");
+        if path.exists() { Some(path) } else { None }
+    }
+
+    /// Load a module from disk, parse it, and extract its interface.
+    ///
+    /// Returns a cached interface if the module has already been loaded.
+    pub fn load_module(&mut self, module_path: &str) -> Result<&ModuleInterface, ModuleError> {
+        if self.loaded.contains_key(module_path) {
+            return Ok(&self.loaded[module_path]);
+        }
+
+        let file_path = self
+            .resolve_path(module_path)
+            .ok_or_else(|| ModuleError::ModuleNotFound(module_path.to_string()))?;
+
+        let source = std::fs::read_to_string(&file_path).map_err(|e| ModuleError::IoError {
+            module: module_path.to_string(),
+            detail: e.to_string(),
+        })?;
+
+        let ast = spore_parser::parse(&source).map_err(|errs| ModuleError::ParseError {
+            module: module_path.to_string(),
+            detail: errs
+                .into_iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        })?;
+
+        let mut iface = crate::build_module_interface(&ast);
+        iface.path = module_path.split('.').map(|s| s.to_string()).collect();
+
+        self.asts.insert(module_path.to_string(), ast);
+        self.loaded.insert(module_path.to_string(), iface);
+        Ok(&self.loaded[module_path])
+    }
+
+    /// Get the cached AST for a previously loaded module.
+    pub fn get_ast(&self, module_path: &str) -> Option<&AstModule> {
+        self.asts.get(module_path)
+    }
+
+    /// Get a cached module interface.
+    pub fn get_cached(&self, module_path: &str) -> Option<&ModuleInterface> {
+        self.loaded.get(module_path)
+    }
+
+    /// Return all loaded module paths.
+    pub fn loaded_modules(&self) -> Vec<String> {
+        self.asts.keys().cloned().collect()
+    }
+
+    /// Get the project root path.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
 }
 
 /// The kind of an imported symbol.
@@ -419,6 +583,8 @@ pub enum ModuleError {
     SymbolNotFound { module: String, symbol: String },
     PrivateSymbol { module: String, symbol: String },
     CircularDependency(Vec<String>),
+    IoError { module: String, detail: String },
+    ParseError { module: String, detail: String },
 }
 
 impl std::fmt::Display for ModuleError {
@@ -436,6 +602,12 @@ impl std::fmt::Display for ModuleError {
             }
             ModuleError::CircularDependency(cycle) => {
                 write!(f, "circular module dependency: {}", cycle.join(" -> "))
+            }
+            ModuleError::IoError { module, detail } => {
+                write!(f, "cannot read module `{module}`: {detail}")
+            }
+            ModuleError::ParseError { module, detail } => {
+                write!(f, "parse error in module `{module}`: {detail}")
             }
         }
     }
@@ -596,5 +768,138 @@ mod tests {
         assert!(!cycles.is_empty(), "expected a self-import cycle");
         let cycle = &cycles[0];
         assert_eq!(cycle, &vec!["A".to_string(), "A".to_string()]);
+    }
+
+    // ── ModuleLoader tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_resolve_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src").join("billing");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("invoice.sp"), "pub fn total() -> Int { 0 }").unwrap();
+
+        let loader = ModuleLoader::new(dir.path().to_path_buf());
+        let resolved = loader.resolve_path("billing.invoice");
+        assert!(resolved.is_some());
+        assert!(resolved.unwrap().ends_with("src/billing/invoice.sp"));
+
+        // Non-existent module returns None
+        assert!(loader.resolve_path("billing.nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_load_module_from_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src").join("utils");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            src.join("math.sp"),
+            "pub fn add(a: Int, b: Int) -> Int { a + b }",
+        )
+        .unwrap();
+
+        let mut loader = ModuleLoader::new(dir.path().to_path_buf());
+        let iface = loader.load_module("utils.math").unwrap();
+        assert!(iface.exports("add"));
+        assert_eq!(*iface.visibility("add"), SymbolVisibility::Pub);
+        assert_eq!(iface.qualified_name(), "utils.math");
+
+        // Second load returns cached result
+        let iface2 = loader.load_module("utils.math").unwrap();
+        assert!(iface2.exports("add"));
+    }
+
+    #[test]
+    fn test_import_resolution_chain() {
+        let dir = tempfile::tempdir().unwrap();
+        let src_b = dir.path().join("src").join("b");
+        let src_c = dir.path().join("src").join("c");
+        std::fs::create_dir_all(&src_b).unwrap();
+        std::fs::create_dir_all(&src_c).unwrap();
+
+        // C has no imports
+        std::fs::write(src_c.join("util.sp"), "pub fn helper() -> Int { 1 }").unwrap();
+
+        // B imports C
+        std::fs::write(
+            src_b.join("core.sp"),
+            "import c.util\npub fn work() -> Int { helper() }",
+        )
+        .unwrap();
+
+        let mut loader = ModuleLoader::new(dir.path().to_path_buf());
+        let mut registry = ModuleRegistry::new();
+
+        let imports = vec![ImportDecl::Import {
+            path: "b.core".into(),
+            alias: "core".into(),
+        }];
+
+        registry
+            .resolve_imports(&mut loader, "a.main", &imports)
+            .unwrap();
+
+        // Both b.core and c.util should be registered
+        assert!(registry.get_by_path("b.core").is_some());
+        assert!(registry.get_by_path("c.util").is_some());
+    }
+
+    #[test]
+    fn test_circular_import_detected() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+
+        // A imports B, B imports A → cycle detected via dependency graph
+        std::fs::write(src.join("a.sp"), "import b\npub fn fa() -> Int { 1 }").unwrap();
+        std::fs::write(src.join("b.sp"), "import a\npub fn fb() -> Int { 2 }").unwrap();
+
+        let mut loader = ModuleLoader::new(dir.path().to_path_buf());
+        let mut registry = ModuleRegistry::new();
+
+        let imports = vec![ImportDecl::Import {
+            path: "a".into(),
+            alias: "a".into(),
+        }];
+
+        let result = registry.resolve_imports(&mut loader, "entry", &imports);
+        assert!(result.is_err());
+        let errs = result.unwrap_err();
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ModuleError::CircularDependency(_))),
+            "expected circular dependency error, got: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn test_nonexistent_module_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+
+        let mut loader = ModuleLoader::new(dir.path().to_path_buf());
+        let result = loader.load_module("does.not.exist");
+        assert!(matches!(result, Err(ModuleError::ModuleNotFound(_))));
+    }
+
+    #[test]
+    fn test_private_symbol_not_exported_via_loader() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            src.join("lib.sp"),
+            "pub fn public_fn() -> Int { 1 }\nfn private_fn() -> Int { 2 }",
+        )
+        .unwrap();
+
+        let mut loader = ModuleLoader::new(dir.path().to_path_buf());
+        let iface = loader.load_module("lib").unwrap();
+
+        assert!(iface.exports("public_fn"));
+        assert_eq!(*iface.visibility("public_fn"), SymbolVisibility::Pub);
+        assert!(iface.exports("private_fn"));
+        assert_eq!(*iface.visibility("private_fn"), SymbolVisibility::Private);
     }
 }

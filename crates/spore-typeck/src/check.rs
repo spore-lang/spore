@@ -152,6 +152,18 @@ impl Checker {
                             format!("circular module dependency: {}", cycle.join(" -> ")),
                         );
                     }
+                    Err(ModuleError::IoError { module: m, detail }) => {
+                        self.err(
+                            ErrorCode::M0001,
+                            format!("cannot read module `{m}`: {detail}"),
+                        );
+                    }
+                    Err(ModuleError::ParseError { module: m, detail }) => {
+                        self.err(
+                            ErrorCode::M0001,
+                            format!("parse error in module `{m}`: {detail}"),
+                        );
+                    }
                 }
                 let _ = alias; // alias available for qualified access
             }
@@ -195,6 +207,18 @@ impl Checker {
                         self.err(
                             ErrorCode::M0101,
                             format!("circular module dependency: {}", cycle.join(" -> ")),
+                        );
+                    }
+                    Err(ModuleError::IoError { module: m, detail }) => {
+                        self.err(
+                            ErrorCode::M0001,
+                            format!("cannot read module `{m}`: {detail}"),
+                        );
+                    }
+                    Err(ModuleError::ParseError { module: m, detail }) => {
+                        self.err(
+                            ErrorCode::M0001,
+                            format!("parse error in module `{m}`: {detail}"),
                         );
                     }
                 }
