@@ -1696,3 +1696,49 @@ fn test_foreign_fn_callable_signature() {
         "#,
     );
 }
+
+// ── Perform / Handle capability checking ────────────────────────────────
+
+#[test]
+fn test_perform_requires_capability() {
+    let errs = check_err(
+        r#"
+        fn main() {
+            perform StdIO.println("hello")
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("capability") && e.contains("StdIO")),
+        "expected capability error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_perform_with_capability_ok() {
+    check_ok(
+        r#"
+        fn main() uses [StdIO] {
+            perform StdIO.println("hello")
+        }
+        "#,
+    );
+}
+
+#[test]
+fn test_handle_provides_capability() {
+    // The handle expression provides StdIO capability to its body,
+    // so perform StdIO.println should be allowed even without `uses [StdIO]`.
+    check_ok(
+        r#"
+        fn main() {
+            handle {
+                perform StdIO.println("hello")
+            } with {
+                StdIO.println(msg) => 0
+            }
+        }
+        "#,
+    );
+}

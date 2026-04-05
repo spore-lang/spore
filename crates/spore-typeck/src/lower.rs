@@ -351,6 +351,19 @@ impl Lowering {
                     "`_` placeholder should have been desugared into a lambda by the parser"
                 )
             }
+
+            // PoC: lower perform to a call (the effect dispatch happens at runtime)
+            ast::Expr::Perform {
+                effect: _,
+                operation,
+                args,
+            } => HirExpr::Call(
+                Box::new(HirExpr::Var(operation.clone(), UNRESOLVED)),
+                args.iter().map(|a| self.lower_expr(a)).collect(),
+            ),
+
+            // PoC: lower handle to just the body (handler dispatch is interpreter-only)
+            ast::Expr::Handle { body, .. } => self.lower_expr(body),
         }
     }
 

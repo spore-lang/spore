@@ -473,6 +473,31 @@ impl CostAnalyzer {
             Expr::Placeholder => {
                 unreachable!("Placeholder should be desugared before cost analysis")
             }
+
+            // Perform: 1 IO cost (effect invocation)
+            Expr::Perform { args, .. } => {
+                let mut total = CostVector::zero();
+                for arg in args {
+                    total = total.seq(&self.analyze_expr_cost(arg));
+                }
+                total.seq(&CostVector::constant(1, 0, 1, 0))
+            }
+
+            // Handle: body cost + max(handler arm costs)
+            Expr::Handle { body, handlers } => {
+                let body_cost = self.analyze_expr_cost(body);
+                let mut max_arm = CostVector::zero();
+                for arm in handlers {
+                    let arm_cost = self.analyze_expr_cost(&arm.body);
+                    max_arm = CostVector {
+                        compute: max_cost(&max_arm.compute, &arm_cost.compute),
+                        alloc: max_cost(&max_arm.alloc, &arm_cost.alloc),
+                        io: max_cost(&max_arm.io, &arm_cost.io),
+                        parallel: max_cost(&max_arm.parallel, &arm_cost.parallel),
+                    };
+                }
+                body_cost.seq(&max_arm)
+            }
         }
     }
 
@@ -794,6 +819,17 @@ fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg
         | Expr::Var(_)
         | Expr::Hole(_, _, _)
         | Expr::Placeholder => {}
+        Expr::Perform { args, .. } => {
+            for arg in args {
+                collect_recursive_calls(fn_name, arg, out);
+            }
+        }
+        Expr::Handle { body, handlers } => {
+            collect_recursive_calls(fn_name, body, out);
+            for arm in handlers {
+                collect_recursive_calls(fn_name, &arm.body, out);
+            }
+        }
     }
 }
 
@@ -939,6 +975,17 @@ fn collect_callee_names_inner(self_name: &str, expr: &Expr, out: &mut Vec<String
         | Expr::Var(_)
         | Expr::Hole(_, _, _)
         | Expr::Placeholder => {}
+        Expr::Perform { args, .. } => {
+            for arg in args {
+                collect_callee_names_inner(self_name, arg, out);
+            }
+        }
+        Expr::Handle { body, handlers } => {
+            collect_callee_names_inner(self_name, body, out);
+            for arm in handlers {
+                collect_callee_names_inner(self_name, &arm.body, out);
+            }
+        }
     }
 }
 

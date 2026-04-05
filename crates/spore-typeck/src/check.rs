@@ -987,6 +987,57 @@ impl Checker {
                     "`_` placeholder should have been desugared into a lambda by the parser"
                 )
             }
+
+            Expr::Perform {
+                effect,
+                operation,
+                args,
+            } => {
+                // Verify the effect capability is in the current function's uses set
+                if !self.current_caps.contains(effect) {
+                    self.err(
+                        ErrorCode::C0001,
+                        format!(
+                            "perform requires capability `{effect}` but current function does not declare it"
+                        ),
+                    );
+                }
+                // Type-check arguments
+                for arg in args {
+                    self.check_expr(arg);
+                }
+                // The return type of a perform is unknown at this point;
+                // for now treat it as Unit (operations like println return Unit).
+                let _ = operation;
+                Ty::Unit
+            }
+
+            Expr::Handle { body, handlers } => {
+                // The handler arms provide capabilities to the body.
+                // For each arm, collect provided capabilities and add to scope.
+                let mut provided_caps: CapSet = std::collections::BTreeSet::new();
+                for arm in handlers {
+                    provided_caps.insert(arm.effect.clone());
+                }
+                let prev_caps = self.current_caps.clone();
+                self.current_caps.extend(provided_caps);
+
+                let body_ty = self.check_expr(body);
+
+                // Check handler arm bodies
+                for arm in handlers {
+                    self.env.push_scope();
+                    for param in &arm.params {
+                        let var = self.fresh_var();
+                        self.env.define(param.clone(), var);
+                    }
+                    self.check_expr(&arm.body);
+                    self.env.pop_scope();
+                }
+
+                self.current_caps = prev_caps;
+                body_ty
+            }
         }
     }
 

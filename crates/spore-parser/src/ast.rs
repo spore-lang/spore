@@ -178,11 +178,31 @@ pub enum Expr {
     },
     /// `select { val from rx => body, ... }`
     Select(Vec<SelectArm>),
+    /// `perform StdIO.println("hello")` — invoke an effect operation.
+    Perform {
+        effect: String,
+        operation: String,
+        args: Vec<Box<Expr>>,
+    },
+    /// `handle { body } with { StdIO.println(msg) => { ... } }` — install handlers.
+    Handle {
+        body: Box<Expr>,
+        handlers: Vec<EffectArm>,
+    },
     /// Placeholder for partial application — desugared to lambda parameter.
     /// `f(_, 2)` desugars to `|_p0| f(_p0, 2)`.
     /// Should never reach codegen; the parser rewrites calls containing
     /// placeholders into `Lambda(params, Call(...))`.
     Placeholder,
+}
+
+/// A single effect handler arm in a `handle` expression.
+#[derive(Debug, Clone)]
+pub struct EffectArm {
+    pub effect: String,
+    pub operation: String,
+    pub params: Vec<String>,
+    pub body: Box<Expr>,
 }
 
 /// A single arm of a `select` expression.

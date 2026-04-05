@@ -778,6 +778,46 @@ impl Formatter {
                 self.write("}");
             }
             Expr::Placeholder => self.write("_"),
+            Expr::Perform {
+                effect,
+                operation,
+                args,
+            } => {
+                self.write("perform ");
+                self.write(effect);
+                self.write(".");
+                self.write(operation);
+                self.write("(");
+                for (i, a) in args.iter().enumerate() {
+                    if i > 0 {
+                        self.write(", ");
+                    }
+                    self.fmt_expr(a);
+                }
+                self.write(")");
+            }
+            Expr::Handle { body, handlers } => {
+                self.write("handle ");
+                self.fmt_body(body);
+                self.write(" with {");
+                self.newline();
+                self.indent += 1;
+                for arm in handlers {
+                    self.write_indent();
+                    self.write(&arm.effect);
+                    self.write(".");
+                    self.write(&arm.operation);
+                    self.write("(");
+                    self.write(&arm.params.join(", "));
+                    self.write(") => ");
+                    self.fmt_expr(&arm.body);
+                    self.write(",");
+                    self.newline();
+                }
+                self.indent -= 1;
+                self.write_indent();
+                self.write("}");
+            }
         }
     }
 

@@ -1104,6 +1104,12 @@ impl Parser {
             // Select expression
             Token::Select => self.parse_select_expr(),
 
+            // Perform expression: `perform Effect.operation(args)`
+            Token::Perform => self.parse_perform_expr(),
+
+            // Handle expression: `handle { body } with { arms }`
+            Token::Handle => self.parse_handle_expr(),
+
             // Placeholder `_` in expression position (partial application)
             Token::Ident(ref name) if name == "_" => {
                 self.advance();
@@ -1336,6 +1342,57 @@ impl Parser {
         }
         self.expect(&Token::RBrace)?;
         Ok(Expr::Select(arms))
+    }
+
+    // ── Perform expression ──────────────────────────────────────────
+
+    fn parse_perform_expr(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&Token::Perform)?;
+        let effect = self.expect_ident()?;
+        self.expect(&Token::Dot)?;
+        let operation = self.expect_ident()?;
+        self.expect(&Token::LParen)?;
+        let args = self.parse_comma_sep(|p| Ok(Box::new(p.parse_expr()?)), &Token::RParen)?;
+        self.expect(&Token::RParen)?;
+        Ok(Expr::Perform {
+            effect,
+            operation,
+            args,
+        })
+    }
+
+    // ── Handle expression ───────────────────────────────────────────
+
+    fn parse_handle_expr(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&Token::Handle)?;
+        let body = self.parse_block_expr()?;
+        self.expect(&Token::With)?;
+        self.expect(&Token::LBrace)?;
+        let mut handlers = Vec::new();
+        while !self.at(&Token::RBrace) && !self.at_eof() {
+            let effect = self.expect_ident()?;
+            self.expect(&Token::Dot)?;
+            let operation = self.expect_ident()?;
+            self.expect(&Token::LParen)?;
+            let params = self.parse_comma_sep(|p| p.expect_ident(), &Token::RParen)?;
+            self.expect(&Token::RParen)?;
+            self.expect(&Token::FatArrow)?;
+            let arm_body = self.parse_expr()?;
+            handlers.push(EffectArm {
+                effect,
+                operation,
+                params,
+                body: Box::new(arm_body),
+            });
+            if self.at(&Token::Comma) {
+                self.advance();
+            }
+        }
+        self.expect(&Token::RBrace)?;
+        Ok(Expr::Handle {
+            body: Box::new(body),
+            handlers,
+        })
     }
 
     // ── Patterns ────────────────────────────────────────────────────

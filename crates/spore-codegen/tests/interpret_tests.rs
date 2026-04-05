@@ -582,3 +582,80 @@ fn test_foreign_fn_runtime_error() {
         "unexpected error: {err}"
     );
 }
+
+// ── Perform / Handle effect dispatch ────────────────────────────────────
+
+#[test]
+fn test_perform_println_dispatches_to_cli_handler() {
+    // perform StdIO.println should fall back to CliPlatformHandler
+    let v = run_main(r#"fn main() { perform StdIO.println("hello from perform") }"#);
+    assert!(matches!(v, Value::Unit));
+}
+
+#[test]
+fn test_handle_intercepts_effect() {
+    // handle block intercepts the perform and returns 99 instead
+    let v = run_main(
+        r#"
+        fn main() -> Int {
+            handle {
+                perform StdIO.println("intercepted")
+                42
+            } with {
+                StdIO.println(msg) => 99
+            }
+        }
+        "#,
+    );
+    // The handler arm returns 99 which becomes the perform result,
+    // but then the block continues with 42 as the tail.
+    // Actually, the handler returns 99 from the perform call,
+    // then 42 is the block tail.
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_handle_handler_sees_args() {
+    let v = run_main(
+        r#"
+        fn main() -> Int {
+            handle {
+                perform Math.double(21)
+            } with {
+                Math.double(x) => x + x
+            }
+        }
+        "#,
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_nested_handlers_inner_shadows_outer() {
+    let v = run_main(
+        r#"
+        fn main() -> Int {
+            handle {
+                handle {
+                    perform Math.value()
+                } with {
+                    Math.value() => 42
+                }
+            } with {
+                Math.value() => 0
+            }
+        }
+        "#,
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_unhandled_effect_error() {
+    let module = spore_parser::parse(r#"fn main() { perform Unknown.op() }"#).unwrap();
+    let err = spore_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string().contains("unhandled effect"),
+        "unexpected error: {err}"
+    );
+}
