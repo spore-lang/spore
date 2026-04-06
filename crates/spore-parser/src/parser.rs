@@ -383,26 +383,43 @@ impl Parser {
             vec![]
         };
 
-        // optional where clause
-        let where_clause = if self.at(&Token::Where) {
-            Some(self.parse_where_clause()?)
-        } else {
-            None
-        };
-
-        // optional cost clause
-        let cost_clause = if self.at(&Token::Cost) {
-            Some(self.parse_cost_clause()?)
-        } else {
-            None
-        };
-
-        // optional uses clause
-        let uses_clause = if self.at(&Token::Uses) {
-            Some(self.parse_uses_clause()?)
-        } else {
-            None
-        };
+        // Optional clauses may appear in any order; the formatter later
+        // normalizes them to `where -> uses -> cost -> spec`.
+        let mut where_clause = None;
+        let mut uses_clause = None;
+        let mut cost_clause = None;
+        let mut spec_clause = None;
+        loop {
+            if self.at(&Token::Where) {
+                if where_clause.is_some() {
+                    return Err(self.error("duplicate `where` clause".into()));
+                }
+                where_clause = Some(self.parse_where_clause()?);
+                continue;
+            }
+            if self.at(&Token::Uses) {
+                if uses_clause.is_some() {
+                    return Err(self.error("duplicate `uses` clause".into()));
+                }
+                uses_clause = Some(self.parse_uses_clause()?);
+                continue;
+            }
+            if self.at(&Token::Cost) {
+                if cost_clause.is_some() {
+                    return Err(self.error("duplicate `cost` clause".into()));
+                }
+                cost_clause = Some(self.parse_cost_clause()?);
+                continue;
+            }
+            if self.at(&Token::Spec) {
+                if spec_clause.is_some() {
+                    return Err(self.error("duplicate `spec` clause".into()));
+                }
+                spec_clause = Some(self.parse_spec_clause()?);
+                continue;
+            }
+            break;
+        }
 
         // body: block or hole
         let body = if self.at(&Token::LBrace) {
@@ -422,6 +439,7 @@ impl Parser {
             errors,
             where_clause,
             cost_clause,
+            spec_clause,
             uses_clause,
             is_unbounded: false,
             is_foreign,
@@ -537,6 +555,98 @@ impl Parser {
             }
             _ => Err(self.error(format!("expected cost expression, found {:?}", self.peek()))),
         }
+    }
+
+    fn parse_spec_clause(&mut self) -> Result<SpecClause, ParseError> {
+        let start = self.peek_span().start;
+        self.expect(&Token::Spec)?;
+        self.expect(&Token::LBrace)?;
+
+        let mut items = Vec::new();
+
+        while !self.at(&Token::RBrace) && !self.at_eof() {
+            match self.peek().clone() {
+                Token::Ident(ref s) if s == "example" => {
+                    items.push(SpecItem::Example(self.parse_example_item()?));
+                }
+                Token::Ident(ref s) if s == "property" => {
+                    items.push(SpecItem::Property(self.parse_property_item()?));
+                }
+                _ => {
+                    return Err(self.error(format!(
+                        "expected `example` or `property` in spec block, found {:?}",
+                        self.peek()
+                    )));
+                }
+            }
+        }
+
+        let end = self.peek_span().end;
+        self.expect(&Token::RBrace)?;
+
+        Ok(SpecClause {
+            items,
+            span: Some(Span::new(start, end)),
+        })
+    }
+
+    fn parse_example_item(&mut self) -> Result<ExampleItem, ParseError> {
+        let start = self.peek_span().start;
+        // Consume contextual keyword `example`
+        self.advance();
+
+        // Parse label (string literal)
+        let label = match self.peek().clone() {
+            Token::Str(s) => {
+                self.advance();
+                s
+            }
+            _ => return Err(self.error("expected string label after `example`".into())),
+        };
+
+        let body = if self.at(&Token::Colon) {
+            self.advance();
+            self.parse_expr()?
+        } else if self.at(&Token::LBrace) {
+            self.parse_block_expr()?
+        } else {
+            return Err(self.error("expected `:` or `{` after `example` label".into()));
+        };
+
+        let end = self.previous_span().end;
+
+        Ok(ExampleItem {
+            label,
+            body: Box::new(body),
+            span: Some(Span::new(start, end)),
+        })
+    }
+
+    fn parse_property_item(&mut self) -> Result<PropertyItem, ParseError> {
+        let start = self.peek_span().start;
+        // Consume contextual keyword `property`
+        self.advance();
+
+        // Parse label (string literal)
+        let label = match self.peek().clone() {
+            Token::Str(s) => {
+                self.advance();
+                s
+            }
+            _ => return Err(self.error("expected string label after `property`".into())),
+        };
+
+        // Expect `:` then lambda expression
+        self.expect(&Token::Colon)?;
+        let predicate = self.parse_expr()?;
+
+        let end = self.previous_span().end;
+
+        Ok(PropertyItem {
+            label,
+            predicate: Box::new(predicate),
+            span: Some(Span::new(start, end)),
+        })
     }
 
     fn parse_uses_clause(&mut self) -> Result<UsesClause, ParseError> {
