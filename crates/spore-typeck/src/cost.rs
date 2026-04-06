@@ -331,12 +331,7 @@ impl CostAnalyzer {
                     .as_ref()
                     .map(|e| self.analyze_expr_cost(e))
                     .unwrap_or_else(CostVector::zero);
-                let branch_max = CostVector {
-                    compute: max_cost(&then_cost.compute, &else_cost.compute),
-                    alloc: max_cost(&then_cost.alloc, &else_cost.alloc),
-                    io: max_cost(&then_cost.io, &else_cost.io),
-                    parallel: max_cost(&then_cost.parallel, &else_cost.parallel),
-                };
+                let branch_max = then_cost.max(&else_cost);
                 cond_cost.seq(&branch_max)
             }
 
@@ -351,12 +346,7 @@ impl CostAnalyzer {
                     if let Some(guard) = &arm.guard {
                         arm_cost = self.analyze_expr_cost(guard).seq(&arm_cost);
                     }
-                    max_arm = CostVector {
-                        compute: max_cost(&max_arm.compute, &arm_cost.compute),
-                        alloc: max_cost(&max_arm.alloc, &arm_cost.alloc),
-                        io: max_cost(&max_arm.io, &arm_cost.io),
-                        parallel: max_cost(&max_arm.parallel, &arm_cost.parallel),
-                    };
+                    max_arm = max_arm.max(&arm_cost);
                 }
                 scrutinee_cost
                     .seq(&max_arm)
@@ -458,12 +448,7 @@ impl CostAnalyzer {
                     let arm_cost = self
                         .analyze_expr_cost(&arm.source)
                         .seq(&self.analyze_expr_cost(&arm.body));
-                    max_arm = CostVector {
-                        compute: max_cost(&max_arm.compute, &arm_cost.compute),
-                        alloc: max_cost(&max_arm.alloc, &arm_cost.alloc),
-                        io: max_cost(&max_arm.io, &arm_cost.io),
-                        parallel: max_cost(&max_arm.parallel, &arm_cost.parallel),
-                    };
+                    max_arm = max_arm.max(&arm_cost);
                 }
                 max_arm
             }
@@ -490,12 +475,7 @@ impl CostAnalyzer {
                 let mut max_arm = CostVector::zero();
                 for arm in handlers {
                     let arm_cost = self.analyze_expr_cost(&arm.body);
-                    max_arm = CostVector {
-                        compute: max_cost(&max_arm.compute, &arm_cost.compute),
-                        alloc: max_cost(&max_arm.alloc, &arm_cost.alloc),
-                        io: max_cost(&max_arm.io, &arm_cost.io),
-                        parallel: max_cost(&max_arm.parallel, &arm_cost.parallel),
-                    };
+                    max_arm = max_arm.max(&arm_cost);
                 }
                 body_cost.seq(&max_arm)
             }
@@ -705,110 +685,113 @@ enum CallArg {
     Other,
 }
 
-/// Walk the AST collecting argument lists from recursive calls to `fn_name`.
-fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg>>) {
+/// Walk the AST, invoking `on_call(callee, args)` at every `Expr::Call` node,
+/// then recursing into all sub-expressions.
+fn walk_expr<F>(expr: &Expr, on_call: &mut F)
+where
+    F: FnMut(&Expr, &[Expr]),
+{
     match expr {
         Expr::Call(callee, args) => {
-            // Check if the callee is `fn_name`
-            if let Expr::Var(name) = callee.as_ref()
-                && name == fn_name
-            {
-                let classified: Vec<CallArg> = args.iter().map(classify_arg).collect();
-                out.push(classified);
-            }
-            // Also recurse into callee and args
-            collect_recursive_calls(fn_name, callee, out);
+            on_call(callee, args);
+            walk_expr(callee, on_call);
             for arg in args {
-                collect_recursive_calls(fn_name, arg, out);
+                walk_expr(arg, on_call);
             }
         }
-        Expr::BinOp(lhs, _, rhs) => {
-            collect_recursive_calls(fn_name, lhs, out);
-            collect_recursive_calls(fn_name, rhs, out);
+        Expr::BinOp(lhs, _, rhs) | Expr::Pipe(lhs, rhs) => {
+            walk_expr(lhs, on_call);
+            walk_expr(rhs, on_call);
         }
-        Expr::UnaryOp(_, inner) => {
-            collect_recursive_calls(fn_name, inner, out);
+        Expr::UnaryOp(_, inner)
+        | Expr::FieldAccess(inner, _)
+        | Expr::Try(inner)
+        | Expr::Spawn(inner)
+        | Expr::Await(inner)
+        | Expr::Throw(inner) => {
+            walk_expr(inner, on_call);
         }
         Expr::If(cond, then_br, else_br) => {
-            collect_recursive_calls(fn_name, cond, out);
-            collect_recursive_calls(fn_name, then_br, out);
+            walk_expr(cond, on_call);
+            walk_expr(then_br, on_call);
             if let Some(e) = else_br {
-                collect_recursive_calls(fn_name, e, out);
+                walk_expr(e, on_call);
             }
         }
         Expr::Block(stmts, tail) => {
             for stmt in stmts {
                 match stmt {
                     Stmt::Let(_, _, e) | Stmt::Expr(e) => {
-                        collect_recursive_calls(fn_name, e, out);
+                        walk_expr(e, on_call);
                     }
                 }
             }
             if let Some(tail_expr) = tail {
-                collect_recursive_calls(fn_name, tail_expr, out);
+                walk_expr(tail_expr, on_call);
             }
         }
         Expr::Match(scrutinee, arms) => {
-            collect_recursive_calls(fn_name, scrutinee, out);
+            walk_expr(scrutinee, on_call);
             for arm in arms {
                 if let Some(guard) = &arm.guard {
-                    collect_recursive_calls(fn_name, guard, out);
+                    walk_expr(guard, on_call);
                 }
-                collect_recursive_calls(fn_name, &arm.body, out);
+                walk_expr(&arm.body, on_call);
             }
         }
         Expr::Lambda(_, body) => {
-            collect_recursive_calls(fn_name, body, out);
-        }
-        Expr::Pipe(lhs, rhs) => {
-            collect_recursive_calls(fn_name, lhs, out);
-            collect_recursive_calls(fn_name, rhs, out);
-        }
-        Expr::FieldAccess(inner, _) => {
-            collect_recursive_calls(fn_name, inner, out);
-        }
-        Expr::Try(inner) | Expr::Spawn(inner) | Expr::Await(inner) | Expr::Throw(inner) => {
-            collect_recursive_calls(fn_name, inner, out);
+            walk_expr(body, on_call);
         }
         Expr::ParallelScope { lanes, body } => {
             if let Some(lanes_expr) = lanes {
-                collect_recursive_calls(fn_name, lanes_expr, out);
+                walk_expr(lanes_expr, on_call);
             }
-            collect_recursive_calls(fn_name, body, out);
+            walk_expr(body, on_call);
         }
         Expr::Select(arms) => {
             for arm in arms {
-                collect_recursive_calls(fn_name, &arm.source, out);
-                collect_recursive_calls(fn_name, &arm.body, out);
+                walk_expr(&arm.source, on_call);
+                walk_expr(&arm.body, on_call);
             }
         }
         Expr::Return(inner) => {
             if let Some(e) = inner {
-                collect_recursive_calls(fn_name, e, out);
+                walk_expr(e, on_call);
             }
         }
         Expr::List(elems) => {
             for e in elems {
-                collect_recursive_calls(fn_name, e, out);
+                walk_expr(e, on_call);
             }
         }
         Expr::StructLit(_, fields) => {
             for (_, e) in fields {
-                collect_recursive_calls(fn_name, e, out);
+                walk_expr(e, on_call);
             }
         }
         Expr::FString(parts) => {
             for part in parts {
                 if let ast::FStringPart::Expr(e) = part {
-                    collect_recursive_calls(fn_name, e, out);
+                    walk_expr(e, on_call);
                 }
             }
         }
         Expr::TString(parts) => {
             for part in parts {
                 if let ast::TStringPart::Expr(e) = part {
-                    collect_recursive_calls(fn_name, e, out);
+                    walk_expr(e, on_call);
                 }
+            }
+        }
+        Expr::Perform { args, .. } => {
+            for arg in args {
+                walk_expr(arg, on_call);
+            }
+        }
+        Expr::Handle { body, handlers } => {
+            walk_expr(body, on_call);
+            for arm in handlers {
+                walk_expr(&arm.body, on_call);
             }
         }
         // Leaves — no recursion
@@ -820,18 +803,19 @@ fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg
         | Expr::Var(_)
         | Expr::Hole(_, _, _)
         | Expr::Placeholder => {}
-        Expr::Perform { args, .. } => {
-            for arg in args {
-                collect_recursive_calls(fn_name, arg, out);
-            }
-        }
-        Expr::Handle { body, handlers } => {
-            collect_recursive_calls(fn_name, body, out);
-            for arm in handlers {
-                collect_recursive_calls(fn_name, &arm.body, out);
-            }
-        }
     }
+}
+
+/// Walk the AST collecting argument lists from recursive calls to `fn_name`.
+fn collect_recursive_calls(fn_name: &str, expr: &Expr, out: &mut Vec<Vec<CallArg>>) {
+    walk_expr(expr, &mut |callee, args| {
+        if let Expr::Var(name) = callee
+            && name == fn_name
+        {
+            let classified: Vec<CallArg> = args.iter().map(classify_arg).collect();
+            out.push(classified);
+        }
+    });
 }
 
 /// Classify an argument expression for structural recursion detection.
@@ -866,128 +850,13 @@ fn collect_callee_names(self_name: &str, expr: &Expr) -> Vec<String> {
 }
 
 fn collect_callee_names_inner(self_name: &str, expr: &Expr, out: &mut Vec<String>) {
-    match expr {
-        Expr::Call(callee, args) => {
-            if let Expr::Var(name) = callee.as_ref()
-                && name != self_name
-            {
-                out.push(name.clone());
-            }
-            collect_callee_names_inner(self_name, callee, out);
-            for arg in args {
-                collect_callee_names_inner(self_name, arg, out);
-            }
+    walk_expr(expr, &mut |callee, _args| {
+        if let Expr::Var(name) = callee
+            && name != self_name
+        {
+            out.push(name.clone());
         }
-        Expr::BinOp(lhs, _, rhs) => {
-            collect_callee_names_inner(self_name, lhs, out);
-            collect_callee_names_inner(self_name, rhs, out);
-        }
-        Expr::UnaryOp(_, inner) => {
-            collect_callee_names_inner(self_name, inner, out);
-        }
-        Expr::If(cond, then_br, else_br) => {
-            collect_callee_names_inner(self_name, cond, out);
-            collect_callee_names_inner(self_name, then_br, out);
-            if let Some(e) = else_br {
-                collect_callee_names_inner(self_name, e, out);
-            }
-        }
-        Expr::Block(stmts, tail) => {
-            for stmt in stmts {
-                match stmt {
-                    Stmt::Let(_, _, e) | Stmt::Expr(e) => {
-                        collect_callee_names_inner(self_name, e, out);
-                    }
-                }
-            }
-            if let Some(tail_expr) = tail {
-                collect_callee_names_inner(self_name, tail_expr, out);
-            }
-        }
-        Expr::Match(scrutinee, arms) => {
-            collect_callee_names_inner(self_name, scrutinee, out);
-            for arm in arms {
-                if let Some(guard) = &arm.guard {
-                    collect_callee_names_inner(self_name, guard, out);
-                }
-                collect_callee_names_inner(self_name, &arm.body, out);
-            }
-        }
-        Expr::Lambda(_, body) => {
-            collect_callee_names_inner(self_name, body, out);
-        }
-        Expr::Pipe(lhs, rhs) => {
-            collect_callee_names_inner(self_name, lhs, out);
-            collect_callee_names_inner(self_name, rhs, out);
-        }
-        Expr::FieldAccess(inner, _) => {
-            collect_callee_names_inner(self_name, inner, out);
-        }
-        Expr::Try(inner) | Expr::Spawn(inner) | Expr::Await(inner) | Expr::Throw(inner) => {
-            collect_callee_names_inner(self_name, inner, out);
-        }
-        Expr::ParallelScope { lanes, body } => {
-            if let Some(lanes_expr) = lanes {
-                collect_callee_names_inner(self_name, lanes_expr, out);
-            }
-            collect_callee_names_inner(self_name, body, out);
-        }
-        Expr::Select(arms) => {
-            for arm in arms {
-                collect_callee_names_inner(self_name, &arm.source, out);
-                collect_callee_names_inner(self_name, &arm.body, out);
-            }
-        }
-        Expr::Return(inner) => {
-            if let Some(e) = inner {
-                collect_callee_names_inner(self_name, e, out);
-            }
-        }
-        Expr::List(elems) => {
-            for e in elems {
-                collect_callee_names_inner(self_name, e, out);
-            }
-        }
-        Expr::StructLit(_, fields) => {
-            for (_, e) in fields {
-                collect_callee_names_inner(self_name, e, out);
-            }
-        }
-        Expr::FString(parts) => {
-            for part in parts {
-                if let ast::FStringPart::Expr(e) = part {
-                    collect_callee_names_inner(self_name, e, out);
-                }
-            }
-        }
-        Expr::TString(parts) => {
-            for part in parts {
-                if let ast::TStringPart::Expr(e) = part {
-                    collect_callee_names_inner(self_name, e, out);
-                }
-            }
-        }
-        // Leaves — no calls
-        Expr::IntLit(_)
-        | Expr::FloatLit(_)
-        | Expr::StrLit(_)
-        | Expr::BoolLit(_)
-        | Expr::CharLit(_)
-        | Expr::Var(_)
-        | Expr::Hole(_, _, _)
-        | Expr::Placeholder => {}
-        Expr::Perform { args, .. } => {
-            for arg in args {
-                collect_callee_names_inner(self_name, arg, out);
-            }
-        }
-        Expr::Handle { body, handlers } => {
-            collect_callee_names_inner(self_name, body, out);
-            for arm in handlers {
-                collect_callee_names_inner(self_name, &arm.body, out);
-            }
-        }
-    }
+    });
 }
 
 /// Check if an actual cost exceeds a declared budget.
@@ -1037,6 +906,16 @@ impl CostVector {
 
     pub fn zero() -> Self {
         Self::constant(0, 0, 0, 0)
+    }
+
+    /// Component-wise maximum of two cost vectors.
+    pub fn max(&self, other: &CostVector) -> CostVector {
+        CostVector {
+            compute: max_cost(&self.compute, &other.compute),
+            alloc: max_cost(&self.alloc, &other.alloc),
+            io: max_cost(&self.io, &other.io),
+            parallel: max_cost(&self.parallel, &other.parallel),
+        }
     }
 
     /// Check if all dimensions are bounded (no `Unbounded`).
