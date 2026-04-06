@@ -464,40 +464,53 @@ impl Default for LspServer {
 
 // ── Free functions (public for testing) ──────────────────────────────
 
+/// Convert a byte offset to (line, character) using the source text.
+fn byte_offset_to_position(source: &str, offset: usize) -> (u32, u32) {
+    let offset = offset.min(source.len());
+    let mut line = 0u32;
+    let mut col = 0u32;
+    for (i, ch) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
+}
+
 /// Build LSP diagnostics from source text by running the Spore compiler.
 pub fn build_diagnostics(source: &str) -> Vec<Value> {
-    match sporec::compile(source) {
-        Ok(output) => output
-            .warnings
-            .iter()
-            .map(|w| {
-                json!({
-                    "range": {
-                        "start": { "line": 0, "character": 0 },
-                        "end": { "line": 0, "character": 0 }
-                    },
-                    "severity": 2,
-                    "source": "spore",
-                    "message": w
-                })
+    let diagnostics = sporec::compile_diagnostics(source);
+    diagnostics
+        .into_iter()
+        .map(|d| {
+            let severity: u32 = match d.severity {
+                sporec::DiagnosticSeverity::Error => 1,
+                sporec::DiagnosticSeverity::Warning => 2,
+            };
+            let (start_line, start_char, end_line, end_char) = if let Some(span) = d.span {
+                let (sl, sc) = byte_offset_to_position(source, span.start);
+                let (el, ec) = byte_offset_to_position(source, span.end);
+                (sl, sc, el, ec)
+            } else {
+                (0, 0, 0, 0)
+            };
+            json!({
+                "range": {
+                    "start": { "line": start_line, "character": start_char },
+                    "end": { "line": end_line, "character": end_char }
+                },
+                "severity": severity,
+                "source": "spore",
+                "message": d.message
             })
-            .collect(),
-        Err(err_msg) => err_msg
-            .lines()
-            .filter(|line| !line.is_empty())
-            .map(|line| {
-                json!({
-                    "range": {
-                        "start": { "line": 0, "character": 0 },
-                        "end": { "line": 0, "character": 0 }
-                    },
-                    "severity": 1,
-                    "source": "spore",
-                    "message": line
-                })
-            })
-            .collect(),
-    }
+        })
+        .collect()
 }
 
 /// Extract the word (identifier) at a given (line, col) position.

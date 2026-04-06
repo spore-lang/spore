@@ -500,6 +500,7 @@ pub fn all_error_codes() -> &'static [ErrorCode] {
 pub struct TypeError {
     pub code: ErrorCode,
     pub message: String,
+    pub span: Option<spore_parser::ast::Span>,
 }
 
 impl TypeError {
@@ -507,13 +508,34 @@ impl TypeError {
         Self {
             code,
             message: message.into(),
+            span: None,
+        }
+    }
+
+    pub fn with_span(
+        code: ErrorCode,
+        message: impl Into<String>,
+        span: spore_parser::ast::Span,
+    ) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            span: Some(span),
         }
     }
 }
 
 impl fmt::Display for TypeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}] {}", self.code, self.message)
+        if let Some(span) = &self.span {
+            write!(
+                f,
+                "[{}] at {}-{}: {}",
+                self.code, span.start, span.end, self.message
+            )
+        } else {
+            write!(f, "[{}] {}", self.code, self.message)
+        }
     }
 }
 

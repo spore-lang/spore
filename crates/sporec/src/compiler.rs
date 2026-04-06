@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use spore_codegen::value::Value;
-use spore_parser::ast::{ImportDecl, Item};
+use spore_parser::ast::{ImportDecl, Item, Span};
 use spore_parser::formatter::format_module;
 use spore_parser::parse;
 use spore_typeck::CheckResult;
@@ -19,6 +19,57 @@ fn join_errors<E: std::fmt::Display>(errs: Vec<E>) -> String {
 #[derive(Debug, Clone, Default)]
 pub struct CompileOutput {
     pub warnings: Vec<String>,
+}
+
+/// A structured diagnostic with optional span information.
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    pub message: String,
+    pub span: Option<Span>,
+    pub severity: DiagnosticSeverity,
+}
+
+/// Diagnostic severity levels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+}
+
+/// Compile and return structured diagnostics (for LSP and IDE integration).
+pub fn compile_diagnostics(source: &str) -> Vec<Diagnostic> {
+    let ast = match parse(source) {
+        Ok(ast) => ast,
+        Err(errs) => {
+            return errs
+                .into_iter()
+                .map(|e| Diagnostic {
+                    message: e.message,
+                    span: Some(e.span),
+                    severity: DiagnosticSeverity::Error,
+                })
+                .collect();
+        }
+    };
+    match type_check(&ast) {
+        Ok(result) => result
+            .warnings
+            .iter()
+            .map(|w| Diagnostic {
+                message: w.message.clone(),
+                span: w.span,
+                severity: DiagnosticSeverity::Warning,
+            })
+            .collect(),
+        Err(errs) => errs
+            .into_iter()
+            .map(|e| Diagnostic {
+                message: format!("[{}] {}", e.code, e.message),
+                span: e.span,
+                severity: DiagnosticSeverity::Error,
+            })
+            .collect(),
+    }
 }
 
 /// Compile Spore source code to output.

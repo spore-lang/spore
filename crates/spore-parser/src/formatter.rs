@@ -81,7 +81,9 @@ impl Formatter {
             Item::StructDef(s) => self.fmt_struct_def(s),
             Item::TypeDef(t) => self.fmt_type_def(t),
             Item::CapabilityDef(c) => self.fmt_capability_def(c),
-            Item::CapabilityAlias { name, components } => {
+            Item::CapabilityAlias {
+                name, components, ..
+            } => {
                 self.fmt_capability_alias(name, components);
             }
             Item::ImplDef(i) => self.fmt_impl_def(i),
@@ -426,7 +428,7 @@ impl Formatter {
     fn fmt_import(&mut self, imp: &ImportDecl) {
         self.write_indent();
         match imp {
-            ImportDecl::Import { path, alias } => {
+            ImportDecl::Import { path, alias, .. } => {
                 self.write("import ");
                 self.write(path);
                 if !alias.is_empty() && alias != path {
@@ -434,7 +436,7 @@ impl Formatter {
                     self.write(alias);
                 }
             }
-            ImportDecl::Alias { name, path } => {
+            ImportDecl::Alias { name, path, .. } => {
                 self.write("import ");
                 self.write(path);
                 self.write(" as ");

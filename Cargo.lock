@@ -544,6 +544,9 @@ dependencies = [
 [[package]]
 name = "spore-parser"
 version = "0.1.0"
+dependencies = [
+ "spore-typeck",
+]
 
 [[package]]
 name = "spore-typeck"
