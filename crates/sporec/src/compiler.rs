@@ -8,6 +8,13 @@ use spore_typeck::CheckResult;
 use spore_typeck::module::{ModuleLoader, ModuleRegistry};
 use spore_typeck::{type_check, type_check_with_registry};
 
+fn join_errors<E: std::fmt::Display>(errs: Vec<E>) -> String {
+    errs.into_iter()
+        .map(|e| e.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Warnings collected during compilation (cost budget violations, etc.).
 #[derive(Debug, Clone, Default)]
 pub struct CompileOutput {
@@ -23,18 +30,8 @@ pub struct CompileOutput {
 ///
 /// Returns warnings (e.g. cost budget violations) on success.
 pub fn compile(source: &str) -> Result<CompileOutput, String> {
-    let ast = parse(source).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
-    let result = type_check(&ast).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let ast = parse(source).map_err(join_errors)?;
+    let result = type_check(&ast).map_err(join_errors)?;
     let warnings = result.warnings.iter().map(|w| w.to_string()).collect();
     Ok(CompileOutput { warnings })
 }
@@ -109,12 +106,7 @@ pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String
     let entry_path = root.join("src").join(entry);
     let source = std::fs::read_to_string(&entry_path)
         .map_err(|e| format!("cannot read `{}`: {e}", entry_path.display()))?;
-    let ast = parse(&source).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let ast = parse(&source).map_err(join_errors)?;
 
     // Derive a module name from the entry path
     let module_name = if ast.name.is_empty() {
@@ -142,21 +134,11 @@ pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String
     if !imports.is_empty() {
         registry
             .resolve_imports(&mut loader, &module_name, &imports)
-            .map_err(|errs| {
-                errs.into_iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })?;
+            .map_err(join_errors)?;
     }
 
     // Type-check entry module with populated registry
-    let result = type_check_with_registry(&ast, registry).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let result = type_check_with_registry(&ast, registry).map_err(join_errors)?;
     let warnings = result.warnings.iter().map(|w| w.to_string()).collect();
     Ok(CompileOutput { warnings })
 }
@@ -171,12 +153,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     let entry_path = root.join("src").join(entry);
     let source = std::fs::read_to_string(&entry_path)
         .map_err(|e| format!("cannot read `{}`: {e}", entry_path.display()))?;
-    let ast = parse(&source).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let ast = parse(&source).map_err(join_errors)?;
 
     let module_name = if ast.name.is_empty() {
         entry.trim_end_matches(".sp").replace(['/', '\\'], ".")
@@ -201,21 +178,11 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     if !imports.is_empty() {
         registry
             .resolve_imports(&mut loader, &module_name, &imports)
-            .map_err(|errs| {
-                errs.into_iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })?;
+            .map_err(join_errors)?;
     }
 
     // Type-check
-    let _result = type_check_with_registry(&ast, registry).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let _result = type_check_with_registry(&ast, registry).map_err(join_errors)?;
 
     // Collect imported module ASTs for the interpreter
     let imported: Vec<(String, spore_parser::ast::Module)> = loader
@@ -229,35 +196,15 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
 
 /// Analyze holes in Spore source and return a JSON report.
 pub fn holes(source: &str) -> Result<String, String> {
-    let ast = parse(source).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
-    let result = type_check(&ast).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let ast = parse(source).map_err(join_errors)?;
+    let result = type_check(&ast).map_err(join_errors)?;
     Ok(result.hole_report.to_json())
 }
 
 /// Run a Spore program by executing its `main` function.
 pub fn run(source: &str) -> Result<Value, String> {
-    let ast = parse(source).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
-    let _result = type_check(&ast).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let ast = parse(source).map_err(join_errors)?;
+    let _result = type_check(&ast).map_err(join_errors)?;
     spore_codegen::run(&ast).map_err(|e| e.to_string())
 }
 
@@ -266,24 +213,14 @@ pub fn run(source: &str) -> Result<Value, String> {
 /// Parses the source into an AST and then pretty-prints it back using the
 /// canonical formatter.  Returns the formatted source text.
 pub fn format(source: &str) -> Result<String, String> {
-    let ast = parse(source).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let ast = parse(source).map_err(join_errors)?;
     Ok(format_module(&ast))
 }
 
 /// Type-check with verbose output: returns detailed analysis including type
 /// inference context, capability annotations, and cost summaries.
 pub fn check_verbose(source: &str) -> Result<String, String> {
-    let ast = parse(source).map_err(|errs| {
-        errs.into_iter()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let ast = parse(source).map_err(join_errors)?;
     let result = type_check(&ast).map_err(|errs| {
         errs.into_iter()
             .map(|e| format!("  {e}"))

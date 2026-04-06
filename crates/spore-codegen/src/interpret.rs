@@ -35,6 +35,31 @@ impl std::error::Error for RuntimeError {}
 
 type Result<T> = std::result::Result<T, RuntimeError>;
 
+// ── Builtin argument helpers ────────────────────────────────────────
+
+fn require_arg<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a Value> {
+    args.get(idx)
+        .ok_or_else(|| RuntimeError::new(format!("{name}: missing argument {idx}")))
+}
+
+fn require_int(args: &[Value], idx: usize, name: &str) -> Result<i64> {
+    require_arg(args, idx, name)?
+        .as_int()
+        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be Int")))
+}
+
+fn require_str<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a str> {
+    require_arg(args, idx, name)?
+        .as_str()
+        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be String")))
+}
+
+fn require_list<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a Vec<Value>> {
+    require_arg(args, idx, name)?
+        .as_list()
+        .map_err(|e| RuntimeError::new(format!("{name}: argument {idx}: {e}")))
+}
+
 /// The tree-walking interpreter.
 pub struct Interpreter {
     /// Global function definitions
@@ -692,27 +717,19 @@ impl Interpreter {
         match name {
             // ── List builtins ──────────────────────────────────────
             "len" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("len: missing argument"))?;
-                match list {
+                let val = require_arg(args, 0, "len")?;
+                match val {
                     Value::List(v) => Ok(Some(Value::Int(v.len() as i64))),
                     Value::Str(s) => Ok(Some(Value::Int(s.len() as i64))),
                     _ => Err(RuntimeError::new(format!(
                         "len: expected List or String, got {}",
-                        list.type_name()
+                        val.type_name()
                     ))),
                 }
             }
             "map" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("map: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
-                let f = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("map: missing function"))?;
+                let list = require_list(args, 0, "map")?;
+                let f = require_arg(args, 1, "map")?;
                 let results: Vec<Value> = list
                     .iter()
                     .map(|item| self.call_value(f, vec![item.clone()]))
@@ -720,14 +737,8 @@ impl Interpreter {
                 Ok(Some(Value::List(results)))
             }
             "filter" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("filter: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
-                let pred = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("filter: missing predicate"))?;
+                let list = require_list(args, 0, "filter")?;
+                let pred = require_arg(args, 1, "filter")?;
                 let mut results = Vec::new();
                 for item in list {
                     let v = self.call_value(pred, vec![item.clone()])?;
@@ -738,18 +749,9 @@ impl Interpreter {
                 Ok(Some(Value::List(results)))
             }
             "fold" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("fold: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
-                let init = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("fold: missing init"))?
-                    .clone();
-                let f = args
-                    .get(2)
-                    .ok_or_else(|| RuntimeError::new("fold: missing function"))?;
+                let list = require_list(args, 0, "fold")?;
+                let init = require_arg(args, 1, "fold")?.clone();
+                let f = require_arg(args, 2, "fold")?;
                 let mut acc = init;
                 for item in list {
                     acc = self.call_value(f, vec![acc, item.clone()])?;
@@ -757,195 +759,96 @@ impl Interpreter {
                 Ok(Some(acc))
             }
             "each" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("each: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
-                let f = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("each: missing function"))?;
+                let list = require_list(args, 0, "each")?;
+                let f = require_arg(args, 1, "each")?;
                 for item in list {
                     self.call_value(f, vec![item.clone()])?;
                 }
                 Ok(Some(Value::Unit))
             }
             "append" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("append: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
-                let item = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("append: missing item"))?;
+                let list = require_list(args, 0, "append")?;
+                let item = require_arg(args, 1, "append")?;
                 let mut new_list = list.clone();
                 new_list.push(item.clone());
                 Ok(Some(Value::List(new_list)))
             }
             "prepend" => {
-                let item = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("prepend: missing item"))?;
-                let list = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("prepend: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
+                let item = require_arg(args, 0, "prepend")?;
+                let list = require_list(args, 1, "prepend")?;
                 let mut new_list = vec![item.clone()];
                 new_list.extend(list.iter().cloned());
                 Ok(Some(Value::List(new_list)))
             }
             "head" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("head: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
+                let list = require_list(args, 0, "head")?;
                 list.first()
                     .cloned()
                     .map(Some)
                     .ok_or_else(|| RuntimeError::new("head: empty list"))
             }
             "tail" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("tail: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
+                let list = require_list(args, 0, "tail")?;
                 if list.is_empty() {
                     return Err(RuntimeError::new("tail: empty list"));
                 }
                 Ok(Some(Value::List(list[1..].to_vec())))
             }
             "reverse" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("reverse: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
+                let list = require_list(args, 0, "reverse")?;
                 let mut rev = list.clone();
                 rev.reverse();
                 Ok(Some(Value::List(rev)))
             }
             "range" => {
-                let start = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("range: missing start"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("range: start must be Int"))?;
-                let end = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("range: missing end"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("range: end must be Int"))?;
+                let start = require_int(args, 0, "range")?;
+                let end = require_int(args, 1, "range")?;
                 let list: Vec<Value> = (start..end).map(Value::Int).collect();
                 Ok(Some(Value::List(list)))
             }
             "contains" => {
-                let list = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("contains: missing list"))?
-                    .as_list()
-                    .map_err(RuntimeError::new)?;
-                let item = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("contains: missing item"))?;
+                let list = require_list(args, 0, "contains")?;
+                let item = require_arg(args, 1, "contains")?;
                 let found = list.iter().any(|v| value_eq(v, item));
                 Ok(Some(Value::Bool(found)))
             }
 
             // ── String builtins ────────────────────────────────────
             "string_length" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("string_length: missing arg"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("string_length: expected String"))?;
+                let s = require_str(args, 0, "string_length")?;
                 Ok(Some(Value::Int(s.len() as i64)))
             }
             "split" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("split: missing string"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("split: expected String"))?
-                    .to_owned();
-                let sep = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("split: missing separator"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("split: separator must be String"))?
-                    .to_owned();
-                let parts: Vec<Value> = s.split(&sep).map(|p| Value::Str(p.to_owned())).collect();
+                let s = require_str(args, 0, "split")?;
+                let sep = require_str(args, 1, "split")?;
+                let parts: Vec<Value> = s.split(sep).map(|p| Value::Str(p.to_owned())).collect();
                 Ok(Some(Value::List(parts)))
             }
             "trim" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("trim: missing arg"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("trim: expected String"))?;
+                let s = require_str(args, 0, "trim")?;
                 Ok(Some(Value::Str(s.trim().to_owned())))
             }
             "to_upper" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("to_upper: missing arg"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("to_upper: expected String"))?;
+                let s = require_str(args, 0, "to_upper")?;
                 Ok(Some(Value::Str(s.to_uppercase())))
             }
             "to_lower" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("to_lower: missing arg"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("to_lower: expected String"))?;
+                let s = require_str(args, 0, "to_lower")?;
                 Ok(Some(Value::Str(s.to_lowercase())))
             }
             "starts_with" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("starts_with: missing string"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("starts_with: expected String"))?
-                    .to_owned();
-                let prefix = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("starts_with: missing prefix"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("starts_with: prefix must be String"))?
-                    .to_owned();
-                Ok(Some(Value::Bool(s.starts_with(&prefix))))
+                let s = require_str(args, 0, "starts_with")?;
+                let prefix = require_str(args, 1, "starts_with")?;
+                Ok(Some(Value::Bool(s.starts_with(prefix))))
             }
             "ends_with" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("ends_with: missing string"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("ends_with: expected String"))?
-                    .to_owned();
-                let suffix = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("ends_with: missing suffix"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("ends_with: suffix must be String"))?
-                    .to_owned();
-                Ok(Some(Value::Bool(s.ends_with(&suffix))))
+                let s = require_str(args, 0, "ends_with")?;
+                let suffix = require_str(args, 1, "ends_with")?;
+                Ok(Some(Value::Bool(s.ends_with(suffix))))
             }
             "char_at" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("char_at: missing string"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("char_at: expected String"))?
-                    .to_owned();
-                let idx_i64 = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("char_at: missing index"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("char_at: index must be Int"))?;
+                let s = require_str(args, 0, "char_at")?;
+                let idx_i64 = require_int(args, 1, "char_at")?;
                 if idx_i64 < 0 {
                     return Err(RuntimeError::new(format!(
                         "char_at: index cannot be negative, got {idx_i64}"
@@ -958,28 +861,15 @@ impl Interpreter {
                 Ok(Some(Value::Str(ch.to_string())))
             }
             "substring" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("substring: missing string"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("substring: expected String"))?
-                    .to_owned();
-                let start_i64 = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("substring: missing start"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("substring: start must be Int"))?;
+                let s = require_str(args, 0, "substring")?;
+                let start_i64 = require_int(args, 1, "substring")?;
                 if start_i64 < 0 {
                     return Err(RuntimeError::new(format!(
                         "substring: start cannot be negative, got {start_i64}"
                     )));
                 }
                 let start = start_i64 as usize;
-                let end_i64 = args
-                    .get(2)
-                    .ok_or_else(|| RuntimeError::new("substring: missing end"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("substring: end must be Int"))?;
+                let end_i64 = require_int(args, 2, "substring")?;
                 if end_i64 < 0 {
                     return Err(RuntimeError::new(format!(
                         "substring: end cannot be negative, got {end_i64}"
@@ -994,82 +884,36 @@ impl Interpreter {
                 Ok(Some(Value::Str(sub)))
             }
             "replace" => {
-                let s = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("replace: missing string"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("replace: expected String"))?
-                    .to_owned();
-                let from = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("replace: missing from"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("replace: from must be String"))?
-                    .to_owned();
-                let to = args
-                    .get(2)
-                    .ok_or_else(|| RuntimeError::new("replace: missing to"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("replace: to must be String"))?
-                    .to_owned();
-                Ok(Some(Value::Str(s.replace(&from, &to))))
+                let s = require_str(args, 0, "replace")?;
+                let from = require_str(args, 1, "replace")?;
+                let to = require_str(args, 2, "replace")?;
+                Ok(Some(Value::Str(s.replace(from, to))))
             }
             "to_string" => {
-                let val = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("to_string: missing arg"))?;
+                let val = require_arg(args, 0, "to_string")?;
                 Ok(Some(Value::Str(val.to_string())))
             }
 
             // ── Math builtins ──────────────────────────────────────
             "abs" => {
-                let n = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("abs: missing arg"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("abs: expected Int"))?;
+                let n = require_int(args, 0, "abs")?;
                 Ok(Some(Value::Int(n.saturating_abs())))
             }
             "min" => {
-                let a = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("min: missing first arg"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("min: expected Int"))?;
-                let b = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("min: missing second arg"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("min: expected Int"))?;
+                let a = require_int(args, 0, "min")?;
+                let b = require_int(args, 1, "min")?;
                 Ok(Some(Value::Int(a.min(b))))
             }
             "max" => {
-                let a = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("max: missing first arg"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("max: expected Int"))?;
-                let b = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("max: missing second arg"))?
-                    .as_int()
-                    .ok_or_else(|| RuntimeError::new("max: expected Int"))?;
+                let a = require_int(args, 0, "max")?;
+                let b = require_int(args, 1, "max")?;
                 Ok(Some(Value::Int(a.max(b))))
             }
 
             // ── List concat ──────────────────────────────────────
             "concat" => {
-                let a = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("concat: missing first list"))?
-                    .as_list()
-                    .map_err(|e| RuntimeError::new(format!("concat: {e}")))?
-                    .clone();
-                let b = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("concat: missing second list"))?
-                    .as_list()
-                    .map_err(|e| RuntimeError::new(format!("concat: {e}")))?;
+                let a = require_list(args, 0, "concat")?.clone();
+                let b = require_list(args, 1, "concat")?;
                 let mut result = a;
                 result.extend(b.iter().cloned());
                 Ok(Some(Value::List(result)))
@@ -1077,17 +921,8 @@ impl Interpreter {
 
             // ── String index_of ──────────────────────────────────
             "string_index_of" => {
-                let haystack = args
-                    .first()
-                    .ok_or_else(|| RuntimeError::new("string_index_of: missing string"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("string_index_of: expected String"))?
-                    .to_string();
-                let needle = args
-                    .get(1)
-                    .ok_or_else(|| RuntimeError::new("string_index_of: missing needle"))?
-                    .as_str()
-                    .ok_or_else(|| RuntimeError::new("string_index_of: needle must be String"))?;
+                let haystack = require_str(args, 0, "string_index_of")?;
+                let needle = require_str(args, 1, "string_index_of")?;
                 match haystack.find(needle) {
                     Some(pos) => Ok(Some(Value::Int(pos as i64))),
                     None => Ok(Some(Value::Int(-1))),
