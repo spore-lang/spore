@@ -129,6 +129,42 @@ impl Interpreter {
         }
     }
 
+    /// Load public functions, structs, and types from an imported module.
+    ///
+    /// Symbols are registered under both their qualified name
+    /// (`module_path.name`) and their unqualified name so that imported
+    /// code can be called directly.
+    pub fn load_module_functions(&mut self, module_path: &str, module: &Module) {
+        for item in &module.items {
+            match item {
+                Item::Function(f)
+                    if matches!(f.visibility, Visibility::Pub | Visibility::PubPkg) =>
+                {
+                    let qualified = format!("{module_path}.{}", f.name);
+                    self.functions.insert(qualified, f.clone());
+                    self.functions
+                        .entry(f.name.clone())
+                        .or_insert_with(|| f.clone());
+                }
+                Item::StructDef(s)
+                    if matches!(s.visibility, Visibility::Pub | Visibility::PubPkg) =>
+                {
+                    self.structs
+                        .entry(s.name.clone())
+                        .or_insert_with(|| s.clone());
+                }
+                Item::TypeDef(t)
+                    if matches!(t.visibility, Visibility::Pub | Visibility::PubPkg) =>
+                {
+                    self.type_defs
+                        .entry(t.name.clone())
+                        .or_insert_with(|| t.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Register an effect handler for capability-gated operations.
     pub fn register_effect_handler(&mut self, handler: Box<dyn EffectHandler>) {
         self.effect_handlers.push(handler);

@@ -27,3 +27,19 @@ pub fn call(module: &Module, name: &str, args: Vec<Value>) -> Result<Value, Runt
     interp.load_module(module);
     interp.call_function(name, args)
 }
+
+/// Execute a Spore project with cross-module imports.
+///
+/// Loads imported modules first (making their public symbols available),
+/// then loads the entry module and calls its `main` function.
+pub fn run_project(entry: &Module, imports: &[(String, Module)]) -> Result<Value, RuntimeError> {
+    let mut interp = Interpreter::new();
+    interp.register_effect_handler(Box::new(CliPlatformHandler));
+
+    for (path, module) in imports {
+        interp.load_module_functions(path, module);
+    }
+
+    interp.load_module(entry);
+    interp.call_function("main", vec![])
+}
