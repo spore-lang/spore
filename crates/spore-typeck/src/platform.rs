@@ -38,26 +38,20 @@ pub struct PlatformConfig {
 impl Platform {
     /// Create a CLI platform (most common).
     ///
-    /// Grants all SEP-0003 atomic capabilities plus implementation-specific
-    /// extensions for full CLI access.
+    /// Grants the built-in intent-oriented effects for full CLI access.
     pub fn cli() -> Self {
         let capabilities = CapabilitySet::from_names([
-            // ── SEP-0003 atomic capabilities ──
+            // ── Built-in effects ──
+            "Console".into(),
             "FileRead".into(),
             "FileWrite".into(),
-            "NetRead".into(),
-            "NetWrite".into(),
-            "StateRead".into(),
-            "StateWrite".into(),
+            "NetConnect".into(),
+            "NetListen".into(),
+            "Env".into(),
             "Spawn".into(),
             "Clock".into(),
             "Random".into(),
-            "Compute".into(),
             "Exit".into(),
-            // ── Implementation-specific extensions (not in SEP-0003) ──
-            "Console".into(),
-            "Env".into(),
-            "Process".into(),
         ]);
 
         Self {
@@ -76,18 +70,15 @@ impl Platform {
 
     /// Create a web/WASI platform.
     ///
-    /// Grants a subset of SEP-0003 capabilities appropriate for sandboxed
-    /// web environments, plus the Console extension.
+    /// Grants a subset of built-in effects appropriate for sandboxed web
+    /// environments.
     pub fn web() -> Self {
         let capabilities = CapabilitySet::from_names([
-            // ── SEP-0003 atomic capabilities ──
-            "NetRead".into(),
-            "NetWrite".into(),
-            "Compute".into(),
+            // ── Built-in effects ──
+            "Console".into(),
+            "NetConnect".into(),
             "Random".into(),
             "Clock".into(),
-            // ── Implementation-specific extensions (not in SEP-0003) ──
-            "Console".into(),
         ]);
 
         Self {
@@ -236,22 +227,17 @@ mod tests {
     #[test]
     fn cli_platform_has_capabilities() {
         let p = Platform::cli();
-        // SEP-0003 atomic capabilities
+        // Built-in effects
+        assert!(p.grants("Console"));
         assert!(p.grants("FileRead"));
         assert!(p.grants("FileWrite"));
-        assert!(p.grants("NetRead"));
-        assert!(p.grants("NetWrite"));
-        assert!(p.grants("StateRead"));
-        assert!(p.grants("StateWrite"));
+        assert!(p.grants("NetConnect"));
+        assert!(p.grants("NetListen"));
+        assert!(p.grants("Env"));
         assert!(p.grants("Spawn"));
         assert!(p.grants("Clock"));
         assert!(p.grants("Random"));
-        assert!(p.grants("Compute"));
         assert!(p.grants("Exit"));
-        // Implementation-specific extensions
-        assert!(p.grants("Console"));
-        assert!(p.grants("Env"));
-        assert!(p.grants("Process"));
         // Not granted
         assert!(!p.grants("Gpu"));
     }
@@ -273,10 +259,10 @@ mod tests {
     #[test]
     fn validate_capabilities_missing() {
         let p = Platform::embedded();
-        let required = CapabilitySet::from_names(["NetRead".into()]);
+        let required = CapabilitySet::from_names(["NetConnect".into()]);
         let result = p.validate_capabilities(&required);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains(&"NetRead".to_string()));
+        assert!(result.unwrap_err().contains(&"NetConnect".to_string()));
     }
 
     #[test]

@@ -132,26 +132,16 @@ pub struct CapabilityHierarchy {
 
 /// Build the default capability hierarchy with standard aliases:
 ///   - `FileIO` implies `[FileRead, FileWrite]`
-///   - `NetIO`  implies `[NetRead, NetWrite]`
-///   - `StateIO` implies `[StateRead, StateWrite]`
-///   - `IO` implies all six leaf I/O capabilities
+///   - `NetIO`  implies `[NetConnect, NetListen]`
+///   - `IO` implies all four leaf I/O capabilities
 pub fn default_hierarchy() -> CapabilityHierarchy {
     let mut h = CapabilityHierarchy::new();
     h.add_implies("FileIO".into(), "FileRead".into());
     h.add_implies("FileIO".into(), "FileWrite".into());
-    h.add_implies("NetIO".into(), "NetRead".into());
-    h.add_implies("NetIO".into(), "NetWrite".into());
-    h.add_implies("StateIO".into(), "StateRead".into());
-    h.add_implies("StateIO".into(), "StateWrite".into());
+    h.add_implies("NetIO".into(), "NetConnect".into());
+    h.add_implies("NetIO".into(), "NetListen".into());
     // IO is the top-level alias — implies all leaf I/O capabilities
-    for leaf in [
-        "FileRead",
-        "FileWrite",
-        "NetRead",
-        "NetWrite",
-        "StateRead",
-        "StateWrite",
-    ] {
+    for leaf in ["FileRead", "FileWrite", "NetConnect", "NetListen"] {
         h.add_implies("IO".into(), leaf.into());
     }
     h
@@ -216,11 +206,11 @@ mod tests {
 
     #[test]
     fn union_combines_capabilities() {
-        let a = CapabilitySet::from_names(["NetRead".into(), "FileRead".into()]);
-        let b = CapabilitySet::from_names(["FileWrite".into(), "NetRead".into()]);
+        let a = CapabilitySet::from_names(["NetConnect".into(), "FileRead".into()]);
+        let b = CapabilitySet::from_names(["FileWrite".into(), "NetConnect".into()]);
         let c = a.union(&b);
         assert_eq!(c.len(), 3);
-        assert!(c.contains("NetRead"));
+        assert!(c.contains("NetConnect"));
         assert!(c.contains("FileRead"));
         assert!(c.contains("FileWrite"));
     }
@@ -228,16 +218,16 @@ mod tests {
     #[test]
     fn subset_checking() {
         let caller =
-            CapabilitySet::from_names(["NetRead".into(), "FileRead".into(), "FileWrite".into()]);
-        let callee = CapabilitySet::from_names(["NetRead".into(), "FileRead".into()]);
+            CapabilitySet::from_names(["NetConnect".into(), "FileRead".into(), "FileWrite".into()]);
+        let callee = CapabilitySet::from_names(["NetConnect".into(), "FileRead".into()]);
         assert!(caller.is_superset_of(&callee));
         assert!(!callee.is_superset_of(&caller));
     }
 
     #[test]
     fn missing_capabilities() {
-        let caller = CapabilitySet::from_names(["NetRead".into()]);
-        let callee = CapabilitySet::from_names(["NetRead".into(), "FileWrite".into()]);
+        let caller = CapabilitySet::from_names(["NetConnect".into()]);
+        let callee = CapabilitySet::from_names(["NetConnect".into(), "FileWrite".into()]);
         let missing = caller.missing_from(&callee);
         assert_eq!(missing, vec!["FileWrite"]);
     }
@@ -278,25 +268,23 @@ mod tests {
 
     #[test]
     fn display_format() {
-        let set = CapabilitySet::from_names(["FileRead".into(), "NetRead".into()]);
-        assert_eq!(set.to_string(), "[FileRead, NetRead]");
+        let set = CapabilitySet::from_names(["FileRead".into(), "NetConnect".into()]);
+        assert_eq!(set.to_string(), "[FileRead, NetConnect]");
     }
 
     // ── default_hierarchy tests ─────────────────────────────────────
 
     #[test]
-    fn default_hierarchy_io_expands_to_six() {
+    fn default_hierarchy_io_expands_to_four() {
         let h = default_hierarchy();
         let declared = CapabilitySet::from_names(["IO".into()]);
         let expanded = h.expand(&declared);
         assert!(expanded.contains("IO"));
         assert!(expanded.contains("FileRead"));
         assert!(expanded.contains("FileWrite"));
-        assert!(expanded.contains("NetRead"));
-        assert!(expanded.contains("NetWrite"));
-        assert!(expanded.contains("StateRead"));
-        assert!(expanded.contains("StateWrite"));
-        assert_eq!(expanded.len(), 7); // IO + 6 leaves
+        assert!(expanded.contains("NetConnect"));
+        assert!(expanded.contains("NetListen"));
+        assert_eq!(expanded.len(), 5); // IO + 4 leaves
     }
 
     #[test]
@@ -316,19 +304,8 @@ mod tests {
         let declared = CapabilitySet::from_names(["NetIO".into()]);
         let expanded = h.expand(&declared);
         assert!(expanded.contains("NetIO"));
-        assert!(expanded.contains("NetRead"));
-        assert!(expanded.contains("NetWrite"));
-        assert_eq!(expanded.len(), 3);
-    }
-
-    #[test]
-    fn default_hierarchy_state_io() {
-        let h = default_hierarchy();
-        let declared = CapabilitySet::from_names(["StateIO".into()]);
-        let expanded = h.expand(&declared);
-        assert!(expanded.contains("StateIO"));
-        assert!(expanded.contains("StateRead"));
-        assert!(expanded.contains("StateWrite"));
+        assert!(expanded.contains("NetConnect"));
+        assert!(expanded.contains("NetListen"));
         assert_eq!(expanded.len(), 3);
     }
 
@@ -336,7 +313,7 @@ mod tests {
     fn default_hierarchy_propagation_io_covers_file_read() {
         let h = default_hierarchy();
         let declared = CapabilitySet::from_names(["IO".into()]);
-        let required = CapabilitySet::from_names(["FileRead".into(), "NetWrite".into()]);
+        let required = CapabilitySet::from_names(["FileRead".into(), "NetListen".into()]);
         assert!(h.check_propagation(&declared, &required).is_ok());
     }
 
@@ -344,8 +321,8 @@ mod tests {
     fn default_hierarchy_propagation_missing() {
         let h = default_hierarchy();
         let declared = CapabilitySet::from_names(["FileIO".into()]);
-        let required = CapabilitySet::from_names(["NetRead".into()]);
+        let required = CapabilitySet::from_names(["NetConnect".into()]);
         let err = h.check_propagation(&declared, &required).unwrap_err();
-        assert_eq!(err, vec!["NetRead"]);
+        assert_eq!(err, vec!["NetConnect"]);
     }
 }

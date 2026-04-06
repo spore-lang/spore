@@ -166,7 +166,7 @@ mod tests {
     fn basic_task_type() {
         let t = TaskType {
             result_type: "Int".into(),
-            capabilities: vec!["NetRead".into()],
+            capabilities: vec!["NetConnect".into()],
             errors: vec![],
         };
         assert_eq!(t.result_type, "Int");
@@ -177,7 +177,7 @@ mod tests {
         let mut analyzer = ConcurrencyAnalyzer::new();
         analyzer.enter_function("main");
         let id1 = analyzer.record_spawn("main", "Int", vec![]);
-        let id2 = analyzer.record_spawn("main", "String", vec!["NetRead".into()]);
+        let id2 = analyzer.record_spawn("main", "String", vec!["NetConnect".into()]);
         assert_ne!(id1, id2);
         assert_eq!(analyzer.total_spawns(), 2);
     }

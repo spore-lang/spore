@@ -48,7 +48,7 @@ pub struct Checker {
     next_var_id: u32,
     /// Substitution map: type variable ID → resolved type.
     substitution: HashMap<u32, Ty>,
-    /// Capability hierarchy for expanding parent caps (e.g. IO → 6 leaves).
+    /// Capability hierarchy for expanding parent caps (e.g. IO → 4 leaves).
     hierarchy: CapabilityHierarchy,
 }
 

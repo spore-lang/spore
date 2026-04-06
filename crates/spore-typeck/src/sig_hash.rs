@@ -246,7 +246,7 @@ mod tests {
     fn caps_affect_hash() {
         let mut caps = BTreeSet::new();
         let h1 = SigHash::compute("foo", &[], &Ty::Unit, &caps, &BTreeSet::new(), &[]);
-        caps.insert("NetRead".into());
+        caps.insert("NetConnect".into());
         let h2 = SigHash::compute("foo", &[], &Ty::Unit, &caps, &BTreeSet::new(), &[]);
         assert_ne!(h1, h2);
     }
