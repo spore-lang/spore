@@ -94,8 +94,8 @@ impl PartialEq for Ty {
             (Ty::Var(a), Ty::Var(b)) => a == b,
             (Ty::Hole(a), Ty::Hole(b)) => a == b,
             (Ty::Record(a), Ty::Record(b)) => a == b,
-            // Refined types: compare base and var name only (predicates checked separately)
-            (Ty::Refined(b1, v1, _), Ty::Refined(b2, v2, _)) => b1 == b2 && v1 == v2,
+            // Refined types: compare base, variable, and predicate structurally
+            (Ty::Refined(b1, v1, p1), Ty::Refined(b2, v2, p2)) => b1 == b2 && v1 == v2 && p1 == p2,
             _ => false,
         }
     }

@@ -1866,6 +1866,36 @@ fn test_error_set_propagation() {
     );
 }
 
+// ── Refined type equality ────────────────────────────────────────────────
+
+#[test]
+fn refined_types_different_predicates_not_equal() {
+    use spore_parser::ast::{BinOp, Expr};
+
+    let pos = Ty::Refined(
+        Box::new(Ty::Int),
+        "x".into(),
+        Box::new(Expr::BinOp(
+            Box::new(Expr::Var("x".into())),
+            BinOp::Gt,
+            Box::new(Expr::IntLit(0)),
+        )),
+    );
+    let bounded = Ty::Refined(
+        Box::new(Ty::Int),
+        "x".into(),
+        Box::new(Expr::BinOp(
+            Box::new(Expr::Var("x".into())),
+            BinOp::Lt,
+            Box::new(Expr::IntLit(100)),
+        )),
+    );
+    assert_ne!(
+        pos, bounded,
+        "refined types with different predicates must not be equal"
+    );
+}
+
 #[test]
 fn test_error_set_propagation_declared() {
     // Using `?` from a caller that declares the errors should be OK
@@ -1882,6 +1912,34 @@ fn test_error_set_propagation_declared() {
 }
 
 #[test]
+fn refined_types_identical_are_equal() {
+    use spore_parser::ast::{BinOp, Expr};
+
+    let a = Ty::Refined(
+        Box::new(Ty::Int),
+        "x".into(),
+        Box::new(Expr::BinOp(
+            Box::new(Expr::Var("x".into())),
+            BinOp::Gt,
+            Box::new(Expr::IntLit(0)),
+        )),
+    );
+    let b = Ty::Refined(
+        Box::new(Ty::Int),
+        "x".into(),
+        Box::new(Expr::BinOp(
+            Box::new(Expr::Var("x".into())),
+            BinOp::Gt,
+            Box::new(Expr::IntLit(0)),
+        )),
+    );
+    assert_eq!(
+        a, b,
+        "refined types with identical predicates must be equal"
+    );
+}
+
+#[test]
 fn test_fn_type_equality_with_error_set() {
     let mut errors = ErrorSet::new();
     errors.insert("E1".to_string());
@@ -1890,4 +1948,32 @@ fn test_fn_type_equality_with_error_set() {
     let ty3 = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), ErrorSet::new());
     assert_eq!(ty1, ty2);
     assert_ne!(ty1, ty3);
+}
+
+#[test]
+fn refined_types_different_var_names_not_equal() {
+    use spore_parser::ast::{BinOp, Expr};
+
+    let a = Ty::Refined(
+        Box::new(Ty::Int),
+        "x".into(),
+        Box::new(Expr::BinOp(
+            Box::new(Expr::Var("x".into())),
+            BinOp::Gt,
+            Box::new(Expr::IntLit(0)),
+        )),
+    );
+    let b = Ty::Refined(
+        Box::new(Ty::Int),
+        "y".into(),
+        Box::new(Expr::BinOp(
+            Box::new(Expr::Var("y".into())),
+            BinOp::Gt,
+            Box::new(Expr::IntLit(0)),
+        )),
+    );
+    assert_ne!(
+        a, b,
+        "refined types with different var names must not be equal"
+    );
 }

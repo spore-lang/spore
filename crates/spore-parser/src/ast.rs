@@ -79,7 +79,7 @@ pub struct FnDef {
     pub span: Option<Span>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: String,
     pub ty: TypeExpr,
@@ -134,7 +134,7 @@ pub enum CostExpr {
     Add(Box<CostExpr>, Box<CostExpr>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     Named(String),
     Generic(String, Vec<TypeExpr>),
@@ -150,7 +150,7 @@ pub enum TypeExpr {
 }
 
 /// Expression — everything in Spore is an expression.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     IntLit(i64),
     FloatLit(f64),
@@ -203,7 +203,7 @@ pub enum Expr {
 }
 
 /// A single effect handler arm in a `handle` expression.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct EffectArm {
     pub effect: String,
     pub operation: String,
@@ -212,26 +212,26 @@ pub struct EffectArm {
 }
 
 /// A single arm of a `select` expression.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SelectArm {
     pub binding: String,
     pub source: Expr,
     pub body: Expr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FStringPart {
     Literal(String),
     Expr(Expr),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TStringPart {
     Literal(String),
     Expr(Expr),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum BinOp {
     Add,
     Sub,
@@ -253,27 +253,27 @@ pub enum BinOp {
     Shr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum UnaryOp {
     Neg,
     Not,
     BitNot,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let(String, Option<TypeExpr>, Expr),
     Expr(Expr),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
     pub pattern: Pattern,
     pub guard: Option<Expr>,
     pub body: Expr,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     Wildcard,
     Var(String),
