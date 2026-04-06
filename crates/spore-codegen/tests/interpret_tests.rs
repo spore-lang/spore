@@ -760,3 +760,46 @@ fn test_shift_valid_amounts() {
     let v = run_main("fn main() -> Int { 16 >> 2 }");
     assert_eq!(v.as_int(), Some(4));
 }
+
+// ── Integer overflow safety ─────────────────────────────────────────────
+
+fn run_main_err(src: &str) -> String {
+    let module = spore_parser::parse(src).unwrap();
+    spore_codegen::run(&module).unwrap_err().to_string()
+}
+
+#[test]
+fn test_add_overflow() {
+    let src = &format!("fn main() -> Int {{ {} + 1 }}", i64::MAX);
+    let err = run_main_err(src);
+    assert!(err.contains("integer overflow"), "got: {err}");
+}
+
+#[test]
+fn test_sub_overflow() {
+    let src = &format!("fn main() -> Int {{ {} - 2 }}", i64::MIN + 1);
+    let err = run_main_err(src);
+    assert!(err.contains("integer overflow"), "got: {err}");
+}
+
+#[test]
+fn test_mul_overflow() {
+    let src = &format!("fn main() -> Int {{ {} * 2 }}", i64::MAX);
+    let err = run_main_err(src);
+    assert!(err.contains("integer overflow"), "got: {err}");
+}
+
+#[test]
+fn test_neg_overflow() {
+    // Construct i64::MIN at runtime then negate it — that overflows.
+    let src = "fn main() -> Int { let x: Int = 0 - 9223372036854775807 - 1; -x }";
+    let err = run_main_err(src);
+    assert!(err.contains("integer overflow"), "got: {err}");
+}
+
+#[test]
+fn test_range_too_large() {
+    let src = "fn main() -> Int { let xs = range(0, 20000000); len(xs) }";
+    let err = run_main_err(src);
+    assert!(err.contains("range too large"), "got: {err}");
+}

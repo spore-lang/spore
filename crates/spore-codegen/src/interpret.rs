@@ -349,7 +349,10 @@ impl Interpreter {
                 let val = self.eval(expr, env)?;
                 match op {
                     UnaryOp::Neg => match val {
-                        Value::Int(n) => Ok(Value::Int(-n)),
+                        Value::Int(n) => match n.checked_neg() {
+                            Some(v) => Ok(Value::Int(v)),
+                            None => Err(RuntimeError::new(format!("integer overflow: -{n}"))),
+                        },
                         Value::Float(f) => Ok(Value::Float(-f)),
                         _ => Err(RuntimeError::new("cannot negate non-numeric")),
                     },
@@ -650,9 +653,18 @@ impl Interpreter {
 
     fn int_binop(&mut self, a: i64, op: &BinOp, b: i64) -> Result<Value> {
         Ok(match op {
-            BinOp::Add => Value::Int(a + b),
-            BinOp::Sub => Value::Int(a - b),
-            BinOp::Mul => Value::Int(a * b),
+            BinOp::Add => match a.checked_add(b) {
+                Some(v) => Value::Int(v),
+                None => return Err(RuntimeError::new(format!("integer overflow: {a} + {b}"))),
+            },
+            BinOp::Sub => match a.checked_sub(b) {
+                Some(v) => Value::Int(v),
+                None => return Err(RuntimeError::new(format!("integer overflow: {a} - {b}"))),
+            },
+            BinOp::Mul => match a.checked_mul(b) {
+                Some(v) => Value::Int(v),
+                None => return Err(RuntimeError::new(format!("integer overflow: {a} * {b}"))),
+            },
             BinOp::Div => {
                 if b == 0 {
                     return Err(RuntimeError::new("division by zero"));
@@ -846,6 +858,12 @@ impl Interpreter {
             "range" => {
                 let start = require_int(args, 0, "range")?;
                 let end = require_int(args, 1, "range")?;
+                let size = (end - start).unsigned_abs() as usize;
+                if size > 10_000_000 {
+                    return Err(RuntimeError::new(format!(
+                        "range too large: {size} elements (max 10000000)"
+                    )));
+                }
                 let list: Vec<Value> = (start..end).map(Value::Int).collect();
                 Ok(Some(Value::List(list)))
             }

@@ -55,7 +55,10 @@ fn test_server_creation() {
 #[test]
 fn test_build_diagnostics_valid_source_is_empty() {
     let diags = build_diagnostics("");
-    assert!(diags.is_empty() || !diags.is_empty());
+    assert!(
+        diags.is_empty(),
+        "expected no diagnostics for valid source, got: {diags:?}"
+    );
 }
 
 #[test]

@@ -300,9 +300,6 @@ impl ModuleRegistry {
             .insert("to_string".into(), (vec![Ty::Var(0)], Ty::Str));
         prelude
             .functions
-            .insert("toString".into(), (vec![Ty::Var(0)], Ty::Str));
-        prelude
-            .functions
             .insert("string_index_of".into(), (vec![Ty::Str, Ty::Str], Ty::Int));
 
         // ── Math builtins ────────────────────────────────────────
@@ -322,9 +319,11 @@ impl ModuleRegistry {
         let list_t = Ty::App("List".into(), vec![Ty::Var(0)]);
         let list_u = Ty::App("List".into(), vec![Ty::Var(1)]);
 
+        // len accepts both List[A] and Str at runtime; use a generic
+        // type parameter so the checker allows either.
         prelude
             .functions
-            .insert("len".into(), (vec![list_t.clone()], Ty::Int));
+            .insert("len".into(), (vec![Ty::Var(0)], Ty::Int));
         prelude.functions.insert(
             "range".into(),
             (
