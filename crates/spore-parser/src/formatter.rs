@@ -404,7 +404,8 @@ impl Formatter {
     fn fmt_capability_def(&mut self, c: &CapabilityDef) {
         self.write_indent();
         self.fmt_visibility(&c.visibility);
-        self.write("capability ");
+        self.write(c.canonical_keyword());
+        self.write(" ");
         self.write(&c.name);
 
         if !c.type_params.is_empty() {
@@ -445,11 +446,11 @@ impl Formatter {
 
     fn fmt_capability_alias(&mut self, name: &str, components: &[String]) {
         self.write_indent();
-        self.write("capability ");
+        self.write("effect");
+        self.write(" ");
         self.write(name);
-        self.write(" = [");
-        self.write(&components.join(", "));
-        self.write("]");
+        self.write(" = ");
+        self.write(&components.join(" | "));
         self.newline();
     }
 

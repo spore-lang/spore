@@ -33,7 +33,7 @@ type Color {
     Blue,
 }
 
-capability Printable {
+trait Printable {
     fn to_string(self: Self) -> String
 }
 
@@ -92,14 +92,7 @@ fn test_completion_returns_keywords() {
 
     let labels: Vec<&str> = items.iter().filter_map(|i| i["label"].as_str()).collect();
     for kw in &[
-        "fn",
-        "let",
-        "type",
-        "struct",
-        "capability",
-        "match",
-        "if",
-        "import",
+        "fn", "let", "type", "struct", "trait", "effect", "match", "if", "import",
     ] {
         assert!(labels.contains(kw), "missing keyword: {kw}");
     }
@@ -224,6 +217,18 @@ fn test_document_symbols_types() {
         .map(|s| s.name.as_str())
         .collect();
     assert!(type_names.contains(&"Color"), "should contain type 'Color'");
+}
+
+#[test]
+fn test_build_diagnostics_removed_capability_syntax_is_reported() {
+    let diags = build_diagnostics("capability Display { fn show(self: Self) -> String }");
+    assert!(
+        diags.iter().any(|diag| diag["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("legacy `capability` syntax has been removed")),
+        "expected removed capability diagnostic, got: {diags:?}"
+    );
 }
 
 // ── Hover tests ──────────────────────────────────────────────────────

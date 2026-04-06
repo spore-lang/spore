@@ -904,13 +904,13 @@ fn throw_keyword_still_works() {
     );
 }
 
-// ── Capability definition and impl ──────────────────────────────────────
+// ── Trait definition and impl ───────────────────────────────────────────
 
 #[test]
 fn capability_definition_and_impl() {
     check_ok(
         r#"
-        capability Display[T] {
+        trait Display[T] {
             fn show(self: T) -> String
         }
         struct Point { x: Int, y: Int }
@@ -925,7 +925,7 @@ fn capability_definition_and_impl() {
 fn impl_missing_method_error() {
     let errs = check_err(
         r#"
-        capability Display[T] {
+        trait Display[T] {
             fn show(self: T) -> String
         }
         struct Point { x: Int, y: Int }
@@ -940,7 +940,7 @@ fn impl_missing_method_error() {
 fn impl_extra_method_error() {
     let errs = check_err(
         r#"
-        capability Display[T] {
+        trait Display[T] {
             fn show(self: T) -> String
         }
         struct Point { x: Int, y: Int }
@@ -1048,13 +1048,13 @@ fn record_width_subtyping() {
     );
 }
 
-// ── Batch 4 Item 2: Associated types in capabilities ───────────────────
+// ── Batch 4 Item 2: Associated types in traits ─────────────────────────
 
 #[test]
 fn capability_with_assoc_type() {
     check_ok(
         r#"
-        capability Iterator[T] {
+        trait Iterator[T] {
             type Output
             fn next(self: T) -> Int
         }
@@ -1341,7 +1341,7 @@ fn enum_constructor_wrong_arg_type() {
 fn impl_wrong_return_type() {
     let errs = check_err(
         r#"
-        capability Stringify[T] {
+        trait Stringify[T] {
             fn to_string(self: T) -> String
         }
         struct Num { val: Int }
@@ -1357,7 +1357,7 @@ fn impl_wrong_return_type() {
 fn impl_wrong_param_type() {
     let errs = check_err(
         r#"
-        capability Adder[T] {
+        trait Adder[T] {
             fn add(self: T, n: Int) -> Int
         }
         struct Counter { val: Int }
@@ -1373,7 +1373,7 @@ fn impl_wrong_param_type() {
 fn impl_correct_signature_ok() {
     check_ok(
         r#"
-        capability Display[T] {
+        trait Display[T] {
             fn show(self: T) -> String
         }
         struct Point { x: Int, y: Int }
@@ -2320,7 +2320,7 @@ fn len_on_string() {
     check_ok(r#"fn f() -> Int { len("hello") }"#);
 }
 
-// ── Trait keyword (synonym for capability) ──────────────────────────────
+// ── Trait keyword ───────────────────────────────────────────────────────
 
 #[test]
 fn trait_keyword_definition_and_impl() {
@@ -2437,23 +2437,6 @@ fn handler_missing_operation_error() {
     assert!(
         errs.iter()
             .any(|e| e.contains("missing operation `read_line`"))
-    );
-}
-
-// ── Backward compatibility: capability keyword still works ──────────────
-
-#[test]
-fn capability_keyword_still_works() {
-    check_ok(
-        r#"
-        capability Eq[T] {
-            fn eq(self: T, other: T) -> Bool
-        }
-        struct Num { val: Int }
-        impl Eq for Num {
-            fn eq(self: Num, other: Num) -> Bool { self.val == other.val }
-        }
-    "#,
     );
 }
 

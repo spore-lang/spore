@@ -489,17 +489,15 @@ fn test_import_with_alias() {
 }
 
 #[test]
-fn test_capability_def() {
-    let m = parse_ok("capability Display[T] { fn show(self: T) -> String }");
-    match &m.items[0] {
-        spore_parser::ast::Item::CapabilityDef(c) => {
-            assert_eq!(c.name, "Display");
-            assert_eq!(c.type_params, vec!["T"]);
-            assert_eq!(c.methods.len(), 1);
-            assert_eq!(c.methods[0].name, "show");
-        }
-        _ => panic!("expected capability"),
-    }
+fn test_capability_keyword_is_rejected() {
+    let errs = spore_parser::parse("capability Display[T] { fn show(self: T) -> String }")
+        .expect_err("legacy capability syntax should be rejected");
+    assert!(
+        errs.iter().any(|e| e
+            .message
+            .contains("legacy `capability` syntax has been removed")),
+        "expected removal diagnostic, got {errs:?}"
+    );
 }
 
 // ── Generic types ────────────────────────────────────────────────────────
@@ -1065,49 +1063,49 @@ fn test_record_type_in_param() {
     }
 }
 
-// ── Batch 4 Item 2: Associated types in capabilities ───────────────────
+// ── Batch 4 Item 2: Associated types in traits ─────────────────────────
 
 #[test]
-fn test_capability_assoc_type() {
+fn test_trait_assoc_type() {
     use spore_parser::ast::*;
     let m = parse_ok(
         r#"
-        capability Iterator[T] {
+        trait Iterator[T] {
             type Output
             fn next(self: T) -> Output
         }
     "#,
     );
     match &m.items[0] {
-        Item::CapabilityDef(cap) => {
-            assert_eq!(cap.name, "Iterator");
-            assert_eq!(cap.assoc_types.len(), 1);
-            assert_eq!(cap.assoc_types[0].name, "Output");
-            assert!(cap.assoc_types[0].bounds.is_empty());
-            assert_eq!(cap.methods.len(), 1);
+        Item::TraitDef(trait_def) => {
+            assert_eq!(trait_def.name, "Iterator");
+            assert_eq!(trait_def.assoc_types.len(), 1);
+            assert_eq!(trait_def.assoc_types[0].name, "Output");
+            assert!(trait_def.assoc_types[0].bounds.is_empty());
+            assert_eq!(trait_def.methods.len(), 1);
         }
-        _ => panic!("expected CapabilityDef"),
+        _ => panic!("expected TraitDef"),
     }
 }
 
 #[test]
-fn test_capability_assoc_type_with_bound() {
+fn test_trait_assoc_type_with_bound() {
     use spore_parser::ast::*;
     let m = parse_ok(
         r#"
-        capability Container[T] {
+        trait Container[T] {
             type Item: Display
             fn get(self: T) -> Item
         }
     "#,
     );
     match &m.items[0] {
-        Item::CapabilityDef(cap) => {
-            assert_eq!(cap.assoc_types.len(), 1);
-            assert_eq!(cap.assoc_types[0].name, "Item");
-            assert_eq!(cap.assoc_types[0].bounds.len(), 1);
+        Item::TraitDef(trait_def) => {
+            assert_eq!(trait_def.assoc_types.len(), 1);
+            assert_eq!(trait_def.assoc_types[0].name, "Item");
+            assert_eq!(trait_def.assoc_types[0].bounds.len(), 1);
         }
-        _ => panic!("expected CapabilityDef"),
+        _ => panic!("expected TraitDef"),
     }
 }
 
@@ -1385,7 +1383,7 @@ fn test_fn_def_has_span() {
     }
 }
 
-// ── Visibility for struct, type, capability ─────────────────────────────
+// ── Visibility for struct, type, trait ──────────────────────────────────
 
 #[test]
 fn test_pub_struct() {
@@ -1515,7 +1513,7 @@ fn test_private_type_still_works() {
 #[test]
 fn test_error_includes_span() {
     // A missing method in an impl should report the impl's span
-    let src = "capability Greet {\n    fn greet(self: Self) -> String\n}\nstruct Bot {}\nimpl Greet for Bot {}";
+    let src = "trait Greet {\n    fn greet(self: Self) -> String\n}\nstruct Bot {}\nimpl Greet for Bot {}";
     let ast = parse_ok(src);
     let errs = spore_typeck::type_check(&ast).unwrap_err();
     // The error for missing method should have a span pointing to the impl block
@@ -1537,27 +1535,49 @@ fn test_error_includes_span() {
 }
 
 #[test]
-fn test_pub_capability() {
-    let m = parse_ok("pub capability Show { fn show(self: Self) -> String { \"\" } }");
+fn test_pub_trait() {
+    let m = parse_ok("pub trait Show { fn show(self: Self) -> String { \"\" } }");
     match &m.items[0] {
-        Item::CapabilityDef(c) => {
-            assert_eq!(c.name, "Show");
-            assert!(matches!(c.visibility, Visibility::Pub));
-            assert_eq!(c.methods.len(), 1);
+        Item::TraitDef(t) => {
+            assert_eq!(t.name, "Show");
+            assert!(matches!(t.visibility, Visibility::Pub));
+            assert_eq!(t.methods.len(), 1);
         }
-        other => panic!("expected CapabilityDef, got {:?}", other),
+        other => panic!("expected TraitDef, got {:?}", other),
     }
 }
 
 #[test]
-fn test_private_capability_still_works() {
-    let m = parse_ok("capability Debug { fn debug(self: Self) -> String { \"\" } }");
+fn test_private_trait_still_works() {
+    let m = parse_ok("trait Debug { fn debug(self: Self) -> String { \"\" } }");
     match &m.items[0] {
-        Item::CapabilityDef(c) => {
-            assert_eq!(c.name, "Debug");
-            assert!(matches!(c.visibility, Visibility::Private));
-            assert_eq!(c.methods.len(), 1);
+        Item::TraitDef(t) => {
+            assert_eq!(t.name, "Debug");
+            assert!(matches!(t.visibility, Visibility::Private));
+            assert_eq!(t.methods.len(), 1);
         }
-        other => panic!("expected CapabilityDef, got {:?}", other),
+        other => panic!("expected TraitDef, got {:?}", other),
     }
+}
+
+#[test]
+fn test_capability_alias_is_rejected() {
+    let errs = spore_parser::parse("capability IO = [FileRead, FileWrite]")
+        .expect_err("legacy capability aliases should be rejected");
+    assert!(
+        errs.iter().any(|e| e
+            .message
+            .contains("legacy `capability` syntax has been removed")),
+        "expected removal diagnostic, got {errs:?}"
+    );
+}
+
+#[test]
+fn test_trait_alias_is_rejected() {
+    let err = spore_parser::parse("trait IO = FileRead | FileWrite").unwrap_err();
+    assert!(
+        err.iter()
+            .any(|e| e.message.contains("trait aliases are not supported")),
+        "expected trait alias diagnostic, got {err:?}"
+    );
 }

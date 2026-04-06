@@ -236,7 +236,7 @@ impl Parser {
             Token::Alias => self.parse_alias_item(),
             Token::At => self.parse_annotated_item(),
             _ => Err(self.error(format!(
-                "expected item (fn, pub, const, struct, type, capability, trait, effect, handler, impl, import, alias, @annotation), found {:?}",
+                "expected item (fn, pub, const, struct, type, trait, effect, handler, impl, import, alias, @annotation), found {:?}",
                 self.peek()
             ))),
         }
@@ -851,76 +851,17 @@ impl Parser {
         Ok(vec![])
     }
 
-    // ── Capability definition ───────────────────────────────────────
+    // ── Removed legacy capability syntax ────────────────────────────
 
     fn parse_capability_item(&mut self) -> Result<Item, ParseError> {
-        let visibility = self.parse_visibility()?;
-        let start = self.peek_span().start;
+        let _visibility = self.parse_visibility()?;
+        let span = self.peek_span();
         self.expect(&Token::Capability)?;
-        let name = self.expect_ident()?;
-
-        let type_params = if self.at(&Token::LBracket) {
-            self.advance();
-            let ps = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
-            self.expect(&Token::RBracket)?;
-            ps
-        } else {
-            vec![]
-        };
-
-        // Composite capability alias: `capability IO = [FileRead, FileWrite]`
-        if self.at(&Token::Eq) {
-            self.advance();
-            self.expect(&Token::LBracket)?;
-            let components = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
-            self.expect(&Token::RBracket)?;
-            let end = self.previous_span().end;
-            return Ok(Item::CapabilityAlias {
-                name,
-                components,
-                span: Some(Span::new(start, end)),
-            });
-        }
-
-        self.expect(&Token::LBrace)?;
-        let mut methods = Vec::new();
-        let mut assoc_types = Vec::new();
-        while !self.at(&Token::RBrace) && !self.at_eof() {
-            if self.at(&Token::Type) {
-                // Associated type: `type Output` or `type Output: Bound`
-                self.advance();
-                let aname = self.expect_ident()?;
-                let bounds = if self.at(&Token::Colon) {
-                    self.advance();
-                    let mut bs = vec![self.parse_type_expr()?];
-                    while self.at(&Token::Plus) {
-                        self.advance();
-                        bs.push(self.parse_type_expr()?);
-                    }
-                    bs
-                } else {
-                    vec![]
-                };
-                assoc_types.push(AssocType {
-                    name: aname,
-                    bounds,
-                });
-            } else {
-                methods.push(self.parse_fn_def()?);
-            }
-        }
-        self.expect(&Token::RBrace)?;
-
-        let end = self.previous_span().end;
-
-        Ok(Item::CapabilityDef(CapabilityDef {
-            name,
-            visibility,
-            type_params,
-            methods,
-            assoc_types,
-            span: Some(Span::new(start, end)),
-        }))
+        Err(ParseError {
+            message:
+                "legacy `capability` syntax has been removed; use `trait` for interfaces and `effect` for effect declarations".into(),
+            span,
+        })
     }
 
     // ── Trait definition (preferred form of capability) ──────────────
@@ -939,6 +880,12 @@ impl Parser {
         } else {
             vec![]
         };
+
+        if self.at(&Token::Eq) {
+            return Err(
+                self.error("trait aliases are not supported; use `effect Name = Foo | Bar`".into())
+            );
+        }
 
         self.expect(&Token::LBrace)?;
         let mut methods = Vec::new();
@@ -1077,7 +1024,7 @@ impl Parser {
         let next = self.expect_ident()?;
         if next != "for" {
             return Err(self.error(format!(
-                "expected `for` after capability name, got `{next}`"
+                "expected `for` after trait/effect name, got `{next}`"
             )));
         }
 
