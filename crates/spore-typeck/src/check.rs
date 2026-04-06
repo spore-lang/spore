@@ -200,18 +200,12 @@ impl Checker {
                 }
                 ImportedSymbol::Type => {
                     if let Some(variants) = module.types.get(name) {
-                        let variant_tys: Vec<(String, Vec<Ty>)> =
-                            variants.iter().map(|v| (v.clone(), Vec::new())).collect();
-                        self.registry.types.insert(name.clone(), variant_tys);
+                        self.registry.types.insert(name.clone(), variants.clone());
                     }
                 }
                 ImportedSymbol::Struct => {
                     if let Some(fields) = module.structs.get(name) {
-                        let field_tys: Vec<(String, Ty)> = fields
-                            .iter()
-                            .map(|f| (f.clone(), Ty::Named("Unknown".into())))
-                            .collect();
-                        self.registry.structs.insert(name.clone(), field_tys);
+                        self.registry.structs.insert(name.clone(), fields.clone());
                     }
                 }
                 ImportedSymbol::Capability => {

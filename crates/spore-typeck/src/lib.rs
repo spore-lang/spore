@@ -96,10 +96,10 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
     let path: Vec<String> = module.name.split('.').map(|s| s.to_string()).collect();
     let mut iface = ModuleInterface::new(path);
 
+    let checker = Checker::new();
     for item in &module.items {
         match item {
             Item::Function(f) => {
-                let checker = Checker::new();
                 let param_tys: Vec<types::Ty> = f
                     .params
                     .iter()
@@ -114,12 +114,24 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                 iface.set_visibility(&f.name, SymbolVisibility::from(&f.visibility));
             }
             Item::StructDef(s) => {
-                let fields: Vec<String> = s.fields.iter().map(|f| f.name.clone()).collect();
+                let fields: Vec<(String, types::Ty)> = s
+                    .fields
+                    .iter()
+                    .map(|f| (f.name.clone(), checker.resolve_type(&f.ty)))
+                    .collect();
                 iface.structs.insert(s.name.clone(), fields);
                 iface.set_visibility(&s.name, SymbolVisibility::from(&s.visibility));
             }
             Item::TypeDef(t) => {
-                let variants: Vec<String> = t.variants.iter().map(|v| v.name.clone()).collect();
+                let variants: Vec<(String, Vec<types::Ty>)> = t
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        let ftys: Vec<types::Ty> =
+                            v.fields.iter().map(|f| checker.resolve_type(f)).collect();
+                        (v.name.clone(), ftys)
+                    })
+                    .collect();
                 iface.types.insert(t.name.clone(), variants);
                 iface.set_visibility(&t.name, SymbolVisibility::from(&t.visibility));
             }
