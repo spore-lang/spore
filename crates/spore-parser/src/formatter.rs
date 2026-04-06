@@ -54,12 +54,13 @@ impl Formatter {
     // ── Module ──────────────────────────────────────────────────────────
 
     fn fmt_module(&mut self, module: &Module) {
-        // Module header if it has a uses clause
-        if let Some(uses) = &module.uses_clause {
+        if !module.name.is_empty() {
             self.write("module ");
             self.write(&module.name);
-            self.write(" ");
-            self.fmt_uses_clause(uses);
+            if let Some(uses) = &module.uses_clause {
+                self.write(" ");
+                self.fmt_uses_clause(uses);
+            }
             self.newline();
             self.newline();
         }
@@ -111,6 +112,9 @@ impl Formatter {
             self.write_indent();
         }
         self.fmt_visibility(&f.visibility);
+        if f.is_foreign {
+            self.write("foreign ");
+        }
         self.write("fn ");
         self.write(&f.name);
 
@@ -1223,6 +1227,24 @@ mod tests {
         let src = "fn read() -> String uses [IO, FileRead] { ?todo }\n";
         let out = roundtrip(src);
         assert!(out.contains("uses [IO, FileRead]"));
+    }
+
+    #[test]
+    fn test_module_header_without_uses_roundtrips() {
+        let src = concat!("module mymod\n", "\n", "fn foo() -> Int { 42 }\n",);
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_foreign_fn_roundtrips() {
+        let src = "foreign fn c_add(a: Int, b: Int) -> Int\n";
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_foreign_fn_with_uses_roundtrips() {
+        let src = "foreign fn read_file(path: String) -> String uses [FileRead]\n";
+        assert_eq!(roundtrip(src), src);
     }
 
     #[test]
