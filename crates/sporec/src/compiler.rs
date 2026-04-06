@@ -91,15 +91,17 @@ pub fn compile_files(paths: &[&str]) -> Result<CompileOutput, String> {
     }
 }
 
-/// Compile a Spore project rooted at `root`, starting from `entry`.
+/// Intermediate state after parsing and resolving a project entry point.
 ///
-/// 1. Creates a [`ModuleLoader`] from the project root
-/// 2. Parses the entry file at `{root}/src/{entry}`
-/// 3. Recursively resolves all imports from disk
-/// 4. Type-checks with a shared [`ModuleRegistry`]
-///
-/// Single-file projects (no imports) work without a `ModuleLoader`.
-pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String> {
+/// Shared setup for [`compile_project`] and [`run_project`].
+struct PreparedProject {
+    ast: spore_parser::ast::Module,
+    registry: ModuleRegistry,
+    loader: ModuleLoader,
+}
+
+/// Parse the entry file, build a module registry, and resolve imports.
+fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> {
     let mut loader = ModuleLoader::new(root.to_path_buf());
 
     // Parse entry file
@@ -137,8 +139,24 @@ pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String
             .map_err(join_errors)?;
     }
 
-    // Type-check entry module with populated registry
-    let result = type_check_with_registry(&ast, registry).map_err(join_errors)?;
+    Ok(PreparedProject {
+        ast,
+        registry,
+        loader,
+    })
+}
+
+/// Compile a Spore project rooted at `root`, starting from `entry`.
+///
+/// 1. Creates a [`ModuleLoader`] from the project root
+/// 2. Parses the entry file at `{root}/src/{entry}`
+/// 3. Recursively resolves all imports from disk
+/// 4. Type-checks with a shared [`ModuleRegistry`]
+///
+/// Single-file projects (no imports) work without a `ModuleLoader`.
+pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String> {
+    let prep = prepare_project(root, entry)?;
+    let result = type_check_with_registry(&prep.ast, prep.registry).map_err(join_errors)?;
     let warnings = result.warnings.iter().map(|w| w.to_string()).collect();
     Ok(CompileOutput { warnings })
 }
@@ -148,50 +166,20 @@ pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String
 /// Like [`compile_project`], but also invokes the interpreter with
 /// cross-module function resolution.
 pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
-    let mut loader = ModuleLoader::new(root.to_path_buf());
-
-    let entry_path = root.join("src").join(entry);
-    let source = std::fs::read_to_string(&entry_path)
-        .map_err(|e| format!("cannot read `{}`: {e}", entry_path.display()))?;
-    let ast = parse(&source).map_err(join_errors)?;
-
-    let module_name = if ast.name.is_empty() {
-        entry.trim_end_matches(".sp").replace(['/', '\\'], ".")
-    } else {
-        ast.name.clone()
-    };
-
-    let mut registry = ModuleRegistry::new();
-    let mut entry_iface = spore_typeck::build_module_interface(&ast);
-    entry_iface.path = module_name.split('.').map(|s| s.to_string()).collect();
-    registry.register(entry_iface);
-
-    let imports: Vec<ImportDecl> = ast
-        .items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Import(d) => Some(d.clone()),
-            _ => None,
-        })
-        .collect();
-
-    if !imports.is_empty() {
-        registry
-            .resolve_imports(&mut loader, &module_name, &imports)
-            .map_err(join_errors)?;
-    }
+    let prep = prepare_project(root, entry)?;
 
     // Type-check
-    let _result = type_check_with_registry(&ast, registry).map_err(join_errors)?;
+    let _result = type_check_with_registry(&prep.ast, prep.registry).map_err(join_errors)?;
 
     // Collect imported module ASTs for the interpreter
-    let imported: Vec<(String, spore_parser::ast::Module)> = loader
+    let imported: Vec<(String, spore_parser::ast::Module)> = prep
+        .loader
         .loaded_modules()
         .into_iter()
-        .filter_map(|path| loader.get_ast(&path).map(|ast| (path, ast.clone())))
+        .filter_map(|path| prep.loader.get_ast(&path).map(|ast| (path, ast.clone())))
         .collect();
 
-    spore_codegen::run_project(&ast, &imported).map_err(|e| e.to_string())
+    spore_codegen::run_project(&prep.ast, &imported).map_err(|e| e.to_string())
 }
 
 /// Analyze holes in Spore source and return a JSON report.

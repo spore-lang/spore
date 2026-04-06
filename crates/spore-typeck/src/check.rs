@@ -14,6 +14,20 @@ use std::collections::{HashMap, HashSet};
 use crate::capability::{CapabilityHierarchy, default_hierarchy};
 use crate::types::{CapSet, ErrorSet, Ty};
 
+use std::collections::BTreeSet;
+
+/// Return items present in `callee_set` but absent from `current_set`.
+fn find_missing_set_items<'a>(
+    callee_set: &'a BTreeSet<String>,
+    current_set: &BTreeSet<String>,
+) -> Vec<&'a str> {
+    callee_set
+        .iter()
+        .filter(|item| !current_set.contains(*item))
+        .map(|s| s.as_str())
+        .collect()
+}
+
 pub struct Checker {
     pub errors: Vec<TypeError>,
     pub registry: TypeRegistry,
@@ -895,7 +909,7 @@ impl Checker {
             }
 
             Expr::Throw(expr) => {
-                self.check_expr(expr);
+                let _ = self.check_expr(expr);
                 Ty::Never
             }
 
@@ -968,7 +982,7 @@ impl Checker {
                 }
                 // Type-check arguments
                 for arg in args {
-                    self.check_expr(arg);
+                    let _ = self.check_expr(arg);
                 }
                 // The return type of a perform is unknown at this point;
                 // for now treat it as Unit (operations like println return Unit).
@@ -995,7 +1009,7 @@ impl Checker {
                         let var = self.fresh_var();
                         self.env.define(param.clone(), var);
                     }
-                    self.check_expr(&arm.body);
+                    let _ = self.check_expr(&arm.body);
                     self.env.pop_scope();
                 }
 
@@ -1190,7 +1204,7 @@ impl Checker {
                 self.env.define(name.clone(), ty);
             }
             Stmt::Expr(expr) => {
-                self.check_expr(expr);
+                let _ = self.check_expr(expr);
             }
         }
     }
@@ -1447,15 +1461,11 @@ impl Checker {
         (new_params, new_ret)
     }
 
-    // ── Capability propagation check ────────────────────────────────
+    // ── Set propagation checks ─────────────────────────────────────
 
     /// Verify that the current function's capability set is a superset of the callee's.
     fn check_cap_propagation(&mut self, callee_caps: &CapSet) {
-        let missing: Vec<&str> = callee_caps
-            .iter()
-            .filter(|c| !self.current_caps.contains(*c))
-            .map(|s| s.as_str())
-            .collect();
+        let missing = find_missing_set_items(callee_caps, &self.current_caps);
         if !missing.is_empty() {
             self.err(
                 ErrorCode::C0001,
@@ -1467,15 +1477,9 @@ impl Checker {
         }
     }
 
-    // ── Error set propagation check ─────────────────────────────────
-
     /// Verify that the current function's error set is a superset of the callee's.
     fn check_error_propagation(&mut self, callee_errors: &ErrorSet) {
-        let missing: Vec<&str> = callee_errors
-            .iter()
-            .filter(|e| !self.current_errors.contains(*e))
-            .map(|s| s.as_str())
-            .collect();
+        let missing = find_missing_set_items(callee_errors, &self.current_errors);
         if !missing.is_empty() {
             self.err(
                 ErrorCode::E0012,

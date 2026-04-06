@@ -34,6 +34,25 @@ pub struct Closure {
     pub env: BTreeMap<String, Value>,
 }
 
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Int(x), Value::Int(y)) => x == y,
+            (Value::Float(x), Value::Float(y)) => x == y,
+            (Value::Bool(x), Value::Bool(y)) => x == y,
+            (Value::Str(x), Value::Str(y)) => x == y,
+            (Value::Char(x), Value::Char(y)) => x == y,
+            (Value::Unit, Value::Unit) => true,
+            (Value::List(x), Value::List(y)) => x == y,
+            (Value::Enum(n1, f1), Value::Enum(n2, f2)) => n1 == n2 && f1 == f2,
+            (Value::Struct(n1, f1), Value::Struct(n2, f2)) => n1 == n2 && f1 == f2,
+            (Value::Map(a), Value::Map(b)) => a == b,
+            // Closures and builtins are not structurally comparable
+            _ => false,
+        }
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

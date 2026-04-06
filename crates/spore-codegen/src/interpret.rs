@@ -60,6 +60,32 @@ fn require_list<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a Vec
         .map_err(|e| RuntimeError::new(format!("{name}: argument {idx}: {e}")))
 }
 
+// ── String interpolation helpers ────────────────────────────────────
+
+/// A borrowed view of a single chunk in an interpolated string (f-string or t-string).
+enum StringChunk<'a> {
+    Literal(&'a str),
+    Expr(&'a Expr),
+}
+
+impl<'a> From<&'a FStringPart> for StringChunk<'a> {
+    fn from(p: &'a FStringPart) -> Self {
+        match p {
+            FStringPart::Literal(s) => StringChunk::Literal(s),
+            FStringPart::Expr(e) => StringChunk::Expr(e),
+        }
+    }
+}
+
+impl<'a> From<&'a TStringPart> for StringChunk<'a> {
+    fn from(p: &'a TStringPart) -> Self {
+        match p {
+            TStringPart::Literal(s) => StringChunk::Literal(s),
+            TStringPart::Expr(e) => StringChunk::Expr(e),
+        }
+    }
+}
+
 /// The tree-walking interpreter.
 pub struct Interpreter {
     /// Global function definitions
@@ -241,6 +267,25 @@ impl Interpreter {
         }
     }
 
+    /// Evaluate an interpolated string template (shared by f-strings and t-strings).
+    fn eval_interpolated_string<'a>(
+        &mut self,
+        parts: impl Iterator<Item = StringChunk<'a>>,
+        env: &mut Env,
+    ) -> Result<Value> {
+        let mut result = String::new();
+        for chunk in parts {
+            match chunk {
+                StringChunk::Literal(s) => result.push_str(s),
+                StringChunk::Expr(e) => {
+                    let val = self.eval(e, env)?;
+                    result.push_str(&val.to_string());
+                }
+            }
+        }
+        Ok(Value::Str(result))
+    }
+
     /// Evaluate an expression.
     fn eval(&mut self, expr: &Expr, env: &mut Env) -> Result<Value> {
         match expr {
@@ -249,30 +294,10 @@ impl Interpreter {
             Expr::StrLit(s) => Ok(Value::Str(s.clone())),
             Expr::BoolLit(b) => Ok(Value::Bool(*b)),
             Expr::FString(parts) => {
-                let mut result = String::new();
-                for part in parts {
-                    match part {
-                        FStringPart::Literal(s) => result.push_str(s),
-                        FStringPart::Expr(e) => {
-                            let val = self.eval(e, env)?;
-                            result.push_str(&val.to_string());
-                        }
-                    }
-                }
-                Ok(Value::Str(result))
+                self.eval_interpolated_string(parts.iter().map(StringChunk::from), env)
             }
             Expr::TString(parts) => {
-                let mut result = String::new();
-                for part in parts {
-                    match part {
-                        TStringPart::Literal(s) => result.push_str(s),
-                        TStringPart::Expr(e) => {
-                            let val = self.eval(e, env)?;
-                            result.push_str(&val.to_string());
-                        }
-                    }
-                }
-                Ok(Value::Str(result))
+                self.eval_interpolated_string(parts.iter().map(StringChunk::from), env)
             }
 
             Expr::Var(name) => {
@@ -809,7 +834,7 @@ impl Interpreter {
             "contains" => {
                 let list = require_list(args, 0, "contains")?;
                 let item = require_arg(args, 1, "contains")?;
-                let found = list.iter().any(|v| value_eq(v, item));
+                let found = list.iter().any(|v| v == item);
                 Ok(Some(Value::Bool(found)))
             }
 
@@ -1046,27 +1071,6 @@ impl Interpreter {
                 }
             }
         }
-    }
-}
-
-/// Structural equality for values (used by `contains`).
-fn value_eq(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => x == y,
-        (Value::Float(x), Value::Float(y)) => x == y,
-        (Value::Bool(x), Value::Bool(y)) => x == y,
-        (Value::Str(x), Value::Str(y)) => x == y,
-        (Value::Char(x), Value::Char(y)) => x == y,
-        (Value::Unit, Value::Unit) => true,
-        (Value::List(x), Value::List(y)) => {
-            x.len() == y.len() && x.iter().zip(y.iter()).all(|(a, b)| value_eq(a, b))
-        }
-        (Value::Enum(n1, f1), Value::Enum(n2, f2)) => {
-            n1 == n2
-                && f1.len() == f2.len()
-                && f1.iter().zip(f2.iter()).all(|(a, b)| value_eq(a, b))
-        }
-        _ => false,
     }
 }
 
