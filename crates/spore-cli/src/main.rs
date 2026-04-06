@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::time::Duration;
@@ -231,17 +231,37 @@ fn print_warnings(warnings: &[String], json_output: bool) {
     }
 }
 
+fn find_project_target(file: &str) -> Option<(PathBuf, String)> {
+    let file_path = std::fs::canonicalize(file).ok()?;
+    let mut dir = file_path.parent()?;
+
+    loop {
+        let manifest = dir.join("spore.toml");
+        let src_dir = dir.join("src");
+        if manifest.is_file() && src_dir.is_dir() {
+            let rel = file_path.strip_prefix(&src_dir).ok()?;
+            return Some((dir.to_path_buf(), rel.to_string_lossy().replace('\\', "/")));
+        }
+        dir = dir.parent()?;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
 fn exec_run(file: &str, json_output: bool) -> ExitCode {
-    let source = match read_source(file) {
-        Ok(s) => s,
-        Err(c) => return c,
+    let result = if let Some((root, entry)) = find_project_target(file) {
+        sporec::run_project(&root, &entry)
+    } else {
+        let source = match read_source(file) {
+            Ok(s) => s,
+            Err(c) => return c,
+        };
+        sporec::run(&source)
     };
 
-    match sporec::run(&source) {
+    match result {
         Ok(value) => {
             if json_output {
                 println!(
@@ -301,12 +321,11 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
         }
     } else {
         let path = &files[0];
-        let source = match read_source(path) {
-            Ok(s) => s,
-            Err(c) => return c,
-        };
-
         if verbose {
+            let source = match read_source(path) {
+                Ok(s) => s,
+                Err(c) => return c,
+            };
             match sporec::check_verbose(&source) {
                 Ok(detail) => {
                     print!("{detail}");
@@ -318,7 +337,17 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
                 }
             }
         } else {
-            match sporec::compile(&source) {
+            let result = if let Some((root, entry)) = find_project_target(path) {
+                sporec::compile_project(&root, &entry)
+            } else {
+                let source = match read_source(path) {
+                    Ok(s) => s,
+                    Err(c) => return c,
+                };
+                sporec::compile(&source)
+            };
+
+            match result {
                 Ok(output) => {
                     print_warnings(&output.warnings, json_output);
                     if deny_warnings && !output.warnings.is_empty() {
@@ -442,12 +471,17 @@ fn exec_holes(file: &str) -> ExitCode {
 }
 
 fn exec_build(file: &str) -> ExitCode {
-    let source = match read_source(file) {
-        Ok(s) => s,
-        Err(c) => return c,
+    let result = if let Some((root, entry)) = find_project_target(file) {
+        sporec::compile_project(&root, &entry)
+    } else {
+        let source = match read_source(file) {
+            Ok(s) => s,
+            Err(c) => return c,
+        };
+        sporec::compile(&source)
     };
 
-    match sporec::compile(&source) {
+    match result {
         Ok(output) => {
             for w in &output.warnings {
                 eprintln!("{}: {w}", "warning".yellow().bold());
@@ -555,7 +589,13 @@ fn exec_watch(file: &str, json_output: bool) -> ExitCode {
 
 fn check_and_report(path: &str, source: &str, json_output: bool) {
     let ts = timestamp();
-    match sporec::compile(source) {
+    let result = if let Some((root, entry)) = find_project_target(path) {
+        sporec::compile_project(&root, &entry)
+    } else {
+        sporec::compile(source)
+    };
+
+    match result {
         Ok(output) => {
             for w in &output.warnings {
                 if json_output {
@@ -784,5 +824,42 @@ mod tests {
         create_project(&project_dir, "test-proj", "application").unwrap();
         let gi = fs::read_to_string(project_dir.join(".gitignore")).unwrap();
         assert!(gi.contains("/target"));
+    }
+
+    #[test]
+    fn test_find_project_target_for_main_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("proj");
+        create_project(&project_dir, "proj", "application").unwrap();
+
+        let target =
+            find_project_target(project_dir.join("src/main.sp").to_str().unwrap()).unwrap();
+        assert_eq!(target.0, std::fs::canonicalize(&project_dir).unwrap());
+        assert_eq!(target.1, "main.sp");
+    }
+
+    #[test]
+    fn test_find_project_target_for_nested_module() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("proj");
+        create_project(&project_dir, "proj", "application").unwrap();
+        let nested_dir = project_dir.join("src/lib");
+        fs::create_dir_all(&nested_dir).unwrap();
+        fs::write(nested_dir.join("util.sp"), "pub fn x() -> Int { 1 }\n").unwrap();
+
+        let target =
+            find_project_target(project_dir.join("src/lib/util.sp").to_str().unwrap()).unwrap();
+        assert_eq!(target.0, std::fs::canonicalize(&project_dir).unwrap());
+        assert_eq!(target.1, "lib/util.sp");
+    }
+
+    #[test]
+    fn test_find_project_target_ignores_files_outside_src() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("proj");
+        create_project(&project_dir, "proj", "application").unwrap();
+        fs::write(project_dir.join("notes.sp"), "fn scratch() -> Int { 1 }\n").unwrap();
+
+        assert!(find_project_target(project_dir.join("notes.sp").to_str().unwrap()).is_none());
     }
 }

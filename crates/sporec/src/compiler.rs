@@ -197,6 +197,84 @@ fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> 
     })
 }
 
+fn entry_module_name(ast: &spore_parser::ast::Module, entry: &str) -> String {
+    if ast.name.is_empty() {
+        entry.trim_end_matches(".sp").replace(['/', '\\'], ".")
+    } else {
+        ast.name.clone()
+    }
+}
+
+fn source_label_for_module(module_path: &str) -> String {
+    format!("{}.sp", module_path.replace('.', "/"))
+}
+
+fn with_module_name(
+    ast: &spore_parser::ast::Module,
+    module_name: &str,
+) -> spore_parser::ast::Module {
+    let mut ast = ast.clone();
+    if ast.name.is_empty() {
+        ast.name = module_name.to_string();
+    }
+    ast
+}
+
+fn type_check_prepared_project(
+    prep: &PreparedProject,
+    entry: &str,
+) -> Result<CompileOutput, String> {
+    let mut all_errors = Vec::new();
+    let mut all_warnings = Vec::new();
+
+    let mut loaded_modules = prep.loader.loaded_modules();
+    loaded_modules.sort();
+
+    for module_path in loaded_modules {
+        let Some(ast) = prep.loader.get_ast(&module_path) else {
+            continue;
+        };
+        let ast = with_module_name(ast, &module_path);
+        let label = source_label_for_module(&module_path);
+        match type_check_with_registry(&ast, prep.registry.clone()) {
+            Ok(result) => {
+                for warning in &result.warnings {
+                    all_warnings.push(format!("{label}: {warning}"));
+                }
+            }
+            Err(errs) => {
+                for err in errs {
+                    all_errors.push(format!("{label}: {err}"));
+                }
+            }
+        }
+    }
+
+    let entry_label = entry.replace('\\', "/");
+    let entry_name = entry_module_name(&prep.ast, entry);
+    let entry_ast = with_module_name(&prep.ast, &entry_name);
+    match type_check_with_registry(&entry_ast, prep.registry.clone()) {
+        Ok(result) => {
+            for warning in &result.warnings {
+                all_warnings.push(format!("{entry_label}: {warning}"));
+            }
+        }
+        Err(errs) => {
+            for err in errs {
+                all_errors.push(format!("{entry_label}: {err}"));
+            }
+        }
+    }
+
+    if all_errors.is_empty() {
+        Ok(CompileOutput {
+            warnings: all_warnings,
+        })
+    } else {
+        Err(all_errors.join("\n"))
+    }
+}
+
 /// Compile a Spore project rooted at `root`, starting from `entry`.
 ///
 /// 1. Creates a [`ModuleLoader`] from the project root
@@ -207,9 +285,7 @@ fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> 
 /// Single-file projects (no imports) work without a `ModuleLoader`.
 pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String> {
     let prep = prepare_project(root, entry)?;
-    let result = type_check_with_registry(&prep.ast, prep.registry).map_err(join_errors)?;
-    let warnings = result.warnings.iter().map(|w| w.to_string()).collect();
-    Ok(CompileOutput { warnings })
+    type_check_prepared_project(&prep, entry)
 }
 
 /// Run a Spore project by compiling and executing its entry file's `main`.
@@ -220,12 +296,12 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     let prep = prepare_project(root, entry)?;
 
     // Type-check
-    let _result = type_check_with_registry(&prep.ast, prep.registry).map_err(join_errors)?;
+    let _result = type_check_prepared_project(&prep, entry)?;
 
     // Collect imported module ASTs for the interpreter
-    let imported: Vec<(String, spore_parser::ast::Module)> = prep
-        .loader
-        .loaded_modules()
+    let mut imported_paths = prep.loader.loaded_modules();
+    imported_paths.sort();
+    let imported: Vec<(String, spore_parser::ast::Module)> = imported_paths
         .into_iter()
         .filter_map(|path| prep.loader.get_ast(&path).map(|ast| (path, ast.clone())))
         .collect();
