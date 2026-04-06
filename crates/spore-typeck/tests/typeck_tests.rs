@@ -1678,6 +1678,50 @@ fn builtin_program_using_builtins() {
 
 // ── Foreign fn type-checking ────────────────────────────────────────────
 
+// ── Regression: prelude signature fixes (A5–A7) ────────────────────────
+
+#[test]
+fn builtin_to_string_accepts_float() {
+    // Bug A5: to_string should accept any type, not just Int
+    check_ok(r#"fn f() -> String { to_string(3.14) }"#);
+}
+
+#[test]
+fn builtin_to_string_accepts_bool() {
+    check_ok(r#"fn f() -> String { to_string(true) }"#);
+}
+
+#[test]
+fn builtin_to_string_accepts_string() {
+    check_ok(r#"fn f() -> String { to_string("hello") }"#);
+}
+
+#[test]
+fn builtin_split_returns_list_str() {
+    // Bug A6: split should return List[Str], not bare List
+    check_ok(r#"fn f() -> List[String] { split("a,b", ",") }"#);
+}
+
+#[test]
+fn builtin_head_returns_option() {
+    // Bug A7: head should return Option[A], not A
+    check_ok(r#"fn f() -> Option[Int] { head([1, 2, 3]) }"#);
+}
+
+#[test]
+fn builtin_tail_returns_option_list() {
+    // Bug A7: tail should return Option[List[A]], not List[A]
+    check_ok(r#"fn f() -> Option[List[Int]] { tail([1, 2, 3]) }"#);
+}
+
+#[test]
+fn builtin_char_at_returns_option() {
+    // Bug A7: char_at should return Option[String]
+    check_ok(r#"fn f() -> Option[String] { char_at("abc", 0) }"#);
+}
+
+// ── Foreign fn type-checking (continued) ────────────────────────────────
+
 #[test]
 fn test_foreign_fn_typechecks() {
     check_ok(
