@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use spore_parser::ast::{ImportDecl, Item, Module as AstModule, Visibility};
 
-use crate::types::{CapSet, Ty};
+use crate::types::{CapSet, ErrorSet, Ty};
 
 /// Visibility of an exported symbol.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,7 +325,12 @@ impl ModuleRegistry {
             (
                 vec![
                     list_t.clone(),
-                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Var(1)), CapSet::new()),
+                    Ty::Fn(
+                        vec![Ty::Var(0)],
+                        Box::new(Ty::Var(1)),
+                        CapSet::new(),
+                        ErrorSet::new(),
+                    ),
                 ],
                 list_u.clone(),
             ),
@@ -335,7 +340,12 @@ impl ModuleRegistry {
             (
                 vec![
                     list_t.clone(),
-                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Bool), CapSet::new()),
+                    Ty::Fn(
+                        vec![Ty::Var(0)],
+                        Box::new(Ty::Bool),
+                        CapSet::new(),
+                        ErrorSet::new(),
+                    ),
                 ],
                 list_t.clone(),
             ),
@@ -350,6 +360,7 @@ impl ModuleRegistry {
                         vec![Ty::Var(1), Ty::Var(0)],
                         Box::new(Ty::Var(1)),
                         CapSet::new(),
+                        ErrorSet::new(),
                     ),
                 ],
                 Ty::Var(1),
@@ -360,7 +371,12 @@ impl ModuleRegistry {
             (
                 vec![
                     list_t.clone(),
-                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Unit), CapSet::new()),
+                    Ty::Fn(
+                        vec![Ty::Var(0)],
+                        Box::new(Ty::Unit),
+                        CapSet::new(),
+                        ErrorSet::new(),
+                    ),
                 ],
                 Ty::Unit,
             ),
