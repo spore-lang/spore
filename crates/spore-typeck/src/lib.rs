@@ -26,6 +26,11 @@ use hole::HoleReport;
 use module::ModuleRegistry;
 use spore_parser::ast::Module;
 
+fn parse_embedded_prelude() -> Module {
+    let source = include_str!("../../../stdlib/prelude.sp");
+    spore_parser::parse(source).expect("embedded stdlib/prelude.sp must parse")
+}
+
 /// Result of a successful type check, including hole report and cost analysis.
 #[derive(Debug, Clone)]
 pub struct CheckResult {
@@ -54,6 +59,7 @@ pub fn type_check_with_registry(
 ) -> Result<CheckResult, Vec<TypeError>> {
     registry.register_prelude();
     let mut checker = Checker::with_module_registry(registry);
+    checker.load_prelude(&parse_embedded_prelude());
     checker.check_module(module);
 
     // Run cost analysis (independent of type checking)

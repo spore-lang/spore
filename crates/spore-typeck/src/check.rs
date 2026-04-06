@@ -118,6 +118,13 @@ impl Checker {
         self.hole_report.dependency_graph = self.build_hole_dependency_graph();
     }
 
+    /// Register prelude declarations into the local checker registry.
+    pub(crate) fn load_prelude(&mut self, module: &Module) {
+        for item in &module.items {
+            self.register_item(item);
+        }
+    }
+
     // ── Registration (first pass) ───────────────────────────────────
 
     /// Resolve an import declaration, importing symbols into the current registry.
@@ -287,11 +294,13 @@ impl Checker {
                         .collect();
                     self.registry.fn_errors.insert(f.name.clone(), error_set);
                 }
+                let mut type_params = f.type_params.clone();
                 if let Some(wc) = &f.where_clause {
-                    let mut type_params: Vec<String> =
-                        wc.constraints.iter().map(|c| c.type_var.clone()).collect();
-                    type_params.sort();
-                    type_params.dedup();
+                    type_params.extend(wc.constraints.iter().map(|c| c.type_var.clone()));
+                }
+                type_params.sort();
+                type_params.dedup();
+                if !type_params.is_empty() {
                     self.registry
                         .fn_type_params
                         .insert(f.name.clone(), type_params);
