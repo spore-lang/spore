@@ -2381,7 +2381,6 @@ fn handler_missing_operation_error() {
     assert!(
         errs.iter()
             .any(|e| e.contains("missing operation `read_line`"))
-            .any(|e| e.contains("missing operation `read_line`"))
     );
 }
 
