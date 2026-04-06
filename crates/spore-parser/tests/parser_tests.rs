@@ -1082,3 +1082,125 @@ fn test_foreign_fn_no_return_type() {
         _ => panic!("expected function"),
     }
 }
+
+// ── Perform expression ──────────────────────────────────────────────────
+
+#[test]
+fn test_parse_perform() {
+    let m = parse_ok(r#"fn main() { perform StdIO.println("hello") }"#);
+    assert_eq!(m.items.len(), 1);
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            if let spore_parser::ast::Expr::Block(_, Some(tail)) = body {
+                match tail.as_ref() {
+                    spore_parser::ast::Expr::Perform {
+                        effect,
+                        operation,
+                        args,
+                    } => {
+                        assert_eq!(effect, "StdIO");
+                        assert_eq!(operation, "println");
+                        assert_eq!(args.len(), 1);
+                    }
+                    other => panic!("expected Perform, got {other:?}"),
+                }
+            } else {
+                panic!("expected block with tail");
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_parse_perform_multiple_args() {
+    let m = parse_ok(r#"fn main() { perform IO.write("hello", 42) }"#);
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            if let spore_parser::ast::Expr::Block(_, Some(tail)) = body {
+                match tail.as_ref() {
+                    spore_parser::ast::Expr::Perform { args, .. } => {
+                        assert_eq!(args.len(), 2);
+                    }
+                    other => panic!("expected Perform, got {other:?}"),
+                }
+            } else {
+                panic!("expected block with tail");
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+// ── Handle expression ───────────────────────────────────────────────────
+
+#[test]
+fn test_parse_handle() {
+    let m = parse_ok(
+        r#"
+        fn main() {
+            handle {
+                perform StdIO.println("hello")
+            } with {
+                StdIO.println(msg) => 42
+            }
+        }
+        "#,
+    );
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            if let spore_parser::ast::Expr::Block(_, Some(tail)) = body {
+                match tail.as_ref() {
+                    spore_parser::ast::Expr::Handle { body: _, handlers } => {
+                        assert_eq!(handlers.len(), 1);
+                        assert_eq!(handlers[0].effect, "StdIO");
+                        assert_eq!(handlers[0].operation, "println");
+                        assert_eq!(handlers[0].params, vec!["msg".to_string()]);
+                    }
+                    other => panic!("expected Handle, got {other:?}"),
+                }
+            } else {
+                panic!("expected block with tail");
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_parse_handle_multiple_arms() {
+    let m = parse_ok(
+        r#"
+        fn main() {
+            handle {
+                42
+            } with {
+                StdIO.println(msg) => 0,
+                StdIO.read_line() => "input"
+            }
+        }
+        "#,
+    );
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            if let spore_parser::ast::Expr::Block(_, Some(tail)) = body {
+                match tail.as_ref() {
+                    spore_parser::ast::Expr::Handle { handlers, .. } => {
+                        assert_eq!(handlers.len(), 2);
+                        assert_eq!(handlers[0].operation, "println");
+                        assert_eq!(handlers[1].operation, "read_line");
+                        assert!(handlers[1].params.is_empty());
+                    }
+                    other => panic!("expected Handle, got {other:?}"),
+                }
+            } else {
+                panic!("expected block with tail");
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}

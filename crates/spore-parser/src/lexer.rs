@@ -92,6 +92,9 @@ pub enum Token {
     From,
     Alias,
     Foreign,
+    Perform,
+    Handle,
+    With,
 
     // ── Operators ──
     Plus,
@@ -860,6 +863,9 @@ impl<'a> Lexer<'a> {
             "from" => Token::From,
             "alias" => Token::Alias,
             "foreign" => Token::Foreign,
+            "perform" => Token::Perform,
+            "handle" => Token::Handle,
+            "with" => Token::With,
             "true" => Token::Bool(true),
             "false" => Token::Bool(false),
             _ => Token::Ident(text.to_string()),

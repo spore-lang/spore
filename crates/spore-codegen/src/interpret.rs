@@ -45,6 +45,8 @@ pub struct Interpreter {
     type_defs: BTreeMap<String, TypeDef>,
     /// Effect handlers for capability-gated operations (e.g. I/O).
     effect_handlers: Vec<Box<dyn EffectHandler>>,
+    /// Stack of handler frames installed by `handle ... with { ... }`.
+    handler_stack: Vec<Vec<EffectArm>>,
 }
 
 /// A local variable environment (stack of scopes).
@@ -103,6 +105,7 @@ impl Interpreter {
             structs: BTreeMap::new(),
             type_defs: BTreeMap::new(),
             effect_handlers: Vec::new(),
+            handler_stack: Vec::new(),
         }
     }
 
@@ -171,7 +174,7 @@ impl Interpreter {
     }
 
     /// Try dispatching an operation through registered effect handlers.
-    fn try_dispatch_effect(&self, name: &str, args: &[Value]) -> Result<Option<Value>> {
+    fn try_dispatch_effect(&mut self, name: &str, args: &[Value]) -> Result<Option<Value>> {
         for handler in &self.effect_handlers {
             if handler.operations().contains(&name) {
                 let result = handler.handle(name, args).map_err(RuntimeError::new)?;
@@ -182,7 +185,7 @@ impl Interpreter {
     }
 
     /// Call a named function with arguments.
-    pub fn call_function(&self, name: &str, args: Vec<Value>) -> Result<Value> {
+    pub fn call_function(&mut self, name: &str, args: Vec<Value>) -> Result<Value> {
         let func = self
             .functions
             .get(name)
@@ -214,7 +217,7 @@ impl Interpreter {
     }
 
     /// Evaluate an expression.
-    fn eval(&self, expr: &Expr, env: &mut Env) -> Result<Value> {
+    fn eval(&mut self, expr: &Expr, env: &mut Env) -> Result<Value> {
         match expr {
             Expr::IntLit(n) => Ok(Value::Int(*n)),
             Expr::FloatLit(f) => Ok(Value::Float(*f)),
@@ -526,12 +529,53 @@ impl Interpreter {
                     "`_` placeholder should have been desugared into a lambda by the parser"
                 )
             }
+
+            Expr::Perform {
+                effect,
+                operation,
+                args,
+            } => {
+                let arg_vals: Vec<Value> = args
+                    .iter()
+                    .map(|a| self.eval(a, env))
+                    .collect::<Result<_>>()?;
+
+                // Search handler stack (innermost first)
+                for frame in self.handler_stack.iter().rev() {
+                    for arm in frame {
+                        if arm.effect == *effect && arm.operation == *operation {
+                            let arm = arm.clone();
+                            let mut handler_env = Env::new();
+                            for (param, val) in arm.params.iter().zip(arg_vals.iter()) {
+                                handler_env.define(param.clone(), val.clone());
+                            }
+                            return self.eval(&arm.body, &mut handler_env);
+                        }
+                    }
+                }
+
+                // Fall back to registered EffectHandlers (CliPlatformHandler etc.)
+                if let Some(result) = self.try_dispatch_effect(operation, &arg_vals)? {
+                    return Ok(result);
+                }
+
+                Err(RuntimeError::new(format!(
+                    "unhandled effect: {effect}.{operation}"
+                )))
+            }
+
+            Expr::Handle { body, handlers } => {
+                self.handler_stack.push(handlers.clone());
+                let result = self.eval(body, env);
+                self.handler_stack.pop();
+                result
+            }
         }
     }
 
     // ── Binary operations ───────────────────────────────────────────
 
-    fn eval_binop(&self, l: &Value, op: &BinOp, r: &Value) -> Result<Value> {
+    fn eval_binop(&mut self, l: &Value, op: &BinOp, r: &Value) -> Result<Value> {
         match (l, r) {
             (Value::Int(a), Value::Int(b)) => self.int_binop(*a, op, *b),
             (Value::Float(a), Value::Float(b)) => self.float_binop(*a, op, *b),
@@ -554,7 +598,7 @@ impl Interpreter {
         }
     }
 
-    fn int_binop(&self, a: i64, op: &BinOp, b: i64) -> Result<Value> {
+    fn int_binop(&mut self, a: i64, op: &BinOp, b: i64) -> Result<Value> {
         Ok(match op {
             BinOp::Add => Value::Int(a + b),
             BinOp::Sub => Value::Int(a - b),
@@ -586,7 +630,7 @@ impl Interpreter {
         })
     }
 
-    fn float_binop(&self, a: f64, op: &BinOp, b: f64) -> Result<Value> {
+    fn float_binop(&mut self, a: f64, op: &BinOp, b: f64) -> Result<Value> {
         Ok(match op {
             BinOp::Add => Value::Float(a + b),
             BinOp::Sub => Value::Float(a - b),
@@ -605,7 +649,7 @@ impl Interpreter {
 
     // ── Call a Value as a function ──────────────────────────────────
 
-    fn call_value(&self, callee: &Value, args: Vec<Value>) -> Result<Value> {
+    fn call_value(&mut self, callee: &Value, args: Vec<Value>) -> Result<Value> {
         match callee {
             Value::Closure(closure) => {
                 if closure.params.len() != args.len() {
@@ -631,7 +675,7 @@ impl Interpreter {
     // ── Enum variant lookup ───────────────────────────────────────
 
     /// Check if a name is a known enum variant. Returns (type_name, arity).
-    fn is_enum_variant(&self, name: &str) -> Option<(&str, usize)> {
+    fn is_enum_variant(&mut self, name: &str) -> Option<(&str, usize)> {
         for (type_name, typedef) in &self.type_defs {
             for variant in &typedef.variants {
                 if variant.name == name {
@@ -644,7 +688,7 @@ impl Interpreter {
 
     // ── Builtin functions ───────────────────────────────────────────
 
-    fn try_call_builtin(&self, name: &str, args: &[Value]) -> Result<Option<Value>> {
+    fn try_call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Option<Value>> {
         match name {
             // ── List builtins ──────────────────────────────────────
             "len" => {
@@ -1058,7 +1102,7 @@ impl Interpreter {
 
     // ── Pattern matching ────────────────────────────────────────────
 
-    fn match_pattern(&self, pat: &Pattern, val: &Value) -> Option<Vec<(String, Value)>> {
+    fn match_pattern(&mut self, pat: &Pattern, val: &Value) -> Option<Vec<(String, Value)>> {
         match pat {
             Pattern::Wildcard => Some(vec![]),
             Pattern::Var(name) => Some(vec![(name.clone(), val.clone())]),
