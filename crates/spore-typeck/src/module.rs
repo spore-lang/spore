@@ -32,10 +32,10 @@ pub struct ModuleInterface {
     pub path: Vec<String>,
     /// Exported functions: name → (param types, return type)
     pub functions: HashMap<String, (Vec<Ty>, Ty)>,
-    /// Exported types: name → variant list
-    pub types: HashMap<String, Vec<String>>,
-    /// Exported structs: name → field names
-    pub structs: HashMap<String, Vec<String>>,
+    /// Exported types: name → variant names + field types
+    pub types: HashMap<String, Vec<(String, Vec<Ty>)>>,
+    /// Exported structs: name → field names + types
+    pub structs: HashMap<String, Vec<(String, Ty)>>,
     /// Exported capabilities
     pub capabilities: HashSet<String>,
     /// Visibility of each symbol
@@ -228,12 +228,17 @@ impl ModuleRegistry {
     pub fn register_prelude(&mut self) {
         let mut prelude = ModuleInterface::new(vec!["Std".into(), "Prelude".into()]);
 
-        prelude
-            .types
-            .insert("Option".into(), vec!["Some".into(), "None".into()]);
-        prelude
-            .types
-            .insert("Result".into(), vec!["Ok".into(), "Err".into()]);
+        prelude.types.insert(
+            "Option".into(),
+            vec![("Some".into(), vec![Ty::Var(0)]), ("None".into(), vec![])],
+        );
+        prelude.types.insert(
+            "Result".into(),
+            vec![
+                ("Ok".into(), vec![Ty::Var(0)]),
+                ("Err".into(), vec![Ty::Var(1)]),
+            ],
+        );
         prelude.types.insert("List".into(), vec![]);
 
         // ── IO builtins ──────────────────────────────────────────
