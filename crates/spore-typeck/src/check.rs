@@ -1776,11 +1776,40 @@ impl Checker {
                 }
             }
             Pattern::Or(pats) => {
-                let mut all_bindings = vec![];
-                for pat in pats {
-                    all_bindings = self.check_pattern(pat, scrutinee_ty);
+                if pats.is_empty() {
+                    return vec![];
                 }
-                all_bindings
+                let first_bindings = self.check_pattern(&pats[0], scrutinee_ty);
+                let first_names: std::collections::BTreeSet<&str> =
+                    first_bindings.iter().map(|(n, _)| n.as_str()).collect();
+
+                for pat in &pats[1..] {
+                    let alt_bindings = self.check_pattern(pat, scrutinee_ty);
+                    let alt_names: std::collections::BTreeSet<&str> =
+                        alt_bindings.iter().map(|(n, _)| n.as_str()).collect();
+
+                    if first_names != alt_names {
+                        self.err(
+                            ErrorCode::E0504,
+                            format!(
+                                "or-pattern alternatives must bind the same names: expected {first_names:?}, found {alt_names:?}",
+                            ),
+                        );
+                    } else {
+                        for ((name, ty1), (_, ty2)) in
+                            first_bindings.iter().zip(alt_bindings.iter())
+                        {
+                            self.unify(
+                                ty1,
+                                ty2,
+                                &format!(
+                                    "or-pattern binding `{name}` type mismatch across alternatives"
+                                ),
+                            );
+                        }
+                    }
+                }
+                first_bindings
             }
             Pattern::List(elements, _rest) => {
                 // For list patterns, the scrutinee should be a list type

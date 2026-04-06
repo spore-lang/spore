@@ -1742,3 +1742,62 @@ fn test_handle_provides_capability() {
         "#,
     );
 }
+
+// ── Or-pattern binding validation ───────────────────────────────────────
+
+#[test]
+fn test_or_pattern_same_bindings() {
+    check_ok(
+        r#"type Shape { Circle(Int), Square(Int) }
+        fn size(s: Shape) -> Int {
+            match s {
+                Circle(x) | Square(x) => x,
+            }
+        }"#,
+    );
+}
+
+#[test]
+fn test_or_pattern_different_bindings_error() {
+    let errs = check_err_with_codes(
+        r#"type Shape { Circle(Int), Square(Int) }
+        fn size(s: Shape) -> Int {
+            match s {
+                Circle(x) | Square(y) => 0,
+            }
+        }"#,
+    );
+    assert!(
+        errs.iter().any(|(code, _)| *code == ErrorCode::E0504),
+        "expected E0504 or-pattern binding mismatch, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_or_pattern_different_types_error() {
+    let errs = check_err(
+        r#"type Value { IntVal(Int), StrVal(String) }
+        fn show(v: Value) -> Int {
+            match v {
+                IntVal(x) | StrVal(x) => 0,
+            }
+        }"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("type mismatch")),
+        "expected type mismatch for or-pattern binding, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_or_pattern_no_bindings() {
+    check_ok(
+        r#"type Color { Red, Blue, Green }
+        fn is_warm(c: Color) -> Bool {
+            match c {
+                Red | Blue => true,
+                Green => false,
+            }
+        }"#,
+    );
+}
