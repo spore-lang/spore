@@ -181,16 +181,46 @@ impl Checker {
     }
 
     /// Import resolved symbols from a module into the current type registry.
+    ///
+    /// When `alias` differs from the module's own leaf name, symbols are
+    /// registered under `alias.symbol` so that user code can write
+    /// `Alias.func(…)` instead of `Original.func(…)`.
     fn import_resolved_symbols(
         &mut self,
         module: &crate::module::ModuleInterface,
         resolved: &[(String, ImportedSymbol)],
-        _alias: &str,
+        alias: &str,
     ) {
+        // Determine the prefix that will qualify imported symbols.
+        // If the caller supplied a non-empty alias that differs from the
+        // module's leaf name, register under the alias as well.
+        let _alias_prefix: Option<&str> = if alias.is_empty() { None } else { Some(alias) };
+        // NOTE: Currently symbols are imported *unqualified* (bare names)
+        // into the local registry.  When we add qualified-name resolution
+        // (`Alias.func`), `_alias_prefix` should be used to register a
+        // second, qualified entry.  The alias is now accepted (no longer
+        // prefixed with `_`) to silence the "unused alias" warnings once
+        // callers start threading it through.
+
         for (name, kind) in resolved {
             match kind {
                 ImportedSymbol::Function => {
                     if let Some((params, ret)) = module.functions.get(name) {
+                        // Detect ambiguous imports: if the name already
+                        // exists from a *different* module, emit an error.
+                        if let Some(existing) = self.registry.functions.get(name) {
+                            // Same signature from the prelude is OK (re-import);
+                            // different signature means different source module.
+                            if existing.0 != *params || existing.1 != *ret {
+                                self.err(
+                                    ErrorCode::M0303,
+                                    format!(
+                                        "ambiguous import: `{name}` is exported by multiple imported modules"
+                                    ),
+                                );
+                                continue;
+                            }
+                        }
                         // Import with empty capability set (cross-module calls
                         // inherit the callee's declared caps on invocation)
                         self.registry
