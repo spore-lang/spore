@@ -996,8 +996,9 @@ fn exceeds_budget(actual: &CostExpr, budget: &CostExpr) -> bool {
         (CostExpr::Const(actual_n), CostExpr::Const(budget_n)) => actual_n > budget_n,
         // Unbounded actual always exceeds a finite budget
         (CostExpr::Unbounded, CostExpr::Const(_)) => true,
-        // Symbolic actual (Linear, Add, Mul, etc.) exceeds a constant budget
-        // (conservative: we can't prove it fits)
+        // Structurally equal expressions never exceed each other
+        (a, b) if a == b => false,
+        // Symbolic actual against a constant budget — can't prove it fits
         (_, CostExpr::Const(_)) => true,
         // If budget is also symbolic, we can't decide — don't flag
         _ => false,
@@ -1093,10 +1094,19 @@ impl std::fmt::Display for CostVector {
 /// Helper: add two cost expressions.
 fn add_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
     match (a, b) {
-        (CostExpr::Const(0), other) | (other, CostExpr::Const(0)) => other.clone(),
+        // Identity: x + 0 = x
+        (x, CostExpr::Const(0)) | (CostExpr::Const(0), x) => x.clone(),
+        // Constant folding: c1 + c2 = c1+c2
         (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x.saturating_add(*y)),
+        // Unbounded propagation
         (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
-        _ => CostExpr::Unbounded, // Conservative: can't simplify symbolic
+        // Same-variable linear merge: O(n) + O(n) = 2 * O(n)
+        (CostExpr::Linear(a_var), CostExpr::Linear(b_var)) if a_var == b_var => CostExpr::Mul(
+            Box::new(CostExpr::Const(2)),
+            Box::new(CostExpr::Linear(a_var.clone())),
+        ),
+        // Preserve symbolic addition
+        _ => CostExpr::Add(Box::new(a.clone()), Box::new(b.clone())),
     }
 }
 
@@ -1106,18 +1116,24 @@ fn max_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
         (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(*x.max(y)),
         (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
         (CostExpr::Const(0), other) | (other, CostExpr::Const(0)) => other.clone(),
-        _ => CostExpr::Unbounded,
+        // Preserve symbolic max
+        _ => CostExpr::Max(Box::new(a.clone()), Box::new(b.clone())),
     }
 }
 
 /// Helper: multiply two cost expressions.
 fn mul_cost(a: &CostExpr, b: &CostExpr) -> CostExpr {
     match (a, b) {
-        (CostExpr::Const(0), _) | (_, CostExpr::Const(0)) => CostExpr::Const(0),
-        (CostExpr::Const(1), other) | (other, CostExpr::Const(1)) => other.clone(),
+        // Zero: x * 0 = 0
+        (_, CostExpr::Const(0)) | (CostExpr::Const(0), _) => CostExpr::Const(0),
+        // Identity: x * 1 = x
+        (x, CostExpr::Const(1)) | (CostExpr::Const(1), x) => x.clone(),
+        // Constant folding
         (CostExpr::Const(x), CostExpr::Const(y)) => CostExpr::Const(x.saturating_mul(*y)),
+        // Unbounded propagation
         (CostExpr::Unbounded, _) | (_, CostExpr::Unbounded) => CostExpr::Unbounded,
-        _ => CostExpr::Unbounded,
+        // Preserve symbolic multiplication
+        _ => CostExpr::Mul(Box::new(a.clone()), Box::new(b.clone())),
     }
 }
 
@@ -1599,5 +1615,101 @@ mod tests {
     fn var_read_zero_cost() {
         let cv = expr_cost(&Expr::Var("x".into()));
         assert_eq!(cv, CostVector::zero());
+    }
+
+    // -----------------------------------------------------------------------
+    // Symbolic cost algebra preservation tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_add_linear_linear_same_var() {
+        let result = add_cost(&CostExpr::Linear("n".into()), &CostExpr::Linear("n".into()));
+        assert_eq!(
+            result,
+            CostExpr::Mul(
+                Box::new(CostExpr::Const(2)),
+                Box::new(CostExpr::Linear("n".into()))
+            )
+        );
+    }
+
+    #[test]
+    fn test_add_linear_const() {
+        let result = add_cost(&CostExpr::Linear("n".into()), &CostExpr::Const(5));
+        assert_eq!(
+            result,
+            CostExpr::Add(
+                Box::new(CostExpr::Linear("n".into())),
+                Box::new(CostExpr::Const(5))
+            )
+        );
+    }
+
+    #[test]
+    fn test_mul_const_linear() {
+        let result = mul_cost(&CostExpr::Const(3), &CostExpr::Linear("n".into()));
+        assert_eq!(
+            result,
+            CostExpr::Mul(
+                Box::new(CostExpr::Const(3)),
+                Box::new(CostExpr::Linear("n".into()))
+            )
+        );
+    }
+
+    #[test]
+    fn test_add_identity() {
+        let lin = CostExpr::Linear("x".into());
+        assert_eq!(add_cost(&lin, &CostExpr::Const(0)), lin);
+        assert_eq!(add_cost(&CostExpr::Const(0), &lin), lin);
+    }
+
+    #[test]
+    fn test_mul_identity() {
+        let lin = CostExpr::Linear("x".into());
+        assert_eq!(mul_cost(&lin, &CostExpr::Const(1)), lin);
+        assert_eq!(mul_cost(&CostExpr::Const(1), &lin), lin);
+    }
+
+    #[test]
+    fn test_unbounded_propagation() {
+        let lin = CostExpr::Linear("x".into());
+        assert_eq!(add_cost(&CostExpr::Unbounded, &lin), CostExpr::Unbounded);
+        assert_eq!(add_cost(&lin, &CostExpr::Unbounded), CostExpr::Unbounded);
+        assert_eq!(mul_cost(&CostExpr::Unbounded, &lin), CostExpr::Unbounded);
+        assert_eq!(
+            max_cost(&CostExpr::Unbounded, &CostExpr::Const(5)),
+            CostExpr::Unbounded
+        );
+    }
+
+    #[test]
+    fn test_add_linear_linear_diff_var() {
+        let result = add_cost(&CostExpr::Linear("n".into()), &CostExpr::Linear("m".into()));
+        assert_eq!(
+            result,
+            CostExpr::Add(
+                Box::new(CostExpr::Linear("n".into())),
+                Box::new(CostExpr::Linear("m".into()))
+            )
+        );
+    }
+
+    #[test]
+    fn test_max_preserves_symbolic() {
+        let result = max_cost(&CostExpr::Linear("n".into()), &CostExpr::Const(5));
+        assert_eq!(
+            result,
+            CostExpr::Max(
+                Box::new(CostExpr::Linear("n".into())),
+                Box::new(CostExpr::Const(5))
+            )
+        );
+    }
+
+    #[test]
+    fn test_exceeds_budget_structural_equality() {
+        let expr = CostExpr::Linear("n".into());
+        assert!(!exceeds_budget(&expr, &expr));
     }
 }
