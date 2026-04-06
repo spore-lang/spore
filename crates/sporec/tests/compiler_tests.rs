@@ -1,4 +1,44 @@
-use sporec::{check_verbose, compile, hole_summary};
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use sporec::{check_verbose, compile, compile_project, hole_summary, run_project};
+
+struct TempProject {
+    root: PathBuf,
+}
+
+impl TempProject {
+    fn new(name: &str) -> Self {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after epoch")
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("sporec-{name}-{unique}-{}", std::process::id()));
+        fs::create_dir_all(root.join("src")).expect("temp project src dir");
+        fs::write(root.join("spore.toml"), "name = \"temp\"\n").expect("temp project manifest");
+        Self { root }
+    }
+
+    fn root(&self) -> &Path {
+        &self.root
+    }
+
+    fn write(&self, rel: &str, content: &str) {
+        let path = self.root.join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("parent dirs");
+        }
+        fs::write(path, content).expect("write project file");
+    }
+}
+
+impl Drop for TempProject {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
 
 // ── Verbose output tests ────────────────────────────────────────────
 
@@ -184,6 +224,64 @@ fn compile_accepts_effect_and_handler_items() {
         output.warnings.is_empty(),
         "expected no warnings, got: {:?}",
         output.warnings
+    );
+}
+
+#[test]
+fn compile_project_rejects_type_error_in_imported_module() {
+    let project = TempProject::new("project-import-type-error");
+    project.write(
+        "src/main.sp",
+        r#"
+        import utils
+        fn main() -> Int { double(21) }
+        "#,
+    );
+    project.write(
+        "src/utils.sp",
+        r#"
+        pub fn double(x: Int) -> Int { "oops" }
+        "#,
+    );
+
+    let err = compile_project(project.root(), "main.sp")
+        .expect_err("project compile should reject invalid imported module bodies");
+    assert!(
+        err.contains("utils.sp"),
+        "expected imported module path in error, got: {err}"
+    );
+    assert!(
+        err.contains("double") || err.contains("E0001"),
+        "expected imported module type error details, got: {err}"
+    );
+}
+
+#[test]
+fn run_project_rejects_type_error_in_imported_module_before_execution() {
+    let project = TempProject::new("project-import-run-type-error");
+    project.write(
+        "src/main.sp",
+        r#"
+        import utils
+        fn main() -> Int { double(21) }
+        "#,
+    );
+    project.write(
+        "src/utils.sp",
+        r#"
+        pub fn double(x: Int) -> Int { "oops" }
+        "#,
+    );
+
+    let err = run_project(project.root(), "main.sp")
+        .expect_err("project run should fail during type checking before execution");
+    assert!(
+        err.contains("utils.sp"),
+        "expected imported module path in error, got: {err}"
+    );
+    assert!(
+        err.contains("double") || err.contains("E0001"),
+        "expected imported module type error details, got: {err}"
     );
 }
 
