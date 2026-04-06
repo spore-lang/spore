@@ -1977,3 +1977,72 @@ fn refined_types_different_var_names_not_equal() {
         "refined types with different var names must not be equal"
     );
 }
+// ── Ty::fold / Ty::visit combinator tests ──────────────────────────
+
+#[test]
+fn ty_fold_replaces_int_with_float_in_nested_type() {
+    // Fn([Int, Tuple([Int, Bool])], Int, {}, {}) → Fn([Float, Tuple([Float, Bool])], Float, {}, {})
+    let ty = Ty::Fn(
+        vec![Ty::Int, Ty::Tuple(vec![Ty::Int, Ty::Bool])],
+        Box::new(Ty::Int),
+        CapSet::new(),
+        ErrorSet::new(),
+    );
+    let folded = ty.fold(&mut |t| match t {
+        Ty::Int => Ty::Float,
+        other => other,
+    });
+    let expected = Ty::Fn(
+        vec![Ty::Float, Ty::Tuple(vec![Ty::Float, Ty::Bool])],
+        Box::new(Ty::Float),
+        CapSet::new(),
+        ErrorSet::new(),
+    );
+    assert_eq!(folded, expected);
+}
+
+#[test]
+fn ty_fold_replaces_in_record() {
+    let ty = Ty::Record(vec![("x".into(), Ty::Int), ("y".into(), Ty::Bool)]);
+    let folded = ty.fold(&mut |t| match t {
+        Ty::Int => Ty::Str,
+        other => other,
+    });
+    assert_eq!(
+        folded,
+        Ty::Record(vec![("x".into(), Ty::Str), ("y".into(), Ty::Bool)])
+    );
+}
+
+#[test]
+fn ty_visit_collects_named_types() {
+    let ty = Ty::Fn(
+        vec![
+            Ty::Named("Foo".into()),
+            Ty::Tuple(vec![Ty::Named("Bar".into()), Ty::Int]),
+        ],
+        Box::new(Ty::App(
+            "Result".into(),
+            vec![Ty::Named("Baz".into()), Ty::Str],
+        )),
+        CapSet::new(),
+        ErrorSet::new(),
+    );
+    let mut names = Vec::new();
+    ty.visit(&mut |t| {
+        if let Ty::Named(n) = t {
+            names.push(n.clone());
+        }
+    });
+    assert_eq!(names, vec!["Foo", "Bar", "Baz"]);
+}
+
+#[test]
+fn ty_fold_ref_maps_vars() {
+    let ty = Ty::App("List".into(), vec![Ty::Var(0)]);
+    let mapped = ty.fold_ref(&mut |t| match t {
+        Ty::Var(0) => Some(Ty::Int),
+        _ => None,
+    });
+    assert_eq!(mapped, Ty::App("List".into(), vec![Ty::Int]));
+}

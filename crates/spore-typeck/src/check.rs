@@ -1258,52 +1258,19 @@ impl Checker {
 
     /// Collect all `Ty::Var` IDs from a type.
     fn collect_vars(ty: &Ty, ids: &mut std::collections::BTreeSet<u32>) {
-        match ty {
-            Ty::Var(id) => {
+        ty.visit(&mut |t| {
+            if let Ty::Var(id) = t {
                 ids.insert(*id);
             }
-            Ty::App(_, args) => {
-                for a in args {
-                    Self::collect_vars(a, ids);
-                }
-            }
-            Ty::Fn(params, ret, _, _) => {
-                for p in params {
-                    Self::collect_vars(p, ids);
-                }
-                Self::collect_vars(ret, ids);
-            }
-            Ty::Tuple(ts) => {
-                for t in ts {
-                    Self::collect_vars(t, ids);
-                }
-            }
-            _ => {}
-        }
+        });
     }
 
     /// Replace `Ty::Var` IDs according to a mapping.
     fn replace_vars(ty: &Ty, mapping: &std::collections::BTreeMap<u32, Ty>) -> Ty {
-        match ty {
-            Ty::Var(id) => mapping.get(id).cloned().unwrap_or_else(|| ty.clone()),
-            Ty::App(name, args) => Ty::App(
-                name.clone(),
-                args.iter()
-                    .map(|a| Self::replace_vars(a, mapping))
-                    .collect(),
-            ),
-            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
-                params
-                    .iter()
-                    .map(|p| Self::replace_vars(p, mapping))
-                    .collect(),
-                Box::new(Self::replace_vars(ret, mapping)),
-                caps.clone(),
-                errors.clone(),
-            ),
-            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| Self::replace_vars(t, mapping)).collect()),
-            _ => ty.clone(),
-        }
+        ty.fold_ref(&mut |t| match t {
+            Ty::Var(id) => Some(mapping.get(id).cloned().unwrap_or_else(|| t.clone())),
+            _ => None,
+        })
     }
 
     // ── Type resolution ─────────────────────────────────────────────
@@ -1378,52 +1345,30 @@ impl Checker {
 
     /// Apply the current substitution to a type, resolving type variables.
     fn apply_subst(&self, ty: &Ty) -> Ty {
-        match ty {
+        ty.fold_ref(&mut |t| match t {
             Ty::Var(id) => {
-                if let Some(t) = self.substitution.get(id) {
-                    self.apply_subst(t)
+                if let Some(resolved) = self.substitution.get(id) {
+                    Some(self.apply_subst(resolved))
                 } else {
-                    ty.clone()
+                    Some(t.clone())
                 }
             }
-            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
-                params.iter().map(|p| self.apply_subst(p)).collect(),
-                Box::new(self.apply_subst(ret)),
-                caps.clone(),
-                errors.clone(),
-            ),
-            Ty::App(name, args) => Ty::App(
-                name.clone(),
-                args.iter().map(|a| self.apply_subst(a)).collect(),
-            ),
-            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| self.apply_subst(t)).collect()),
-            Ty::Record(fields) => Ty::Record(
-                fields
-                    .iter()
-                    .map(|(n, t)| (n.clone(), self.apply_subst(t)))
-                    .collect(),
-            ),
-            Ty::Refined(base, var, pred) => {
-                Ty::Refined(Box::new(self.apply_subst(base)), var.clone(), pred.clone())
-            }
-            _ => ty.clone(),
-        }
+            _ => None,
+        })
     }
 
     /// Check if type variable `id` occurs anywhere in `ty`.
     fn occurs_in(&self, id: u32, ty: &Ty) -> bool {
         let ty = self.apply_subst(ty);
-        match &ty {
-            Ty::Var(vid) => *vid == id,
-            Ty::Fn(params, ret, _, _) => {
-                params.iter().any(|p| self.occurs_in(id, p)) || self.occurs_in(id, ret)
+        let mut found = false;
+        ty.visit(&mut |t| {
+            if let Ty::Var(vid) = t
+                && *vid == id
+            {
+                found = true;
             }
-            Ty::App(_, args) => args.iter().any(|a| self.occurs_in(id, a)),
-            Ty::Tuple(ts) => ts.iter().any(|t| self.occurs_in(id, t)),
-            Ty::Record(fields) => fields.iter().any(|(_, t)| self.occurs_in(id, t)),
-            Ty::Refined(base, _, _) => self.occurs_in(id, base),
-            _ => false,
-        }
+        });
+        found
     }
 
     /// Substitute type parameter names with fresh type variables in a type.
