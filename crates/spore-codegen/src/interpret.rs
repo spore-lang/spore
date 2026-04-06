@@ -674,8 +674,22 @@ impl Interpreter {
             BinOp::BitAnd => Value::Int(a & b),
             BinOp::BitOr => Value::Int(a | b),
             BinOp::BitXor => Value::Int(a ^ b),
-            BinOp::Shl => Value::Int(a << b),
-            BinOp::Shr => Value::Int(a >> b),
+            BinOp::Shl => {
+                if !(0..64).contains(&b) {
+                    return Err(RuntimeError::new(format!(
+                        "shift amount {b} out of range 0..63"
+                    )));
+                }
+                Value::Int(a << b)
+            }
+            BinOp::Shr => {
+                if !(0..64).contains(&b) {
+                    return Err(RuntimeError::new(format!(
+                        "shift amount {b} out of range 0..63"
+                    )));
+                }
+                Value::Int(a >> b)
+            }
             BinOp::And | BinOp::Or => unreachable!("handled by short-circuit"),
         })
     }
