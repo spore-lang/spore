@@ -249,12 +249,17 @@ fn build_module_interface_extracts_types_and_structs() {
     let mut iface = ModuleInterface::new(vec!["Shapes".into()]);
     iface.types.insert(
         "Color".into(),
-        vec!["Red".into(), "Green".into(), "Blue".into()],
+        vec![
+            ("Red".into(), vec![]),
+            ("Green".into(), vec![]),
+            ("Blue".into(), vec![]),
+        ],
     );
     iface.set_visibility("Color", SymbolVisibility::Pub);
-    iface
-        .structs
-        .insert("Point".into(), vec!["x".into(), "y".into()]);
+    iface.structs.insert(
+        "Point".into(),
+        vec![("x".into(), Ty::Int), ("y".into(), Ty::Int)],
+    );
     iface.set_visibility("Point", SymbolVisibility::Pub);
 
     assert!(iface.exports("Color"));
@@ -273,4 +278,62 @@ fn checker_with_module_registry() {
     let checker = Checker::with_module_registry(registry);
     assert!(checker.errors.is_empty());
     assert!(checker.module_registry.get_by_path("Math").is_some());
+}
+
+// ── Test: imported struct fields preserve types ─────────────────────
+
+#[test]
+fn imported_struct_preserves_field_types() {
+    // Build a module that exports a struct with typed fields.
+    let mut iface = ModuleInterface::new(vec!["Shapes".into()]);
+    iface.structs.insert(
+        "Point".into(),
+        vec![("x".into(), Ty::Int), ("y".into(), Ty::Float)],
+    );
+    iface.set_visibility("Point", SymbolVisibility::Pub);
+
+    let mut registry = ModuleRegistry::new();
+    registry.register(iface);
+
+    // A module that imports Shapes and uses Point
+    let src = r#"
+import Shapes
+pub fn origin() -> Int {
+    let p = Point { x: 1, y: 2.0 }
+    p.x
+}
+"#;
+    let result = check_with_registry(src, registry);
+    assert!(result.is_ok(), "expected no type errors, got {result:?}");
+}
+
+// ── Test: imported type variants preserve field types ────────────────
+
+#[test]
+fn imported_type_preserves_variant_field_types() {
+    // Build a module that exports a sum type with variant fields.
+    let mut iface = ModuleInterface::new(vec!["Net".into()]);
+    iface.types.insert(
+        "Packet".into(),
+        vec![
+            ("Data".into(), vec![Ty::Str]),
+            ("Ack".into(), vec![Ty::Int]),
+            ("Close".into(), vec![]),
+        ],
+    );
+    iface.set_visibility("Packet", SymbolVisibility::Pub);
+
+    let mut registry = ModuleRegistry::new();
+    registry.register(iface);
+
+    // Verify that the imported type has correct variant structure.
+    let found = registry.get_by_path("Net").unwrap();
+    let variants = found.types.get("Packet").unwrap();
+    assert_eq!(variants.len(), 3);
+    assert_eq!(variants[0].0, "Data");
+    assert_eq!(variants[0].1, vec![Ty::Str]);
+    assert_eq!(variants[1].0, "Ack");
+    assert_eq!(variants[1].1, vec![Ty::Int]);
+    assert_eq!(variants[2].0, "Close");
+    assert!(variants[2].1.is_empty());
 }

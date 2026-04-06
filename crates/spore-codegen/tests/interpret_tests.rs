@@ -659,3 +659,44 @@ fn test_unhandled_effect_error() {
         "unexpected error: {err}"
     );
 }
+
+// ── Shift bounds ─────────────────────────────────────────────────────
+
+#[test]
+fn test_shift_left_out_of_range_negative() {
+    let module = spore_parser::parse("fn main() -> Int { 1 << -1 }").unwrap();
+    let err = spore_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string().contains("shift amount"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_shift_left_out_of_range_large() {
+    let module = spore_parser::parse("fn main() -> Int { 1 << 64 }").unwrap();
+    let err = spore_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string().contains("shift amount"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_shift_right_out_of_range() {
+    let module = spore_parser::parse("fn main() -> Int { 1 >> 100 }").unwrap();
+    let err = spore_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string().contains("shift amount"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_shift_valid_amounts() {
+    let v = run_main("fn main() -> Int { 1 << 3 }");
+    assert_eq!(v.as_int(), Some(8));
+
+    let v = run_main("fn main() -> Int { 16 >> 2 }");
+    assert_eq!(v.as_int(), Some(4));
+}
