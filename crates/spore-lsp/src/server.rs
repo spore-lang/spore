@@ -100,8 +100,9 @@ impl LspServer {
 
             match method {
                 Some("initialize") => {
+                    let Some(id) = id else { continue };
                     self.send_response(
-                        id.unwrap(),
+                        id,
                         json!({
                             "capabilities": {
                                 "textDocumentSync": {
@@ -164,39 +165,40 @@ impl LspServer {
                     }
                 }
                 Some("textDocument/hover") => {
-                    if let Some(params) = msg.get("params") {
-                        let result = self.handle_hover(params);
-                        self.send_response(id.unwrap(), result);
-                    } else {
-                        self.send_response(id.unwrap(), json!(null));
-                    }
+                    let Some(id) = id else { continue };
+                    let result = msg
+                        .get("params")
+                        .and_then(|p| self.handle_hover(p))
+                        .unwrap_or(json!(null));
+                    self.send_response(id, result);
                 }
                 Some("textDocument/completion") => {
-                    if let Some(params) = msg.get("params") {
-                        let result = self.handle_completion(params);
-                        self.send_response(id.unwrap(), result);
-                    } else {
-                        self.send_response(id.unwrap(), json!(null));
-                    }
+                    let Some(id) = id else { continue };
+                    let result = msg
+                        .get("params")
+                        .and_then(|p| self.handle_completion(p))
+                        .unwrap_or(json!(null));
+                    self.send_response(id, result);
                 }
                 Some("textDocument/definition") => {
-                    if let Some(params) = msg.get("params") {
-                        let result = self.handle_goto_definition(params);
-                        self.send_response(id.unwrap(), result);
-                    } else {
-                        self.send_response(id.unwrap(), json!(null));
-                    }
+                    let Some(id) = id else { continue };
+                    let result = msg
+                        .get("params")
+                        .and_then(|p| self.handle_goto_definition(p))
+                        .unwrap_or(json!(null));
+                    self.send_response(id, result);
                 }
                 Some("textDocument/documentSymbol") => {
-                    if let Some(params) = msg.get("params") {
-                        let result = self.handle_document_symbol(params);
-                        self.send_response(id.unwrap(), result);
-                    } else {
-                        self.send_response(id.unwrap(), json!(null));
-                    }
+                    let Some(id) = id else { continue };
+                    let result = msg
+                        .get("params")
+                        .and_then(|p| self.handle_document_symbol(p))
+                        .unwrap_or(json!(null));
+                    self.send_response(id, result);
                 }
                 Some("shutdown") => {
-                    self.send_response(id.unwrap(), json!(null));
+                    let Some(id) = id else { continue };
+                    self.send_response(id, json!(null));
                 }
                 Some("exit") => {
                     break;
@@ -212,12 +214,11 @@ impl LspServer {
 
     // ── Completion ───────────────────────────────────────────────────
 
-    pub fn handle_completion(&self, params: &Value) -> Value {
-        let uri = params
-            .pointer("/textDocument/uri")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let source = self.documents.get(uri).cloned().unwrap_or_default();
+    pub fn handle_completion(&self, params: &Value) -> Option<Value> {
+        let source = self
+            .extract_text_document_uri(params)
+            .map(|(_, s)| s)
+            .unwrap_or_default();
 
         let mut items: Vec<Value> = Vec::new();
 
@@ -284,52 +285,36 @@ impl LspServer {
             }
         }
 
-        json!(items)
+        Some(json!(items))
     }
 
     // ── Goto Definition ──────────────────────────────────────────────
 
-    pub fn handle_goto_definition(&self, params: &Value) -> Value {
-        let uri = params
-            .pointer("/textDocument/uri")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let line = params
-            .pointer("/position/line")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let col = params
-            .pointer("/position/character")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let source = self.documents.get(uri).cloned().unwrap_or_default();
+    pub fn handle_goto_definition(&self, params: &Value) -> Option<Value> {
+        let (uri, source, line, col) = self.extract_text_document_params(params)?;
 
         let word = word_at_position(&source, line, col);
         if word.is_empty() {
-            return json!(null);
+            return Some(json!(null));
         }
 
         if let Some(pos) = find_definition_in_source(&source, &word) {
-            return json!({
+            return Some(json!({
                 "uri": uri,
                 "range": {
                     "start": { "line": pos.0, "character": pos.1 },
                     "end": { "line": pos.0, "character": pos.1 + word.len() as u32 }
                 }
-            });
+            }));
         }
 
-        json!(null)
+        Some(json!(null))
     }
 
     // ── Document Symbols ─────────────────────────────────────────────
 
-    pub fn handle_document_symbol(&self, params: &Value) -> Value {
-        let uri = params
-            .pointer("/textDocument/uri")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let source = self.documents.get(uri).cloned().unwrap_or_default();
+    pub fn handle_document_symbol(&self, params: &Value) -> Option<Value> {
+        let (_, source) = self.extract_text_document_uri(params)?;
 
         let symbols = collect_document_symbols(&source);
         let items: Vec<Value> = symbols
@@ -348,41 +333,44 @@ impl LspServer {
                 })
             })
             .collect();
-        json!(items)
+        Some(json!(items))
     }
 
     // ── Hover ────────────────────────────────────────────────────────
 
-    pub fn handle_hover(&self, params: &Value) -> Value {
-        let uri = params
-            .pointer("/textDocument/uri")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let line = params
-            .pointer("/position/line")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let col = params
-            .pointer("/position/character")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
-        let source = self.documents.get(uri).cloned().unwrap_or_default();
+    pub fn handle_hover(&self, params: &Value) -> Option<Value> {
+        let (_, source, line, col) = self.extract_text_document_params(params)?;
 
         let word = word_at_position(&source, line, col);
         if word.is_empty() {
-            return json!(null);
+            return Some(json!(null));
         }
 
         if let Some(hover) = build_hover_for_symbol(&source, &word) {
-            return json!({
+            return Some(json!({
                 "contents": {
                     "kind": "markdown",
                     "value": hover
                 }
-            });
+            }));
         }
 
-        json!(null)
+        Some(json!(null))
+    }
+
+    // ── Param extraction helpers ────────────────────────────────────
+
+    fn extract_text_document_uri(&self, params: &Value) -> Option<(String, String)> {
+        let uri = params.get("textDocument")?.get("uri")?.as_str()?;
+        let source = self.documents.get(uri)?.clone();
+        Some((uri.to_string(), source))
+    }
+
+    fn extract_text_document_params(&self, params: &Value) -> Option<(String, String, u32, u32)> {
+        let (uri, source) = self.extract_text_document_uri(params)?;
+        let line = params.get("position")?.get("line")?.as_u64()? as u32;
+        let col = params.get("position")?.get("character")?.as_u64()? as u32;
+        Some((uri, source, line, col))
     }
 
     // ── I/O helpers ──────────────────────────────────────────────────
@@ -417,7 +405,13 @@ impl LspServer {
     }
 
     fn send_message(&self, msg: &Value) {
-        let body = serde_json::to_string(msg).unwrap();
+        let body = match serde_json::to_string(msg) {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("LSP serialize error: {e}");
+                return;
+            }
+        };
         let header = format!("Content-Length: {}\r\n\r\n", body.len());
         let stdout = io::stdout();
         let mut out = stdout.lock();
