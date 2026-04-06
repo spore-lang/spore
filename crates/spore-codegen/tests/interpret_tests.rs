@@ -1127,4 +1127,99 @@ fn test_stdlib_identity() {
     assert_eq!(v.as_int(), Some(42));
 }
 
-// ── Math: new function tests ────────────────────────────────────────────
+// ── Spec clause ─────────────────────────────────────────────────────────
+
+#[test]
+fn test_fn_with_spec_clause_parses_and_runs() {
+    // A function with a spec clause should parse and execute normally.
+    // The spec block is recorded but not executed during normal interpretation.
+    let src = r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            example "positive inputs": add(2, 3) == 5
+            example "identity":        add(0, 42) == 42
+            property "commutative":    |a: Int, b: Int| add(a, b) == add(b, a)
+        }
+        {
+            a + b
+        }
+        fn main() -> Int { add(10, 32) }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_fn_with_spec_examples_only() {
+    let src = r#"
+        fn double(x: Int) -> Int
+        spec {
+            example "zero": double(0) == 0
+            example "one":  double(1) == 2
+        }
+        {
+            x * 2
+        }
+        fn main() -> Int { double(21) }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_fn_with_spec_properties_only() {
+    let src = r#"
+        fn id(x: Int) -> Int
+        spec {
+            property "idempotent": |x: Int| id(id(x)) == id(x)
+        }
+        {
+            x
+        }
+        fn main() -> Int { id(42) }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_fn_with_block_spec_example_parses_and_runs() {
+    let src = r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            example "block" {
+                let sum = add(2, 3)
+                sum == 5
+            }
+        }
+        {
+            a + b
+        }
+        fn main() -> Int { add(10, 32) }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_fn_without_spec_still_works() {
+    // Backward compatibility: functions without spec must still work
+    let src = "fn main() -> Int { 42 }";
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_fn_with_empty_spec() {
+    let src = r#"
+        fn noop() -> Int
+        spec {
+        }
+        {
+            0
+        }
+        fn main() -> Int { noop() }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(0));
+}

@@ -2381,6 +2381,7 @@ fn handler_missing_operation_error() {
     assert!(
         errs.iter()
             .any(|e| e.contains("missing operation `read_line`"))
+            .any(|e| e.contains("missing operation `read_line`"))
     );
 }
 
@@ -2396,6 +2397,135 @@ fn capability_keyword_still_works() {
         struct Num { val: Int }
         impl Eq for Num {
             fn eq(self: Num, other: Num) -> Bool { self.val == other.val }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn fn_named_example_still_works() {
+    // `example` is a contextual keyword, so it should still be usable as a function name
+    check_ok(
+        r#"
+        fn example() -> Int { 42 }
+    "#,
+    );
+}
+
+// ── Spec clause type checking ───────────────────────────────────────────
+
+#[test]
+fn spec_examples_type_check() {
+    check_ok(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            example "basic": add(2, 3) == 5
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+}
+
+#[test]
+fn spec_block_example_type_checks() {
+    check_ok(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            example "block" {
+                let sum = add(2, 3)
+                sum == 5
+            }
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+}
+
+#[test]
+fn spec_property_type_checks() {
+    check_ok(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+}
+
+#[test]
+fn spec_full_clause_type_checks() {
+    check_ok(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            example "identity":     add(0, 42) == 42
+            property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+}
+
+#[test]
+fn spec_example_must_be_bool() {
+    let errs = check_err(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            example "wrong": add(1, 2)
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("spec example")),
+        "expected spec example type error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn spec_property_must_be_lambda() {
+    let errs = check_err(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            property "bad": add(1, 2) == 3
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("spec property") && e.contains("lambda")),
+        "expected spec property lambda error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn spec_empty_clause_ok() {
+    check_ok(
+        r#"
+        fn f() -> Int
+        spec {
+        }
+        {
+            42
         }
     "#,
     );

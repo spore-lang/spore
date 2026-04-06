@@ -98,6 +98,7 @@ pub enum Token {
     Trait,
     Effect,
     Handler,
+    Spec,
 
     // ── Operators ──
     Plus,
@@ -872,6 +873,7 @@ impl<'a> Lexer<'a> {
             "trait" => Token::Trait,
             "effect" => Token::Effect,
             "handler" => Token::Handler,
+            "spec" => Token::Spec,
             "true" => Token::Bool(true),
             "false" => Token::Bool(false),
             _ => Token::Ident(text.to_string()),

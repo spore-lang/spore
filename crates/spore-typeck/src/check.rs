@@ -660,8 +660,6 @@ impl Checker {
     }
 
     fn check_fn(&mut self, f: &FnDef) {
-        let Some(body) = &f.body else { return };
-
         // Set current function's capability set (with hierarchy expansion)
         let prev_caps = std::mem::replace(
             &mut self.current_caps,
@@ -708,17 +706,65 @@ impl Checker {
             self.env.define(param.name.clone(), ty);
         }
 
-        let body_ty = self.check_expr(body);
-        let body_ty = self.apply_subst(&body_ty);
-        let declared_ret = self.apply_subst(&declared_ret);
+        // Check body if present
+        if let Some(body) = &f.body {
+            let body_ty = self.check_expr(body);
+            let body_ty = self.apply_subst(&body_ty);
+            let declared_ret = self.apply_subst(&declared_ret);
 
-        self.unify(&declared_ret, &body_ty, &format!("function `{}`", f.name));
+            self.unify(&declared_ret, &body_ty, &format!("function `{}`", f.name));
+        }
+
+        // Check spec clause (in scope where params are bound + fn is registered)
+        if let Some(spec) = &f.spec_clause {
+            self.check_spec_clause(spec, &f.name);
+        }
 
         self.env.pop_scope();
         self.current_caps = prev_caps;
         self.current_errors = prev_errors;
         self.current_function = prev_function;
         self.expected_return_type = prev_expected;
+    }
+
+    /// Type-check a `spec { ... }` clause attached to a function.
+    fn check_spec_clause(&mut self, spec: &SpecClause, fn_name: &str) {
+        use crate::types::Ty;
+
+        // Each example body must type-check to Bool
+        for ex in &spec.examples {
+            let ty = self.check_expr(&ex.body);
+            let ty = self.apply_subst(&ty);
+            self.unify(
+                &Ty::Bool,
+                &ty,
+                &format!("spec example \"{}\" in `{fn_name}`", ex.label),
+            );
+        }
+
+        // Each property predicate must be a lambda whose body is Bool
+        for prop in &spec.properties {
+            let ty = self.check_expr(&prop.predicate);
+            let ty = self.apply_subst(&ty);
+            match &ty {
+                Ty::Fn(_, ret, _, _) => {
+                    self.unify(
+                        &Ty::Bool,
+                        ret,
+                        &format!("spec property \"{}\" in `{fn_name}`", prop.label),
+                    );
+                }
+                _ => {
+                    self.err(
+                        ErrorCode::E0301,
+                        format!(
+                            "spec property \"{}\" in `{fn_name}` must be a lambda, found {ty:?}",
+                            prop.label
+                        ),
+                    );
+                }
+            }
+        }
     }
 
     // ── Expression type checking ────────────────────────────────────

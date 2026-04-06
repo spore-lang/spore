@@ -13,6 +13,7 @@ pub struct Module {
 
 /// Top-level items in a module.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum Item {
     Function(FnDef),
     Const(ConstDef),
@@ -72,6 +73,8 @@ pub struct FnDef {
     pub where_clause: Option<WhereClause>,
     /// Cost upper-bound: `cost ≤ O(n log n)`
     pub cost_clause: Option<CostClause>,
+    /// Behavioral contract: `spec { example ... property ... }`
+    pub spec_clause: Option<SpecClause>,
     /// Resource dependencies: `uses [Memory, FileSystem]`
     pub uses_clause: Option<UsesClause>,
     /// `@unbounded` annotation — skip cost analysis.
@@ -122,6 +125,38 @@ pub struct CostClause {
 #[derive(Debug, Clone)]
 pub struct UsesClause {
     pub resources: Vec<String>,
+}
+
+/// Behavioral contract introduced by `spec`.
+///
+/// Contains example assertions and property-based invariants:
+/// ```text
+/// spec {
+///     example "identity": add(0, x) == x
+///     property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct SpecClause {
+    pub examples: Vec<ExampleItem>,
+    pub properties: Vec<PropertyItem>,
+    pub span: Option<Span>,
+}
+
+/// A single example assertion inside a `spec` block.
+#[derive(Debug, Clone)]
+pub struct ExampleItem {
+    pub label: String,
+    pub body: Box<Expr>,
+    pub span: Option<Span>,
+}
+
+/// A single property invariant inside a `spec` block.
+#[derive(Debug, Clone)]
+pub struct PropertyItem {
+    pub label: String,
+    pub predicate: Box<Expr>,
+    pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone)]

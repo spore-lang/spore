@@ -161,6 +161,34 @@ impl Formatter {
             self.fmt_cost_expr(&cc.bound);
         }
 
+        // Spec clause
+        if let Some(sc) = &f.spec_clause {
+            self.newline();
+            self.write_indent();
+            self.write("spec {");
+            self.newline();
+            self.indent += 1;
+            for ex in &sc.examples {
+                self.write_indent();
+                self.write("example \"");
+                self.write(&ex.label);
+                self.write("\": ");
+                self.fmt_expr(&ex.body);
+                self.newline();
+            }
+            for prop in &sc.properties {
+                self.write_indent();
+                self.write("property \"");
+                self.write(&prop.label);
+                self.write("\": ");
+                self.fmt_expr(&prop.predicate);
+                self.newline();
+            }
+            self.indent -= 1;
+            self.write_indent();
+            self.write("}");
+        }
+
         // Uses clause
         if let Some(uc) = &f.uses_clause {
             self.write(" ");

@@ -397,6 +397,13 @@ impl Parser {
             None
         };
 
+        // optional spec clause
+        let spec_clause = if self.at(&Token::Spec) {
+            Some(self.parse_spec_clause()?)
+        } else {
+            None
+        };
+
         // optional uses clause
         let uses_clause = if self.at(&Token::Uses) {
             Some(self.parse_uses_clause()?)
@@ -422,6 +429,7 @@ impl Parser {
             errors,
             where_clause,
             cost_clause,
+            spec_clause,
             uses_clause,
             is_unbounded: false,
             is_foreign,
@@ -537,6 +545,95 @@ impl Parser {
             }
             _ => Err(self.error(format!("expected cost expression, found {:?}", self.peek()))),
         }
+    }
+
+    fn parse_spec_clause(&mut self) -> Result<SpecClause, ParseError> {
+        let start = self.peek_span().start;
+        self.expect(&Token::Spec)?;
+        self.expect(&Token::LBrace)?;
+
+        let mut examples = Vec::new();
+        let mut properties = Vec::new();
+
+        while !self.at(&Token::RBrace) && !self.at_eof() {
+            match self.peek().clone() {
+                Token::Ident(ref s) if s == "example" => {
+                    examples.push(self.parse_example_item()?);
+                }
+                Token::Ident(ref s) if s == "property" => {
+                    properties.push(self.parse_property_item()?);
+                }
+                _ => {
+                    return Err(self.error(format!(
+                        "expected `example` or `property` in spec block, found {:?}",
+                        self.peek()
+                    )));
+                }
+            }
+        }
+
+        let end = self.peek_span().end;
+        self.expect(&Token::RBrace)?;
+
+        Ok(SpecClause {
+            examples,
+            properties,
+            span: Some(Span::new(start, end)),
+        })
+    }
+
+    fn parse_example_item(&mut self) -> Result<ExampleItem, ParseError> {
+        let start = self.peek_span().start;
+        // Consume contextual keyword `example`
+        self.advance();
+
+        // Parse label (string literal)
+        let label = match self.peek().clone() {
+            Token::Str(s) => {
+                self.advance();
+                s
+            }
+            _ => return Err(self.error("expected string label after `example`".into())),
+        };
+
+        // Expect `:` then expression
+        self.expect(&Token::Colon)?;
+        let body = self.parse_expr()?;
+
+        let end = self.previous_span().end;
+
+        Ok(ExampleItem {
+            label,
+            body: Box::new(body),
+            span: Some(Span::new(start, end)),
+        })
+    }
+
+    fn parse_property_item(&mut self) -> Result<PropertyItem, ParseError> {
+        let start = self.peek_span().start;
+        // Consume contextual keyword `property`
+        self.advance();
+
+        // Parse label (string literal)
+        let label = match self.peek().clone() {
+            Token::Str(s) => {
+                self.advance();
+                s
+            }
+            _ => return Err(self.error("expected string label after `property`".into())),
+        };
+
+        // Expect `:` then lambda expression
+        self.expect(&Token::Colon)?;
+        let predicate = self.parse_expr()?;
+
+        let end = self.previous_span().end;
+
+        Ok(PropertyItem {
+            label,
+            predicate: Box::new(predicate),
+            span: Some(Span::new(start, end)),
+        })
     }
 
     fn parse_uses_clause(&mut self) -> Result<UsesClause, ParseError> {
