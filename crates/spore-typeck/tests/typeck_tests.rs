@@ -1787,6 +1787,62 @@ fn test_handle_provides_capability() {
     );
 }
 
+#[test]
+fn test_perform_uses_declared_effect_return_type() {
+    check_ok(
+        r#"
+        effect Console {
+            fn read_line() -> String
+        }
+        fn main() -> String uses [Console] {
+            perform Console.read_line()
+        }
+        "#,
+    );
+}
+
+#[test]
+fn test_perform_checks_declared_effect_argument_types() {
+    let errs = check_err(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+        }
+        fn main() uses [Console] {
+            perform Console.println(42)
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("argument 1 of `Console.println`")
+                || e.contains("expected `String`, got `Int`")),
+        "expected effect operation argument type error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_handle_arm_matches_declared_effect_return_type() {
+    let errs = check_err(
+        r#"
+        effect Math {
+            fn double(x: Int) -> Int
+        }
+        fn main() -> Int {
+            handle {
+                perform Math.double(21)
+            } with {
+                Math.double(x) => "not an int"
+            }
+        }
+        "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("handler arm `Math.double`")),
+        "expected handler arm return type error, got: {errs:?}"
+    );
+}
+
 // ── Or-pattern binding validation ───────────────────────────────────────
 
 #[test]
