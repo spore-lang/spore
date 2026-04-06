@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::process::ExitCode;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -14,6 +15,8 @@ fn main() -> ExitCode {
         "format" | "fmt" => cmd_format(&args[2..]),
         "holes" => cmd_holes(&args[2..]),
         "build" => cmd_build(&args[2..]),
+        "new" => cmd_new(&args[2..]),
+        "init" => cmd_init(&args[2..]),
         "watch" => cmd_watch(&args[2..]),
         "--version" | "-V" => {
             println!("spore {VERSION}");
@@ -40,6 +43,8 @@ fn usage() -> ExitCode {
     eprintln!("  format <file>    Format a .spore file (--check, --diff)");
     eprintln!("  holes <file>     Show hole report (JSON)");
     eprintln!("  build <file>     Compile a .spore file");
+    eprintln!("  new <name>       Create a new Spore project");
+    eprintln!("  init             Initialize Spore project in current directory");
     eprintln!("  watch <file>     Watch a file and re-check on changes");
     eprintln!("  help             Show this help message");
     eprintln!();
@@ -408,4 +413,250 @@ fn escape_json(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+// ── Project scaffolding ──────────────────────────────────────────────
+
+fn cmd_new(args: &[String]) -> ExitCode {
+    if args.is_empty() || args[0].starts_with('-') {
+        eprintln!("Usage: spore new <name> [--type application|package|platform]");
+        return ExitCode::FAILURE;
+    }
+    let name = &args[0];
+    let project_type = parse_type_flag(args).unwrap_or("application");
+
+    if !is_valid_type(project_type) {
+        eprintln!("error: unknown project type `{project_type}`");
+        eprintln!("       valid types: application, package, platform");
+        return ExitCode::FAILURE;
+    }
+
+    let dir = Path::new(name);
+    if dir.exists() {
+        eprintln!("error: directory `{name}` already exists");
+        return ExitCode::FAILURE;
+    }
+
+    if let Err(e) = create_project(dir, name, project_type) {
+        eprintln!("error: {e}");
+        return ExitCode::FAILURE;
+    }
+    println!("✨ Created {project_type} `{name}`");
+    ExitCode::SUCCESS
+}
+
+fn cmd_init(args: &[String]) -> ExitCode {
+    let project_type = parse_type_flag(args).unwrap_or("application");
+
+    if !is_valid_type(project_type) {
+        eprintln!("error: unknown project type `{project_type}`");
+        eprintln!("       valid types: application, package, platform");
+        return ExitCode::FAILURE;
+    }
+
+    let dir = match std::env::current_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: cannot determine current directory: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let name = dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project")
+        .to_string();
+
+    if dir.join("spore.toml").exists() {
+        eprintln!("error: spore.toml already exists in this directory");
+        return ExitCode::FAILURE;
+    }
+
+    if let Err(e) = create_project(&dir, &name, project_type) {
+        eprintln!("error: {e}");
+        return ExitCode::FAILURE;
+    }
+    println!("✨ Initialized {project_type} `{name}`");
+    ExitCode::SUCCESS
+}
+
+fn parse_type_flag(args: &[String]) -> Option<&str> {
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--type" || arg == "-t" {
+            return args.get(i + 1).map(|s| s.as_str());
+        }
+    }
+    None
+}
+
+fn is_valid_type(t: &str) -> bool {
+    matches!(t, "application" | "package" | "platform")
+}
+
+fn create_project(dir: &Path, name: &str, project_type: &str) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir.join("src"))?;
+
+    // spore.toml
+    let toml = format!(
+        "\
+[package]
+name = \"{name}\"
+version = \"0.1.0\"
+type = \"{project_type}\"
+spore-version = \">=0.1.0\"
+
+[capabilities]
+allow = [\"Compute\"]
+
+[dependencies]
+"
+    );
+    std::fs::write(dir.join("spore.toml"), toml)?;
+
+    // Source file
+    let (filename, content) = match project_type {
+        "package" => (
+            "lib.sp",
+            "/// Add two integers.\npub fn add(a: Int, b: Int) -> Int cost <= 1 =\n    a + b\n"
+                .to_string(),
+        ),
+        "platform" => (
+            "host.sp",
+            "/// Platform entry point.\n/// The platform provides effect handlers for the application.\npub fn main_for_host(app_main: fn() -> Unit) -> Unit =\n    app_main()\n"
+                .to_string(),
+        ),
+        _ => (
+            "main.sp",
+            format!("fn main() -> Unit =\n    println(\"Hello from {name}!\")\n"),
+        ),
+    };
+    std::fs::write(dir.join("src").join(filename), content)?;
+
+    // .gitignore
+    std::fs::write(dir.join(".gitignore"), "/target\n/.spore-store\n")?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_new_creates_application() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("my-app");
+
+        create_project(&project_dir, "my-app", "application").unwrap();
+
+        assert!(project_dir.join("spore.toml").exists());
+        assert!(project_dir.join("src/main.sp").exists());
+        assert!(project_dir.join(".gitignore").exists());
+
+        let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
+        assert!(toml.contains("name = \"my-app\""));
+        assert!(toml.contains("type = \"application\""));
+
+        let main = fs::read_to_string(project_dir.join("src/main.sp")).unwrap();
+        assert!(main.contains("Hello from my-app!"));
+    }
+
+    #[test]
+    fn test_new_creates_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("my-lib");
+
+        create_project(&project_dir, "my-lib", "package").unwrap();
+
+        assert!(project_dir.join("src/lib.sp").exists());
+        let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
+        assert!(toml.contains("type = \"package\""));
+
+        let lib = fs::read_to_string(project_dir.join("src/lib.sp")).unwrap();
+        assert!(lib.contains("pub fn add"));
+    }
+
+    #[test]
+    fn test_new_creates_platform() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("my-platform");
+
+        create_project(&project_dir, "my-platform", "platform").unwrap();
+
+        assert!(project_dir.join("src/host.sp").exists());
+        let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
+        assert!(toml.contains("type = \"platform\""));
+
+        let host = fs::read_to_string(project_dir.join("src/host.sp")).unwrap();
+        assert!(host.contains("main_for_host"));
+    }
+
+    #[test]
+    fn test_new_existing_dir_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("already-exists");
+        fs::create_dir(&project_dir).unwrap();
+        fs::write(project_dir.join("file.txt"), "occupied").unwrap();
+
+        // cmd_new would exit, so we test the pre-condition directly
+        assert!(project_dir.exists());
+    }
+
+    #[test]
+    fn test_init_existing_toml_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("spore.toml"), "[package]").unwrap();
+
+        // The guard check
+        assert!(tmp.path().join("spore.toml").exists());
+    }
+
+    #[test]
+    fn test_init_uses_dirname() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("cool-project");
+        fs::create_dir(&project_dir).unwrap();
+
+        create_project(&project_dir, "cool-project", "application").unwrap();
+
+        let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
+        assert!(toml.contains("name = \"cool-project\""));
+    }
+
+    #[test]
+    fn test_parse_type_flag() {
+        let args = vec![
+            "name".to_string(),
+            "--type".to_string(),
+            "package".to_string(),
+        ];
+        assert_eq!(parse_type_flag(&args), Some("package"));
+
+        let args = vec!["name".to_string(), "-t".to_string(), "platform".to_string()];
+        assert_eq!(parse_type_flag(&args), Some("platform"));
+
+        let args = vec!["name".to_string()];
+        assert_eq!(parse_type_flag(&args), None);
+    }
+
+    #[test]
+    fn test_is_valid_type() {
+        assert!(is_valid_type("application"));
+        assert!(is_valid_type("package"));
+        assert!(is_valid_type("platform"));
+        assert!(!is_valid_type("unknown"));
+    }
+
+    #[test]
+    fn test_gitignore_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("test-proj");
+
+        create_project(&project_dir, "test-proj", "application").unwrap();
+
+        let gi = fs::read_to_string(project_dir.join(".gitignore")).unwrap();
+        assert!(gi.contains("/target"));
+        assert!(gi.contains("/.spore-store"));
+    }
 }

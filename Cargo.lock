@@ -306,6 +306,7 @@ name = "spore-cli"
 version = "0.1.0"
 dependencies = [
  "sporec",
+ "tempfile",
 ]
 
 [[package]]

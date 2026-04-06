@@ -12,3 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 sporec = { path = "../sporec" }
+
+[dev-dependencies]
+tempfile = "3"
