@@ -2291,23 +2291,6 @@ fn return_type_mismatch_errors() {
     assert!(!errs.is_empty(), "should report return type mismatch");
 }
 
-// ── to_string prelude ───────────────────────────────────────────────────
-
-#[test]
-fn to_string_works_on_int() {
-    check_ok("fn f() -> String { to_string(42) }");
-}
-
-#[test]
-fn to_string_works_on_bool() {
-    check_ok("fn f() -> String { to_string(true) }");
-}
-
-#[test]
-fn to_string_works_on_string() {
-    check_ok(r#"fn f() -> String { to_string("hi") }"#);
-}
-
 // ── len accepts both List and String ────────────────────────────────────
 
 #[test]

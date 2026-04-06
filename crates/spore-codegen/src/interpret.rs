@@ -279,6 +279,26 @@ impl Interpreter {
         }
     }
 
+    /// Evaluate an expression in a fresh environment (for spec clauses).
+    pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value> {
+        let mut env = Env::new();
+        self.eval(expr, &mut env)
+    }
+
+    /// Return all functions that have a spec clause, paired with their name.
+    pub fn functions_with_specs(&self) -> Vec<(String, FnDef)> {
+        self.functions
+            .iter()
+            .filter(|(_, f)| f.spec_clause.is_some())
+            .map(|(name, f)| (name.clone(), f.clone()))
+            .collect()
+    }
+
+    /// Public wrapper around `call_value` for use by spec evaluation.
+    pub fn call_value_pub(&mut self, callee: &Value, args: Vec<Value>) -> Result<Value> {
+        self.call_value(callee, args)
+    }
+
     /// Evaluate an interpolated string template (shared by f-strings and t-strings).
     fn eval_interpolated_string<'a>(
         &mut self,

@@ -1112,7 +1112,7 @@ $ sporec --fix --unsafe-fix src/billing.spore
 
 ### 7.1 Hole System Integration
 
-Hole diagnostics (H0xxx) bridge the compiler output and the Hole system (see *hole-system-v0.2*). The relationship:
+Hole diagnostics (H0xxx) bridge the compiler output and the Hole system (see *hole-report-v0.3*). The relationship:
 
 - **`sporec` compilation** emits `H0101` (hole-report) as `note` severity for each unfilled hole.
 - **`sporec --query-hole <name>`** returns a full `HoleReport` — this is a *superset* of the H0101 diagnostic, including full candidate ranking, binding types, and cost budget. The HoleReport follows the same JSON schema as `--json` diagnostics but with additional fields.
@@ -1150,7 +1150,7 @@ A HoleReport JSON object extends the diagnostic schema:
 
 ### 7.2 Cost System Integration
 
-Cost diagnostics (K0xxx) are emitted when the abstract interpretation engine (see *cost-model-v0.1*) detects budget violations. The integration points:
+Cost diagnostics (K0xxx) are emitted when the abstract interpretation engine (see *cost-analysis-v0.1*) detects budget violations. The integration points:
 
 - **K0101** (budget exceeded): emitted during pass [4] of the compilation flow (see cost-model §7.1). The diagnostic includes cost breakdown in the `inference_chain`.
 - **K0102** (symbolic budget exceeded): emitted when symbolic expressions cannot be proven within bounds. The diagnostic includes the symbolic expression and a concrete counterexample.
@@ -1169,7 +1169,7 @@ The `context.capabilities` field in every diagnostic lists the capabilities in s
 
 ### 7.4 Snapshot System Integration
 
-Snapshot diagnostics (M0401) connect the compiler output to the snapshot/hash system (see *signature-syntax-v0.2*, §Snapshot Hash):
+Snapshot diagnostics (M0401) connect the compiler output to the snapshot/hash system (see *syntax-spec-v0.1*, Appendix B §B.5 Snapshot Hash):
 
 - When a dependent function's signature hash changes, `sporec` emits `M0401` with both the expected and actual hashes.
 - The `suggested_fix` for M0401 is always `informational` — the developer must explicitly `spore --permit` to accept the change.

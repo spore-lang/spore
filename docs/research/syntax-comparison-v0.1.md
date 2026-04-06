@@ -1,5 +1,7 @@
 # 函数签名语法方案对比（含参考语言分析）
 
+> 📦 **Frozen reference material.** This comparative analysis informed the final syntax design in syntax-spec-v0.1.md §5 and is preserved as-is for historical context.
+
 ## 一、参考语言的签名语法
 
 ### 1. Koka — 效果行（Effect Row）嵌入返回箭头

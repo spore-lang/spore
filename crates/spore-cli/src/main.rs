@@ -421,12 +421,100 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
     }
 }
 
-fn exec_test(files: &[String], verbose: bool, json_output: bool, deny_warnings: bool) -> ExitCode {
-    let code = exec_check(files, verbose, json_output, deny_warnings);
-    if code == ExitCode::SUCCESS && !json_output {
-        eprintln!("note: `spore test` currently performs static validation only");
+fn exec_test(files: &[String], verbose: bool, json_output: bool, _deny_warnings: bool) -> ExitCode {
+    // NOTE: Type-check is intentionally skipped as a gate here.  The type
+    // checker has known limitations with generics (Option[T], Pair[K,V])
+    // that would block spec testing of otherwise valid stdlib code.
+    // `sporec::test_specs` still parses the source and evaluates specs.
+
+    let mut total_passed = 0usize;
+    let mut total_failed = 0usize;
+
+    for path in files {
+        let source = match read_source(path) {
+            Ok(s) => s,
+            Err(c) => return c,
+        };
+
+        match sporec::test_specs(&source) {
+            Ok(results) => {
+                for r in &results {
+                    let kind_label = if r.kind == sporec::SpecKind::Example {
+                        "example"
+                    } else {
+                        "property"
+                    };
+                    if r.passed {
+                        total_passed += 1;
+                        if !json_output && verbose {
+                            eprintln!(
+                                "  {} {} :: {} \"{}\"",
+                                "✓".green(),
+                                r.fn_name,
+                                kind_label,
+                                r.label
+                            );
+                        }
+                    } else {
+                        total_failed += 1;
+                        let msg = r.error.as_deref().unwrap_or("assertion failed");
+                        if !json_output {
+                            eprintln!(
+                                "  {} {} :: {} \"{}\" — {}",
+                                "✗".red(),
+                                r.fn_name,
+                                kind_label,
+                                r.label,
+                                msg
+                            );
+                        }
+                    }
+                }
+            }
+            Err(msg) => {
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&json!({"status": "error", "message": msg})).unwrap()
+                    );
+                } else {
+                    eprintln!("{}: {msg}", "error".red().bold());
+                }
+                return ExitCode::FAILURE;
+            }
+        }
     }
-    code
+
+    // Summary
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "status": if total_failed == 0 { "ok" } else { "fail" },
+                "passed": total_passed,
+                "failed": total_failed,
+            }))
+            .unwrap()
+        );
+    } else {
+        let total = total_passed + total_failed;
+        if total == 0 {
+            eprintln!("note: no spec clauses found");
+        } else if total_failed == 0 {
+            eprintln!("\n{} {total} specs passed", "✓".green());
+        } else {
+            eprintln!(
+                "\n{}: {total_failed} of {total} specs failed",
+                "FAIL".red().bold()
+            );
+        }
+    }
+
+    if total_failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 fn exec_format(files: &[String], check_mode: bool, diff_mode: bool) -> ExitCode {

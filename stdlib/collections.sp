@@ -21,7 +21,13 @@ fn last[T](list: List[T]) -> Option[T] {
 }
 
 @unbounded
-fn take[T](list: List[T], n: Int) -> List[T] {
+fn take[T](list: List[T], n: Int) -> List[T]
+spec {
+    example "len": len(take([1, 2, 3, 4], 2)) == 2
+    example "sum": sum(take([1, 2, 3, 4], 2)) == 3
+    example "zero": len(take([1, 2, 3], 0)) == 0
+}
+{
     if n <= 0 { [] }
     else {
         match list {
@@ -32,7 +38,13 @@ fn take[T](list: List[T], n: Int) -> List[T] {
 }
 
 @unbounded
-fn drop[T](list: List[T], n: Int) -> List[T] {
+fn drop[T](list: List[T], n: Int) -> List[T]
+spec {
+    example "len": len(drop([1, 2, 3, 4], 2)) == 2
+    example "sum": sum(drop([1, 2, 3, 4], 2)) == 7
+    example "zero": len(drop([1, 2, 3], 0)) == 3
+}
+{
     if n <= 0 { list }
     else {
         match list {
@@ -66,7 +78,13 @@ fn enumerate[T](list: List[T]) -> List[Pair[Int, T]] cost <= 2 {
 }
 
 @unbounded
-fn any[T](list: List[T], pred: (T) -> Bool) -> Bool {
+fn any[T](list: List[T], pred: (T) -> Bool) -> Bool
+spec {
+    example "found": any([1, 2, 3], |x: Int| x > 2) == true
+    example "not_found": any([1, 2, 3], |x: Int| x > 5) == false
+    example "empty": any([], |x: Int| x > 0) == false
+}
+{
     match list {
         [] => false,
         [x, ..rest] => if pred(x) { true } else { any(rest, pred) },
@@ -74,7 +92,13 @@ fn any[T](list: List[T], pred: (T) -> Bool) -> Bool {
 }
 
 @unbounded
-fn all[T](list: List[T], pred: (T) -> Bool) -> Bool {
+fn all[T](list: List[T], pred: (T) -> Bool) -> Bool
+spec {
+    example "all_true": all([2, 4, 6], |x: Int| x % 2 == 0) == true
+    example "some_false": all([2, 3, 6], |x: Int| x % 2 == 0) == false
+    example "empty": all([], |x: Int| x > 0) == true
+}
+{
     match list {
         [] => true,
         [x, ..rest] => if pred(x) { all(rest, pred) } else { false },
@@ -103,7 +127,12 @@ fn find_index_from[T](list: List[T], pred: (T) -> Bool, i: Int) -> Option[Int] {
 }
 
 @unbounded
-fn flatten[T](list: List[List[T]]) -> List[T] {
+fn flatten[T](list: List[List[T]]) -> List[T]
+spec {
+    example "sum": sum(flatten([[1, 2], [3], [4, 5]])) == 15
+    example "len": len(flatten([[1, 2], [3]])) == 3
+}
+{
     fold(list, [], |acc: List[T], xs: List[T]| fold(xs, acc, |a: List[T], x: T| append(a, x)))
 }
 
@@ -113,7 +142,13 @@ fn flat_map[T, U](list: List[T], f: (T) -> List[U]) -> List[U] {
 }
 
 @unbounded
-fn sort_asc(list: List[Int]) -> List[Int] {
+fn sort_asc(list: List[Int]) -> List[Int]
+spec {
+    example "preserves_sum": sum(sort_asc([3, 1, 4, 1, 5])) == 14
+    example "preserves_len": len(sort_asc([3, 1, 4])) == 3
+    example "empty": len(sort_asc([])) == 0
+}
+{
     match list {
         [] => [],
         [pivot, ..rest] => {
@@ -127,17 +162,34 @@ fn sort_asc(list: List[Int]) -> List[Int] {
 }
 
 @unbounded
-fn sum(list: List[Int]) -> Int {
+fn sum(list: List[Int]) -> Int
+spec {
+    example "basic": sum([1, 2, 3]) == 6
+    example "empty": sum([]) == 0
+    example "single": sum([42]) == 42
+}
+{
     fold(list, 0, |acc: Int, x: Int| acc + x)
 }
 
 @unbounded
-fn product(list: List[Int]) -> Int {
+fn product(list: List[Int]) -> Int
+spec {
+    example "basic": product([2, 3, 4]) == 24
+    example "empty": product([]) == 1
+}
+{
     fold(list, 1, |acc: Int, x: Int| acc * x)
 }
 
 @unbounded
-fn count[T](list: List[T], pred: (T) -> Bool) -> Int {
+fn count[T](list: List[T], pred: (T) -> Bool) -> Int
+spec {
+    example "basic": count([1, 2, 3, 4, 5], |x: Int| x > 3) == 2
+    example "none": count([1, 2], |x: Int| x > 5) == 0
+    example "empty": count([], |x: Int| x > 0) == 0
+}
+{
     fold(list, 0, |acc: Int, x: T| if pred(x) { acc + 1 } else { acc })
 }
 
@@ -169,7 +221,13 @@ fn nth[T](list: List[T], n: Int) -> Option[T] {
 }
 
 @unbounded
-fn dedup(list: List[Int]) -> List[Int] {
+fn dedup(list: List[Int]) -> List[Int]
+spec {
+    example "reduces_len": len(dedup([1, 1, 2, 2, 3])) == 3
+    example "sum": sum(dedup([1, 1, 2, 2, 3])) == 6
+    example "no_dups": len(dedup([1, 2, 3])) == 3
+}
+{
     match list {
         [] => [],
         [x] => [x],

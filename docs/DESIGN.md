@@ -144,18 +144,18 @@ fn name(params) -> ReturnType ! [Errors]
 ## 设计文档索引
 
 ### 规格文档 (docs/specs/)
-- [signature-syntax-v0.2.md](specs/signature-syntax-v0.2.md) — 签名语法完整草案（v0.3 拆分子句语法见 DESIGN.md）
-- [cost-model-v0.1.md](specs/cost-model-v0.1.md) — 代价模型完整设计
-- [hole-system-v0.2.md](specs/hole-system-v0.2.md) — Hole 系统完整设计
-- [module-system-v0.1.md](specs/module-system-v0.1.md) — 模块系统设计（含双 hash）
+- [syntax-spec-v0.1.md](specs/syntax-spec-v0.1.md) — 语法规格（含签名语法详解，原 signature-syntax-v0.2 已合入附录 B）
 - [type-system-v0.1.md](specs/type-system-v0.1.md) — 类型系统设计
+- [effect-algebra-v0.1.md](specs/effect-algebra-v0.1.md) — 效果代数设计
+- [cost-analysis-v0.1.md](specs/cost-analysis-v0.1.md) — 代价分析综合规范（整合原 cost-model / cost-decidability / recursion-analysis）
+- [hole-report-v0.3.md](specs/hole-report-v0.3.md) — Hole 报告规范（正式版）
+- [hole-dependency-graph-v0.1.md](specs/hole-dependency-graph-v0.1.md) — Hole 依赖图
 - [compiler-output-v0.1.md](specs/compiler-output-v0.1.md) — 编译器输出格式设计
-- [compiler-pipeline-v0.1.md](specs/compiler-pipeline-v0.1.md) — 编译器 Pipeline 架构
-- [concurrency-model-v0.1.md](specs/concurrency-model-v0.1.md) — 并发模型设计
+- [incremental-compilation-v0.1.md](specs/incremental-compilation-v0.1.md) — 增量编译与 Watch 模式
+- [module-system-v0.1.md](specs/module-system-v0.1.md) — 模块系统设计（含双 hash）
 - [package-management-v0.1.md](specs/package-management-v0.1.md) — 包管理系统设计
 - [platform-system-v0.1.md](specs/platform-system-v0.1.md) — Platform 系统设计
-- [incremental-compilation-v0.1.md](specs/incremental-compilation-v0.1.md) — 增量编译与 Watch 模式
-- [syntax-spec-v0.1.md](specs/syntax-spec-v0.1.md) — 语法规格
+- [concurrency-model-v0.1.md](specs/concurrency-model-v0.1.md) — 并发模型设计
 
 ### 调研文档 (docs/research/)
 - [syntax-comparison-v0.1.md](research/syntax-comparison-v0.1.md) — 参考语言语法对比
@@ -169,7 +169,8 @@ fn name(params) -> ReturnType ! [Errors]
 - [syntax-research.md](research/syntax-research.md) — 10 语言语法设计调研
 - [impl-stack-research.md](research/impl-stack-research.md) — 10 语言编译器实现栈调研
 - [codegen-comparison.md](research/codegen-comparison.md) — LLVM vs Cranelift 深度对比
-- [intent-first-signature-proposal.md](research/intent-first-signature-proposal.md) — 面向人类/Agent 的签名分层与 contract 提案
+### 归档文档 (docs/archive/)
+- [hole-system-v0.2.md](archive/hole-system-v0.2.md) — ⚠️ 已被 hole-report-v0.3.md 取代，保留供历史参考
 
 ### 标准库（极简）
 - **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Str, Option[T], Result[T,E], 基本操作符, |>, ?
