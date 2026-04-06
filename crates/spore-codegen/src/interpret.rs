@@ -178,7 +178,11 @@ impl Interpreter {
                 | Item::Import(_)
                 | Item::Const(_)
                 | Item::Alias(_)
-                | Item::CapabilityAlias { .. } => {}
+                | Item::CapabilityAlias { .. }
+                | Item::TraitDef(_)
+                | Item::EffectDef(_)
+                | Item::EffectAlias(_)
+                | Item::HandlerDef(_) => {}
             }
         }
     }

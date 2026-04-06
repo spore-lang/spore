@@ -28,6 +28,10 @@ pub enum Item {
     ImplDef(ImplDef),
     Import(ImportDecl),
     Alias(AliasDef),
+    TraitDef(TraitDef),
+    EffectDef(EffectDef),
+    EffectAlias(EffectAlias),
+    HandlerDef(HandlerDef),
 }
 
 /// Type alias: `alias X = Y`
@@ -335,6 +339,45 @@ pub struct CapabilityDef {
     pub type_params: Vec<String>,
     pub methods: Vec<FnDef>,
     pub assoc_types: Vec<AssocType>,
+    pub span: Option<Span>,
+}
+
+/// Trait definition (preferred alias for `capability` when defining type interfaces).
+#[derive(Debug, Clone)]
+pub struct TraitDef {
+    pub name: String,
+    pub visibility: Visibility,
+    pub type_params: Vec<String>,
+    pub methods: Vec<FnDef>,
+    pub assoc_types: Vec<AssocType>,
+    pub span: Option<Span>,
+}
+
+/// Atomic effect definition: `effect Console { fn println(msg: Str) -> Unit }`
+#[derive(Debug, Clone)]
+pub struct EffectDef {
+    pub name: String,
+    pub visibility: Visibility,
+    pub operations: Vec<FnDef>,
+    pub span: Option<Span>,
+}
+
+/// Effect alias (union of effects): `effect IO = Console | FileRead | FileWrite`
+#[derive(Debug, Clone)]
+pub struct EffectAlias {
+    pub name: String,
+    pub visibility: Visibility,
+    pub effects: Vec<String>,
+    pub span: Option<Span>,
+}
+
+/// Handler implementation: `handler MockConsole for Console { ... }`
+#[derive(Debug, Clone)]
+pub struct HandlerDef {
+    pub name: String,
+    pub effect: String,
+    pub fields: Vec<FieldDef>,
+    pub methods: Vec<FnDef>,
     pub span: Option<Span>,
 }
 

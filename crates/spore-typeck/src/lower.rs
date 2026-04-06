@@ -58,13 +58,21 @@ impl Lowering {
                 ast::Item::CapabilityDef(c) => {
                     self.register_name(&c.name);
                 }
+                ast::Item::TraitDef(t) => {
+                    self.register_name(&t.name);
+                }
+                ast::Item::EffectDef(e) => {
+                    self.register_name(&e.name);
+                }
                 ast::Item::Const(c) => {
                     self.register_name(&c.name);
                 }
                 ast::Item::ImplDef(_)
                 | ast::Item::Import(_)
                 | ast::Item::Alias(_)
-                | ast::Item::CapabilityAlias { .. } => {}
+                | ast::Item::CapabilityAlias { .. }
+                | ast::Item::EffectAlias(_)
+                | ast::Item::HandlerDef(_) => {}
             }
         }
 
@@ -85,11 +93,25 @@ impl Lowering {
             ast::Item::CapabilityDef(c) => {
                 Some(HirItem::CapabilityDef(self.lower_capability_def(c)))
             }
+            ast::Item::TraitDef(t) => {
+                let cap = ast::CapabilityDef {
+                    name: t.name.clone(),
+                    visibility: t.visibility.clone(),
+                    type_params: t.type_params.clone(),
+                    methods: t.methods.clone(),
+                    assoc_types: t.assoc_types.clone(),
+                    span: t.span,
+                };
+                Some(HirItem::CapabilityDef(self.lower_capability_def(&cap)))
+            }
             ast::Item::ImplDef(i) => Some(HirItem::ImplDef(self.lower_impl_def(i))),
             ast::Item::Import(_)
             | ast::Item::Const(_)
             | ast::Item::Alias(_)
-            | ast::Item::CapabilityAlias { .. } => None,
+            | ast::Item::CapabilityAlias { .. }
+            | ast::Item::EffectDef(_)
+            | ast::Item::EffectAlias(_)
+            | ast::Item::HandlerDef(_) => None,
         }
     }
 

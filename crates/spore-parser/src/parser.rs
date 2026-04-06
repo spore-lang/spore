@@ -228,12 +228,15 @@ impl Parser {
             Token::Struct => self.parse_struct_item(),
             Token::Type => self.parse_type_item(),
             Token::Capability => self.parse_capability_item(),
+            Token::Trait => self.parse_trait_item(),
+            Token::Effect => self.parse_effect_item(),
+            Token::Handler => self.parse_handler_item(),
             Token::Impl => self.parse_impl_item(),
             Token::Import => self.parse_import_item(),
             Token::Alias => self.parse_alias_item(),
             Token::At => self.parse_annotated_item(),
             _ => Err(self.error(format!(
-                "expected item (fn, pub, const, struct, type, capability, impl, import, alias, @annotation), found {:?}",
+                "expected item (fn, pub, const, struct, type, capability, trait, effect, handler, impl, import, alias, @annotation), found {:?}",
                 self.peek()
             ))),
         }
@@ -283,6 +286,9 @@ impl Parser {
             Some(Token::Struct) => self.parse_struct_item(),
             Some(Token::Type) => self.parse_type_item(),
             Some(Token::Capability) => self.parse_capability_item(),
+            Some(Token::Trait) => self.parse_trait_item(),
+            Some(Token::Effect) => self.parse_effect_item(),
+            Some(Token::Handler) => self.parse_handler_item(),
             _ => self.parse_fn_item(),
         }
     }
@@ -803,6 +809,139 @@ impl Parser {
             type_params,
             methods,
             assoc_types,
+            span: Some(Span::new(start, end)),
+        }))
+    }
+
+    // ── Trait definition (preferred form of capability) ──────────────
+
+    fn parse_trait_item(&mut self) -> Result<Item, ParseError> {
+        let visibility = self.parse_visibility()?;
+        let start = self.peek_span().start;
+        self.expect(&Token::Trait)?;
+        let name = self.expect_ident()?;
+
+        let type_params = if self.at(&Token::LBracket) {
+            self.advance();
+            let ps = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+            self.expect(&Token::RBracket)?;
+            ps
+        } else {
+            vec![]
+        };
+
+        self.expect(&Token::LBrace)?;
+        let mut methods = Vec::new();
+        let mut assoc_types = Vec::new();
+        while !self.at(&Token::RBrace) && !self.at_eof() {
+            if self.at(&Token::Type) {
+                self.advance();
+                let aname = self.expect_ident()?;
+                let bounds = if self.at(&Token::Colon) {
+                    self.advance();
+                    let mut bs = vec![self.parse_type_expr()?];
+                    while self.at(&Token::Plus) {
+                        self.advance();
+                        bs.push(self.parse_type_expr()?);
+                    }
+                    bs
+                } else {
+                    vec![]
+                };
+                assoc_types.push(AssocType {
+                    name: aname,
+                    bounds,
+                });
+            } else {
+                methods.push(self.parse_fn_def()?);
+            }
+        }
+        self.expect(&Token::RBrace)?;
+
+        let end = self.previous_span().end;
+
+        Ok(Item::TraitDef(TraitDef {
+            name,
+            visibility,
+            type_params,
+            methods,
+            assoc_types,
+            span: Some(Span::new(start, end)),
+        }))
+    }
+
+    // ── Effect definition / alias ───────────────────────────────────
+
+    fn parse_effect_item(&mut self) -> Result<Item, ParseError> {
+        let visibility = self.parse_visibility()?;
+        let start = self.peek_span().start;
+        self.expect(&Token::Effect)?;
+        let name = self.expect_ident()?;
+
+        // Effect alias: `effect IO = Console | FileRead | FileWrite`
+        if self.at(&Token::Eq) {
+            self.advance();
+            let mut effects = vec![self.expect_ident()?];
+            while self.at(&Token::Pipe) {
+                self.advance();
+                effects.push(self.expect_ident()?);
+            }
+            let end = self.previous_span().end;
+            return Ok(Item::EffectAlias(EffectAlias {
+                name,
+                visibility,
+                effects,
+                span: Some(Span::new(start, end)),
+            }));
+        }
+
+        // Effect definition: `effect Console { fn println(msg: Str) -> Unit }`
+        self.expect(&Token::LBrace)?;
+        let mut operations = Vec::new();
+        while !self.at(&Token::RBrace) && !self.at_eof() {
+            operations.push(self.parse_fn_def()?);
+        }
+        self.expect(&Token::RBrace)?;
+
+        let end = self.previous_span().end;
+
+        Ok(Item::EffectDef(EffectDef {
+            name,
+            visibility,
+            operations,
+            span: Some(Span::new(start, end)),
+        }))
+    }
+
+    // ── Handler definition ──────────────────────────────────────────
+
+    fn parse_handler_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
+        self.expect(&Token::Handler)?;
+        let name = self.expect_ident()?;
+
+        // Expect `for` (parsed as identifier, same pattern as impl)
+        let next = self.expect_ident()?;
+        if next != "for" {
+            return Err(self.error(format!("expected `for` after handler name, got `{next}`")));
+        }
+
+        let effect = self.expect_ident()?;
+
+        self.expect(&Token::LBrace)?;
+        let mut methods = Vec::new();
+        while !self.at(&Token::RBrace) && !self.at_eof() {
+            methods.push(self.parse_fn_def()?);
+        }
+        self.expect(&Token::RBrace)?;
+
+        let end = self.previous_span().end;
+
+        Ok(Item::HandlerDef(HandlerDef {
+            name,
+            effect,
+            fields: vec![],
+            methods,
             span: Some(Span::new(start, end)),
         }))
     }

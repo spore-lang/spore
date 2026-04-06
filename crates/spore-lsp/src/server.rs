@@ -273,6 +273,27 @@ impl LspServer {
                             "detail": "capability",
                         }));
                     }
+                    Item::TraitDef(t) => {
+                        items.push(json!({
+                            "label": &t.name,
+                            "kind": 8, // Interface
+                            "detail": "trait",
+                        }));
+                    }
+                    Item::EffectDef(e) => {
+                        items.push(json!({
+                            "label": &e.name,
+                            "kind": 8, // Interface
+                            "detail": "effect",
+                        }));
+                    }
+                    Item::HandlerDef(h) => {
+                        items.push(json!({
+                            "label": &h.name,
+                            "kind": 6, // Method
+                            "detail": format!("handler for {}", h.effect),
+                        }));
+                    }
                     Item::Const(c) => {
                         items.push(json!({
                             "label": &c.name,
@@ -593,6 +614,13 @@ pub fn collect_document_symbols(source: &str) -> Vec<SymbolInfo> {
             Item::StructDef(s) => (s.name.clone(), SK_STRUCT, Some("struct".into())),
             Item::TypeDef(t) => (t.name.clone(), SK_ENUM, Some("type".into())),
             Item::CapabilityDef(c) => (c.name.clone(), SK_INTERFACE, Some("capability".into())),
+            Item::TraitDef(t) => (t.name.clone(), SK_INTERFACE, Some("trait".into())),
+            Item::EffectDef(e) => (e.name.clone(), SK_INTERFACE, Some("effect".into())),
+            Item::HandlerDef(h) => (
+                h.name.clone(),
+                SK_FUNCTION,
+                Some(format!("handler for {}", h.effect)),
+            ),
             Item::Const(c) => (c.name.clone(), SK_CONSTANT, Some("const".into())),
             _ => continue,
         };
@@ -704,6 +732,42 @@ pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
                     "```spore\ncapability {} {{\n{}\n}}\n```",
                     c.name,
                     methods.join("\n")
+                ));
+                return Some(parts.join("\n"));
+            }
+            Item::TraitDef(t) if t.name == name => {
+                let mut parts = Vec::new();
+                if let Some(doc) = extract_doc_comment(source, name) {
+                    parts.push(doc);
+                    parts.push(String::new());
+                }
+                let methods: Vec<String> = t
+                    .methods
+                    .iter()
+                    .map(|m| format!("    {}", format_fn_signature(m)))
+                    .collect();
+                parts.push(format!(
+                    "```spore\ntrait {} {{\n{}\n}}\n```",
+                    t.name,
+                    methods.join("\n")
+                ));
+                return Some(parts.join("\n"));
+            }
+            Item::EffectDef(e) if e.name == name => {
+                let mut parts = Vec::new();
+                if let Some(doc) = extract_doc_comment(source, name) {
+                    parts.push(doc);
+                    parts.push(String::new());
+                }
+                let ops: Vec<String> = e
+                    .operations
+                    .iter()
+                    .map(|m| format!("    {}", format_fn_signature(m)))
+                    .collect();
+                parts.push(format!(
+                    "```spore\neffect {} {{\n{}\n}}\n```",
+                    e.name,
+                    ops.join("\n")
                 ));
                 return Some(parts.join("\n"));
             }

@@ -394,7 +394,71 @@ impl Checker {
                     methods,
                 );
             }
-            Item::Import(_) | Item::Const(_) | Item::CapabilityAlias { .. } => {}
+            Item::Import(_)
+            | Item::Const(_)
+            | Item::CapabilityAlias { .. }
+            | Item::EffectAlias(_) => {}
+            Item::TraitDef(td) => {
+                let methods: Vec<(String, Vec<Ty>, Ty)> = td
+                    .methods
+                    .iter()
+                    .map(|m| {
+                        let param_tys: Vec<Ty> =
+                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let ret_ty = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit);
+                        (m.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                self.registry
+                    .capabilities
+                    .insert(td.name.clone(), (td.type_params.clone(), methods));
+            }
+            Item::EffectDef(ed) => {
+                let methods: Vec<(String, Vec<Ty>, Ty)> = ed
+                    .operations
+                    .iter()
+                    .map(|m| {
+                        let param_tys: Vec<Ty> =
+                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let ret_ty = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit);
+                        (m.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                self.registry
+                    .capabilities
+                    .insert(ed.name.clone(), (vec![], methods));
+            }
+            Item::HandlerDef(hd) => {
+                if !self.registry.capabilities.contains_key(&hd.effect) {
+                    self.err(ErrorCode::C0002, format!("unknown effect `{}`", hd.effect));
+                    return;
+                }
+                let methods: Vec<(String, Vec<Ty>, Ty)> = hd
+                    .methods
+                    .iter()
+                    .map(|m| {
+                        let param_tys: Vec<Ty> =
+                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let ret_ty = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit);
+                        (m.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                self.registry
+                    .impls
+                    .insert((hd.effect.clone(), hd.name.clone()), methods);
+            }
             Item::Alias(alias_def) => {
                 let resolved = self.resolve_type(&alias_def.target);
                 self.registry
