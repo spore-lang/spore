@@ -2517,6 +2517,25 @@ fn spec_property_must_be_lambda() {
 }
 
 #[test]
+fn spec_property_lambda_must_return_bool() {
+    let errs = check_err(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            property "bad": |x: Int| x + 1
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("spec property")),
+        "expected spec property return-type error, got: {errs:?}"
+    );
+}
+
+#[test]
 fn spec_empty_clause_ok() {
     check_ok(
         r#"

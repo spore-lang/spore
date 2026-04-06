@@ -144,6 +144,49 @@ fn compile_rejects_non_prelude_stdlib_by_default() {
     );
 }
 
+#[test]
+fn compile_accepts_spec_clause_syntax() {
+    let output = compile(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            example "basic": add(2, 3) == 5
+            property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+        }
+        {
+            a + b
+        }
+    "#,
+    )
+    .expect("spec clause should compile through sporec");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn compile_accepts_effect_and_handler_items() {
+    let output = compile(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+        }
+        handler MockConsole for Console {
+            fn println(msg: String) -> Unit { return }
+        }
+        fn main() -> Int { 0 }
+    "#,
+    )
+    .expect("effect and handler items should compile through sporec");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
 // ── Cost enforcement tests ──────────────────────────────────────────
 
 #[test]

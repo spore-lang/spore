@@ -628,28 +628,26 @@ fn test_placeholder_pipe_chain() {
 
 // ── Stdlib: parse each stdlib file ──────────────────────────────────────
 
-#[test]
-fn test_stdlib_prelude_parses() {
-    let src = include_str!("../../../stdlib/prelude.sp");
-    spore_parser::parse(src).unwrap_or_else(|e| panic!("prelude.sp parse error: {e:?}"));
+fn assert_stdlib_source_parses(name: &str, src: &str) {
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("{name} parse error: {e:?}"));
 }
 
 #[test]
-fn test_stdlib_math_parses() {
-    let src = include_str!("../../../stdlib/math.sp");
-    spore_parser::parse(src).unwrap_or_else(|e| panic!("math.sp parse error: {e:?}"));
-}
-
-#[test]
-fn test_stdlib_string_parses() {
-    let src = include_str!("../../../stdlib/string.sp");
-    spore_parser::parse(src).unwrap_or_else(|e| panic!("string.sp parse error: {e:?}"));
-}
-
-#[test]
-fn test_stdlib_collections_parses() {
-    let src = include_str!("../../../stdlib/collections.sp");
-    spore_parser::parse(src).unwrap_or_else(|e| panic!("collections.sp parse error: {e:?}"));
+fn test_stdlib_sources_parse() {
+    for (name, src) in [
+        ("prelude.sp", include_str!("../../../stdlib/prelude.sp")),
+        ("math.sp", include_str!("../../../stdlib/math.sp")),
+        ("string.sp", include_str!("../../../stdlib/string.sp")),
+        (
+            "collections.sp",
+            include_str!("../../../stdlib/collections.sp"),
+        ),
+        ("dict.sp", include_str!("../../../stdlib/dict.sp")),
+        ("set.sp", include_str!("../../../stdlib/set.sp")),
+        ("char.sp", include_str!("../../../stdlib/char.sp")),
+    ] {
+        assert_stdlib_source_parses(name, src);
+    }
 }
 
 // ── Stdlib: runtime tests ───────────────────────────────────────────────
@@ -665,36 +663,6 @@ fn test_stdlib_unwrap_or_some() {
 fn test_stdlib_unwrap_or_none() {
     let v = run_main("fn main() -> Int { unwrap_or(None, 0) }");
     assert_eq!(v.as_int(), Some(0));
-}
-
-#[test]
-fn test_stdlib_is_some_true() {
-    let v = run_main("fn main() -> Bool { is_some(Some(1)) }");
-    assert_eq!(v.as_bool(), Some(true));
-}
-
-#[test]
-fn test_stdlib_is_some_false() {
-    let v = run_main("fn main() -> Bool { is_some(None) }");
-    assert_eq!(v.as_bool(), Some(false));
-}
-
-#[test]
-fn test_stdlib_is_none_true() {
-    let v = run_main("fn main() -> Bool { is_none(None) }");
-    assert_eq!(v.as_bool(), Some(true));
-}
-
-#[test]
-fn test_stdlib_is_ok() {
-    let v = run_main("fn main() -> Bool { is_ok(Ok(1)) }");
-    assert_eq!(v.as_bool(), Some(true));
-}
-
-#[test]
-fn test_stdlib_is_err() {
-    let v = run_main(r#"fn main() -> Bool { is_err(Err("bad")) }"#);
-    assert_eq!(v.as_bool(), Some(true));
 }
 
 #[test]
@@ -975,26 +943,6 @@ fn test_stdlib_is_err_true() {
 fn test_stdlib_is_err_false() {
     let v = run_main("fn main() -> Bool { is_err(Ok(42)) }");
     assert_eq!(v.as_bool(), Some(false));
-}
-
-// ── Parse tests for new stdlib files ────────────────────────────────────
-
-#[test]
-fn test_stdlib_dict_parses() {
-    let src = include_str!("../../../stdlib/dict.sp");
-    spore_parser::parse(src).unwrap_or_else(|e| panic!("dict.sp parse error: {e:?}"));
-}
-
-#[test]
-fn test_stdlib_set_parses() {
-    let src = include_str!("../../../stdlib/set.sp");
-    spore_parser::parse(src).unwrap_or_else(|e| panic!("set.sp parse error: {e:?}"));
-}
-
-#[test]
-fn test_stdlib_char_parses() {
-    let src = include_str!("../../../stdlib/char.sp");
-    spore_parser::parse(src).unwrap_or_else(|e| panic!("char.sp parse error: {e:?}"));
 }
 
 // ── Prelude: new combinator tests ───────────────────────────────────────
