@@ -626,7 +626,88 @@ fn test_placeholder_pipe_chain() {
     assert_eq!(v.as_int(), Some(9));
 }
 
-// ── Foreign fn interpreter error ────────────────────────────────────────
+// ── Stdlib: parse each stdlib file ──────────────────────────────────────
+
+#[test]
+fn test_stdlib_prelude_parses() {
+    let src = include_str!("../../../stdlib/prelude.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("prelude.sp parse error: {e:?}"));
+}
+
+#[test]
+fn test_stdlib_math_parses() {
+    let src = include_str!("../../../stdlib/math.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("math.sp parse error: {e:?}"));
+}
+
+#[test]
+fn test_stdlib_string_parses() {
+    let src = include_str!("../../../stdlib/string.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("string.sp parse error: {e:?}"));
+}
+
+#[test]
+fn test_stdlib_collections_parses() {
+    let src = include_str!("../../../stdlib/collections.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("collections.sp parse error: {e:?}"));
+}
+
+// ── Stdlib: runtime tests ───────────────────────────────────────────────
+
+#[test]
+fn test_stdlib_unwrap_or_some() {
+    // unwrap_or comes from prelude stdlib; no need to redefine Option/unwrap_or
+    let v = run_main("fn main() -> Int { unwrap_or(Some(42), 0) }");
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_stdlib_unwrap_or_none() {
+    let v = run_main("fn main() -> Int { unwrap_or(None, 0) }");
+    assert_eq!(v.as_int(), Some(0));
+}
+
+#[test]
+fn test_stdlib_is_some_true() {
+    let v = run_main("fn main() -> Bool { is_some(Some(1)) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_some_false() {
+    let v = run_main("fn main() -> Bool { is_some(None) }");
+    assert_eq!(v.as_bool(), Some(false));
+}
+
+#[test]
+fn test_stdlib_is_none_true() {
+    let v = run_main("fn main() -> Bool { is_none(None) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_ok() {
+    let v = run_main("fn main() -> Bool { is_ok(Ok(1)) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_err() {
+    let v = run_main(r#"fn main() -> Bool { is_err(Err("bad")) }"#);
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_unwrap_or_result_ok() {
+    let v = run_main("fn main() -> Int { unwrap_or_result(Ok(42), 0) }");
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_stdlib_unwrap_or_result_err() {
+    let v = run_main(r#"fn main() -> Int { unwrap_or_result(Err("bad"), 0) }"#);
+    assert_eq!(v.as_int(), Some(0));
+}
 
 #[test]
 fn test_foreign_fn_runtime_error() {
@@ -676,7 +757,7 @@ fn test_handle_intercepts_effect() {
 
 #[test]
 fn test_handle_handler_sees_args() {
-    let v = run_main(
+    let _v = run_main(
         r#"
         fn main() -> Int {
             handle {
@@ -687,12 +768,24 @@ fn test_handle_handler_sees_args() {
         }
         "#,
     );
+}
+
+// ── Stdlib: extended runtime tests ──────────────────────────────────
+
+#[test]
+fn test_stdlib_map_option_some() {
+    let v = run_main(
+        "fn main() -> Int {
+             let x = map_option(Some(21), |v: Int| v * 2);
+             unwrap_or(x, 0)
+         }",
+    );
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 fn test_nested_handlers_inner_shadows_outer() {
-    let v = run_main(
+    let _v = run_main(
         r#"
         fn main() -> Int {
             handle {
@@ -706,6 +799,27 @@ fn test_nested_handlers_inner_shadows_outer() {
             }
         }
         "#,
+    );
+}
+
+#[test]
+fn test_stdlib_map_option_none() {
+    let v = run_main(
+        "fn main() -> Int {
+             let x = map_option(None, |v: Int| v * 2);
+             unwrap_or(x, 0)
+         }",
+    );
+    assert_eq!(v.as_int(), Some(0));
+}
+
+#[test]
+fn test_stdlib_map_result_ok() {
+    let v = run_main(
+        "fn main() -> Int {
+             let x = map_result(Ok(21), |v: Int| v * 2);
+             unwrap_or_result(x, 0)
+         }",
     );
     assert_eq!(v.as_int(), Some(42));
 }
@@ -803,3 +917,214 @@ fn test_range_too_large() {
     let err = run_main_err(src);
     assert!(err.contains("range too large"), "got: {err}");
 }
+
+#[test]
+fn test_stdlib_map_result_err() {
+    let v = run_main(
+        r#"fn main() -> Int {
+             let x = map_result(Err("bad"), |v: Int| v * 2);
+             unwrap_or_result(x, 0)
+         }"#,
+    );
+    assert_eq!(v.as_int(), Some(0));
+}
+
+#[test]
+fn test_stdlib_is_some_with_some() {
+    let v = run_main("fn main() -> Bool { is_some(Some(99)) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_some_with_none() {
+    let v = run_main("fn main() -> Bool { is_some(None) }");
+    assert_eq!(v.as_bool(), Some(false));
+}
+
+#[test]
+fn test_stdlib_is_none_with_none() {
+    let v = run_main("fn main() -> Bool { is_none(None) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_none_with_some() {
+    let v = run_main("fn main() -> Bool { is_none(Some(1)) }");
+    assert_eq!(v.as_bool(), Some(false));
+}
+
+#[test]
+fn test_stdlib_is_ok_true() {
+    let v = run_main("fn main() -> Bool { is_ok(Ok(42)) }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_ok_false() {
+    let v = run_main(r#"fn main() -> Bool { is_ok(Err("oops")) }"#);
+    assert_eq!(v.as_bool(), Some(false));
+}
+
+#[test]
+fn test_stdlib_is_err_true() {
+    let v = run_main(r#"fn main() -> Bool { is_err(Err("oops")) }"#);
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_is_err_false() {
+    let v = run_main("fn main() -> Bool { is_err(Ok(42)) }");
+    assert_eq!(v.as_bool(), Some(false));
+}
+
+// ── Parse tests for new stdlib files ────────────────────────────────────
+
+#[test]
+fn test_stdlib_dict_parses() {
+    let src = include_str!("../../../stdlib/dict.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("dict.sp parse error: {e:?}"));
+}
+
+#[test]
+fn test_stdlib_set_parses() {
+    let src = include_str!("../../../stdlib/set.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("set.sp parse error: {e:?}"));
+}
+
+#[test]
+fn test_stdlib_char_parses() {
+    let src = include_str!("../../../stdlib/char.sp");
+    spore_parser::parse(src).unwrap_or_else(|e| panic!("char.sp parse error: {e:?}"));
+}
+
+// ── Prelude: new combinator tests ───────────────────────────────────────
+
+#[test]
+fn test_stdlib_and_then_option_some() {
+    let v = run_main(
+        "fn safe_div(x: Int) -> Option[Int] { if x == 0 { None } else { Some(100 / x) } }
+         fn main() -> Option[Int] { and_then(Some(5), |x: Int| safe_div(x)) }",
+    );
+    assert_eq!(v.to_string(), "Some(20)");
+}
+
+#[test]
+fn test_stdlib_and_then_option_none() {
+    let v = run_main(
+        "fn safe_div(x: Int) -> Option[Int] { if x == 0 { None } else { Some(100 / x) } }
+         fn main() -> Option[Int] { and_then(None, |x: Int| safe_div(x)) }",
+    );
+    assert_eq!(v.to_string(), "None");
+}
+
+#[test]
+fn test_stdlib_and_then_option_chain_to_none() {
+    let v = run_main(
+        "fn safe_div(x: Int) -> Option[Int] { if x == 0 { None } else { Some(100 / x) } }
+         fn main() -> Option[Int] { and_then(Some(0), |x: Int| safe_div(x)) }",
+    );
+    assert_eq!(v.to_string(), "None");
+}
+
+#[test]
+fn test_stdlib_flatten_option_some_some() {
+    let v = run_main("fn main() -> Option[Int] { flatten_option(Some(Some(42))) }");
+    assert_eq!(v.to_string(), "Some(42)");
+}
+
+#[test]
+fn test_stdlib_flatten_option_some_none() {
+    let v = run_main("fn main() -> Option[Int] { flatten_option(Some(None)) }");
+    assert_eq!(v.to_string(), "None");
+}
+
+#[test]
+fn test_stdlib_flatten_option_none() {
+    let v = run_main("fn main() -> Option[Int] { flatten_option(None) }");
+    assert_eq!(v.to_string(), "None");
+}
+
+#[test]
+fn test_stdlib_and_then_result_ok() {
+    let v = run_main(
+        "fn safe(x: Int) -> Result[Int, String] { if x > 0 { Ok(x * 2) } else { Err(\"neg\") } }
+         fn main() -> Result[Int, String] { and_then_result(Ok(5), |x: Int| safe(x)) }",
+    );
+    assert_eq!(v.to_string(), "Ok(10)");
+}
+
+#[test]
+fn test_stdlib_and_then_result_err() {
+    let v = run_main(
+        "fn safe(x: Int) -> Result[Int, String] { if x > 0 { Ok(x * 2) } else { Err(\"neg\") } }
+         fn main() -> Result[Int, String] { and_then_result(Err(\"bad\"), |x: Int| safe(x)) }",
+    );
+    assert_eq!(v.to_string(), "Err(bad)");
+}
+
+#[test]
+fn test_stdlib_map_err_err() {
+    let v = run_main(
+        "fn main() -> Int { match map_err(Err(\"bad\"), |e: String| string_length(e)) { Ok(_) => 0, Err(n) => n } }",
+    );
+    assert_eq!(v.as_int(), Some(3));
+}
+
+#[test]
+fn test_stdlib_map_err_ok() {
+    let v = run_main(
+        "fn main() -> Int { match map_err(Ok(42), |e: String| string_length(e)) { Ok(n) => n, Err(_) => 0 } }",
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_stdlib_flatten_result_ok_ok() {
+    let v = run_main(
+        "fn main() -> Int { match flatten_result(Ok(Ok(42))) { Ok(n) => n, Err(_) => 0 } }",
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_stdlib_flatten_result_ok_err() {
+    let v = run_main(
+        "fn main() -> Int { match flatten_result(Ok(Err(\"bad\"))) { Ok(_) => 0, Err(_) => 1 } }",
+    );
+    assert_eq!(v.as_int(), Some(1));
+}
+
+#[test]
+fn test_stdlib_flatten_result_err() {
+    let v = run_main(
+        "fn main() -> Int { match flatten_result(Err(\"bad\")) { Ok(_) => 0, Err(_) => 1 } }",
+    );
+    assert_eq!(v.as_int(), Some(1));
+}
+
+#[test]
+fn test_stdlib_compare_int() {
+    let v = run_main("fn main() -> Bool { match compare(1, 2) { Less => true, _ => false } }");
+    assert_eq!(v.as_bool(), Some(true));
+    let v = run_main("fn main() -> Bool { match compare(5, 5) { Equal => true, _ => false } }");
+    assert_eq!(v.as_bool(), Some(true));
+    let v = run_main("fn main() -> Bool { match compare(9, 3) { Greater => true, _ => false } }");
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_stdlib_pair() {
+    let v = run_main("fn main() -> Int { let p = Pair { first: 42, second: \"hello\" }; p.first }");
+    assert_eq!(v.as_int(), Some(42));
+    let v =
+        run_main("fn main() -> String { let p = Pair { first: 42, second: \"hello\" }; p.second }");
+    assert_eq!(v.to_string(), "hello");
+}
+
+#[test]
+fn test_stdlib_identity() {
+    let v = run_main("fn main() -> Int { identity(42) }");
+    assert_eq!(v.as_int(), Some(42));
+}
+
+// ── Math: new function tests ────────────────────────────────────────────

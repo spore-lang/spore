@@ -3,7 +3,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use spore_parser::ast::{ImportDecl, Item, Module as AstModule, Visibility};
+use spore_parser::{
+    ast::{ImportDecl, Item, Module as AstModule, TypeExpr, Visibility},
+    parse,
+};
 
 use crate::types::{CapSet, ErrorSet, Ty};
 
@@ -89,6 +92,159 @@ impl ModuleInterface {
         names.dedup();
         names
     }
+}
+
+fn prelude_type_mapping(type_params: &[String]) -> HashMap<String, Ty> {
+    type_params
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| (name.clone(), Ty::Var(idx as u32)))
+        .collect()
+}
+
+fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
+    match te {
+        TypeExpr::Named(name) => match name.as_str() {
+            "Int" => Ty::Int,
+            "Float" => Ty::Float,
+            "Bool" => Ty::Bool,
+            "String" => Ty::Str,
+            "Char" => Ty::Char,
+            "()" => Ty::Unit,
+            "Never" => Ty::Never,
+            _ => mapping
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| Ty::Named(name.clone())),
+        },
+        TypeExpr::Generic(name, args) => Ty::App(
+            name.clone(),
+            args.iter()
+                .map(|arg| resolve_prelude_type(arg, mapping))
+                .collect(),
+        ),
+        TypeExpr::Tuple(types) => Ty::Tuple(
+            types
+                .iter()
+                .map(|ty| resolve_prelude_type(ty, mapping))
+                .collect(),
+        ),
+        TypeExpr::Function(params, ret, error_exprs) => {
+            let errors: ErrorSet = error_exprs
+                .iter()
+                .filter_map(|te| match te {
+                    TypeExpr::Named(name) => Some(name.clone()),
+                    _ => None,
+                })
+                .collect();
+            Ty::Fn(
+                params
+                    .iter()
+                    .map(|param| resolve_prelude_type(param, mapping))
+                    .collect(),
+                Box::new(resolve_prelude_type(ret, mapping)),
+                CapSet::new(),
+                errors,
+            )
+        }
+        TypeExpr::Refinement(base, var_name, pred_expr) => Ty::Refined(
+            Box::new(resolve_prelude_type(base, mapping)),
+            var_name.clone(),
+            pred_expr.clone(),
+        ),
+        TypeExpr::Record(fields) => Ty::Record(
+            fields
+                .iter()
+                .map(|(name, ty)| (name.clone(), resolve_prelude_type(ty, mapping)))
+                .collect(),
+        ),
+    }
+}
+
+fn build_prelude_interface() -> ModuleInterface {
+    let module = parse(include_str!("../../../stdlib/prelude.sp"))
+        .expect("embedded stdlib/prelude.sp must parse");
+    let path = if module.name.is_empty() {
+        vec!["Std".into(), "Prelude".into()]
+    } else {
+        module.name.split('.').map(|s| s.to_string()).collect()
+    };
+    let mut iface = ModuleInterface::new(path);
+
+    for item in &module.items {
+        match item {
+            Item::Function(f) => {
+                let mut type_params = f.type_params.clone();
+                if let Some(wc) = &f.where_clause {
+                    type_params.extend(wc.constraints.iter().map(|c| c.type_var.clone()));
+                }
+                type_params.sort();
+                type_params.dedup();
+                let mapping = prelude_type_mapping(&type_params);
+                let param_tys = f
+                    .params
+                    .iter()
+                    .map(|param| resolve_prelude_type(&param.ty, &mapping))
+                    .collect();
+                let ret_ty = f
+                    .return_type
+                    .as_ref()
+                    .map(|ty| resolve_prelude_type(ty, &mapping))
+                    .unwrap_or(Ty::Unit);
+                iface.functions.insert(f.name.clone(), (param_tys, ret_ty));
+                iface.set_visibility(&f.name, SymbolVisibility::from(&f.visibility));
+            }
+            Item::StructDef(s) => {
+                let mapping = prelude_type_mapping(&s.type_params);
+                let fields = s
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.name.clone(),
+                            resolve_prelude_type(&field.ty, &mapping),
+                        )
+                    })
+                    .collect();
+                iface.structs.insert(s.name.clone(), fields);
+                iface.set_visibility(&s.name, SymbolVisibility::from(&s.visibility));
+            }
+            Item::TypeDef(t) => {
+                let mapping = prelude_type_mapping(&t.type_params);
+                let variants = t
+                    .variants
+                    .iter()
+                    .map(|variant| {
+                        (
+                            variant.name.clone(),
+                            variant
+                                .fields
+                                .iter()
+                                .map(|field| resolve_prelude_type(field, &mapping))
+                                .collect(),
+                        )
+                    })
+                    .collect();
+                iface.types.insert(t.name.clone(), variants);
+                iface.set_visibility(&t.name, SymbolVisibility::from(&t.visibility));
+            }
+            Item::CapabilityDef(cap) => {
+                iface.capabilities.insert(cap.name.clone());
+                iface.set_visibility(&cap.name, SymbolVisibility::from(&cap.visibility));
+            }
+            Item::Const(_)
+            | Item::ImplDef(_)
+            | Item::Import(_)
+            | Item::Alias(_)
+            | Item::CapabilityAlias { .. }
+            | Item::TraitDef(_)
+            | Item::EffectDef(_)
+            | Item::EffectAlias(_)
+            | Item::HandlerDef(_) => {}
+        }
+    }
+
+    iface
 }
 
 /// Module registry — stores all known modules and their interfaces.
@@ -229,22 +385,10 @@ impl ModuleRegistry {
 
     /// Register the standard library prelude.
     pub fn register_prelude(&mut self) {
-        let mut prelude = ModuleInterface::new(vec!["Std".into(), "Prelude".into()]);
+        let mut prelude = build_prelude_interface();
 
-        prelude.types.insert(
-            "Option".into(),
-            vec![("Some".into(), vec![Ty::Var(0)]), ("None".into(), vec![])],
-        );
-        prelude.types.insert(
-            "Result".into(),
-            vec![
-                ("Ok".into(), vec![Ty::Var(0)]),
-                ("Err".into(), vec![Ty::Var(1)]),
-            ],
-        );
-        prelude.types.insert("List".into(), vec![]);
+        prelude.types.entry("List".into()).or_default();
 
-        // ── IO builtins ──────────────────────────────────────────
         prelude
             .functions
             .insert("print".into(), (vec![Ty::Str], Ty::Unit));
@@ -255,7 +399,6 @@ impl ModuleRegistry {
             .functions
             .insert("read_line".into(), (vec![], Ty::Str));
 
-        // ── String builtins ──────────────────────────────────────
         prelude
             .functions
             .insert("string_length".into(), (vec![Ty::Str], Ty::Int));
@@ -302,7 +445,6 @@ impl ModuleRegistry {
             .functions
             .insert("string_index_of".into(), (vec![Ty::Str, Ty::Str], Ty::Int));
 
-        // ── Math builtins ────────────────────────────────────────
         prelude
             .functions
             .insert("abs".into(), (vec![Ty::Int], Ty::Int));
@@ -313,14 +455,8 @@ impl ModuleRegistry {
             .functions
             .insert("max".into(), (vec![Ty::Int, Ty::Int], Ty::Int));
 
-        // ── List builtins ────────────────────────────────────────
-        // Use Ty::App("List", [Ty::Var(N)]) for generic list types.
-        // Var IDs are instantiated to fresh variables on each lookup.
         let list_t = Ty::App("List".into(), vec![Ty::Var(0)]);
         let list_u = Ty::App("List".into(), vec![Ty::Var(1)]);
-
-        // len accepts both List[A] and Str at runtime; use a generic
-        // type parameter so the checker allows either.
         prelude
             .functions
             .insert("len".into(), (vec![Ty::Var(0)], Ty::Int));
@@ -704,7 +840,7 @@ mod tests {
         let prelude = reg.get(&["Std".into(), "Prelude".into()]);
         assert!(prelude.is_some());
         assert!(prelude.unwrap().exports("Option"));
-        assert!(prelude.unwrap().exports("print"));
+        assert!(prelude.unwrap().exports("identity"));
     }
 
     #[test]

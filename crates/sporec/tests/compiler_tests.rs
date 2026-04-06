@@ -113,6 +113,37 @@ fn compile_error_uses_new_codes() {
     );
 }
 
+#[test]
+fn compile_accepts_source_defined_prelude_items() {
+    let output = compile(
+        r#"
+        fn main() -> Int {
+            match compare(identity(2), bool_to_int(not(false))) {
+                Less => 0,
+                Equal => 1,
+                Greater => unwrap_or(Some(42), 0),
+            }
+        }
+    "#,
+    )
+    .expect("source-defined prelude items should type-check");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn compile_rejects_non_prelude_stdlib_by_default() {
+    let err = compile("fn main() -> Int { clamp(5, 0, 10) }")
+        .expect_err("non-prelude stdlib should not be globally injected");
+    assert!(
+        err.contains("undefined variable `clamp`"),
+        "expected clamp to stay unavailable by default, got: {err}"
+    );
+}
+
 // ── Cost enforcement tests ──────────────────────────────────────────
 
 #[test]
