@@ -394,7 +394,71 @@ impl Checker {
                     methods,
                 );
             }
-            Item::Import(_) | Item::Const(_) | Item::CapabilityAlias { .. } => {}
+            Item::Import(_)
+            | Item::Const(_)
+            | Item::CapabilityAlias { .. }
+            | Item::EffectAlias(_) => {}
+            Item::TraitDef(td) => {
+                let methods: Vec<(String, Vec<Ty>, Ty)> = td
+                    .methods
+                    .iter()
+                    .map(|m| {
+                        let param_tys: Vec<Ty> =
+                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let ret_ty = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit);
+                        (m.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                self.registry
+                    .capabilities
+                    .insert(td.name.clone(), (td.type_params.clone(), methods));
+            }
+            Item::EffectDef(ed) => {
+                let methods: Vec<(String, Vec<Ty>, Ty)> = ed
+                    .operations
+                    .iter()
+                    .map(|m| {
+                        let param_tys: Vec<Ty> =
+                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let ret_ty = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit);
+                        (m.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                self.registry
+                    .capabilities
+                    .insert(ed.name.clone(), (vec![], methods));
+            }
+            Item::HandlerDef(hd) => {
+                if !self.registry.capabilities.contains_key(&hd.effect) {
+                    self.err(ErrorCode::C0002, format!("unknown effect `{}`", hd.effect));
+                    return;
+                }
+                let methods: Vec<(String, Vec<Ty>, Ty)> = hd
+                    .methods
+                    .iter()
+                    .map(|m| {
+                        let param_tys: Vec<Ty> =
+                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let ret_ty = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit);
+                        (m.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                self.registry
+                    .impls
+                    .insert((hd.effect.clone(), hd.name.clone()), methods);
+            }
             Item::Alias(alias_def) => {
                 let resolved = self.resolve_type(&alias_def.target);
                 self.registry
@@ -410,7 +474,109 @@ impl Checker {
         match item {
             Item::Function(f) => self.check_fn(f),
             Item::ImplDef(impl_def) => self.check_impl(impl_def),
+            Item::HandlerDef(handler_def) => self.check_handler(handler_def),
             _ => {} // structs/types already registered; capabilities/imports deferred
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn check_contract_impl(
+        &mut self,
+        contract_name: &str,
+        contract_methods: &[(String, Vec<Ty>, Ty)],
+        methods: &[FnDef],
+        impl_label: &str,
+        member_noun: &str,
+        contract_noun: &str,
+        span: Option<Span>,
+        type_mapping: &HashMap<String, Ty>,
+    ) {
+        for (method_name, _expected_params, _expected_ret) in contract_methods {
+            if !methods.iter().any(|m| &m.name == method_name) {
+                let msg = format!("{impl_label} is missing {member_noun} `{method_name}`");
+                if let Some(span) = span {
+                    self.err_at(ErrorCode::E0013, msg, span);
+                } else {
+                    self.err(ErrorCode::E0013, msg);
+                }
+            }
+        }
+
+        for method in methods {
+            if !contract_methods
+                .iter()
+                .any(|(name, _, _)| name == &method.name)
+            {
+                self.err(
+                    ErrorCode::E0014,
+                    format!(
+                        "{member_noun} `{}` is not defined in {contract_noun} `{contract_name}`",
+                        method.name
+                    ),
+                );
+            }
+        }
+
+        for method in methods {
+            if let Some((_expected_name, expected_params, expected_ret)) = contract_methods
+                .iter()
+                .find(|(name, _, _)| name == &method.name)
+            {
+                let expected_params: Vec<Ty> = expected_params
+                    .iter()
+                    .map(|t| self.instantiate_ty(t, type_mapping))
+                    .collect();
+                let expected_ret = self.instantiate_ty(expected_ret, type_mapping);
+
+                let impl_params: Vec<Ty> = method
+                    .params
+                    .iter()
+                    .map(|p| self.resolve_type(&p.ty))
+                    .collect();
+                let impl_ret = method
+                    .return_type
+                    .as_ref()
+                    .map(|t| self.resolve_type(t))
+                    .unwrap_or(Ty::Unit);
+
+                if impl_params.len() != expected_params.len() {
+                    self.err(
+                        ErrorCode::E0001,
+                        format!(
+                            "{member_noun} `{}` in {impl_label} expects {} parameters, got {}",
+                            method.name,
+                            expected_params.len(),
+                            impl_params.len()
+                        ),
+                    );
+                } else {
+                    for (i, (exp, act)) in
+                        expected_params.iter().zip(impl_params.iter()).enumerate()
+                    {
+                        self.unify(
+                            exp,
+                            act,
+                            &format!(
+                                "parameter {} of {member_noun} `{}` in {impl_label}",
+                                i + 1,
+                                method.name
+                            ),
+                        );
+                    }
+                }
+                self.unify(
+                    &expected_ret,
+                    &impl_ret,
+                    &format!(
+                        "return type of {member_noun} `{}` in {impl_label}",
+                        method.name
+                    ),
+                );
+            }
+        }
+
+        for method in methods {
+            self.check_fn(method);
         }
     }
 
@@ -424,36 +590,6 @@ impl Checker {
             return; // Already errored in registration
         };
 
-        // Check that all required methods are implemented
-        for (method_name, _expected_params, _expected_ret) in &cap_methods {
-            if !impl_def.methods.iter().any(|m| &m.name == method_name) {
-                let msg = format!(
-                    "impl `{}` for `{}` is missing method `{}`",
-                    impl_def.capability, impl_def.target_type, method_name
-                );
-                if let Some(span) = impl_def.span {
-                    self.err_at(ErrorCode::E0013, msg, span);
-                } else {
-                    self.err(ErrorCode::E0013, msg);
-                }
-            }
-        }
-
-        // Check that no extra methods are defined
-        for method in &impl_def.methods {
-            if !cap_methods.iter().any(|(name, _, _)| name == &method.name) {
-                self.err(
-                    ErrorCode::E0014,
-                    format!(
-                        "method `{}` is not defined in capability `{}`",
-                        method.name, impl_def.capability
-                    ),
-                );
-            }
-        }
-
-        // Validate that each implemented method's signature matches the capability.
-        // Substitute capability type params (e.g., T in Display[T]) with the target type.
         let cap_type_params = _cap_type_params;
         let type_mapping: HashMap<String, Ty> = if cap_type_params.is_empty() {
             HashMap::new()
@@ -475,72 +611,43 @@ impl Checker {
             HashMap::new()
         };
 
-        for method in &impl_def.methods {
-            if let Some((_expected_name, expected_params, expected_ret)) =
-                cap_methods.iter().find(|(name, _, _)| name == &method.name)
-            {
-                // Apply type param substitution to expected types
-                let expected_params: Vec<Ty> = expected_params
-                    .iter()
-                    .map(|t| self.instantiate_ty(t, &type_mapping))
-                    .collect();
-                let expected_ret = self.instantiate_ty(expected_ret, &type_mapping);
+        let impl_label = format!(
+            "impl `{}` for `{}`",
+            impl_def.capability, impl_def.target_type
+        );
+        self.check_contract_impl(
+            &impl_def.capability,
+            &cap_methods,
+            &impl_def.methods,
+            &impl_label,
+            "method",
+            "capability",
+            impl_def.span,
+            &type_mapping,
+        );
+    }
 
-                let impl_params: Vec<Ty> = method
-                    .params
-                    .iter()
-                    .map(|p| self.resolve_type(&p.ty))
-                    .collect();
-                let impl_ret = method
-                    .return_type
-                    .as_ref()
-                    .map(|t| self.resolve_type(t))
-                    .unwrap_or(Ty::Unit);
+    fn check_handler(&mut self, handler_def: &HandlerDef) {
+        let Some((_effect_type_params, effect_methods)) =
+            self.registry.capabilities.get(&handler_def.effect).cloned()
+        else {
+            return; // Already errored in registration
+        };
 
-                if impl_params.len() != expected_params.len() {
-                    self.err(
-                        ErrorCode::E0001,
-                        format!(
-                            "method `{}` in impl `{}` for `{}` expects {} parameters, got {}",
-                            method.name,
-                            impl_def.capability,
-                            impl_def.target_type,
-                            expected_params.len(),
-                            impl_params.len()
-                        ),
-                    );
-                } else {
-                    for (i, (exp, act)) in
-                        expected_params.iter().zip(impl_params.iter()).enumerate()
-                    {
-                        self.unify(
-                            exp,
-                            act,
-                            &format!(
-                                "parameter {} of method `{}` in impl `{}` for `{}`",
-                                i + 1,
-                                method.name,
-                                impl_def.capability,
-                                impl_def.target_type
-                            ),
-                        );
-                    }
-                }
-                self.unify(
-                    &expected_ret,
-                    &impl_ret,
-                    &format!(
-                        "return type of method `{}` in impl `{}` for `{}`",
-                        method.name, impl_def.capability, impl_def.target_type
-                    ),
-                );
-            }
-        }
-
-        // Type-check each method body
-        for method in &impl_def.methods {
-            self.check_fn(method);
-        }
+        let impl_label = format!(
+            "handler `{}` for effect `{}`",
+            handler_def.name, handler_def.effect
+        );
+        self.check_contract_impl(
+            &handler_def.effect,
+            &effect_methods,
+            &handler_def.methods,
+            &impl_label,
+            "operation",
+            "effect",
+            handler_def.span,
+            &HashMap::new(),
+        );
     }
 
     fn check_fn(&mut self, f: &FnDef) {

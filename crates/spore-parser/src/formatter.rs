@@ -89,6 +89,10 @@ impl Formatter {
             Item::ImplDef(i) => self.fmt_impl_def(i),
             Item::Import(i) => self.fmt_import(i),
             Item::Alias(a) => self.fmt_alias(a),
+            Item::TraitDef(t) => self.fmt_trait_def(t),
+            Item::EffectDef(e) => self.fmt_effect_def(e),
+            Item::EffectAlias(ea) => self.fmt_effect_alias(ea),
+            Item::HandlerDef(h) => self.fmt_handler_def(h),
         }
     }
 
@@ -390,6 +394,94 @@ impl Formatter {
         self.write(" = [");
         self.write(&components.join(", "));
         self.write("]");
+        self.newline();
+    }
+
+    fn fmt_trait_def(&mut self, t: &TraitDef) {
+        self.write_indent();
+        self.fmt_visibility(&t.visibility);
+        self.write("trait ");
+        self.write(&t.name);
+        if !t.type_params.is_empty() {
+            self.write("[");
+            self.write(&t.type_params.join(", "));
+            self.write("]");
+        }
+        self.write(" {");
+        self.newline();
+        self.indent += 1;
+        for at in &t.assoc_types {
+            self.write_indent();
+            self.write("type ");
+            self.write(&at.name);
+            if !at.bounds.is_empty() {
+                self.write(": ");
+                for (i, b) in at.bounds.iter().enumerate() {
+                    if i > 0 {
+                        self.write(" + ");
+                    }
+                    self.fmt_type_expr(b);
+                }
+            }
+            self.newline();
+        }
+        for m in &t.methods {
+            self.write_indent();
+            self.fmt_fn_def(m);
+            self.newline();
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
+        self.newline();
+    }
+
+    fn fmt_effect_def(&mut self, e: &EffectDef) {
+        self.write_indent();
+        self.fmt_visibility(&e.visibility);
+        self.write("effect ");
+        self.write(&e.name);
+        self.write(" {");
+        self.newline();
+        self.indent += 1;
+        for op in &e.operations {
+            self.write_indent();
+            self.fmt_fn_def(op);
+            self.newline();
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
+        self.newline();
+    }
+
+    fn fmt_effect_alias(&mut self, ea: &EffectAlias) {
+        self.write_indent();
+        self.fmt_visibility(&ea.visibility);
+        self.write("effect ");
+        self.write(&ea.name);
+        self.write(" = ");
+        self.write(&ea.effects.join(" | "));
+        self.newline();
+    }
+
+    fn fmt_handler_def(&mut self, h: &HandlerDef) {
+        self.write_indent();
+        self.write("handler ");
+        self.write(&h.name);
+        self.write(" for ");
+        self.write(&h.effect);
+        self.write(" {");
+        self.newline();
+        self.indent += 1;
+        for m in &h.methods {
+            self.write_indent();
+            self.fmt_fn_def(m);
+            self.newline();
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
         self.newline();
     }
 
@@ -1092,5 +1184,29 @@ mod tests {
         let src = "const MAX: Int = 100\n";
         let out = roundtrip(src);
         assert!(out.contains("const MAX: Int = 100"));
+    }
+
+    #[test]
+    fn test_keyword_item_forms_roundtrip() {
+        let src = concat!(
+            "trait Display[T] {\n",
+            "    fn show(self: T) -> String\n",
+            "}\n",
+            "\n",
+            "effect Console {\n",
+            "    fn println(msg: String) -> Unit\n",
+            "}\n",
+            "\n",
+            "effect IO = Console | FileRead\n",
+            "\n",
+            "handler MockConsole for Console {\n",
+            "    fn println(msg: String) -> Unit {}\n",
+            "}\n",
+        );
+        let out = roundtrip(src);
+        assert!(out.contains("trait Display[T] {"));
+        assert!(out.contains("effect Console {"));
+        assert!(out.contains("effect IO = Console | FileRead"));
+        assert!(out.contains("handler MockConsole for Console {"));
     }
 }

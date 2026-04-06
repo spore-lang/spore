@@ -2263,3 +2263,140 @@ fn len_on_list() {
 fn len_on_string() {
     check_ok(r#"fn f() -> Int { len("hello") }"#);
 }
+
+// ── Trait keyword (synonym for capability) ──────────────────────────────
+
+#[test]
+fn trait_keyword_definition_and_impl() {
+    check_ok(
+        r#"
+        trait Display[T] {
+            fn show(self: T) -> String
+        }
+        struct Point { x: Int, y: Int }
+        impl Display for Point {
+            fn show(self: Point) -> String { "point" }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn trait_keyword_missing_method_error() {
+    let errs = check_err(
+        r#"
+        trait Display[T] {
+            fn show(self: T) -> String
+        }
+        struct Point { x: Int, y: Int }
+        impl Display for Point {
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("missing method")));
+}
+
+// ── Effect keyword ──────────────────────────────────────────────────────
+
+#[test]
+fn effect_definition_parses() {
+    check_ok(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+        }
+    "#,
+    );
+}
+
+#[test]
+fn effect_alias_parses() {
+    // Effect alias is a no-op in type checking for now, but should parse
+    let module = parse(
+        r#"
+        effect IO = Console | FileRead | FileWrite
+    "#,
+    )
+    .unwrap();
+    assert_eq!(module.items.len(), 1);
+}
+
+// ── Handler keyword ─────────────────────────────────────────────────────
+
+#[test]
+fn handler_definition_parses() {
+    check_ok(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+        }
+        handler MockConsole for Console {
+            fn println(msg: String) -> Unit { return }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn handler_unknown_effect_error() {
+    let errs = check_err(
+        r#"
+        handler MockConsole for UnknownEffect {
+            fn println(msg: String) -> Unit { 0 }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("unknown effect")));
+}
+
+#[test]
+fn handler_return_type_mismatch_error() {
+    let errs = check_err(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+        }
+        handler MockConsole for Console {
+            fn println(msg: String) -> Unit { 0 }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("type mismatch")));
+    assert!(errs.iter().any(|e| e.contains("function `println`")));
+}
+
+#[test]
+fn handler_missing_operation_error() {
+    let errs = check_err(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+            fn read_line() -> String
+        }
+        handler MockConsole for Console {
+            fn println(msg: String) -> Unit { return }
+        }
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("missing operation `read_line`"))
+    );
+}
+
+// ── Backward compatibility: capability keyword still works ──────────────
+
+#[test]
+fn capability_keyword_still_works() {
+    check_ok(
+        r#"
+        capability Eq[T] {
+            fn eq(self: T, other: T) -> Bool
+        }
+        struct Num { val: Int }
+        impl Eq for Num {
+            fn eq(self: Num, other: Num) -> Bool { self.val == other.val }
+        }
+    "#,
+    );
+}
