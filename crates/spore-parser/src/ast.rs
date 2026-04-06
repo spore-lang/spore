@@ -19,8 +19,11 @@ pub enum Item {
     Const(ConstDef),
     StructDef(StructDef),
     TypeDef(TypeDef),
+    /// Legacy `capability` definition kept for compatibility. Formatter and
+    /// tooling present it using the canonical `trait` spelling.
     CapabilityDef(CapabilityDef),
-    /// Composite capability alias: `capability IO = [FileRead, FileWrite]`
+    /// Legacy `capability IO = [FileRead, FileWrite]` alias. Formatter rewrites
+    /// this to the canonical `effect IO = FileRead | FileWrite` spelling.
     CapabilityAlias {
         name: String,
         components: Vec<String>,
@@ -368,7 +371,7 @@ pub struct Variant {
     pub fields: Vec<TypeExpr>,
 }
 
-/// Associated type declaration inside a capability.
+/// Associated type declaration inside a trait/effect-style definition.
 #[derive(Debug, Clone)]
 pub struct AssocType {
     pub name: String,
@@ -383,6 +386,16 @@ pub struct CapabilityDef {
     pub methods: Vec<FnDef>,
     pub assoc_types: Vec<AssocType>,
     pub span: Option<Span>,
+}
+
+impl CapabilityDef {
+    pub fn canonical_keyword(&self) -> &'static str {
+        "trait"
+    }
+
+    pub fn completion_detail(&self) -> &'static str {
+        "trait"
+    }
 }
 
 /// Trait definition (preferred alias for `capability` when defining type interfaces).

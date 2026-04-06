@@ -17,7 +17,8 @@ const KEYWORDS: &[&str] = &[
     "let",
     "type",
     "struct",
-    "capability",
+    "trait",
+    "effect",
     "match",
     "if",
     "import",
@@ -264,13 +265,6 @@ impl LspServer {
                             "label": &t.name,
                             "kind": 10, // Enum
                             "detail": "type",
-                        }));
-                    }
-                    Item::CapabilityDef(c) => {
-                        items.push(json!({
-                            "label": &c.name,
-                            "kind": 8, // Interface
-                            "detail": "capability",
                         }));
                     }
                     Item::TraitDef(t) => {
@@ -564,18 +558,21 @@ fn is_ident_char(b: u8) -> bool {
 }
 
 /// Search source text for a definition of `name` (e.g. `fn name`, `type name`,
-/// `struct name`, `capability name`). Returns `(line, col)` of the name token.
+/// `struct name`, `trait name`, `effect name`). Returns `(line, col)` of the
+/// name token.
 pub fn find_definition_in_source(source: &str, name: &str) -> Option<(u32, u32)> {
     let prefixes = [
         "fn ",
         "type ",
         "struct ",
-        "capability ",
+        "trait ",
+        "effect ",
         "const ",
         "pub fn ",
         "pub type ",
         "pub struct ",
-        "pub capability ",
+        "pub trait ",
+        "pub effect ",
         "pub const ",
     ];
     for (line_no, line_text) in source.lines().enumerate() {
@@ -613,7 +610,6 @@ pub fn collect_document_symbols(source: &str) -> Vec<SymbolInfo> {
             Item::Function(f) => (f.name.clone(), SK_FUNCTION, Some(format_fn_signature(f))),
             Item::StructDef(s) => (s.name.clone(), SK_STRUCT, Some("struct".into())),
             Item::TypeDef(t) => (t.name.clone(), SK_ENUM, Some("type".into())),
-            Item::CapabilityDef(c) => (c.name.clone(), SK_INTERFACE, Some("capability".into())),
             Item::TraitDef(t) => (t.name.clone(), SK_INTERFACE, Some("trait".into())),
             Item::EffectDef(e) => (e.name.clone(), SK_INTERFACE, Some("effect".into())),
             Item::HandlerDef(h) => (
@@ -714,24 +710,6 @@ pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
                     "```spore\ntype {} {{\n{}\n}}\n```",
                     t.name,
                     variants.join(",\n")
-                ));
-                return Some(parts.join("\n"));
-            }
-            Item::CapabilityDef(c) if c.name == name => {
-                let mut parts = Vec::new();
-                if let Some(doc) = extract_doc_comment(source, name) {
-                    parts.push(doc);
-                    parts.push(String::new());
-                }
-                let methods: Vec<String> = c
-                    .methods
-                    .iter()
-                    .map(|m| format!("    {}", format_fn_signature(m)))
-                    .collect();
-                parts.push(format!(
-                    "```spore\ncapability {} {{\n{}\n}}\n```",
-                    c.name,
-                    methods.join("\n")
                 ));
                 return Some(parts.join("\n"));
             }
