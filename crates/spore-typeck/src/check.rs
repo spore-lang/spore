@@ -108,120 +108,60 @@ impl Checker {
 
     /// Resolve an import declaration, importing symbols into the current registry.
     fn resolve_import(&mut self, import: &ImportDecl) {
-        match import {
-            ImportDecl::Import { path, alias } => {
-                let path_segments: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
-                // The alias is the module alias; import all exported symbols
-                let module = match self.module_registry.get(&path_segments) {
-                    Some(m) => m.clone(),
-                    None => {
-                        self.err(ErrorCode::M0001, format!("module `{path}` not found"));
-                        return;
-                    }
-                };
-                let all_names = module.all_exports();
-                match self
-                    .module_registry
-                    .resolve_import(&path_segments, &all_names)
-                {
-                    Ok(resolved) => {
-                        self.module_registry
-                            .record_dependency(&self.current_module_name, path);
-                        self.import_resolved_symbols(&module, &resolved, alias);
-                    }
-                    Err(ModuleError::PrivateSymbol { symbol, module: m }) => {
-                        self.err(
-                            ErrorCode::M0003,
-                            format!(
-                                "symbol `{symbol}` in module `{m}` is private and not accessible"
-                            ),
-                        );
-                    }
-                    Err(ModuleError::SymbolNotFound { symbol, module: m }) => {
-                        self.err(
-                            ErrorCode::M0002,
-                            format!("symbol `{symbol}` not found in module `{m}`"),
-                        );
-                    }
-                    Err(ModuleError::ModuleNotFound(m)) => {
-                        self.err(ErrorCode::M0001, format!("module `{m}` not found"));
-                    }
-                    Err(ModuleError::CircularDependency(cycle)) => {
-                        self.err(
-                            ErrorCode::M0101,
-                            format!("circular module dependency: {}", cycle.join(" -> ")),
-                        );
-                    }
-                    Err(ModuleError::IoError { module: m, detail }) => {
-                        self.err(
-                            ErrorCode::M0001,
-                            format!("cannot read module `{m}`: {detail}"),
-                        );
-                    }
-                    Err(ModuleError::ParseError { module: m, detail }) => {
-                        self.err(
-                            ErrorCode::M0001,
-                            format!("parse error in module `{m}`: {detail}"),
-                        );
-                    }
-                }
-                let _ = alias; // alias available for qualified access
+        let (path, alias) = match import {
+            ImportDecl::Import { path, alias } => (path.as_str(), alias.as_str()),
+            ImportDecl::Alias { name, path } => (path.as_str(), name.as_str()),
+        };
+        let path_segments: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
+        let module = match self.module_registry.get(&path_segments) {
+            Some(m) => m.clone(),
+            None => {
+                self.err(ErrorCode::M0001, format!("module `{path}` not found"));
+                return;
             }
-            ImportDecl::Alias { name, path } => {
-                let path_segments: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
-                let module = match self.module_registry.get(&path_segments) {
-                    Some(m) => m.clone(),
-                    None => {
-                        self.err(ErrorCode::M0001, format!("module `{path}` not found"));
-                        return;
-                    }
-                };
-                let all_names = module.all_exports();
-                match self
-                    .module_registry
-                    .resolve_import(&path_segments, &all_names)
-                {
-                    Ok(resolved) => {
-                        self.module_registry
-                            .record_dependency(&self.current_module_name, path);
-                        self.import_resolved_symbols(&module, &resolved, name);
-                    }
-                    Err(ModuleError::PrivateSymbol { symbol, module: m }) => {
-                        self.err(
-                            ErrorCode::M0003,
-                            format!(
-                                "symbol `{symbol}` in module `{m}` is private and not accessible"
-                            ),
-                        );
-                    }
-                    Err(ModuleError::SymbolNotFound { symbol, module: m }) => {
-                        self.err(
-                            ErrorCode::M0002,
-                            format!("symbol `{symbol}` not found in module `{m}`"),
-                        );
-                    }
-                    Err(ModuleError::ModuleNotFound(m)) => {
-                        self.err(ErrorCode::M0001, format!("module `{m}` not found"));
-                    }
-                    Err(ModuleError::CircularDependency(cycle)) => {
-                        self.err(
-                            ErrorCode::M0101,
-                            format!("circular module dependency: {}", cycle.join(" -> ")),
-                        );
-                    }
-                    Err(ModuleError::IoError { module: m, detail }) => {
-                        self.err(
-                            ErrorCode::M0001,
-                            format!("cannot read module `{m}`: {detail}"),
-                        );
-                    }
-                    Err(ModuleError::ParseError { module: m, detail }) => {
-                        self.err(
-                            ErrorCode::M0001,
-                            format!("parse error in module `{m}`: {detail}"),
-                        );
-                    }
-                }
+        };
+        let all_names = module.all_exports();
+        match self
+            .module_registry
+            .resolve_import(&path_segments, &all_names)
+        {
+            Ok(resolved) => {
+                self.module_registry
+                    .record_dependency(&self.current_module_name, path);
+                self.import_resolved_symbols(&module, &resolved, alias);
+            }
+            Err(ModuleError::PrivateSymbol { symbol, module: m }) => {
+                self.err(
+                    ErrorCode::M0003,
+                    format!("symbol `{symbol}` in module `{m}` is private and not accessible"),
+                );
+            }
+            Err(ModuleError::SymbolNotFound { symbol, module: m }) => {
+                self.err(
+                    ErrorCode::M0002,
+                    format!("symbol `{symbol}` not found in module `{m}`"),
+                );
+            }
+            Err(ModuleError::ModuleNotFound(m)) => {
+                self.err(ErrorCode::M0001, format!("module `{m}` not found"));
+            }
+            Err(ModuleError::CircularDependency(cycle)) => {
+                self.err(
+                    ErrorCode::M0101,
+                    format!("circular module dependency: {}", cycle.join(" -> ")),
+                );
+            }
+            Err(ModuleError::IoError { module: m, detail }) => {
+                self.err(
+                    ErrorCode::M0001,
+                    format!("cannot read module `{m}`: {detail}"),
+                );
+            }
+            Err(ModuleError::ParseError { module: m, detail }) => {
+                self.err(
+                    ErrorCode::M0001,
+                    format!("parse error in module `{m}`: {detail}"),
+                );
             }
         }
     }
