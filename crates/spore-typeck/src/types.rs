@@ -72,6 +72,100 @@ impl Ty {
             other => other,
         }
     }
+
+    /// Recursively transform this type bottom-up.
+    /// `f` is called on each sub-type after its children have been transformed.
+    pub fn fold<F>(self, f: &mut F) -> Ty
+    where
+        F: FnMut(Ty) -> Ty,
+    {
+        let folded = match self {
+            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
+                params.into_iter().map(|p| p.fold(f)).collect(),
+                Box::new((*ret).fold(f)),
+                caps,
+                errors,
+            ),
+            Ty::App(name, args) => Ty::App(name, args.into_iter().map(|a| a.fold(f)).collect()),
+            Ty::Tuple(ts) => Ty::Tuple(ts.into_iter().map(|t| t.fold(f)).collect()),
+            Ty::Record(fields) => {
+                Ty::Record(fields.into_iter().map(|(n, t)| (n, t.fold(f))).collect())
+            }
+            Ty::Refined(base, var, pred) => Ty::Refined(Box::new((*base).fold(f)), var, pred),
+            other => other,
+        };
+        f(folded)
+    }
+
+    /// Walk this type, calling `f` on each sub-type (read-only visitor).
+    pub fn visit<F>(&self, f: &mut F)
+    where
+        F: FnMut(&Ty),
+    {
+        f(self);
+        match self {
+            Ty::Fn(params, ret, _, _) => {
+                for p in params {
+                    p.visit(f);
+                }
+                ret.visit(f);
+            }
+            Ty::App(_, args) => {
+                for a in args {
+                    a.visit(f);
+                }
+            }
+            Ty::Tuple(ts) => {
+                for t in ts {
+                    t.visit(f);
+                }
+            }
+            Ty::Record(fields) => {
+                for (_, t) in fields {
+                    t.visit(f);
+                }
+            }
+            Ty::Refined(base, _, _) => {
+                base.visit(f);
+            }
+            _ => {}
+        }
+    }
+
+    /// Recursively transform this type by reference, top-down.
+    /// `f` is called on each sub-type; if it returns `Some(ty)`, that result
+    /// is used directly (no further recursion). If it returns `None`, recursion
+    /// continues into children and the node is reconstructed.
+    pub fn fold_ref<F>(&self, f: &mut F) -> Ty
+    where
+        F: FnMut(&Ty) -> Option<Ty>,
+    {
+        if let Some(result) = f(self) {
+            return result;
+        }
+        match self {
+            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
+                params.iter().map(|p| p.fold_ref(f)).collect(),
+                Box::new(ret.fold_ref(f)),
+                caps.clone(),
+                errors.clone(),
+            ),
+            Ty::App(name, args) => {
+                Ty::App(name.clone(), args.iter().map(|a| a.fold_ref(f)).collect())
+            }
+            Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| t.fold_ref(f)).collect()),
+            Ty::Record(fields) => Ty::Record(
+                fields
+                    .iter()
+                    .map(|(n, t)| (n.clone(), t.fold_ref(f)))
+                    .collect(),
+            ),
+            Ty::Refined(base, var, pred) => {
+                Ty::Refined(Box::new(base.fold_ref(f)), var.clone(), pred.clone())
+            }
+            other => other.clone(),
+        }
+    }
 }
 
 impl PartialEq for Ty {
