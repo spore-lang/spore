@@ -527,7 +527,6 @@ name = "spore-codegen"
 version = "0.1.0"
 dependencies = [
  "spore-parser",
- "spore-typeck",
 ]
 
 [[package]]

@@ -1,8 +1,7 @@
 /// spore-codegen — Spore code generation / execution
 ///
 /// PoC: tree-walking interpreter for direct AST evaluation.
-/// Prototype: will add Cranelift backend for native compilation.
-pub mod backend;
+/// Future native backends can be added without exposing unused scaffolding today.
 pub mod effect_handler;
 pub mod interpret;
 pub mod value;

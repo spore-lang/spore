@@ -3,7 +3,7 @@ name = "spore-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Spore codebase manager (stateful: file IO, watch mode, package management)"
+description = "Spore codebase manager (stateful: file IO, watch mode, scaffolding)"
 license.workspace = true
 
 [[bin]]

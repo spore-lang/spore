@@ -3,9 +3,8 @@ name = "spore-codegen"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Spore code generation (Typed AST → Cranelift IR → native code)"
+description = "Spore execution and future backend experiments"
 license.workspace = true
 
 [dependencies]
 spore-parser = { path = "../spore-parser" }
-spore-typeck = { path = "../spore-typeck" }
