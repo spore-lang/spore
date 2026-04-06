@@ -975,8 +975,10 @@ impl Checker {
 
             Expr::Return(expr) => {
                 if let Some(inner) = expr {
-                    let _ret_val_ty = self.check_expr(inner);
-                    // TODO: validate _ret_val_ty against enclosing function's declared return type
+                    let ret_val_ty = self.check_expr(inner);
+                    if let Some(expected) = self.expected_return_type.clone() {
+                        self.unify(&expected, &ret_val_ty, "return");
+                    }
                 }
                 Ty::Never
             }

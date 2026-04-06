@@ -2225,3 +2225,41 @@ fn non_exhaustive_app_type_match() {
         "should report non-exhaustive match on Result[Int, String], got: {errs:?}"
     );
 }
+
+// ── Return type validation ──────────────────────────────────────────────
+
+#[test]
+fn return_type_mismatch_errors() {
+    let src = r#"fn foo() -> Int { return "hello" }"#;
+    let errs = check_err(src);
+    assert!(!errs.is_empty(), "should report return type mismatch");
+}
+
+// ── to_string prelude ───────────────────────────────────────────────────
+
+#[test]
+fn to_string_works_on_int() {
+    check_ok("fn f() -> String { to_string(42) }");
+}
+
+#[test]
+fn to_string_works_on_bool() {
+    check_ok("fn f() -> String { to_string(true) }");
+}
+
+#[test]
+fn to_string_works_on_string() {
+    check_ok(r#"fn f() -> String { to_string("hi") }"#);
+}
+
+// ── len accepts both List and String ────────────────────────────────────
+
+#[test]
+fn len_on_list() {
+    check_ok("fn f() -> Int { len([1, 2, 3]) }");
+}
+
+#[test]
+fn len_on_string() {
+    check_ok(r#"fn f() -> Int { len("hello") }"#);
+}
