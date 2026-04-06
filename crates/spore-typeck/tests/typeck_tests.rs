@@ -2046,3 +2046,138 @@ fn ty_fold_ref_maps_vars() {
     });
     assert_eq!(mapped, Ty::App("List".into(), vec![Ty::Int]));
 }
+
+// ── Type soundness regression tests ─────────────────────────────────────
+
+// S1: if without else must type as Unit
+#[test]
+fn if_without_else_types_as_unit() {
+    // Using the result of an if-without-else as Int should fail
+    let errs = check_err("fn f(x: Bool) -> Int { if x { 42 } }");
+    assert!(
+        errs.iter().any(|e| e.contains("type mismatch")),
+        "if-without-else returning non-Unit should be a type error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn if_without_else_unit_body_ok() {
+    // An if-without-else whose body is Unit is fine in a ()-returning fn
+    check_ok(
+        r#"fn side_effect(x: Bool) -> () {
+            if x { let _ = 1 }
+        }"#,
+    );
+}
+
+// S2: return expression types as Never
+#[test]
+fn return_types_as_never() {
+    // return should diverge (Never), so using it in an if-else that expects Int is ok
+    check_ok(
+        r#"fn f(x: Bool) -> Int {
+            if x { return 0 } else { 42 }
+        }"#,
+    );
+}
+
+// S3: Never is covariant only — actual=Never is fine, expected=Never is not
+#[test]
+fn never_actual_unifies_with_any() {
+    // A function returning Never should be usable where Int is expected
+    check_ok(
+        r#"fn diverge() -> Never { ?todo }
+        fn use_int() -> Int { diverge() }"#,
+    );
+}
+
+#[test]
+fn int_does_not_satisfy_never() {
+    // Int should NOT satisfy an expected Never
+    let errs = check_err("fn f() -> Never { 42 }");
+    assert!(
+        errs.iter().any(|e| e.contains("type mismatch")),
+        "Int should not satisfy Never, got: {errs:?}"
+    );
+}
+
+// S4: Struct literal checks for missing and duplicate fields
+#[test]
+fn struct_missing_field_is_error() {
+    let errs = check_err(
+        r#"struct Point { x: Float, y: Float }
+        fn bad() -> Point { Point { x: 1.0 } }"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("missing field")),
+        "should report missing field `y`, got: {errs:?}"
+    );
+}
+
+#[test]
+fn struct_duplicate_field_is_error() {
+    let errs = check_err(
+        r#"struct Point { x: Float, y: Float }
+        fn bad() -> Point { Point { x: 1.0, y: 2.0, x: 3.0 } }"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("duplicate field")),
+        "should report duplicate field `x`, got: {errs:?}"
+    );
+}
+
+// A10: Exhaustiveness for Ty::App (parameterized types)
+#[test]
+fn exhaustive_parameterized_type_match() {
+    // Non-parameterized Option works; the Ty::App path is tested below
+    check_ok(
+        r#"type Option { Some(Int), None }
+        fn unwrap_or(opt: Option, default: Int) -> Int {
+            match opt {
+                Some(v) => v,
+                None => default,
+            }
+        }"#,
+    );
+}
+
+#[test]
+fn non_exhaustive_parameterized_type_match() {
+    let errs = check_err(
+        r#"type Option { Some(Int), None }
+        fn unwrap(opt: Option) -> Int {
+            match opt {
+                Some(v) => v,
+            }
+        }"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("non-exhaustive")),
+        "should report non-exhaustive match on Option, got: {errs:?}"
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("None")),
+        "should mention missing variant None, got: {errs:?}"
+    );
+}
+
+/// Ty::App exhaustiveness: use a List[Int] return which forces the scrutinee
+/// through the App path. We construct the scenario via a helper that returns
+/// a parameterised type and then match on it.
+#[test]
+fn non_exhaustive_app_type_match() {
+    // Result[T, E] with two variants, matched on Result[Int, String].
+    // The checker resolves fn return type to Ty::App("Result", [Int, String]).
+    let errs = check_err(
+        r#"type Result[T, E] { Ok(T), Err(E) }
+        fn get_ok(r: Result[Int, String]) -> Int {
+            match r {
+                Ok(v) => v,
+            }
+        }"#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("non-exhaustive")),
+        "should report non-exhaustive match on Result[Int, String], got: {errs:?}"
+    );
+}
