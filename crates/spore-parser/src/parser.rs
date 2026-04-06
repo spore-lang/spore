@@ -135,6 +135,14 @@ impl Parser {
         self.tokens[self.pos].span
     }
 
+    fn previous_span(&self) -> Span {
+        if self.pos > 0 {
+            self.tokens[self.pos - 1].span
+        } else {
+            Span { start: 0, end: 0 }
+        }
+    }
+
     fn advance(&mut self) -> &Spanned<Token> {
         let t = &self.tokens[self.pos];
         if self.pos + 1 < self.tokens.len() {
@@ -232,12 +240,15 @@ impl Parser {
     }
 
     fn parse_annotated_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
         self.expect(&Token::At)?;
         let annotation = self.expect_ident()?;
         match annotation.as_str() {
             "unbounded" => {
                 let mut fn_def = self.parse_fn_def()?;
                 fn_def.is_unbounded = true;
+                // Extend span to include the annotation
+                fn_def.span = fn_def.span.map(|s| Span::new(start, s.end));
                 Ok(Item::Function(fn_def))
             }
             _ => Err(self.error(format!("unknown annotation `@{annotation}`"))),
@@ -282,19 +293,23 @@ impl Parser {
     }
 
     fn parse_alias_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
         let visibility = self.parse_visibility()?;
         self.expect(&Token::Alias)?;
         let name = self.expect_ident()?;
         self.expect(&Token::Eq)?;
         let target = self.parse_type_expr()?;
+        let end = self.previous_span().end;
         Ok(Item::Alias(AliasDef {
             name,
             visibility,
             target,
+            span: Some(Span::new(start, end)),
         }))
     }
 
     fn parse_const_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
         let visibility = self.parse_visibility()?;
         self.expect(&Token::Const)?;
         let name = self.expect_ident()?;
@@ -302,11 +317,13 @@ impl Parser {
         let ty = self.parse_type_expr()?;
         self.expect(&Token::Eq)?;
         let value = self.parse_expr()?;
+        let end = self.previous_span().end;
         Ok(Item::Const(ConstDef {
             name,
             visibility,
             ty,
             value,
+            span: Some(Span::new(start, end)),
         }))
     }
 
@@ -315,6 +332,8 @@ impl Parser {
     }
 
     fn parse_fn_def(&mut self) -> Result<FnDef, ParseError> {
+        let start = self.peek_span().start;
+
         // optional visibility
         let visibility = self.parse_visibility()?;
 
@@ -391,6 +410,8 @@ impl Parser {
             None
         };
 
+        let end = self.previous_span().end;
+
         Ok(FnDef {
             name,
             visibility,
@@ -404,6 +425,7 @@ impl Parser {
             is_unbounded: false,
             is_foreign,
             body,
+            span: Some(Span::new(start, end)),
         })
     }
 
@@ -607,6 +629,7 @@ impl Parser {
     // ── Struct definition ───────────────────────────────────────────
 
     fn parse_struct_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
         self.expect(&Token::Struct)?;
         let name = self.expect_ident()?;
 
@@ -634,6 +657,8 @@ impl Parser {
 
         let deriving = self.parse_deriving_clause()?;
 
+        let end = self.previous_span().end;
+
         Ok(Item::StructDef(StructDef {
             name,
             visibility: Visibility::Private,
@@ -641,12 +666,14 @@ impl Parser {
             fields,
             implements: vec![],
             deriving,
+            span: Some(Span::new(start, end)),
         }))
     }
 
     // ── Type (enum) definition ──────────────────────────────────────
 
     fn parse_type_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
         self.expect(&Token::Type)?;
         let name = self.expect_ident()?;
 
@@ -683,6 +710,8 @@ impl Parser {
 
         let deriving = self.parse_deriving_clause()?;
 
+        let end = self.previous_span().end;
+
         Ok(Item::TypeDef(TypeDef {
             name,
             visibility: Visibility::Private,
@@ -690,6 +719,7 @@ impl Parser {
             variants,
             implements: vec![],
             deriving,
+            span: Some(Span::new(start, end)),
         }))
     }
 
@@ -711,6 +741,7 @@ impl Parser {
     // ── Capability definition ───────────────────────────────────────
 
     fn parse_capability_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
         self.expect(&Token::Capability)?;
         let name = self.expect_ident()?;
 
@@ -729,7 +760,12 @@ impl Parser {
             self.expect(&Token::LBracket)?;
             let components = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
             self.expect(&Token::RBracket)?;
-            return Ok(Item::CapabilityAlias { name, components });
+            let end = self.previous_span().end;
+            return Ok(Item::CapabilityAlias {
+                name,
+                components,
+                span: Some(Span::new(start, end)),
+            });
         }
 
         self.expect(&Token::LBrace)?;
@@ -761,18 +797,22 @@ impl Parser {
         }
         self.expect(&Token::RBrace)?;
 
+        let end = self.previous_span().end;
+
         Ok(Item::CapabilityDef(CapabilityDef {
             name,
             visibility: Visibility::Private,
             type_params,
             methods,
             assoc_types,
+            span: Some(Span::new(start, end)),
         }))
     }
 
     // ── Impl block ──────────────────────────────────────────────────
 
     fn parse_impl_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
         self.expect(&Token::Impl)?;
         let capability = self.expect_ident()?;
 
@@ -803,17 +843,21 @@ impl Parser {
         }
         self.expect(&Token::RBrace)?;
 
+        let end = self.previous_span().end;
+
         Ok(Item::ImplDef(ImplDef {
             capability,
             target_type,
             type_args,
             methods,
+            span: Some(Span::new(start, end)),
         }))
     }
 
     // ── Import declaration ──────────────────────────────────────────
 
     fn parse_import_item(&mut self) -> Result<Item, ParseError> {
+        let start = self.peek_span().start;
         self.expect(&Token::Import)?;
         let path = self.expect_ident()?;
 
@@ -837,9 +881,12 @@ impl Parser {
                 .to_string()
         };
 
+        let end = self.previous_span().end;
+
         Ok(Item::Import(ImportDecl::Import {
             path: full_path,
             alias,
+            span: Some(Span::new(start, end)),
         }))
     }
 

@@ -834,6 +834,7 @@ mod tests {
         let imports = vec![ImportDecl::Import {
             path: "b.core".into(),
             alias: "core".into(),
+            span: None,
         }];
 
         registry
@@ -861,6 +862,7 @@ mod tests {
         let imports = vec![ImportDecl::Import {
             path: "a".into(),
             alias: "a".into(),
+            span: None,
         }];
 
         let result = registry.resolve_imports(&mut loader, "entry", &imports);

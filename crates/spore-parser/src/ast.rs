@@ -1,5 +1,7 @@
 //! Spore Abstract Syntax Tree definitions.
 
+pub use crate::lexer::Span;
+
 /// A Spore module (one .spore file = one module).
 #[derive(Debug, Clone)]
 pub struct Module {
@@ -21,6 +23,7 @@ pub enum Item {
     CapabilityAlias {
         name: String,
         components: Vec<String>,
+        span: Option<Span>,
     },
     ImplDef(ImplDef),
     Import(ImportDecl),
@@ -33,6 +36,7 @@ pub struct AliasDef {
     pub name: String,
     pub visibility: Visibility,
     pub target: TypeExpr,
+    pub span: Option<Span>,
 }
 
 /// Compile-time constant definition: `const MAX_SIZE: Int = 1024`
@@ -42,6 +46,7 @@ pub struct ConstDef {
     pub visibility: Visibility,
     pub ty: TypeExpr,
     pub value: Expr,
+    pub span: Option<Span>,
 }
 
 /// Function definition with full Spore signature.
@@ -71,6 +76,7 @@ pub struct FnDef {
     pub is_foreign: bool,
     /// None means this is a hole (?name)
     pub body: Option<Expr>,
+    pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone)]
@@ -289,6 +295,7 @@ pub struct StructDef {
     pub fields: Vec<FieldDef>,
     pub implements: Vec<ImplBlock>,
     pub deriving: Vec<String>,
+    pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone)]
@@ -305,6 +312,7 @@ pub struct TypeDef {
     pub variants: Vec<Variant>,
     pub implements: Vec<ImplBlock>,
     pub deriving: Vec<String>,
+    pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone)]
@@ -327,6 +335,7 @@ pub struct CapabilityDef {
     pub type_params: Vec<String>,
     pub methods: Vec<FnDef>,
     pub assoc_types: Vec<AssocType>,
+    pub span: Option<Span>,
 }
 
 /// Top-level impl block: `impl Capability for Type { ... }`
@@ -336,6 +345,7 @@ pub struct ImplDef {
     pub target_type: String,
     pub type_args: Vec<TypeExpr>,
     pub methods: Vec<FnDef>,
+    pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone)]
@@ -346,6 +356,14 @@ pub struct ImplBlock {
 
 #[derive(Debug, Clone)]
 pub enum ImportDecl {
-    Import { path: String, alias: String },
-    Alias { name: String, path: String },
+    Import {
+        path: String,
+        alias: String,
+        span: Option<Span>,
+    },
+    Alias {
+        name: String,
+        path: String,
+        span: Option<Span>,
+    },
 }

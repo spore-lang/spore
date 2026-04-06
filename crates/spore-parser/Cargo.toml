@@ -5,3 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Spore language parser (source text → AST)"
 license.workspace = true
+
+[dev-dependencies]
+spore-typeck = { path = "../spore-typeck" }

@@ -109,8 +109,8 @@ impl Checker {
     /// Resolve an import declaration, importing symbols into the current registry.
     fn resolve_import(&mut self, import: &ImportDecl) {
         let (path, alias) = match import {
-            ImportDecl::Import { path, alias } => (path.as_str(), alias.as_str()),
-            ImportDecl::Alias { name, path } => (path.as_str(), name.as_str()),
+            ImportDecl::Import { path, alias, .. } => (path.as_str(), alias.as_str()),
+            ImportDecl::Alias { name, path, .. } => (path.as_str(), name.as_str()),
         };
         let path_segments: Vec<String> = path.split('.').map(|s| s.to_string()).collect();
         let module = match self.module_registry.get(&path_segments) {
@@ -389,13 +389,15 @@ impl Checker {
         // Check that all required methods are implemented
         for (method_name, _expected_params, _expected_ret) in &cap_methods {
             if !impl_def.methods.iter().any(|m| &m.name == method_name) {
-                self.err(
-                    ErrorCode::E0013,
-                    format!(
-                        "impl `{}` for `{}` is missing method `{}`",
-                        impl_def.capability, impl_def.target_type, method_name
-                    ),
+                let msg = format!(
+                    "impl `{}` for `{}` is missing method `{}`",
+                    impl_def.capability, impl_def.target_type, method_name
                 );
+                if let Some(span) = impl_def.span {
+                    self.err_at(ErrorCode::E0013, msg, span);
+                } else {
+                    self.err(ErrorCode::E0013, msg);
+                }
             }
         }
 
@@ -1856,6 +1858,10 @@ impl Checker {
 
     fn err(&mut self, code: ErrorCode, message: String) {
         self.errors.push(TypeError::new(code, message));
+    }
+
+    fn err_at(&mut self, code: ErrorCode, message: String, span: Span) {
+        self.errors.push(TypeError::with_span(code, message, span));
     }
 
     /// Check a refinement predicate against a constant expression.

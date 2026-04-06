@@ -307,7 +307,11 @@ fn test_type_def() {
 fn test_import() {
     let m = parse_ok("import std.io.File");
     match &m.items[0] {
-        spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import { path, alias }) => {
+        spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import {
+            path,
+            alias,
+            ..
+        }) => {
             assert_eq!(path, "std.io.File");
             assert_eq!(alias, "File");
         }
@@ -319,7 +323,11 @@ fn test_import() {
 fn test_import_with_alias() {
     let m = parse_ok("import std.collections.HashMap as Map");
     match &m.items[0] {
-        spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import { path, alias }) => {
+        spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import {
+            path,
+            alias,
+            ..
+        }) => {
             assert_eq!(path, "std.collections.HashMap");
             assert_eq!(alias, "Map");
         }
@@ -735,6 +743,7 @@ fn test_alias_def() {
             name,
             visibility,
             target,
+            ..
         }) => {
             assert_eq!(name, "MyInt");
             assert!(matches!(visibility, Visibility::Private));
@@ -752,6 +761,7 @@ fn test_pub_alias_def() {
             name,
             visibility,
             target,
+            ..
         }) => {
             assert_eq!(name, "StringList");
             assert!(matches!(visibility, Visibility::Pub));
@@ -1203,4 +1213,103 @@ fn test_parse_handle_multiple_arms() {
         }
         _ => panic!("expected function"),
     }
+}
+
+// ── Span tracking tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_fn_def_has_span() {
+    let src = "fn add(a: Int, b: Int) -> Int { a + b }";
+    let m = parse_ok(src);
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let span = f.span.expect("FnDef should have a span");
+            assert_eq!(span.start, 0);
+            assert_eq!(span.end, src.len());
+            assert_eq!(&src[span.start..span.end], src);
+        }
+        other => panic!("expected Function, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_struct_def_has_span() {
+    let src = "struct Point { x: Int, y: Int }";
+    let m = parse_ok(src);
+    match &m.items[0] {
+        spore_parser::ast::Item::StructDef(s) => {
+            let span = s.span.expect("StructDef should have a span");
+            assert_eq!(span.start, 0);
+            assert_eq!(span.end, src.len());
+            assert_eq!(&src[span.start..span.end], src);
+        }
+        other => panic!("expected StructDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_type_def_has_span() {
+    let src = "type Color { Red, Green, Blue }";
+    let m = parse_ok(src);
+    match &m.items[0] {
+        spore_parser::ast::Item::TypeDef(t) => {
+            let span = t.span.expect("TypeDef should have a span");
+            assert_eq!(span.start, 0);
+            assert_eq!(span.end, src.len());
+        }
+        other => panic!("expected TypeDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_import_has_span() {
+    let src = "import std.io.File";
+    let m = parse_ok(src);
+    match &m.items[0] {
+        spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import { span, .. }) => {
+            let span = span.expect("ImportDecl should have a span");
+            assert_eq!(span.start, 0);
+            assert_eq!(span.end, src.len());
+        }
+        other => panic!("expected Import, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_fn_span_with_leading_items() {
+    let src = "const X: Int = 1\nfn foo() -> Int { 42 }";
+    let m = parse_ok(src);
+    // The fn item starts after the const
+    match &m.items[1] {
+        spore_parser::ast::Item::Function(f) => {
+            let span = f.span.expect("FnDef should have a span");
+            let fn_src = &src[span.start..span.end];
+            assert!(fn_src.starts_with("fn foo"), "got: {fn_src}");
+        }
+        other => panic!("expected Function, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_error_includes_span() {
+    // A missing method in an impl should report the impl's span
+    let src = "capability Greet {\n    fn greet(self: Self) -> String\n}\nstruct Bot {}\nimpl Greet for Bot {}";
+    let ast = parse_ok(src);
+    let errs = spore_typeck::type_check(&ast).unwrap_err();
+    // The error for missing method should have a span pointing to the impl block
+    let e = errs
+        .iter()
+        .find(|e| e.message.contains("missing method"))
+        .expect("should have missing-method error");
+    assert!(
+        e.span.is_some(),
+        "TypeError for missing method should have a span"
+    );
+    let span = e.span.unwrap();
+    // Span should cover the impl block
+    let impl_src = &src[span.start..span.end];
+    assert!(
+        impl_src.starts_with("impl"),
+        "span should point to impl block, got: {impl_src}"
+    );
 }
