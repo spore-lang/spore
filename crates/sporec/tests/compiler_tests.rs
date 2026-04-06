@@ -2,7 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use sporec::{check_verbose, compile, compile_project, hole_summary, run_project};
+use sporec::{
+    check_project_verbose, check_verbose, compile, compile_project, hole_summary, run_project,
+};
 
 struct TempProject {
     root: PathBuf,
@@ -282,6 +284,72 @@ fn run_project_rejects_type_error_in_imported_module_before_execution() {
     assert!(
         err.contains("double") || err.contains("E0001"),
         "expected imported module type error details, got: {err}"
+    );
+}
+
+#[test]
+fn check_project_verbose_rejects_type_error_in_imported_module() {
+    let project = TempProject::new("project-verbose-import-type-error");
+    project.write(
+        "src/main.sp",
+        r#"
+        import utils
+        fn main() -> Int { double(21) }
+        "#,
+    );
+    project.write(
+        "src/utils.sp",
+        r#"
+        pub fn double(x: Int) -> Int { "oops" }
+        "#,
+    );
+
+    let err = check_project_verbose(project.root(), "main.sp")
+        .expect_err("project verbose check should reject invalid imported module bodies");
+    assert!(
+        err.contains("utils.sp"),
+        "expected imported module path in error, got: {err}"
+    );
+    assert!(
+        err.contains("double") || err.contains("E0001"),
+        "expected imported module type error details, got: {err}"
+    );
+}
+
+#[test]
+fn check_project_verbose_includes_imported_module_sections() {
+    let project = TempProject::new("project-verbose-ok");
+    project.write(
+        "src/main.sp",
+        r#"
+        import utils
+        fn main() -> Int { double(21) }
+        "#,
+    );
+    project.write(
+        "src/utils.sp",
+        r#"
+        pub fn double(x: Int) -> Int { x + x }
+        "#,
+    );
+
+    let detail = check_project_verbose(project.root(), "main.sp")
+        .expect("project verbose check should succeed for valid imported modules");
+    assert!(
+        detail.contains("✓ no errors"),
+        "expected success marker, got: {detail}"
+    );
+    assert!(
+        detail.contains("utils.sp"),
+        "expected imported module section, got: {detail}"
+    );
+    assert!(
+        detail.contains("main.sp"),
+        "expected entry module section, got: {detail}"
+    );
+    assert!(
+        detail.matches("── Type Inference ──").count() >= 2,
+        "expected per-module verbose sections, got: {detail}"
     );
 }
 
