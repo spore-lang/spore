@@ -185,6 +185,78 @@ fn test_fn_clauses_parse_in_any_order() {
     }
 }
 
+#[test]
+fn test_trait_item_ast_shape() {
+    let m = parse_ok(
+        r#"
+        trait Display[T] {
+            type Output
+            fn show(self: T) -> String
+        }
+    "#,
+    );
+    match &m.items[0] {
+        spore_parser::ast::Item::TraitDef(t) => {
+            assert_eq!(t.name, "Display");
+            assert_eq!(t.type_params, vec!["T"]);
+            assert_eq!(t.assoc_types.len(), 1);
+            assert_eq!(t.methods.len(), 1);
+        }
+        other => panic!("expected TraitDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_effect_item_ast_shape() {
+    let m = parse_ok(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+        }
+    "#,
+    );
+    match &m.items[0] {
+        spore_parser::ast::Item::EffectDef(effect) => {
+            assert_eq!(effect.name, "Console");
+            assert_eq!(effect.operations.len(), 1);
+            assert_eq!(effect.operations[0].name, "println");
+        }
+        other => panic!("expected EffectDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_effect_alias_ast_shape() {
+    let m = parse_ok("effect IO = Console | FileRead | FileWrite");
+    match &m.items[0] {
+        spore_parser::ast::Item::EffectAlias(alias) => {
+            assert_eq!(alias.name, "IO");
+            assert_eq!(alias.effects, vec!["Console", "FileRead", "FileWrite"]);
+        }
+        other => panic!("expected EffectAlias, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_handler_item_ast_shape() {
+    let m = parse_ok(
+        r#"
+        handler MockConsole for Console {
+            fn println(msg: String) -> Unit { return }
+        }
+    "#,
+    );
+    match &m.items[0] {
+        spore_parser::ast::Item::HandlerDef(handler) => {
+            assert_eq!(handler.name, "MockConsole");
+            assert_eq!(handler.effect, "Console");
+            assert_eq!(handler.methods.len(), 1);
+            assert_eq!(handler.methods[0].name, "println");
+        }
+        other => panic!("expected HandlerDef, got {other:?}"),
+    }
+}
+
 // ── Expressions ──────────────────────────────────────────────────────────
 
 #[test]

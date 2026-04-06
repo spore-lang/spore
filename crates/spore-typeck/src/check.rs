@@ -1218,13 +1218,47 @@ impl Checker {
                         ),
                     );
                 }
-                // Type-check arguments
+                let has_registered_effect = self.registry.capabilities.contains_key(effect);
+                if has_registered_effect {
+                    if let Some((param_tys, ret_ty)) =
+                        self.lookup_registered_effect_operation(effect, operation)
+                    {
+                        if param_tys.len() != args.len() {
+                            self.err(
+                                ErrorCode::E0007,
+                                format!(
+                                    "effect operation `{effect}.{operation}` expects {} arguments, got {}",
+                                    param_tys.len(),
+                                    args.len()
+                                ),
+                            );
+                            for arg in args {
+                                let _ = self.check_expr(arg);
+                            }
+                            return self.apply_subst(&ret_ty);
+                        }
+                        for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
+                            let arg_ty = self.check_expr(arg_expr);
+                            self.unify(
+                                expected,
+                                &arg_ty,
+                                &format!("argument {} of `{effect}.{operation}`", i + 1),
+                            );
+                        }
+                        return self.apply_subst(&ret_ty);
+                    }
+                    for arg in args {
+                        let _ = self.check_expr(arg);
+                    }
+                    return Ty::Error;
+                }
+
+                // Transitional fallback: platform-provided effects are still wired
+                // through runtime handlers before their signatures are surfaced as
+                // source-defined `effect` items, so keep the legacy Unit behavior.
                 for arg in args {
                     let _ = self.check_expr(arg);
                 }
-                // The return type of a perform is unknown at this point;
-                // for now treat it as Unit (operations like println return Unit).
-                let _ = operation;
                 Ty::Unit
             }
 
@@ -1243,11 +1277,51 @@ impl Checker {
                 // Check handler arm bodies
                 for arm in handlers {
                     self.env.push_scope();
-                    for param in &arm.params {
-                        let var = self.fresh_var();
-                        self.env.define(param.clone(), var);
+                    if self.registry.capabilities.contains_key(&arm.effect) {
+                        if let Some((param_tys, ret_ty)) =
+                            self.lookup_registered_effect_operation(&arm.effect, &arm.operation)
+                        {
+                            if param_tys.len() != arm.params.len() {
+                                self.err(
+                                    ErrorCode::E0007,
+                                    format!(
+                                        "handler arm `{}.{}` expects {} parameters, got {}",
+                                        arm.effect,
+                                        arm.operation,
+                                        param_tys.len(),
+                                        arm.params.len()
+                                    ),
+                                );
+                            }
+
+                            for (param, expected_ty) in arm.params.iter().zip(param_tys.iter()) {
+                                self.env.define(param.clone(), expected_ty.clone());
+                            }
+                            for param in arm.params.iter().skip(param_tys.len()) {
+                                let var = self.fresh_var();
+                                self.env.define(param.clone(), var);
+                            }
+
+                            let arm_ty = self.check_expr(&arm.body);
+                            self.unify(
+                                &ret_ty,
+                                &arm_ty,
+                                &format!("handler arm `{}.{}`", arm.effect, arm.operation),
+                            );
+                        } else {
+                            for param in &arm.params {
+                                let var = self.fresh_var();
+                                self.env.define(param.clone(), var);
+                            }
+                            let _ = self.check_expr(&arm.body);
+                        }
+                    } else {
+                        for param in &arm.params {
+                            let var = self.fresh_var();
+                            self.env.define(param.clone(), var);
+                        }
+                        let _ = self.check_expr(&arm.body);
                     }
-                    let _ = self.check_expr(&arm.body);
                     self.env.pop_scope();
                 }
 
@@ -1449,6 +1523,33 @@ impl Checker {
     }
 
     // ── Module registry lookup ──────────────────────────────────────
+
+    /// Look up an operation on an explicitly declared `effect`.
+    ///
+    /// This does not try to infer signatures for platform-provided runtime
+    /// handlers whose effect interfaces have not been loaded as source yet.
+    fn lookup_registered_effect_operation(
+        &mut self,
+        effect: &str,
+        operation: &str,
+    ) -> Option<(Vec<Ty>, Ty)> {
+        let (type_params, methods) = self.registry.capabilities.get(effect).cloned()?;
+        let Some((_name, param_tys, ret_ty)) =
+            methods.into_iter().find(|(name, _, _)| name == operation)
+        else {
+            self.err(
+                ErrorCode::C0002,
+                format!("effect `{effect}` has no operation `{operation}`"),
+            );
+            return None;
+        };
+
+        if type_params.is_empty() {
+            Some((param_tys, ret_ty))
+        } else {
+            Some(self.instantiate_sig(&type_params, &param_tys, &ret_ty))
+        }
+    }
 
     /// Look up a function in the module registry (e.g. prelude builtins).
     /// Instantiates fresh type variables for each `Ty::Var` in the signature

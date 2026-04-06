@@ -140,6 +140,14 @@ fn test_effect_keywords() {
 }
 
 #[test]
+fn test_trait_effect_handler_spec_keywords() {
+    assert_eq!(
+        toks_no_eof("trait effect handler spec"),
+        vec![Token::Trait, Token::Effect, Token::Handler, Token::Spec]
+    );
+}
+
+#[test]
 fn test_module_keywords() {
     assert_eq!(
         toks_no_eof("mod pkg in self impl parallel_scope"),
