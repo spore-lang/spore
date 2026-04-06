@@ -497,6 +497,7 @@ pub fn all_error_codes() -> &'static [ErrorCode] {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct TypeError {
     pub code: ErrorCode,
     pub message: String,

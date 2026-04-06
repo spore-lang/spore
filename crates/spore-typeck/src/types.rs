@@ -12,6 +12,7 @@ pub type ErrorSet = BTreeSet<String>;
 /// The internal type representation used during type checking.
 /// This is separate from the AST's `TypeExpr` — resolved and normalized.
 #[derive(Debug, Clone)]
+#[must_use]
 pub enum Ty {
     /// Primitive types
     Int,

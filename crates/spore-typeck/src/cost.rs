@@ -47,6 +47,7 @@ impl std::fmt::Display for CostExpr {
 
 /// Result of cost analysis for a single function.
 #[derive(Debug, Clone)]
+#[must_use]
 pub enum CostResult {
     /// Non-recursive, bounded constant cost.
     Constant(u64),
