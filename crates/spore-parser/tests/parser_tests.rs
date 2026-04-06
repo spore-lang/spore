@@ -1232,6 +1232,22 @@ fn test_fn_def_has_span() {
     }
 }
 
+// ── Visibility for struct, type, capability ─────────────────────────────
+
+#[test]
+fn test_pub_struct() {
+    let m = parse_ok("pub struct Foo { x: Int }");
+    match &m.items[0] {
+        Item::StructDef(s) => {
+            assert_eq!(s.name, "Foo");
+            assert!(matches!(s.visibility, Visibility::Pub));
+            assert_eq!(s.fields.len(), 1);
+            assert_eq!(s.fields[0].name, "x");
+        }
+        other => panic!("expected StructDef, got {:?}", other),
+    }
+}
+
 #[test]
 fn test_struct_def_has_span() {
     let src = "struct Point { x: Int, y: Int }";
@@ -1244,6 +1260,20 @@ fn test_struct_def_has_span() {
             assert_eq!(&src[span.start..span.end], src);
         }
         other => panic!("expected StructDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_pub_pkg_struct() {
+    let m = parse_ok("pub(pkg) struct Bar { y: Int }");
+    match &m.items[0] {
+        Item::StructDef(s) => {
+            assert_eq!(s.name, "Bar");
+            assert!(matches!(s.visibility, Visibility::PubPkg));
+            assert_eq!(s.fields.len(), 1);
+            assert_eq!(s.fields[0].name, "y");
+        }
+        other => panic!("expected StructDef, got {:?}", other),
     }
 }
 
@@ -1262,6 +1292,19 @@ fn test_type_def_has_span() {
 }
 
 #[test]
+fn test_private_struct_still_works() {
+    let m = parse_ok("struct Point { x: Int, y: Int }");
+    match &m.items[0] {
+        Item::StructDef(s) => {
+            assert_eq!(s.name, "Point");
+            assert!(matches!(s.visibility, Visibility::Private));
+            assert_eq!(s.fields.len(), 2);
+        }
+        other => panic!("expected StructDef, got {:?}", other),
+    }
+}
+
+#[test]
 fn test_import_has_span() {
     let src = "import std.io.File";
     let m = parse_ok(src);
@@ -1272,6 +1315,19 @@ fn test_import_has_span() {
             assert_eq!(span.end, src.len());
         }
         other => panic!("expected Import, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_pub_type() {
+    let m = parse_ok("pub type Color { Red, Green, Blue }");
+    match &m.items[0] {
+        Item::TypeDef(t) => {
+            assert_eq!(t.name, "Color");
+            assert!(matches!(t.visibility, Visibility::Pub));
+            assert_eq!(t.variants.len(), 3);
+        }
+        other => panic!("expected TypeDef, got {:?}", other),
     }
 }
 
@@ -1287,6 +1343,19 @@ fn test_fn_span_with_leading_items() {
             assert!(fn_src.starts_with("fn foo"), "got: {fn_src}");
         }
         other => panic!("expected Function, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_private_type_still_works() {
+    let m = parse_ok("type Direction { Up, Down }");
+    match &m.items[0] {
+        Item::TypeDef(t) => {
+            assert_eq!(t.name, "Direction");
+            assert!(matches!(t.visibility, Visibility::Private));
+            assert_eq!(t.variants.len(), 2);
+        }
+        other => panic!("expected TypeDef, got {:?}", other),
     }
 }
 
@@ -1312,4 +1381,30 @@ fn test_error_includes_span() {
         impl_src.starts_with("impl"),
         "span should point to impl block, got: {impl_src}"
     );
+}
+
+#[test]
+fn test_pub_capability() {
+    let m = parse_ok("pub capability Show { fn show(self: Self) -> String { \"\" } }");
+    match &m.items[0] {
+        Item::CapabilityDef(c) => {
+            assert_eq!(c.name, "Show");
+            assert!(matches!(c.visibility, Visibility::Pub));
+            assert_eq!(c.methods.len(), 1);
+        }
+        other => panic!("expected CapabilityDef, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_private_capability_still_works() {
+    let m = parse_ok("capability Debug { fn debug(self: Self) -> String { \"\" } }");
+    match &m.items[0] {
+        Item::CapabilityDef(c) => {
+            assert_eq!(c.name, "Debug");
+            assert!(matches!(c.visibility, Visibility::Private));
+            assert_eq!(c.methods.len(), 1);
+        }
+        other => panic!("expected CapabilityDef, got {:?}", other),
+    }
 }

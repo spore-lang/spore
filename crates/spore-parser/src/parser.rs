@@ -277,18 +277,13 @@ impl Parser {
         ) {
             lookahead += 1;
         }
-        if matches!(
-            self.tokens.get(lookahead).map(|t| &t.node),
-            Some(Token::Const)
-        ) {
-            self.parse_const_item()
-        } else if matches!(
-            self.tokens.get(lookahead).map(|t| &t.node),
-            Some(Token::Alias)
-        ) {
-            self.parse_alias_item()
-        } else {
-            self.parse_fn_item()
+        match self.tokens.get(lookahead).map(|t| &t.node) {
+            Some(Token::Const) => self.parse_const_item(),
+            Some(Token::Alias) => self.parse_alias_item(),
+            Some(Token::Struct) => self.parse_struct_item(),
+            Some(Token::Type) => self.parse_type_item(),
+            Some(Token::Capability) => self.parse_capability_item(),
+            _ => self.parse_fn_item(),
         }
     }
 
@@ -629,6 +624,7 @@ impl Parser {
     // ── Struct definition ───────────────────────────────────────────
 
     fn parse_struct_item(&mut self) -> Result<Item, ParseError> {
+        let visibility = self.parse_visibility()?;
         let start = self.peek_span().start;
         self.expect(&Token::Struct)?;
         let name = self.expect_ident()?;
@@ -661,7 +657,7 @@ impl Parser {
 
         Ok(Item::StructDef(StructDef {
             name,
-            visibility: Visibility::Private,
+            visibility,
             type_params,
             fields,
             implements: vec![],
@@ -673,6 +669,7 @@ impl Parser {
     // ── Type (enum) definition ──────────────────────────────────────
 
     fn parse_type_item(&mut self) -> Result<Item, ParseError> {
+        let visibility = self.parse_visibility()?;
         let start = self.peek_span().start;
         self.expect(&Token::Type)?;
         let name = self.expect_ident()?;
@@ -714,7 +711,7 @@ impl Parser {
 
         Ok(Item::TypeDef(TypeDef {
             name,
-            visibility: Visibility::Private,
+            visibility,
             type_params,
             variants,
             implements: vec![],
@@ -741,6 +738,7 @@ impl Parser {
     // ── Capability definition ───────────────────────────────────────
 
     fn parse_capability_item(&mut self) -> Result<Item, ParseError> {
+        let visibility = self.parse_visibility()?;
         let start = self.peek_span().start;
         self.expect(&Token::Capability)?;
         let name = self.expect_ident()?;
@@ -801,7 +799,7 @@ impl Parser {
 
         Ok(Item::CapabilityDef(CapabilityDef {
             name,
-            visibility: Visibility::Private,
+            visibility,
             type_params,
             methods,
             assoc_types,
