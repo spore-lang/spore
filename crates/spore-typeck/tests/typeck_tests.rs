@@ -2331,7 +2331,7 @@ fn handler_definition_parses() {
             fn println(msg: String) -> Unit
         }
         handler MockConsole for Console {
-            fn println(msg: String) -> Unit { 0 }
+            fn println(msg: String) -> Unit { return }
         }
     "#,
     );
@@ -2347,6 +2347,41 @@ fn handler_unknown_effect_error() {
     "#,
     );
     assert!(errs.iter().any(|e| e.contains("unknown effect")));
+}
+
+#[test]
+fn handler_return_type_mismatch_error() {
+    let errs = check_err(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+        }
+        handler MockConsole for Console {
+            fn println(msg: String) -> Unit { 0 }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("type mismatch")));
+    assert!(errs.iter().any(|e| e.contains("function `println`")));
+}
+
+#[test]
+fn handler_missing_operation_error() {
+    let errs = check_err(
+        r#"
+        effect Console {
+            fn println(msg: String) -> Unit
+            fn read_line() -> String
+        }
+        handler MockConsole for Console {
+            fn println(msg: String) -> Unit { return }
+        }
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("missing operation `read_line`"))
+    );
 }
 
 // ── Backward compatibility: capability keyword still works ──────────────

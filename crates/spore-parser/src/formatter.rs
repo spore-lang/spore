@@ -1185,4 +1185,28 @@ mod tests {
         let out = roundtrip(src);
         assert!(out.contains("const MAX: Int = 100"));
     }
+
+    #[test]
+    fn test_keyword_item_forms_roundtrip() {
+        let src = concat!(
+            "trait Display[T] {\n",
+            "    fn show(self: T) -> String\n",
+            "}\n",
+            "\n",
+            "effect Console {\n",
+            "    fn println(msg: String) -> Unit\n",
+            "}\n",
+            "\n",
+            "effect IO = Console | FileRead\n",
+            "\n",
+            "handler MockConsole for Console {\n",
+            "    fn println(msg: String) -> Unit {}\n",
+            "}\n",
+        );
+        let out = roundtrip(src);
+        assert!(out.contains("trait Display[T] {"));
+        assert!(out.contains("effect Console {"));
+        assert!(out.contains("effect IO = Console | FileRead"));
+        assert!(out.contains("handler MockConsole for Console {"));
+    }
 }
