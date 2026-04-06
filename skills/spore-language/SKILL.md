@@ -8,6 +8,19 @@ description: >
 
 # Spore Language Skill
 
+## Mission
+
+Spore is a language where **programmer intent is explicit, verifiable, and collaborative**.
+Every function signature is a complete specification — types, errors, cost budget, and capabilities —
+so humans and AI agents can collaborate through typed holes without ambiguity.
+
+### Goals
+
+- **Intent-first**: Signatures before implementations. Holes are first-class collaboration points.
+- **Verifiable by construction**: Capabilities, costs, and effects are checked at compile time.
+- **Supply-chain security**: Capability isolation ensures downloaded packages cannot access IO they don't declare.
+- **AI-native workflow**: HoleReports provide self-contained context for AI code generation.
+
 ## Design philosophy — intent programming
 
 Spore is built around one idea: **programmer intent should be explicit, verifiable, and collaborative**.
@@ -81,92 +94,96 @@ Use `spore watch` for incremental re-checking on every save.
 
 Zero holes = complete, fully verified program.
 
+## Project structure
+
+A Spore project follows a conventional layout managed by `spore.toml`:
+
+```
+my-app/
+├── spore.toml          # project manifest
+├── src/
+│   ├── main.sp         # entry point (application)
+│   └── billing/
+│       ├── invoice.sp  # module: billing.invoice
+│       └── types.sp    # module: billing.types
+└── .gitignore
+```
+
+Cross-file imports use dot-separated module paths:
+
+```spore
+import billing.invoice
+import billing.types
+```
+
+The compiler resolves modules from the `src/` directory and detects circular dependencies at compile time.
+
 ## CLI reference
 
 ```bash
-spore check <file...>        # type-check only
-spore check --verbose <file> # show inferred types, costs, capabilities
-spore holes <file>           # JSON hole report (types, bindings, candidates, DAG)
-spore run <file>             # compile and execute (tree-walk interpreter)
-spore watch <file>           # re-check on file changes
-spore watch --json <file>    # NDJSON events for IDE/Agent consumption
-cargo build                  # build the compiler
-cargo test --all             # run all tests
+# Compile and execute
+spore run <file>                  # compile and execute (tree-walk interpreter)
+spore run --json <file>           # output result as JSON
+
+# Type-checking
+spore check <file...>             # type-check one or more files
+spore check --verbose <file>      # show inferred types, costs, capabilities
+spore check --json <file>         # output diagnostics as JSON
+spore check --deny-warnings <file> # treat warnings as errors
+
+# Formatting
+spore format <file>               # format source in-place (alias: spore fmt)
+spore format --check <file>       # check if file is formatted (exit 1 if not)
+spore format --diff <file>        # show formatting diff without writing
+
+# Hole reports
+spore holes <file>                # JSON hole report (types, bindings, candidates, DAG)
+
+# Building
+spore build <file>                # compile without executing (interpreter mode)
+
+# Watch mode
+spore watch <file>                # re-check on file changes
+spore watch --json <file>         # NDJSON events for IDE/Agent consumption
+
+# Project scaffolding (PR #26 — may not yet be on main)
+spore new <name>                  # create new project directory
+spore new <name> --type package   # project types: application (default), package, platform
+spore init                        # initialize project in current directory
+spore init --type package         # specify project type
+
+# Version / help
+spore --version                   # print version
+spore help                        # show usage
+
+# Development (building the compiler itself)
+cargo build                       # build the compiler
+cargo test --all                  # run all tests
 ```
 
-## Syntax essentials
+## Language features
 
-### Core rules
+### Effect expressions — `perform` / `handle`
 
-- Expression-only: no statements, no loops, no null.
-- Fixed signature clause order: `-> return` then `! errors` then `where` then `cost` then `uses` then `body`.
-- Semicolons: with semicolon = statement (value discarded); without = return expression.
-- No custom operators. Pipe `|>` and try `?` are built in.
+Spore supports algebraic effects via `perform` and `handle`. Effects are dispatched at runtime and checked at compile time via the `uses` clause.
 
-### Data types
+### Cross-file import resolution
 
-```spore
-struct Point { x: Int, y: Int }
+Multi-file compilation resolves `import billing.invoice` to `src/billing/invoice.sp`. The module dependency graph is validated for circular imports.
 
-type Shape { Circle(Int), Rect(Int, Int) }
+### LSP server
 
-fn area(s: Shape) -> Int {
-    match s {
-        Circle(r) => r * r * 3,
-        Rect(w, h) => w * h,
-    }
-}
-```
+The `spore-lsp` binary provides IDE integration:
 
-Pattern matching is exhaustive. Supported: variable, wildcard `_`, literal, constructor, struct, or-pattern `A | B`, list `[h, ..t]`.
+- **Completion** — context-aware suggestions for functions, types, and bindings.
+- **Goto definition** — jump to function/type definitions.
+- **Document symbols** — outline of structs, functions, and types in the current file.
+- **Hover** — display type signatures and documentation for symbols.
+- **Diagnostics** — real-time type errors, warnings, and cost analysis on save.
 
-### Primitives
+### Cost enforcement
 
-`Int`, `Float`, `Bool`, `String`, `Char`, `Unit`, `Never`.
-
-Composite: `List[T]`, `Option[T]`, `Result[T, E]`, `(A) -> B`, `Task[T]`.
-
-### Capabilities
-
-Declare effects with `uses`. Callee capabilities must be a subset of caller capabilities.
-
-```spore
-fn read_data(path: String) -> String uses [FileRead] { ?todo }
-fn transform(data: String) -> String { data |> trim }  // pure — no uses
-```
-
-Atomic capabilities: `Compute`, `FileRead`, `FileWrite`, `NetRead`, `NetWrite`, `StateRead`, `StateWrite`, `Spawn`, `Clock`, `Random`, `Exit`.
-
-### Cost analysis
-
-```spore
-fn search(list: List[Int], target: Int) -> Bool cost ≤ O(n) { ?search }
-```
-
-Three tiers: automatic structural recursion (~70%), declared `cost ≤ expr` (~20%), `@unbounded` escape (~10%, contagious).
-
-### Error sets
-
-```spore
-fn load(path: String) -> Config ! [IoError, ParseError] uses [FileRead] {
-    let raw = read_file(path)?;   // ? propagates errors
-    parse_config(raw)?
-}
-```
-
-### Lambdas and pipes
-
-```spore
-let double = |x: Int| x * 2;
-numbers |> filter(|x: Int| x > 0) |> map(|x: Int| x * 2) |> fold(0, |a: Int, b: Int| a + b)
-```
-
-### Traits (capabilities)
-
-```spore
-capability Display[T] { fn show(self: T) -> String }
-impl Display for Point { fn show(self: Point) -> String { to_string(self.x) + ", " + to_string(self.y) } }
-```
+Cost budgets declared in signatures are verified by the compiler. Functions whose cost cannot be determined structurally receive a warning. The `@unbounded` annotation opts out of cost checking (contagious to callers).
 
 ## Filling holes — checklist
 
