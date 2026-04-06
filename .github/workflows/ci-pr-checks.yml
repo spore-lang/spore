@@ -1,0 +1,24 @@
+# PR checks: title validation via zendev (extend with more jobs later).
+name: CI - PR Checks
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    name: PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: zrr1999/zendev/.github/actions/validate-title@main
+        with:
+          text: ${{ github.event.pull_request.title }}
