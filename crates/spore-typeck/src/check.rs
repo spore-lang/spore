@@ -667,10 +667,20 @@ impl Checker {
                 let then_ty = self.check_expr(then_branch);
                 if let Some(else_expr) = else_branch {
                     let else_ty = self.check_expr(else_expr);
-                    self.unify(&then_ty, &else_ty, "if/else branches");
-                    then_ty
+                    // If one branch diverges (Never), the overall type is the other branch.
+                    if matches!(then_ty, Ty::Never) {
+                        else_ty
+                    } else if matches!(else_ty, Ty::Never) {
+                        then_ty
+                    } else {
+                        self.unify(&then_ty, &else_ty, "if/else branches");
+                        then_ty
+                    }
                 } else {
-                    then_ty
+                    // No else branch: the expression types as Unit.
+                    // Unify then_ty with Unit so non-Unit then-branches are flagged.
+                    self.unify(&Ty::Unit, &then_ty, "if without else must be Unit");
+                    Ty::Unit
                 }
             }
 
@@ -707,7 +717,13 @@ impl Checker {
                     self.env.pop_scope();
 
                     if let Some(ref expected) = result_ty {
-                        self.unify(expected, &arm_ty, "match arms");
+                        // If the accumulated result type is Never (all prior arms diverged),
+                        // adopt this arm's type. If this arm diverges, keep the existing type.
+                        if matches!(expected, Ty::Never) {
+                            result_ty = Some(arm_ty);
+                        } else if !matches!(arm_ty, Ty::Never) {
+                            self.unify(expected, &arm_ty, "match arms");
+                        }
                     } else {
                         result_ty = Some(arm_ty);
                     }
@@ -792,6 +808,17 @@ impl Checker {
 
             Expr::StructLit(name, fields) => {
                 if let Some(def_fields) = self.registry.structs.get(name).cloned() {
+                    // Check for duplicate fields in the literal
+                    let mut seen = HashSet::new();
+                    for (fname, _) in fields.iter() {
+                        if !seen.insert(fname.as_str()) {
+                            self.err(
+                                ErrorCode::E0015,
+                                format!("duplicate field `{fname}` in struct `{name}`"),
+                            );
+                        }
+                    }
+
                     for (fname, fexpr) in fields {
                         let fty = self.check_expr(fexpr);
                         if let Some((_, expected)) = def_fields.iter().find(|(n, _)| n == fname) {
@@ -803,6 +830,19 @@ impl Checker {
                             );
                         }
                     }
+
+                    // Check for missing required fields
+                    let provided_names: HashSet<&str> =
+                        fields.iter().map(|(n, _)| n.as_str()).collect();
+                    for (def_name, _) in &def_fields {
+                        if !provided_names.contains(def_name.as_str()) {
+                            self.err(
+                                ErrorCode::E0015,
+                                format!("missing field `{def_name}` in struct `{name}`"),
+                            );
+                        }
+                    }
+
                     Ty::Named(name.clone())
                 } else {
                     self.err(ErrorCode::E0005, format!("undefined struct `{name}`"));
@@ -911,10 +951,10 @@ impl Checker {
 
             Expr::Return(expr) => {
                 if let Some(inner) = expr {
-                    self.check_expr(inner)
-                } else {
-                    Ty::Unit
+                    let _ret_val_ty = self.check_expr(inner);
+                    // TODO: validate _ret_val_ty against enclosing function's declared return type
                 }
+                Ty::Never
             }
 
             Expr::Throw(expr) => {
@@ -1475,14 +1515,20 @@ impl Checker {
         if e == a {
             return;
         }
+        // Treat empty tuple as Unit (the parser produces Tuple([]) for `()`)
+        if matches!((&e, &a), (Ty::Unit, Ty::Tuple(v)) | (Ty::Tuple(v), Ty::Unit) if v.is_empty()) {
+            return;
+        }
         if matches!(e, Ty::Hole(_)) || matches!(a, Ty::Hole(_)) {
             return;
         }
 
-        // Never is subtype of all types
-        if matches!(e, Ty::Never) || matches!(a, Ty::Never) {
+        // Never is a subtype of all types (actual can be Never for any expected)
+        if matches!(a, Ty::Never) {
             return;
         }
+        // But expected=Never means the context requires divergence; don't allow
+        // arbitrary types to satisfy it.
 
         // Type variable binding
         if let Ty::Var(id) = e {
@@ -1826,6 +1872,33 @@ impl Checker {
                         scrutinee_ty
                     ),
                 );
+            }
+            Ty::App(name, _args) => {
+                // For parameterized types like Option[Int], look up the base type's variants
+                if let Some(variants) = self.registry.types.get(name).cloned() {
+                    let variant_names: Vec<String> =
+                        variants.iter().map(|(n, _)| n.clone()).collect();
+                    let mut covered: Vec<bool> = vec![false; variant_names.len()];
+                    for arm in arms {
+                        mark_covered_variants(&arm.pattern, &variant_names, &mut covered);
+                    }
+                    let missing: Vec<&str> = variant_names
+                        .iter()
+                        .zip(covered.iter())
+                        .filter(|(_, c)| !**c)
+                        .map(|(n, _)| n.as_str())
+                        .collect();
+                    if !missing.is_empty() {
+                        self.err(
+                            ErrorCode::E0010,
+                            format!(
+                                "non-exhaustive match on `{}`: missing variant(s) {}",
+                                scrutinee_ty,
+                                missing.join(", ")
+                            ),
+                        );
+                    }
+                }
             }
             _ => {}
         }
