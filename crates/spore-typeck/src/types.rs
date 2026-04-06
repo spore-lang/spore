@@ -33,8 +33,8 @@ pub enum Ty {
     /// Tuple: `(Int, String)`
     Tuple(Vec<Ty>),
 
-    /// Function type: `(params) -> return [uses caps]`
-    Fn(Vec<Ty>, Box<Ty>, CapSet),
+    /// Function type: `(params) -> return [uses caps] [! errors]`
+    Fn(Vec<Ty>, Box<Ty>, CapSet, ErrorSet),
 
     /// Type variable (for future inference / generics)
     Var(u32),
@@ -87,7 +87,9 @@ impl PartialEq for Ty {
             (Ty::Named(a), Ty::Named(b)) => a == b,
             (Ty::App(n1, a1), Ty::App(n2, a2)) => n1 == n2 && a1 == a2,
             (Ty::Tuple(a), Ty::Tuple(b)) => a == b,
-            (Ty::Fn(p1, r1, c1), Ty::Fn(p2, r2, c2)) => p1 == p2 && r1 == r2 && c1 == c2,
+            (Ty::Fn(p1, r1, c1, e1), Ty::Fn(p2, r2, c2, e2)) => {
+                p1 == p2 && r1 == r2 && c1 == c2 && e1 == e2
+            }
             (Ty::Var(a), Ty::Var(b)) => a == b,
             (Ty::Hole(a), Ty::Hole(b)) => a == b,
             (Ty::Record(a), Ty::Record(b)) => a == b,
@@ -131,7 +133,7 @@ impl fmt::Display for Ty {
                 }
                 write!(f, ")")
             }
-            Ty::Fn(params, ret, caps) => {
+            Ty::Fn(params, ret, caps, errors) => {
                 write!(f, "(")?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
@@ -143,6 +145,10 @@ impl fmt::Display for Ty {
                 if !caps.is_empty() {
                     let cap_list: Vec<&str> = caps.iter().map(|s| s.as_str()).collect();
                     write!(f, " uses [{}]", cap_list.join(", "))?;
+                }
+                if !errors.is_empty() {
+                    let err_list: Vec<&str> = errors.iter().map(|s| s.as_str()).collect();
+                    write!(f, " ! {}", err_list.join(" | "))?;
                 }
                 Ok(())
             }

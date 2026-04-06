@@ -582,9 +582,15 @@ impl Checker {
                 } else if let Some((_, _ret, _)) = self.registry.functions.get(name) {
                     // bare function name as value — return its function type
                     let (params, ret, caps) = self.registry.functions[name].clone();
-                    Ty::Fn(params, Box::new(ret), caps)
+                    let errors = self
+                        .registry
+                        .fn_errors
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_default();
+                    Ty::Fn(params, Box::new(ret), caps, errors)
                 } else if let Some((params, ret)) = self.lookup_module_function(name) {
-                    Ty::Fn(params, Box::new(ret), CapSet::new())
+                    Ty::Fn(params, Box::new(ret), CapSet::new(), ErrorSet::new())
                 } else {
                     self.err(ErrorCode::E0004, format!("undefined variable `{name}`"));
                     Ty::Error
@@ -631,7 +637,7 @@ impl Checker {
                     .collect();
                 let ret_ty = self.check_expr(body);
                 self.env.pop_scope();
-                Ty::Fn(param_tys, Box::new(ret_ty), CapSet::new())
+                Ty::Fn(param_tys, Box::new(ret_ty), CapSet::new(), ErrorSet::new())
             }
 
             Expr::If(cond, then_branch, else_branch) => {
@@ -711,7 +717,7 @@ impl Checker {
                 let arg_ty = self.check_expr(lhs);
                 let fn_ty = self.check_expr(rhs);
                 match fn_ty {
-                    Ty::Fn(params, ret, caps) => {
+                    Ty::Fn(params, ret, caps, errors) => {
                         if params.len() != 1 {
                             self.err(
                                 ErrorCode::E0009,
@@ -724,6 +730,7 @@ impl Checker {
                             self.unify(&params[0], &arg_ty, "pipe argument");
                         }
                         self.check_cap_propagation(&caps);
+                        self.check_error_propagation(&errors);
                         *ret
                     }
                     Ty::Error => Ty::Error,
@@ -1140,7 +1147,7 @@ impl Checker {
         // General case: check callee type
         let fn_ty = self.check_expr(callee);
         match fn_ty {
-            Ty::Fn(param_tys, ret_ty, caps) => {
+            Ty::Fn(param_tys, ret_ty, caps, errors) => {
                 if param_tys.len() != args.len() {
                     self.err(
                         ErrorCode::E0007,
@@ -1157,6 +1164,7 @@ impl Checker {
                     }
                 }
                 self.check_cap_propagation(&caps);
+                self.check_error_propagation(&errors);
                 *ret_ty
             }
             Ty::Error => Ty::Error,
@@ -1243,7 +1251,7 @@ impl Checker {
                     Self::collect_vars(a, ids);
                 }
             }
-            Ty::Fn(params, ret, _) => {
+            Ty::Fn(params, ret, _, _) => {
                 for p in params {
                     Self::collect_vars(p, ids);
                 }
@@ -1268,13 +1276,14 @@ impl Checker {
                     .map(|a| Self::replace_vars(a, mapping))
                     .collect(),
             ),
-            Ty::Fn(params, ret, caps) => Ty::Fn(
+            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
                 params
                     .iter()
                     .map(|p| Self::replace_vars(p, mapping))
                     .collect(),
                 Box::new(Self::replace_vars(ret, mapping)),
                 caps.clone(),
+                errors.clone(),
             ),
             Ty::Tuple(ts) => Ty::Tuple(ts.iter().map(|t| Self::replace_vars(t, mapping)).collect()),
             _ => ty.clone(),
@@ -1309,9 +1318,24 @@ impl Checker {
             TypeExpr::Tuple(types) => {
                 Ty::Tuple(types.iter().map(|t| self.resolve_type(t)).collect())
             }
-            TypeExpr::Function(params, ret, _errors) => {
+            TypeExpr::Function(params, ret, error_exprs) => {
                 let ptys: Vec<Ty> = params.iter().map(|p| self.resolve_type(p)).collect();
-                Ty::Fn(ptys, Box::new(self.resolve_type(ret)), CapSet::new())
+                let errors: ErrorSet = error_exprs
+                    .iter()
+                    .filter_map(|te| {
+                        if let TypeExpr::Named(n) = te {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                Ty::Fn(
+                    ptys,
+                    Box::new(self.resolve_type(ret)),
+                    CapSet::new(),
+                    errors,
+                )
             }
             TypeExpr::Refinement(base, var_name, pred_expr) => {
                 let base_ty = self.resolve_type(base);
@@ -1346,10 +1370,11 @@ impl Checker {
                     ty.clone()
                 }
             }
-            Ty::Fn(params, ret, caps) => Ty::Fn(
+            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
                 params.iter().map(|p| self.apply_subst(p)).collect(),
                 Box::new(self.apply_subst(ret)),
                 caps.clone(),
+                errors.clone(),
             ),
             Ty::App(name, args) => Ty::App(
                 name.clone(),
@@ -1374,7 +1399,7 @@ impl Checker {
         let ty = self.apply_subst(ty);
         match &ty {
             Ty::Var(vid) => *vid == id,
-            Ty::Fn(params, ret, _) => {
+            Ty::Fn(params, ret, _, _) => {
                 params.iter().any(|p| self.occurs_in(id, p)) || self.occurs_in(id, ret)
             }
             Ty::App(_, args) => args.iter().any(|a| self.occurs_in(id, a)),
@@ -1395,13 +1420,14 @@ impl Checker {
                     ty.clone()
                 }
             }
-            Ty::Fn(params, ret, caps) => Ty::Fn(
+            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
                 params
                     .iter()
                     .map(|p| self.instantiate_ty(p, mapping))
                     .collect(),
                 Box::new(self.instantiate_ty(ret, mapping)),
                 caps.clone(),
+                errors.clone(),
             ),
             Ty::App(name, args) => Ty::App(
                 name.clone(),
@@ -1533,7 +1559,7 @@ impl Checker {
 
         // Structural unification
         match (&e, &a) {
-            (Ty::Fn(p1, r1, _), Ty::Fn(p2, r2, _)) if p1.len() == p2.len() => {
+            (Ty::Fn(p1, r1, _, _), Ty::Fn(p2, r2, _, _)) if p1.len() == p2.len() => {
                 let pairs: Vec<(Ty, Ty)> = p1.iter().cloned().zip(p2.iter().cloned()).collect();
                 let ret_pair = ((**r1).clone(), (**r2).clone());
                 for (x, y) in &pairs {
@@ -1949,7 +1975,7 @@ impl Checker {
                     self.collect_type_vars_inner(resolved, vars);
                 }
             }
-            Ty::Fn(params, ret, _) => {
+            Ty::Fn(params, ret, _, _) => {
                 for p in params {
                     self.collect_type_vars_inner(p, vars);
                 }

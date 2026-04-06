@@ -2,7 +2,7 @@ use spore_parser::parse;
 use spore_typeck::cost::CostResult;
 use spore_typeck::error::ErrorCode;
 use spore_typeck::type_check;
-use spore_typeck::types::Ty;
+use spore_typeck::types::{CapSet, ErrorSet, Ty};
 
 fn check_ok(src: &str) {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
@@ -1800,4 +1800,94 @@ fn test_or_pattern_no_bindings() {
             }
         }"#,
     );
+}
+
+// ── ErrorSet in Ty::Fn tests ────────────────────────────────────────
+
+#[test]
+fn test_fn_type_with_error_set() {
+    let errors: ErrorSet = ["MyError".to_string()].into_iter().collect();
+    let ty = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), errors.clone());
+    match &ty {
+        Ty::Fn(_, _, _, err_set) => assert_eq!(*err_set, errors),
+        _ => panic!("expected Ty::Fn"),
+    }
+}
+
+#[test]
+fn test_fn_type_empty_error_set() {
+    let ty = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), ErrorSet::new());
+    match &ty {
+        Ty::Fn(_, _, _, err_set) => assert!(err_set.is_empty()),
+        _ => panic!("expected Ty::Fn"),
+    }
+}
+
+#[test]
+fn test_error_set_display_empty() {
+    let ty = Ty::Fn(
+        vec![Ty::Int],
+        Box::new(Ty::Str),
+        CapSet::new(),
+        ErrorSet::new(),
+    );
+    let display = format!("{ty}");
+    assert_eq!(display, "(Int) -> String");
+    assert!(!display.contains('!'));
+}
+
+#[test]
+fn test_error_set_display_with_errors() {
+    let mut errors = ErrorSet::new();
+    errors.insert("FileNotFound".to_string());
+    errors.insert("PermissionDenied".to_string());
+    let ty = Ty::Fn(vec![Ty::Str], Box::new(Ty::Str), CapSet::new(), errors);
+    let display = format!("{ty}");
+    // BTreeSet sorts alphabetically
+    assert!(display.contains("! FileNotFound | PermissionDenied"));
+}
+
+#[test]
+fn test_error_set_propagation() {
+    // Using `?` to propagate errors from a caller that doesn't declare them
+    let src = r#"
+        fn risky() -> Int ! [MyError] {
+            42
+        }
+        fn caller() -> Int {
+            risky()?
+        }
+    "#;
+    let errs = check_err(src);
+    let has_missing_error = errs.iter().any(|e| e.contains("missing errors"));
+    assert!(
+        has_missing_error,
+        "expected missing-errors diagnostic, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_error_set_propagation_declared() {
+    // Using `?` from a caller that declares the errors should be OK
+    check_ok(
+        r#"
+        fn risky() -> Int ! [MyError] {
+            42
+        }
+        fn caller() -> Int ! [MyError] {
+            risky()?
+        }
+    "#,
+    );
+}
+
+#[test]
+fn test_fn_type_equality_with_error_set() {
+    let mut errors = ErrorSet::new();
+    errors.insert("E1".to_string());
+    let ty1 = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), errors.clone());
+    let ty2 = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), errors);
+    let ty3 = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), ErrorSet::new());
+    assert_eq!(ty1, ty2);
+    assert_ne!(ty1, ty3);
 }
