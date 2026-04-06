@@ -220,12 +220,12 @@ fn with_module_name(
     ast
 }
 
-fn type_check_prepared_project(
+fn collect_prepared_project_results(
     prep: &PreparedProject,
     entry: &str,
-) -> Result<CompileOutput, String> {
+) -> Result<Vec<(String, CheckResult)>, String> {
     let mut all_errors = Vec::new();
-    let mut all_warnings = Vec::new();
+    let mut results = Vec::new();
 
     let mut loaded_modules = prep.loader.loaded_modules();
     loaded_modules.sort();
@@ -237,11 +237,7 @@ fn type_check_prepared_project(
         let ast = with_module_name(ast, &module_path);
         let label = source_label_for_module(&module_path);
         match type_check_with_registry(&ast, prep.registry.clone()) {
-            Ok(result) => {
-                for warning in &result.warnings {
-                    all_warnings.push(format!("{label}: {warning}"));
-                }
-            }
+            Ok(result) => results.push((label, result)),
             Err(errs) => {
                 for err in errs {
                     all_errors.push(format!("{label}: {err}"));
@@ -254,11 +250,7 @@ fn type_check_prepared_project(
     let entry_name = entry_module_name(&prep.ast, entry);
     let entry_ast = with_module_name(&prep.ast, &entry_name);
     match type_check_with_registry(&entry_ast, prep.registry.clone()) {
-        Ok(result) => {
-            for warning in &result.warnings {
-                all_warnings.push(format!("{entry_label}: {warning}"));
-            }
-        }
+        Ok(result) => results.push((entry_label, result)),
         Err(errs) => {
             for err in errs {
                 all_errors.push(format!("{entry_label}: {err}"));
@@ -267,9 +259,7 @@ fn type_check_prepared_project(
     }
 
     if all_errors.is_empty() {
-        Ok(CompileOutput {
-            warnings: all_warnings,
-        })
+        Ok(results)
     } else {
         Err(all_errors.join("\n"))
     }
@@ -285,7 +275,17 @@ fn type_check_prepared_project(
 /// Single-file projects (no imports) work without a `ModuleLoader`.
 pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String> {
     let prep = prepare_project(root, entry)?;
-    type_check_prepared_project(&prep, entry)
+    let results = collect_prepared_project_results(&prep, entry)?;
+    let warnings = results
+        .into_iter()
+        .flat_map(|(label, result)| {
+            result
+                .warnings
+                .into_iter()
+                .map(move |warning| format!("{label}: {warning}"))
+        })
+        .collect();
+    Ok(CompileOutput { warnings })
 }
 
 /// Run a Spore project by compiling and executing its entry file's `main`.
@@ -296,7 +296,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     let prep = prepare_project(root, entry)?;
 
     // Type-check
-    let _result = type_check_prepared_project(&prep, entry)?;
+    let _results = collect_prepared_project_results(&prep, entry)?;
 
     // Collect imported module ASTs for the interpreter
     let mut imported_paths = prep.loader.loaded_modules();
@@ -345,6 +345,13 @@ pub fn check_verbose(source: &str) -> Result<String, String> {
     Ok(format_verbose_result(&result))
 }
 
+/// Type-check a Spore project with verbose per-module output.
+pub fn check_project_verbose(root: &Path, entry: &str) -> Result<String, String> {
+    let prep = prepare_project(root, entry)?;
+    let results = collect_prepared_project_results(&prep, entry)?;
+    Ok(format_project_verbose_results(&results))
+}
+
 /// Summarise a successful CheckResult for --verbose output.
 fn format_verbose_result(result: &CheckResult) -> String {
     let mut out = String::new();
@@ -379,6 +386,25 @@ fn format_verbose_result(result: &CheckResult) -> String {
         }
     }
 
+    out
+}
+
+fn format_project_verbose_results(results: &[(String, CheckResult)]) -> String {
+    if results.len() == 1 {
+        return format_verbose_result(&results[0].1);
+    }
+
+    let mut out = String::from("✓ no errors\n");
+    for (label, result) in results {
+        out.push_str(&format!("\n── {label} ──"));
+        let detail = format_verbose_result(result);
+        if let Some(detail) = detail.strip_prefix("✓ no errors") {
+            out.push_str(detail);
+        } else {
+            out.push('\n');
+            out.push_str(&detail);
+        }
+    }
     out
 }
 

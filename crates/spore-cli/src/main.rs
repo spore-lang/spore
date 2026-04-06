@@ -322,11 +322,17 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
     } else {
         let path = &files[0];
         if verbose {
-            let source = match read_source(path) {
-                Ok(s) => s,
-                Err(c) => return c,
+            let result = if let Some((root, entry)) = find_project_target(path) {
+                sporec::check_project_verbose(&root, &entry)
+            } else {
+                let source = match read_source(path) {
+                    Ok(s) => s,
+                    Err(c) => return c,
+                };
+                sporec::check_verbose(&source)
             };
-            match sporec::check_verbose(&source) {
+
+            match result {
                 Ok(detail) => {
                     print!("{detail}");
                     ExitCode::SUCCESS

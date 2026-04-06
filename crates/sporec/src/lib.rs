@@ -5,7 +5,7 @@
 pub mod compiler;
 
 pub use compiler::{
-    CompileOutput, Diagnostic, DiagnosticSeverity, HoleSummary, check_verbose, compile,
-    compile_diagnostics, compile_files, compile_project, format, hole_summary, holes, run,
-    run_project,
+    CompileOutput, Diagnostic, DiagnosticSeverity, HoleSummary, check_project_verbose,
+    check_verbose, compile, compile_diagnostics, compile_files, compile_project, format,
+    hole_summary, holes, run, run_project,
 };
