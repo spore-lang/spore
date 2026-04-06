@@ -1437,45 +1437,10 @@ impl Checker {
 
     /// Substitute type parameter names with fresh type variables in a type.
     fn instantiate_ty(&self, ty: &Ty, mapping: &HashMap<String, Ty>) -> Ty {
-        match ty {
-            Ty::Named(name) => {
-                if let Some(replacement) = mapping.get(name) {
-                    replacement.clone()
-                } else {
-                    ty.clone()
-                }
-            }
-            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
-                params
-                    .iter()
-                    .map(|p| self.instantiate_ty(p, mapping))
-                    .collect(),
-                Box::new(self.instantiate_ty(ret, mapping)),
-                caps.clone(),
-                errors.clone(),
-            ),
-            Ty::App(name, args) => Ty::App(
-                name.clone(),
-                args.iter()
-                    .map(|a| self.instantiate_ty(a, mapping))
-                    .collect(),
-            ),
-            Ty::Tuple(ts) => {
-                Ty::Tuple(ts.iter().map(|t| self.instantiate_ty(t, mapping)).collect())
-            }
-            Ty::Record(fields) => Ty::Record(
-                fields
-                    .iter()
-                    .map(|(n, t)| (n.clone(), self.instantiate_ty(t, mapping)))
-                    .collect(),
-            ),
-            Ty::Refined(base, var, pred) => Ty::Refined(
-                Box::new(self.instantiate_ty(base, mapping)),
-                var.clone(),
-                pred.clone(),
-            ),
-            _ => ty.clone(),
-        }
+        ty.fold_ref(&mut |t| match t {
+            Ty::Named(name) => mapping.get(name).cloned(),
+            _ => None,
+        })
     }
 
     /// Create fresh type variables for each type parameter and substitute
@@ -2015,41 +1980,16 @@ impl Checker {
     /// Collect all type variable IDs in a type (following substitutions).
     fn collect_type_vars(&self, ty: &Ty) -> HashSet<u32> {
         let mut vars = HashSet::new();
-        self.collect_type_vars_inner(ty, &mut vars);
-        vars
-    }
-
-    fn collect_type_vars_inner(&self, ty: &Ty, vars: &mut HashSet<u32>) {
-        match ty {
-            Ty::Var(id) => {
+        ty.visit(&mut |t| {
+            if let Ty::Var(id) = t {
                 vars.insert(*id);
+                // Follow substitution chains that visit() cannot see
                 if let Some(resolved) = self.substitution.get(id) {
-                    self.collect_type_vars_inner(resolved, vars);
+                    vars.extend(self.collect_type_vars(resolved));
                 }
             }
-            Ty::Fn(params, ret, _, _) => {
-                for p in params {
-                    self.collect_type_vars_inner(p, vars);
-                }
-                self.collect_type_vars_inner(ret, vars);
-            }
-            Ty::App(_, args) => {
-                for a in args {
-                    self.collect_type_vars_inner(a, vars);
-                }
-            }
-            Ty::Tuple(ts) => {
-                for t in ts {
-                    self.collect_type_vars_inner(t, vars);
-                }
-            }
-            Ty::Record(fields) => {
-                for (_, t) in fields {
-                    self.collect_type_vars_inner(t, vars);
-                }
-            }
-            _ => {}
-        }
+        });
+        vars
     }
 }
 

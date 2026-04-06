@@ -464,7 +464,8 @@ impl Default for LspServer {
 
 // ── Free functions (public for testing) ──────────────────────────────
 
-/// Convert a byte offset to (line, character) using the source text.
+/// Convert a byte offset to (line, character) using UTF-16 code units
+/// as required by the LSP specification.
 fn byte_offset_to_position(source: &str, offset: usize) -> (u32, u32) {
     let offset = offset.min(source.len());
     let mut line = 0u32;
@@ -477,7 +478,7 @@ fn byte_offset_to_position(source: &str, offset: usize) -> (u32, u32) {
             line += 1;
             col = 0;
         } else {
-            col += 1;
+            col += ch.len_utf16() as u32;
         }
     }
     (line, col)
