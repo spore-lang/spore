@@ -104,6 +104,87 @@ fn test_fn_with_where() {
     }
 }
 
+#[test]
+fn test_fn_with_spec_clause_preserves_item_order() {
+    let m = parse_ok(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+            example "identity": add(0, 42) == 42
+        }
+        { a + b }
+    "#,
+    );
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let spec = f.spec_clause.as_ref().unwrap();
+            assert_eq!(spec.items.len(), 2);
+            assert!(matches!(
+                &spec.items[0],
+                spore_parser::ast::SpecItem::Property(prop) if prop.label == "commutative"
+            ));
+            assert!(matches!(
+                &spec.items[1],
+                spore_parser::ast::SpecItem::Example(ex) if ex.label == "identity"
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_fn_with_block_spec_example() {
+    let m = parse_ok(
+        r#"
+        fn add(a: Int, b: Int) -> Int
+        spec {
+            example "block" {
+                let sum = add(2, 3)
+                sum == 5
+            }
+        }
+        { a + b }
+    "#,
+    );
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let spec = f.spec_clause.as_ref().unwrap();
+            assert!(matches!(
+                &spec.items[0],
+                spore_parser::ast::SpecItem::Example(ex)
+                    if matches!(ex.body.as_ref(), spore_parser::ast::Expr::Block(_, Some(_)))
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_fn_clauses_parse_in_any_order() {
+    let m = parse_ok(
+        r#"
+        fn show[T](x: T) -> T
+        cost ≤ 5
+        spec {
+            example "identity": true
+        }
+        uses [Console]
+        where T: Display
+        { x }
+    "#,
+    );
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert!(f.where_clause.is_some());
+            assert!(f.uses_clause.is_some());
+            assert!(f.cost_clause.is_some());
+            assert!(f.spec_clause.is_some());
+        }
+        _ => panic!("expected function"),
+    }
+}
+
 // ── Expressions ──────────────────────────────────────────────────────────
 
 #[test]

@@ -155,6 +155,12 @@ impl Formatter {
             self.fmt_where_clause(wc);
         }
 
+        // Uses clause
+        if let Some(uc) = &f.uses_clause {
+            self.write(" ");
+            self.fmt_uses_clause(uc);
+        }
+
         // Cost clause
         if let Some(cc) = &f.cost_clause {
             self.write(" cost <= ");
@@ -165,34 +171,7 @@ impl Formatter {
         if let Some(sc) = &f.spec_clause {
             self.newline();
             self.write_indent();
-            self.write("spec {");
-            self.newline();
-            self.indent += 1;
-            for ex in &sc.examples {
-                self.write_indent();
-                self.write("example \"");
-                self.write(&ex.label);
-                self.write("\": ");
-                self.fmt_expr(&ex.body);
-                self.newline();
-            }
-            for prop in &sc.properties {
-                self.write_indent();
-                self.write("property \"");
-                self.write(&prop.label);
-                self.write("\": ");
-                self.fmt_expr(&prop.predicate);
-                self.newline();
-            }
-            self.indent -= 1;
-            self.write_indent();
-            self.write("}");
-        }
-
-        // Uses clause
-        if let Some(uc) = &f.uses_clause {
-            self.write(" ");
-            self.fmt_uses_clause(uc);
+            self.fmt_spec_clause(sc);
         }
 
         // Body
@@ -201,9 +180,54 @@ impl Formatter {
                 self.newline();
             }
             Some(body) => {
-                self.write(" ");
+                if f.spec_clause.is_some() {
+                    self.newline();
+                    self.write_indent();
+                } else {
+                    self.write(" ");
+                }
                 self.fmt_body(body);
                 self.newline();
+            }
+        }
+    }
+
+    fn fmt_spec_clause(&mut self, spec: &SpecClause) {
+        self.write("spec {");
+        self.newline();
+        self.indent += 1;
+        for item in &spec.items {
+            self.write_indent();
+            self.fmt_spec_item(item);
+            self.newline();
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
+    }
+
+    fn fmt_spec_item(&mut self, item: &SpecItem) {
+        match item {
+            SpecItem::Example(ex) => {
+                self.write("example \"");
+                self.write(&ex.label);
+                self.write("\"");
+                match ex.body.as_ref() {
+                    Expr::Block(..) => {
+                        self.write(" ");
+                        self.fmt_expr(ex.body.as_ref());
+                    }
+                    _ => {
+                        self.write(": ");
+                        self.fmt_expr(ex.body.as_ref());
+                    }
+                }
+            }
+            SpecItem::Property(prop) => {
+                self.write("property \"");
+                self.write(&prop.label);
+                self.write("\": ");
+                self.fmt_expr(prop.predicate.as_ref());
             }
         }
     }
@@ -1199,6 +1223,31 @@ mod tests {
         let src = "fn read() -> String uses [IO, FileRead] { ?todo }\n";
         let out = roundtrip(src);
         assert!(out.contains("uses [IO, FileRead]"));
+    }
+
+    #[test]
+    fn test_spec_clause_normalizes_clause_order_and_preserves_item_order() {
+        let src = concat!(
+            "fn show[T](x: T) -> T cost <= 5 spec {\n",
+            "    property \"roundtrip\": |x: T| true\n",
+            "    example \"block\" {\n",
+            "        let y = x\n",
+            "        y == x\n",
+            "    }\n",
+            "} uses [Console] where T: Display { x }\n",
+        );
+        let expected = concat!(
+            "fn show[T](x: T) -> T where T: Display uses [Console] cost <= 5\n",
+            "spec {\n",
+            "    property \"roundtrip\": |x: T| true\n",
+            "    example \"block\" {\n",
+            "        let y = x\n",
+            "        y == x\n",
+            "    }\n",
+            "}\n",
+            "{ x }\n",
+        );
+        assert_eq!(roundtrip(src), expected);
     }
 
     #[test]

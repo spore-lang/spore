@@ -58,8 +58,8 @@ pub struct ConstDef {
 ///
 /// Clauses are separate syntactic constructs:
 /// - `where T: Bound`  — generic type constraints
-/// - `cost ≤ O(n)`      — cost upper-bound
 /// - `uses [Memory]`    — resource dependencies
+/// - `cost ≤ O(n)`      — cost upper-bound
 #[derive(Debug, Clone)]
 pub struct FnDef {
     pub name: String,
@@ -136,15 +136,23 @@ pub struct UsesClause {
 ///     property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
 /// }
 /// ```
-#[derive(Debug, Clone)]
+///
+/// The original item order is preserved so formatters and diagnostics can
+/// respect the source layout.
+#[derive(Debug, Clone, PartialEq)]
 pub struct SpecClause {
-    pub examples: Vec<ExampleItem>,
-    pub properties: Vec<PropertyItem>,
+    pub items: Vec<SpecItem>,
     pub span: Option<Span>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SpecItem {
+    Example(ExampleItem),
+    Property(PropertyItem),
+}
+
 /// A single example assertion inside a `spec` block.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ExampleItem {
     pub label: String,
     pub body: Box<Expr>,
@@ -152,7 +160,7 @@ pub struct ExampleItem {
 }
 
 /// A single property invariant inside a `spec` block.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PropertyItem {
     pub label: String,
     pub predicate: Box<Expr>,

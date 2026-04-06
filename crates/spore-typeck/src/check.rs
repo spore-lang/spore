@@ -731,37 +731,38 @@ impl Checker {
     fn check_spec_clause(&mut self, spec: &SpecClause, fn_name: &str) {
         use crate::types::Ty;
 
-        // Each example body must type-check to Bool
-        for ex in &spec.examples {
-            let ty = self.check_expr(&ex.body);
-            let ty = self.apply_subst(&ty);
-            self.unify(
-                &Ty::Bool,
-                &ty,
-                &format!("spec example \"{}\" in `{fn_name}`", ex.label),
-            );
-        }
-
-        // Each property predicate must be a lambda whose body is Bool
-        for prop in &spec.properties {
-            let ty = self.check_expr(&prop.predicate);
-            let ty = self.apply_subst(&ty);
-            match &ty {
-                Ty::Fn(_, ret, _, _) => {
+        for item in &spec.items {
+            match item {
+                SpecItem::Example(ex) => {
+                    let ty = self.check_expr(&ex.body);
+                    let ty = self.apply_subst(&ty);
                     self.unify(
                         &Ty::Bool,
-                        ret,
-                        &format!("spec property \"{}\" in `{fn_name}`", prop.label),
+                        &ty,
+                        &format!("spec example \"{}\" in `{fn_name}`", ex.label),
                     );
                 }
-                _ => {
-                    self.err(
-                        ErrorCode::E0301,
-                        format!(
-                            "spec property \"{}\" in `{fn_name}` must be a lambda, found {ty:?}",
-                            prop.label
-                        ),
-                    );
+                SpecItem::Property(prop) => {
+                    let ty = self.check_expr(&prop.predicate);
+                    let ty = self.apply_subst(&ty);
+                    match &ty {
+                        Ty::Fn(_, ret, _, _) => {
+                            self.unify(
+                                &Ty::Bool,
+                                ret,
+                                &format!("spec property \"{}\" in `{fn_name}`", prop.label),
+                            );
+                        }
+                        _ => {
+                            self.err(
+                                ErrorCode::E0301,
+                                format!(
+                                    "spec property \"{}\" in `{fn_name}` must be a lambda, found {ty:?}",
+                                    prop.label
+                                ),
+                            );
+                        }
+                    }
                 }
             }
         }
