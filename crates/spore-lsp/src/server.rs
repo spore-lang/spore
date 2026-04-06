@@ -2,6 +2,85 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Read, Write};
 
 use serde_json::{Value, json};
+use spore_parser::ast::{CostExpr, FnDef, Item, TypeExpr};
+
+// ── LSP Symbol Kind constants ────────────────────────────────────────
+const SK_FUNCTION: u32 = 12;
+const SK_STRUCT: u32 = 23;
+const SK_ENUM: u32 = 10;
+const SK_INTERFACE: u32 = 11;
+const SK_CONSTANT: u32 = 14;
+
+// ── Spore keywords & builtins ────────────────────────────────────────
+const KEYWORDS: &[&str] = &[
+    "fn",
+    "let",
+    "type",
+    "struct",
+    "capability",
+    "match",
+    "if",
+    "import",
+    "pub",
+    "foreign",
+    "perform",
+    "handle",
+    "const",
+    "return",
+    "else",
+    "where",
+    "cost",
+    "uses",
+    "spawn",
+    "await",
+    "impl",
+    "alias",
+    "mod",
+    "pkg",
+    "in",
+    "self",
+    "from",
+    "when",
+    "select",
+    "throw",
+    "parallel_scope",
+];
+
+const BUILTINS: &[&str] = &[
+    "print",
+    "println",
+    "read_line",
+    "map",
+    "filter",
+    "fold",
+    "len",
+    "push",
+    "pop",
+    "head",
+    "tail",
+    "concat",
+    "sort",
+    "reverse",
+    "zip",
+    "enumerate",
+    "any",
+    "all",
+    "find",
+    "to_string",
+];
+
+// ── Collected symbol info ────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+pub struct SymbolInfo {
+    pub name: String,
+    pub kind: u32,
+    pub line: u32,
+    pub col: u32,
+    pub end_line: u32,
+    pub end_col: u32,
+    pub detail: Option<String>,
+}
 
 pub struct LspServer {
     pub documents: HashMap<String, String>,
@@ -30,7 +109,12 @@ impl LspServer {
                                     "change": 1,
                                     "save": { "includeText": true }
                                 },
-                                "hoverProvider": true
+                                "hoverProvider": true,
+                                "completionProvider": {
+                                    "triggerCharacters": [".", ":"]
+                                },
+                                "definitionProvider": true,
+                                "documentSymbolProvider": true
                             },
                             "serverInfo": {
                                 "name": "spore-lsp",
@@ -80,7 +164,36 @@ impl LspServer {
                     }
                 }
                 Some("textDocument/hover") => {
-                    self.send_response(id.unwrap(), json!(null));
+                    if let Some(params) = msg.get("params") {
+                        let result = self.handle_hover(params);
+                        self.send_response(id.unwrap(), result);
+                    } else {
+                        self.send_response(id.unwrap(), json!(null));
+                    }
+                }
+                Some("textDocument/completion") => {
+                    if let Some(params) = msg.get("params") {
+                        let result = self.handle_completion(params);
+                        self.send_response(id.unwrap(), result);
+                    } else {
+                        self.send_response(id.unwrap(), json!(null));
+                    }
+                }
+                Some("textDocument/definition") => {
+                    if let Some(params) = msg.get("params") {
+                        let result = self.handle_goto_definition(params);
+                        self.send_response(id.unwrap(), result);
+                    } else {
+                        self.send_response(id.unwrap(), json!(null));
+                    }
+                }
+                Some("textDocument/documentSymbol") => {
+                    if let Some(params) = msg.get("params") {
+                        let result = self.handle_document_symbol(params);
+                        self.send_response(id.unwrap(), result);
+                    } else {
+                        self.send_response(id.unwrap(), json!(null));
+                    }
                 }
                 Some("shutdown") => {
                     self.send_response(id.unwrap(), json!(null));
@@ -96,6 +209,183 @@ impl LspServer {
             }
         }
     }
+
+    // ── Completion ───────────────────────────────────────────────────
+
+    pub fn handle_completion(&self, params: &Value) -> Value {
+        let uri = params
+            .pointer("/textDocument/uri")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let source = self.documents.get(uri).cloned().unwrap_or_default();
+
+        let mut items: Vec<Value> = Vec::new();
+
+        // Keywords (kind 14 = Keyword)
+        for kw in KEYWORDS {
+            items.push(json!({
+                "label": kw,
+                "kind": 14,
+                "detail": "keyword",
+            }));
+        }
+
+        // Builtins (kind 3 = Function)
+        for b in BUILTINS {
+            items.push(json!({
+                "label": b,
+                "kind": 3,
+                "detail": "builtin",
+            }));
+        }
+
+        // Symbols from AST
+        if let Ok(module) = spore_parser::parse(&source) {
+            for item in &module.items {
+                match item {
+                    Item::Function(f) => {
+                        let sig = format_fn_signature(f);
+                        items.push(json!({
+                            "label": &f.name,
+                            "kind": 3,
+                            "detail": sig,
+                        }));
+                    }
+                    Item::StructDef(s) => {
+                        items.push(json!({
+                            "label": &s.name,
+                            "kind": 22, // Struct
+                            "detail": "struct",
+                        }));
+                    }
+                    Item::TypeDef(t) => {
+                        items.push(json!({
+                            "label": &t.name,
+                            "kind": 10, // Enum
+                            "detail": "type",
+                        }));
+                    }
+                    Item::CapabilityDef(c) => {
+                        items.push(json!({
+                            "label": &c.name,
+                            "kind": 8, // Interface
+                            "detail": "capability",
+                        }));
+                    }
+                    Item::Const(c) => {
+                        items.push(json!({
+                            "label": &c.name,
+                            "kind": 21, // Constant
+                            "detail": "const",
+                        }));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        json!(items)
+    }
+
+    // ── Goto Definition ──────────────────────────────────────────────
+
+    pub fn handle_goto_definition(&self, params: &Value) -> Value {
+        let uri = params
+            .pointer("/textDocument/uri")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let line = params
+            .pointer("/position/line")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let col = params
+            .pointer("/position/character")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let source = self.documents.get(uri).cloned().unwrap_or_default();
+
+        let word = word_at_position(&source, line, col);
+        if word.is_empty() {
+            return json!(null);
+        }
+
+        if let Some(pos) = find_definition_in_source(&source, &word) {
+            return json!({
+                "uri": uri,
+                "range": {
+                    "start": { "line": pos.0, "character": pos.1 },
+                    "end": { "line": pos.0, "character": pos.1 + word.len() as u32 }
+                }
+            });
+        }
+
+        json!(null)
+    }
+
+    // ── Document Symbols ─────────────────────────────────────────────
+
+    pub fn handle_document_symbol(&self, params: &Value) -> Value {
+        let uri = params
+            .pointer("/textDocument/uri")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let source = self.documents.get(uri).cloned().unwrap_or_default();
+
+        let symbols = collect_document_symbols(&source);
+        let items: Vec<Value> = symbols
+            .iter()
+            .map(|s| {
+                let range = json!({
+                    "start": { "line": s.line, "character": s.col },
+                    "end": { "line": s.end_line, "character": s.end_col }
+                });
+                json!({
+                    "name": s.name,
+                    "kind": s.kind,
+                    "range": range,
+                    "selectionRange": range,
+                    "detail": s.detail,
+                })
+            })
+            .collect();
+        json!(items)
+    }
+
+    // ── Hover ────────────────────────────────────────────────────────
+
+    pub fn handle_hover(&self, params: &Value) -> Value {
+        let uri = params
+            .pointer("/textDocument/uri")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let line = params
+            .pointer("/position/line")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let col = params
+            .pointer("/position/character")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+        let source = self.documents.get(uri).cloned().unwrap_or_default();
+
+        let word = word_at_position(&source, line, col);
+        if word.is_empty() {
+            return json!(null);
+        }
+
+        if let Some(hover) = build_hover_for_symbol(&source, &word) {
+            return json!({
+                "contents": {
+                    "kind": "markdown",
+                    "value": hover
+                }
+            });
+        }
+
+        json!(null)
+    }
+
+    // ── I/O helpers ──────────────────────────────────────────────────
 
     fn read_message(&self) -> Option<Value> {
         let stdin = io::stdin();
@@ -178,28 +468,26 @@ impl Default for LspServer {
     }
 }
 
+// ── Free functions (public for testing) ──────────────────────────────
+
 /// Build LSP diagnostics from source text by running the Spore compiler.
-/// Returns a `Vec<Value>` of LSP Diagnostic objects.
 pub fn build_diagnostics(source: &str) -> Vec<Value> {
     match sporec::compile(source) {
-        Ok(output) => {
-            // Emit cost warnings as LSP Warning diagnostics (severity 2)
-            output
-                .warnings
-                .iter()
-                .map(|w| {
-                    json!({
-                        "range": {
-                            "start": { "line": 0, "character": 0 },
-                            "end": { "line": 0, "character": 0 }
-                        },
-                        "severity": 2,
-                        "source": "spore",
-                        "message": w
-                    })
+        Ok(output) => output
+            .warnings
+            .iter()
+            .map(|w| {
+                json!({
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 0, "character": 0 }
+                    },
+                    "severity": 2,
+                    "source": "spore",
+                    "message": w
                 })
-                .collect()
-        }
+            })
+            .collect(),
         Err(err_msg) => err_msg
             .lines()
             .filter(|line| !line.is_empty())
@@ -215,5 +503,298 @@ pub fn build_diagnostics(source: &str) -> Vec<Value> {
                 })
             })
             .collect(),
+    }
+}
+
+/// Extract the word (identifier) at a given (line, col) position.
+pub fn word_at_position(source: &str, line: u32, col: u32) -> String {
+    let Some(line_text) = source.lines().nth(line as usize) else {
+        return String::new();
+    };
+    let col = col as usize;
+    if col >= line_text.len() {
+        return String::new();
+    }
+    let bytes = line_text.as_bytes();
+    let mut start = col;
+    while start > 0 && is_ident_char(bytes[start - 1]) {
+        start -= 1;
+    }
+    let mut end = col;
+    while end < bytes.len() && is_ident_char(bytes[end]) {
+        end += 1;
+    }
+    if start == end {
+        return String::new();
+    }
+    line_text[start..end].to_string()
+}
+
+fn is_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Search source text for a definition of `name` (e.g. `fn name`, `type name`,
+/// `struct name`, `capability name`). Returns `(line, col)` of the name token.
+pub fn find_definition_in_source(source: &str, name: &str) -> Option<(u32, u32)> {
+    let prefixes = [
+        "fn ",
+        "type ",
+        "struct ",
+        "capability ",
+        "const ",
+        "pub fn ",
+        "pub type ",
+        "pub struct ",
+        "pub capability ",
+        "pub const ",
+    ];
+    for (line_no, line_text) in source.lines().enumerate() {
+        let trimmed = line_text.trim_start();
+        for prefix in &prefixes {
+            if let Some(rest) = trimmed.strip_prefix(prefix) {
+                let def_name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                if def_name == name {
+                    // Find the column of the name within the original line
+                    if let Some(idx) = line_text.find(&format!("{prefix}{name}")) {
+                        let col = idx + prefix.len();
+                        return Some((line_no as u32, col as u32));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Collect all top-level symbol definitions with their positions.
+pub fn collect_document_symbols(source: &str) -> Vec<SymbolInfo> {
+    let mut symbols = Vec::new();
+
+    // Parse AST to get symbol names and kinds
+    let Ok(module) = spore_parser::parse(source) else {
+        return symbols;
+    };
+
+    for item in &module.items {
+        let (name, kind, detail) = match item {
+            Item::Function(f) => (f.name.clone(), SK_FUNCTION, Some(format_fn_signature(f))),
+            Item::StructDef(s) => (s.name.clone(), SK_STRUCT, Some("struct".into())),
+            Item::TypeDef(t) => (t.name.clone(), SK_ENUM, Some("type".into())),
+            Item::CapabilityDef(c) => (c.name.clone(), SK_INTERFACE, Some("capability".into())),
+            Item::Const(c) => (c.name.clone(), SK_CONSTANT, Some("const".into())),
+            _ => continue,
+        };
+
+        if let Some((line, col)) = find_definition_in_source(source, &name) {
+            symbols.push(SymbolInfo {
+                end_line: line,
+                end_col: col + name.len() as u32,
+                name,
+                kind,
+                line,
+                col,
+                detail,
+            });
+        }
+    }
+
+    symbols
+}
+
+/// Build hover markdown for a symbol found in `source`.
+pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
+    let module = spore_parser::parse(source).ok()?;
+
+    for item in &module.items {
+        match item {
+            Item::Function(f) if f.name == name => {
+                let mut parts = Vec::new();
+
+                // Doc comment
+                if let Some(doc) = extract_doc_comment(source, name) {
+                    parts.push(doc);
+                    parts.push(String::new());
+                }
+
+                // Signature
+                parts.push(format!("```spore\n{}\n```", format_fn_full(f)));
+
+                // Cost annotation
+                if let Some(ref cost) = f.cost_clause {
+                    parts.push(format!(
+                        "\n**Cost:** `cost ≤ {}`",
+                        format_cost_expr(&cost.bound)
+                    ));
+                }
+
+                // Uses clause
+                if let Some(ref uses) = f.uses_clause {
+                    parts.push(format!("\n**Uses:** `[{}]`", uses.resources.join(", ")));
+                }
+
+                return Some(parts.join("\n"));
+            }
+            Item::StructDef(s) if s.name == name => {
+                let mut parts = Vec::new();
+                if let Some(doc) = extract_doc_comment(source, name) {
+                    parts.push(doc);
+                    parts.push(String::new());
+                }
+                let fields: Vec<String> = s
+                    .fields
+                    .iter()
+                    .map(|f| format!("    {}: {}", f.name, format_type_expr(&f.ty)))
+                    .collect();
+                parts.push(format!(
+                    "```spore\nstruct {} {{\n{}\n}}\n```",
+                    s.name,
+                    fields.join(",\n")
+                ));
+                return Some(parts.join("\n"));
+            }
+            Item::TypeDef(t) if t.name == name => {
+                let mut parts = Vec::new();
+                if let Some(doc) = extract_doc_comment(source, name) {
+                    parts.push(doc);
+                    parts.push(String::new());
+                }
+                let variants: Vec<String> = t
+                    .variants
+                    .iter()
+                    .map(|v| {
+                        if v.fields.is_empty() {
+                            format!("    {}", v.name)
+                        } else {
+                            let fs: Vec<String> = v.fields.iter().map(format_type_expr).collect();
+                            format!("    {}({})", v.name, fs.join(", "))
+                        }
+                    })
+                    .collect();
+                parts.push(format!(
+                    "```spore\ntype {} {{\n{}\n}}\n```",
+                    t.name,
+                    variants.join(",\n")
+                ));
+                return Some(parts.join("\n"));
+            }
+            Item::CapabilityDef(c) if c.name == name => {
+                let mut parts = Vec::new();
+                if let Some(doc) = extract_doc_comment(source, name) {
+                    parts.push(doc);
+                    parts.push(String::new());
+                }
+                let methods: Vec<String> = c
+                    .methods
+                    .iter()
+                    .map(|m| format!("    {}", format_fn_signature(m)))
+                    .collect();
+                parts.push(format!(
+                    "```spore\ncapability {} {{\n{}\n}}\n```",
+                    c.name,
+                    methods.join("\n")
+                ));
+                return Some(parts.join("\n"));
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+/// Extract `///` doc comments immediately preceding a definition of `name`.
+pub fn extract_doc_comment(source: &str, name: &str) -> Option<String> {
+    let lines: Vec<&str> = source.lines().collect();
+
+    // Find the definition line
+    let def_line = find_definition_in_source(source, name)?.0 as usize;
+
+    let mut doc_lines = Vec::new();
+    let mut i = def_line;
+    while i > 0 {
+        i -= 1;
+        let trimmed = lines[i].trim_start();
+        if let Some(comment) = trimmed.strip_prefix("///") {
+            doc_lines.push(comment.strip_prefix(' ').unwrap_or(comment).to_string());
+        } else {
+            break;
+        }
+    }
+
+    if doc_lines.is_empty() {
+        return None;
+    }
+
+    doc_lines.reverse();
+    Some(doc_lines.join("\n"))
+}
+
+// ── Formatting helpers ───────────────────────────────────────────────
+
+/// Short signature: `fn name(param: Type, ...) -> RetType`
+pub fn format_fn_signature(f: &FnDef) -> String {
+    let params: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name, format_type_expr(&p.ty)))
+        .collect();
+    let ret = f
+        .return_type
+        .as_ref()
+        .map(|t| format!(" -> {}", format_type_expr(t)))
+        .unwrap_or_default();
+    format!("fn {}({}){}", f.name, params.join(", "), ret)
+}
+
+/// Full signature with clauses.
+fn format_fn_full(f: &FnDef) -> String {
+    let mut sig = format_fn_signature(f);
+    if let Some(ref cost) = f.cost_clause {
+        sig.push_str(&format!("\n  cost ≤ {}", format_cost_expr(&cost.bound)));
+    }
+    if let Some(ref uses) = f.uses_clause {
+        sig.push_str(&format!("\n  uses [{}]", uses.resources.join(", ")));
+    }
+    sig
+}
+
+pub fn format_type_expr(ty: &TypeExpr) -> String {
+    match ty {
+        TypeExpr::Named(n) => n.clone(),
+        TypeExpr::Generic(n, args) => {
+            let a: Vec<String> = args.iter().map(format_type_expr).collect();
+            format!("{}[{}]", n, a.join(", "))
+        }
+        TypeExpr::Tuple(elems) => {
+            let e: Vec<String> = elems.iter().map(format_type_expr).collect();
+            format!("({})", e.join(", "))
+        }
+        TypeExpr::Function(params, ret, _errors) => {
+            let p: Vec<String> = params.iter().map(format_type_expr).collect();
+            format!("fn({}) -> {}", p.join(", "), format_type_expr(ret))
+        }
+        TypeExpr::Refinement(base, binding, _pred) => {
+            format!("{{ {}: {} when ... }}", binding, format_type_expr(base))
+        }
+        TypeExpr::Record(fields) => {
+            let f: Vec<String> = fields
+                .iter()
+                .map(|(n, t)| format!("{}: {}", n, format_type_expr(t)))
+                .collect();
+            format!("{{ {} }}", f.join(", "))
+        }
+    }
+}
+
+pub fn format_cost_expr(cost: &CostExpr) -> String {
+    match cost {
+        CostExpr::Literal(n) => n.to_string(),
+        CostExpr::Var(v) => v.clone(),
+        CostExpr::Mul(a, b) => format!("{} * {}", format_cost_expr(a), format_cost_expr(b)),
+        CostExpr::Add(a, b) => format!("{} + {}", format_cost_expr(a), format_cost_expr(b)),
     }
 }
