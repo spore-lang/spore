@@ -366,33 +366,33 @@ fn test_pure_function() {
 
 #[test]
 fn test_function_with_capability() {
-    check_ok(r#"fn fetch(url: String) -> String uses [NetRead] { "data" }"#);
+    check_ok(r#"fn fetch(url: String) -> String uses [NetConnect] { "data" }"#);
 }
 
 #[test]
 fn test_capability_propagation_error() {
     // A function calling a capability-requiring function must also declare those capabilities
     let errs = check_err(
-        r#"fn fetch(url: String) -> String uses [NetRead] { "data" }
+        r#"fn fetch(url: String) -> String uses [NetConnect] { "data" }
            fn process() -> String { fetch("http://example.com") }"#,
     );
     assert!(errs.iter().any(|e| e.contains("missing capabilities")));
-    assert!(errs.iter().any(|e| e.contains("NetRead")));
+    assert!(errs.iter().any(|e| e.contains("NetConnect")));
 }
 
 #[test]
 fn test_capability_superset_ok() {
     check_ok(
-        r#"fn fetch(url: String) -> String uses [NetRead] { "data" }
-           fn process() -> String uses [NetRead] { fetch("http://example.com") }"#,
+        r#"fn fetch(url: String) -> String uses [NetConnect] { "data" }
+           fn process() -> String uses [NetConnect] { fetch("http://example.com") }"#,
     );
 }
 
 #[test]
 fn test_capability_superset_multiple() {
     check_ok(
-        r#"fn fetch(url: String) -> String uses [NetRead] { "data" }
-           fn process() -> String uses [NetRead, FileWrite] { fetch("http://example.com") }"#,
+        r#"fn fetch(url: String) -> String uses [NetConnect] { "data" }
+           fn process() -> String uses [NetConnect, FileWrite] { fetch("http://example.com") }"#,
     );
 }
 
@@ -1012,7 +1012,7 @@ fn error_code_cannot_call_non_function() {
 fn error_code_missing_capabilities() {
     let errs = check_err_with_codes(
         r#"
-        fn fetch(url: String) -> String uses [NetRead] { "data" }
+        fn fetch(url: String) -> String uses [NetConnect] { "data" }
         fn process() -> String { fetch("http://example.com") }
     "#,
     );
@@ -1438,7 +1438,7 @@ fn sep0006_capability_violations_use_c0xxx() {
     // Missing capabilities → C0001
     let errs = check_err_with_codes(
         r#"
-        fn fetch(url: String) -> String uses [NetRead] { "data" }
+        fn fetch(url: String) -> String uses [NetConnect] { "data" }
         fn process() -> String { fetch("http://example.com") }
     "#,
     );
