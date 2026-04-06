@@ -82,7 +82,9 @@ fn test_completion_returns_keywords() {
         "textDocument": { "uri": "file:///test.sp" },
         "position": { "line": 0, "character": 0 }
     });
-    let result = server.handle_completion(&params);
+    let result = server
+        .handle_completion(&params)
+        .expect("completion should return Some");
     let items = result.as_array().expect("completion should return array");
 
     let labels: Vec<&str> = items.iter().filter_map(|i| i["label"].as_str()).collect();
@@ -110,7 +112,7 @@ fn test_completion_returns_defined_functions() {
         "textDocument": { "uri": "file:///test.sp" },
         "position": { "line": 0, "character": 0 }
     });
-    let result = server.handle_completion(&params);
+    let result = server.handle_completion(&params).unwrap();
     let items = result.as_array().unwrap();
     let labels: Vec<&str> = items.iter().filter_map(|i| i["label"].as_str()).collect();
     assert!(labels.contains(&"add"), "should contain function 'add'");
@@ -124,7 +126,7 @@ fn test_completion_returns_builtins() {
         "textDocument": { "uri": "file:///test.sp" },
         "position": { "line": 0, "character": 0 }
     });
-    let result = server.handle_completion(&params);
+    let result = server.handle_completion(&params).unwrap();
     let items = result.as_array().unwrap();
     let labels: Vec<&str> = items.iter().filter_map(|i| i["label"].as_str()).collect();
     for b in &["print", "println", "map", "filter", "fold", "len"] {
@@ -141,7 +143,7 @@ fn test_goto_definition_function() {
         "textDocument": { "uri": "file:///test.sp" },
         "position": { "line": 0, "character": 4 }  // on 'add'
     });
-    let result = server.handle_goto_definition(&params);
+    let result = server.handle_goto_definition(&params).unwrap();
     assert!(!result.is_null(), "should find definition of 'add'");
     assert_eq!(result["range"]["start"]["line"], json!(0));
     assert_eq!(result["range"]["start"]["character"], json!(3)); // after 'fn '
@@ -159,7 +161,7 @@ fn test_goto_definition_type() {
         "textDocument": { "uri": "file:///test.sp" },
         "position": { "line": line, "character": col }
     });
-    let result = server.handle_goto_definition(&params);
+    let result = server.handle_goto_definition(&params).unwrap();
     assert!(!result.is_null(), "should find definition of 'Color'");
     assert_eq!(result["range"]["start"]["line"], json!(line));
 }
@@ -171,7 +173,7 @@ fn test_goto_definition_unknown_symbol() {
         "textDocument": { "uri": "file:///test.sp" },
         "position": { "line": 100, "character": 0 }
     });
-    let result = server.handle_goto_definition(&params);
+    let result = server.handle_goto_definition(&params).unwrap();
     assert!(result.is_null(), "unknown symbol should return null");
 }
 
@@ -274,4 +276,44 @@ fn test_word_at_position_basic() {
 fn test_word_at_position_out_of_bounds() {
     let source = "fn test() {}";
     assert_eq!(word_at_position(source, 99, 0), "");
+}
+
+// ── Safety tests (no panics on malformed input) ──────────────────────
+
+#[test]
+fn test_malformed_request_no_panic() {
+    let server = server_with_doc("file:///test.sp", SAMPLE_SOURCE);
+    let params = json!({});
+    assert_eq!(server.handle_hover(&params), None);
+    assert_eq!(server.handle_goto_definition(&params), None);
+    assert_eq!(server.handle_document_symbol(&params), None);
+    // Completion still returns keywords even with empty params
+    let completion = server.handle_completion(&params);
+    assert!(completion.is_some());
+}
+
+#[test]
+fn test_invalid_uri_no_panic() {
+    let server = server_with_doc("file:///test.sp", SAMPLE_SOURCE);
+    let params = json!({
+        "textDocument": { "uri": "file:///nonexistent.sp" },
+        "position": { "line": 0, "character": 0 }
+    });
+    assert_eq!(server.handle_goto_definition(&params), None);
+    assert_eq!(server.handle_hover(&params), None);
+    assert_eq!(server.handle_document_symbol(&params), None);
+}
+
+#[test]
+fn test_missing_position_no_panic() {
+    let server = server_with_doc("file:///test.sp", SAMPLE_SOURCE);
+    let params = json!({
+        "textDocument": { "uri": "file:///test.sp" }
+    });
+    // No position → goto_definition and hover return None
+    assert_eq!(server.handle_goto_definition(&params), None);
+    assert_eq!(server.handle_hover(&params), None);
+    // Completion still works (doesn't need position)
+    let completion = server.handle_completion(&params);
+    assert!(completion.is_some());
 }
