@@ -375,13 +375,30 @@ fn test_reverse() {
 
 #[test]
 fn test_head_tail() {
-    let v = run_main("fn main() -> Int { head([10, 20, 30]) }");
-    assert_eq!(v.as_int(), Some(10));
+    // head returns Option: Some(value) for non-empty list
+    let v = run_main("fn main() -> Option[Int] { head([10, 20, 30]) }");
+    // Value is Enum("Some", [Int(10)])
+    match &v {
+        spore_codegen::value::Value::Enum(name, fields) => {
+            assert_eq!(name, "Some");
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].as_int(), Some(10));
+        }
+        other => panic!("expected Some variant, got: {other:?}"),
+    }
 
-    let v2 = run_main("fn main() -> List[Int] { tail([10, 20, 30]) }");
-    let list = v2.as_list().unwrap();
-    assert_eq!(list.len(), 2);
-    assert_eq!(list[0].as_int(), Some(20));
+    // tail returns Option: Some(list) for non-empty list
+    let v2 = run_main("fn main() -> Option[List[Int]] { tail([10, 20, 30]) }");
+    match &v2 {
+        spore_codegen::value::Value::Enum(name, fields) => {
+            assert_eq!(name, "Some");
+            assert_eq!(fields.len(), 1);
+            let list = fields[0].as_list().unwrap();
+            assert_eq!(list.len(), 2);
+            assert_eq!(list[0].as_int(), Some(20));
+        }
+        other => panic!("expected Some variant, got: {other:?}"),
+    }
 }
 
 #[test]
@@ -394,6 +411,49 @@ fn test_contains() {
 }
 
 // ── String builtins ─────────────────────────────────────────────────────
+
+// ── Regression: head/tail of empty list returns None (Bug A7) ──────────
+
+#[test]
+fn test_head_empty_returns_none() {
+    let v = run_main("fn main() -> Option[Int] { head([]) }");
+    match &v {
+        Value::Enum(name, fields) => {
+            assert_eq!(name, "None");
+            assert!(fields.is_empty());
+        }
+        other => panic!("expected None variant, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_tail_empty_returns_none() {
+    let v = run_main("fn main() -> Option[List[Int]] { tail([]) }");
+    match &v {
+        Value::Enum(name, fields) => {
+            assert_eq!(name, "None");
+            assert!(fields.is_empty());
+        }
+        other => panic!("expected None variant, got: {other:?}"),
+    }
+}
+
+#[test]
+fn test_split_returns_list_str() {
+    let v = run_main(r#"fn main() -> List[String] { split("a,b", ",") }"#);
+    let list = v.as_list().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].as_str(), Some("a"));
+    assert_eq!(list[1].as_str(), Some("b"));
+}
+
+#[test]
+fn test_to_string_float() {
+    let v = run_main(r#"fn main() -> String { to_string(3.14) }"#);
+    assert_eq!(v.as_str(), Some("3.14"));
+}
+
+// ── String builtins (continued) ─────────────────────────────────────────
 
 #[test]
 fn test_string_length() {
@@ -658,4 +718,45 @@ fn test_unhandled_effect_error() {
         err.to_string().contains("unhandled effect"),
         "unexpected error: {err}"
     );
+}
+
+// ── Shift bounds ─────────────────────────────────────────────────────
+
+#[test]
+fn test_shift_left_out_of_range_negative() {
+    let module = spore_parser::parse("fn main() -> Int { 1 << -1 }").unwrap();
+    let err = spore_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string().contains("shift amount"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_shift_left_out_of_range_large() {
+    let module = spore_parser::parse("fn main() -> Int { 1 << 64 }").unwrap();
+    let err = spore_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string().contains("shift amount"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_shift_right_out_of_range() {
+    let module = spore_parser::parse("fn main() -> Int { 1 >> 100 }").unwrap();
+    let err = spore_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string().contains("shift amount"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn test_shift_valid_amounts() {
+    let v = run_main("fn main() -> Int { 1 << 3 }");
+    assert_eq!(v.as_int(), Some(8));
+
+    let v = run_main("fn main() -> Int { 16 >> 2 }");
+    assert_eq!(v.as_int(), Some(4));
 }

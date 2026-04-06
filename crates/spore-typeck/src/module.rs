@@ -207,6 +207,9 @@ impl ModuleRegistry {
                     symbol: name.clone(),
                 });
             }
+            // TODO: enforce PubPkg — when package identity is tracked on
+            // ModuleInterface, reject PubPkg symbols imported from a
+            // different package.  For now PubPkg is treated as Pub.
 
             let kind = if module.functions.contains_key(name) {
                 ImportedSymbol::Function
@@ -258,7 +261,10 @@ impl ModuleRegistry {
             .insert("string_length".into(), (vec![Ty::Str], Ty::Int));
         prelude.functions.insert(
             "split".into(),
-            (vec![Ty::Str, Ty::Str], Ty::Named("List".into())),
+            (
+                vec![Ty::Str, Ty::Str],
+                Ty::App("List".into(), vec![Ty::Str]),
+            ),
         );
         prelude
             .functions
@@ -275,9 +281,13 @@ impl ModuleRegistry {
         prelude
             .functions
             .insert("ends_with".into(), (vec![Ty::Str, Ty::Str], Ty::Bool));
-        prelude
-            .functions
-            .insert("char_at".into(), (vec![Ty::Str, Ty::Int], Ty::Str));
+        prelude.functions.insert(
+            "char_at".into(),
+            (
+                vec![Ty::Str, Ty::Int],
+                Ty::App("Option".into(), vec![Ty::Str]),
+            ),
+        );
         prelude.functions.insert(
             "substring".into(),
             (vec![Ty::Str, Ty::Int, Ty::Int], Ty::Str),
@@ -287,10 +297,10 @@ impl ModuleRegistry {
             .insert("replace".into(), (vec![Ty::Str, Ty::Str, Ty::Str], Ty::Str));
         prelude
             .functions
-            .insert("to_string".into(), (vec![Ty::Int], Ty::Str));
+            .insert("to_string".into(), (vec![Ty::Var(0)], Ty::Str));
         prelude
             .functions
-            .insert("toString".into(), (vec![Ty::Int], Ty::Str));
+            .insert("toString".into(), (vec![Ty::Var(0)], Ty::Str));
         prelude
             .functions
             .insert("string_index_of".into(), (vec![Ty::Str, Ty::Str], Ty::Int));
@@ -392,14 +402,22 @@ impl ModuleRegistry {
         );
         prelude.functions.insert(
             "prepend".into(),
-            (vec![list_t.clone(), Ty::Var(0)], list_t.clone()),
+            (vec![Ty::Var(0), list_t.clone()], list_t.clone()),
         );
-        prelude
-            .functions
-            .insert("head".into(), (vec![list_t.clone()], Ty::Var(0)));
-        prelude
-            .functions
-            .insert("tail".into(), (vec![list_t.clone()], list_t.clone()));
+        prelude.functions.insert(
+            "head".into(),
+            (
+                vec![list_t.clone()],
+                Ty::App("Option".into(), vec![Ty::Var(0)]),
+            ),
+        );
+        prelude.functions.insert(
+            "tail".into(),
+            (
+                vec![list_t.clone()],
+                Ty::App("Option".into(), vec![list_t.clone()]),
+            ),
+        );
         prelude.functions.insert(
             "contains".into(),
             (vec![list_t.clone(), Ty::Var(0)], Ty::Bool),

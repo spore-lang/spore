@@ -674,8 +674,22 @@ impl Interpreter {
             BinOp::BitAnd => Value::Int(a & b),
             BinOp::BitOr => Value::Int(a | b),
             BinOp::BitXor => Value::Int(a ^ b),
-            BinOp::Shl => Value::Int(a << b),
-            BinOp::Shr => Value::Int(a >> b),
+            BinOp::Shl => {
+                if !(0..64).contains(&b) {
+                    return Err(RuntimeError::new(format!(
+                        "shift amount {b} out of range 0..63"
+                    )));
+                }
+                Value::Int(a << b)
+            }
+            BinOp::Shr => {
+                if !(0..64).contains(&b) {
+                    return Err(RuntimeError::new(format!(
+                        "shift amount {b} out of range 0..63"
+                    )));
+                }
+                Value::Int(a >> b)
+            }
             BinOp::And | BinOp::Or => unreachable!("handled by short-circuit"),
         })
     }
@@ -807,17 +821,21 @@ impl Interpreter {
             }
             "head" => {
                 let list = require_list(args, 0, "head")?;
-                list.first()
-                    .cloned()
-                    .map(Some)
-                    .ok_or_else(|| RuntimeError::new("head: empty list"))
+                match list.first().cloned() {
+                    Some(val) => Ok(Some(Value::Enum("Some".into(), vec![val]))),
+                    None => Ok(Some(Value::Enum("None".into(), vec![]))),
+                }
             }
             "tail" => {
                 let list = require_list(args, 0, "tail")?;
                 if list.is_empty() {
-                    return Err(RuntimeError::new("tail: empty list"));
+                    Ok(Some(Value::Enum("None".into(), vec![])))
+                } else {
+                    Ok(Some(Value::Enum(
+                        "Some".into(),
+                        vec![Value::List(list[1..].to_vec())],
+                    )))
                 }
-                Ok(Some(Value::List(list[1..].to_vec())))
             }
             "reverse" => {
                 let list = require_list(args, 0, "reverse")?;
@@ -875,15 +893,16 @@ impl Interpreter {
                 let s = require_str(args, 0, "char_at")?;
                 let idx_i64 = require_int(args, 1, "char_at")?;
                 if idx_i64 < 0 {
-                    return Err(RuntimeError::new(format!(
-                        "char_at: index cannot be negative, got {idx_i64}"
-                    )));
+                    return Ok(Some(Value::Enum("None".into(), vec![])));
                 }
                 let idx = idx_i64 as usize;
-                let ch = s.chars().nth(idx).ok_or_else(|| {
-                    RuntimeError::new(format!("char_at: index {idx} out of bounds"))
-                })?;
-                Ok(Some(Value::Str(ch.to_string())))
+                match s.chars().nth(idx) {
+                    Some(ch) => Ok(Some(Value::Enum(
+                        "Some".into(),
+                        vec![Value::Str(ch.to_string())],
+                    ))),
+                    None => Ok(Some(Value::Enum("None".into(), vec![]))),
+                }
             }
             "substring" => {
                 let s = require_str(args, 0, "substring")?;

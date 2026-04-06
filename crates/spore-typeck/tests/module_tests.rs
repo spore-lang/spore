@@ -337,3 +337,38 @@ fn imported_type_preserves_variant_field_types() {
     assert_eq!(variants[2].0, "Close");
     assert!(variants[2].1.is_empty());
 }
+
+// ── Test: Ambiguous imports produce M0303 (Bug A3) ──────────────────
+
+#[test]
+fn ambiguous_import_same_name_different_modules() {
+    let mut registry = ModuleRegistry::new();
+
+    // Module A exports `compute`
+    let mut mod_a = ModuleInterface::new(vec!["ModA".into()]);
+    mod_a
+        .functions
+        .insert("compute".into(), (vec![Ty::Int], Ty::Int));
+    mod_a.set_visibility("compute", SymbolVisibility::Pub);
+    registry.register(mod_a);
+
+    // Module B also exports `compute` with a different signature
+    let mut mod_b = ModuleInterface::new(vec!["ModB".into()]);
+    mod_b
+        .functions
+        .insert("compute".into(), (vec![Ty::Str], Ty::Str));
+    mod_b.set_visibility("compute", SymbolVisibility::Pub);
+    registry.register(mod_b);
+
+    let src = r#"
+import ModA as A
+import ModB as B
+fn f() -> Int { compute(1) }
+"#;
+
+    let errs = check_with_registry(src, registry).unwrap_err();
+    assert!(
+        errs.iter().any(|(code, _)| *code == ErrorCode::M0303),
+        "expected M0303 (ambiguous import), got: {errs:?}"
+    );
+}
