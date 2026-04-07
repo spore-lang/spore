@@ -160,6 +160,7 @@ repos:
 ```
 
 These hooks currently shell out through `cargo run --bin spore`, so consumers need a working Rust toolchain.
+The hook entrypoints resolve the bundled `spore-cli` manifest from the hook checkout, so they do not depend on running from the Spore repository root.
 
 ## Documentation
 

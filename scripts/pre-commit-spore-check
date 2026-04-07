@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd -- "$(dirname -- "$0")" && pwd)"
+repo_root="$(cd -- "$script_dir/.." && pwd)"
+
+exec cargo run --quiet --manifest-path "$repo_root/crates/spore-cli/Cargo.toml" --bin spore -- check "$@"
