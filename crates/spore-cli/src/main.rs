@@ -42,7 +42,7 @@ enum Cmd {
         file: String,
     },
     Build {
-        file: String,
+        file: Option<String>,
     },
     Watch {
         file: String,
@@ -63,10 +63,10 @@ fn json_flag() -> impl Parser<bool> {
 
 fn cmd_run_parser() -> impl Parser<Cmd> {
     let json = json_flag();
-    let file = positional::<String>("FILE").help("A .spore file to run");
+    let file = positional::<String>("FILE").help("A .sp file to run");
     construct!(Cmd::Run { json, file })
         .to_options()
-        .descr("Compile and execute a .spore file")
+        .descr("Compile and execute a .sp file")
         .command("run")
 }
 
@@ -79,7 +79,7 @@ fn cmd_check_parser() -> impl Parser<Cmd> {
         .help("Treat warnings as errors")
         .switch();
     let files = positional::<String>("FILE")
-        .help(".spore file(s) to check")
+        .help(".sp file(s) to check")
         .some("expected at least one file");
     construct!(Cmd::Check {
         verbose,
@@ -88,7 +88,7 @@ fn cmd_check_parser() -> impl Parser<Cmd> {
         files,
     })
     .to_options()
-    .descr("Type-check one or more .spore files")
+    .descr("Type-check one or more .sp files")
     .command("check")
 }
 
@@ -101,7 +101,7 @@ fn cmd_test_parser() -> impl Parser<Cmd> {
         .help("Treat warnings as errors")
         .switch();
     let files = positional::<String>("FILE")
-        .help(".spore file(s) to validate as tests")
+        .help(".sp file(s) to validate as tests")
         .some("expected at least one file");
     construct!(Cmd::Test {
         verbose,
@@ -121,26 +121,26 @@ fn cmd_format_parser() -> impl Parser<Cmd> {
             .switch();
         let diff = long("diff").help("Show diff instead of rewriting").switch();
         let files = positional::<String>("FILE")
-            .help(".spore file(s) to format")
+            .help(".sp file(s) to format")
             .some("expected at least one file");
         construct!(Cmd::Format { check, diff, files })
     };
 
     let format_cmd = fmt_inner()
         .to_options()
-        .descr("Format .spore files")
+        .descr("Format .sp files")
         .command("format");
 
     let fmt_cmd = fmt_inner()
         .to_options()
-        .descr("Format .spore files (alias for format)")
+        .descr("Format .sp files (alias for format)")
         .command("fmt");
 
     construct!([format_cmd, fmt_cmd])
 }
 
 fn cmd_holes_parser() -> impl Parser<Cmd> {
-    let file = positional::<String>("FILE").help("A .spore file");
+    let file = positional::<String>("FILE").help("A .sp file");
     construct!(Cmd::Holes { file })
         .to_options()
         .descr("Show hole report (JSON)")
@@ -148,16 +148,18 @@ fn cmd_holes_parser() -> impl Parser<Cmd> {
 }
 
 fn cmd_build_parser() -> impl Parser<Cmd> {
-    let file = positional::<String>("FILE").help("A .spore file to compile");
+    let file = positional::<String>("FILE")
+        .help("A .sp file or project directory to compile")
+        .optional();
     construct!(Cmd::Build { file })
         .to_options()
-        .descr("Compile a .spore file")
+        .descr("Compile a .sp file or current project (interpreter mode)")
         .command("build")
 }
 
 fn cmd_watch_parser() -> impl Parser<Cmd> {
     let json = json_flag();
-    let file = positional::<String>("FILE").help("A .spore file to watch");
+    let file = positional::<String>("FILE").help("A .sp file to watch");
     construct!(Cmd::Watch { json, file })
         .to_options()
         .descr("Watch a file and re-check on changes")
@@ -228,7 +230,7 @@ fn main() -> ExitCode {
         } => exec_test(&files, verbose, json, deny_warnings),
         Cmd::Format { files, check, diff } => exec_format(&files, check, diff),
         Cmd::Holes { file } => exec_holes(&file),
-        Cmd::Build { file } => exec_build(&file),
+        Cmd::Build { file } => exec_build(file.as_deref()),
         Cmd::Watch { file, json } => exec_watch(&file, json),
         Cmd::New { name, project_type } => exec_new(&name, &project_type),
         Cmd::Init { project_type } => exec_init(&project_type),
@@ -278,6 +280,154 @@ fn find_project_target(file: &str) -> Option<(PathBuf, String)> {
             return Some((dir.to_path_buf(), rel.to_string_lossy().replace('\\', "/")));
         }
         dir = dir.parent()?;
+    }
+}
+
+fn find_project_root(path: &Path) -> Option<PathBuf> {
+    let canonical = std::fs::canonicalize(path).ok()?;
+    let mut dir = if canonical.is_dir() {
+        canonical
+    } else {
+        canonical.parent()?.to_path_buf()
+    };
+
+    loop {
+        let manifest = dir.join("spore.toml");
+        let src_dir = dir.join("src");
+        if manifest.is_file() && src_dir.is_dir() {
+            return Some(dir);
+        }
+        dir = dir.parent()?.to_path_buf();
+    }
+}
+
+fn default_entry_for_project_type(project_type: &str) -> Option<&'static str> {
+    match project_type {
+        "application" => Some("main.sp"),
+        "package" => Some("lib.sp"),
+        "platform" => Some("host.sp"),
+        _ => None,
+    }
+}
+
+fn manifest_project_type(root: &Path) -> Result<Option<String>, String> {
+    let manifest = root.join("spore.toml");
+    let content = std::fs::read_to_string(&manifest)
+        .map_err(|e| format!("cannot read `{}`: {e}", manifest.display()))?;
+
+    let mut in_package_section = false;
+    for raw_line in content.lines() {
+        let line = raw_line
+            .split_once('#')
+            .map_or(raw_line, |(before, _)| before)
+            .trim();
+
+        if line.is_empty() {
+            continue;
+        }
+
+        if line.starts_with('[') && line.ends_with(']') {
+            in_package_section = line == "[package]";
+            continue;
+        }
+
+        if in_package_section
+            && let Some((key, value)) = line.split_once('=')
+            && key.trim() == "type"
+        {
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                return Ok(Some(value.to_string()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn infer_project_entry(root: &Path) -> Result<String, String> {
+    let src_dir = root.join("src");
+    let manifest = root.join("spore.toml");
+
+    if let Some(project_type) = manifest_project_type(root)? {
+        if let Some(entry) = default_entry_for_project_type(&project_type) {
+            let entry_path = src_dir.join(entry);
+            if entry_path.is_file() {
+                return Ok(entry.to_string());
+            }
+            return Err(format!(
+                "project type `{project_type}` expects `{}`; create it or pass FILE explicitly",
+                entry_path.display()
+            ));
+        }
+
+        return Err(format!(
+            "unsupported project type `{project_type}` in `{}`; pass FILE explicitly",
+            manifest.display()
+        ));
+    }
+
+    let candidates: Vec<&str> = ["main.sp", "lib.sp", "host.sp"]
+        .into_iter()
+        .filter(|entry| src_dir.join(entry).is_file())
+        .collect();
+
+    match candidates.as_slice() {
+        [entry] => Ok((*entry).to_string()),
+        [] => Err(format!(
+            "could not infer a project entry from `{}`; add `[package].type` or pass FILE explicitly",
+            manifest.display()
+        )),
+        _ => Err(format!(
+            "could not infer a project entry for `{}`; found multiple defaults in src/ ({}) — pass FILE explicitly",
+            root.display(),
+            candidates.join(", ")
+        )),
+    }
+}
+
+enum BuildTarget {
+    Project { root: PathBuf, entry: String },
+    File(String),
+}
+
+fn resolve_cli_path(path: &str, cwd: &Path) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    }
+}
+
+fn resolve_build_target(file: Option<&str>, cwd: &Path) -> Result<BuildTarget, String> {
+    match file {
+        Some(path) => {
+            let resolved_path = resolve_cli_path(path, cwd);
+            if Path::new(path) == Path::new(".") || resolved_path.is_dir() {
+                let root = find_project_root(&resolved_path).ok_or_else(|| {
+                    format!(
+                        "`{}` is not a Spore project directory (expected `spore.toml` and `src/`)",
+                        Path::new(path).display()
+                    )
+                })?;
+                let entry = infer_project_entry(&root)?;
+                Ok(BuildTarget::Project { root, entry })
+            } else if let Some((root, entry)) =
+                find_project_target(resolved_path.to_string_lossy().as_ref())
+            {
+                Ok(BuildTarget::Project { root, entry })
+            } else {
+                Ok(BuildTarget::File(path.to_string()))
+            }
+        }
+        None => {
+            let root = find_project_root(cwd).ok_or_else(|| {
+                "no FILE provided and current directory is not inside a Spore project; pass a .sp file or run `spore build` from a project root".to_string()
+            })?;
+            let entry = infer_project_entry(&root)?;
+            Ok(BuildTarget::Project { root, entry })
+        }
     }
 }
 
@@ -607,15 +757,35 @@ fn exec_holes(file: &str) -> ExitCode {
     }
 }
 
-fn exec_build(file: &str) -> ExitCode {
-    let result = if let Some((root, entry)) = find_project_target(file) {
-        sporec::compile_project(&root, &entry)
-    } else {
-        let source = match read_source(file) {
-            Ok(s) => s,
-            Err(c) => return c,
-        };
-        sporec::compile(&source)
+fn exec_build(file: Option<&str>) -> ExitCode {
+    let cwd = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!(
+                "{}: cannot determine current directory: {e}",
+                "error".red().bold()
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let target = match resolve_build_target(file, &cwd) {
+        Ok(target) => target,
+        Err(msg) => {
+            eprintln!("{}: {msg}", "error".red().bold());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let result = match &target {
+        BuildTarget::Project { root, entry } => sporec::compile_project(root, entry),
+        BuildTarget::File(path) => {
+            let source = match read_source(path) {
+                Ok(s) => s,
+                Err(c) => return c,
+            };
+            sporec::compile(&source)
+        }
     };
 
     match result {
@@ -623,9 +793,13 @@ fn exec_build(file: &str) -> ExitCode {
             for w in &output.warnings {
                 eprintln!("{}: {w}", "warning".yellow().bold());
             }
+            let subject = match &target {
+                BuildTarget::Project { entry, .. } => format!("project entry `{entry}`"),
+                BuildTarget::File(path) => format!("`{path}`"),
+            };
             println!(
-                "{} compiled successfully (interpreter mode — no binary output yet)",
-                "✓".green()
+                "{} compiled {subject} successfully (interpreter mode — no binary output yet)",
+                "✓".green(),
             );
             ExitCode::SUCCESS
         }
@@ -1064,5 +1238,73 @@ mod tests {
         fs::write(project_dir.join("notes.sp"), "fn scratch() -> Int { 1 }\n").unwrap();
 
         assert!(find_project_target(project_dir.join("notes.sp").to_str().unwrap()).is_none());
+    }
+
+    #[test]
+    fn test_resolve_build_target_without_arg_uses_project_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("proj");
+        create_project(&project_dir, "proj", "application").unwrap();
+
+        let target = resolve_build_target(None, &project_dir).unwrap();
+        match target {
+            BuildTarget::Project { root, entry } => {
+                assert_eq!(root, std::fs::canonicalize(&project_dir).unwrap());
+                assert_eq!(entry, "main.sp");
+            }
+            BuildTarget::File(path) => panic!("expected project target, got file target `{path}`"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_build_target_accepts_dot_for_project_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("pkg");
+        create_project(&project_dir, "pkg", "package").unwrap();
+
+        let target = resolve_build_target(Some("."), &project_dir).unwrap();
+
+        match target {
+            BuildTarget::Project { root, entry } => {
+                assert_eq!(root, std::fs::canonicalize(&project_dir).unwrap());
+                assert_eq!(entry, "lib.sp");
+            }
+            BuildTarget::File(path) => panic!("expected project target, got file target `{path}`"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_build_target_accepts_project_directory_argument() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("plat");
+        create_project(&project_dir, "plat", "platform").unwrap();
+
+        let target = resolve_build_target(Some(project_dir.to_str().unwrap()), tmp.path()).unwrap();
+        match target {
+            BuildTarget::Project { root, entry } => {
+                assert_eq!(root, std::fs::canonicalize(&project_dir).unwrap());
+                assert_eq!(entry, "host.sp");
+            }
+            BuildTarget::File(path) => panic!("expected project target, got file target `{path}`"),
+        }
+    }
+
+    #[test]
+    fn test_infer_project_entry_falls_back_to_single_default_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("proj");
+        fs::create_dir_all(project_dir.join("src")).unwrap();
+        fs::write(
+            project_dir.join("spore.toml"),
+            "[package]\nname = \"proj\"\n",
+        )
+        .unwrap();
+        fs::write(
+            project_dir.join("src/main.sp"),
+            "fn main() -> Unit { return }\n",
+        )
+        .unwrap();
+
+        assert_eq!(infer_project_entry(&project_dir).unwrap(), "main.sp");
     }
 }
