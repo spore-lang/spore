@@ -41,6 +41,14 @@ ci: check test
 pre-commit:
     uvx prek run --all-files
 
+# Install local git hooks via prek
+pre-commit-install:
+    uvx prek install --install-hooks --hook-type pre-commit --hook-type commit-msg
+
+# Remove local git hooks installed by prek
+pre-commit-uninstall:
+    uvx prek uninstall
+
 # Display project information
 info:
     @echo "=== Spore ==="

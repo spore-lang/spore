@@ -55,4 +55,18 @@ hooks = [
     types = ["rust"],
     pass_filenames = false
   },
+  {
+    id = "spore-format",
+    name = "spore-format",
+    entry = "cargo run --quiet --bin spore -- format",
+    language = "system",
+    files = "^examples/.*\\.sp$"
+  },
+  {
+    id = "spore-check",
+    name = "spore-check",
+    entry = "cargo run --quiet --bin spore -- check",
+    language = "system",
+    files = "^examples/.*\\.sp$"
+  },
 ]

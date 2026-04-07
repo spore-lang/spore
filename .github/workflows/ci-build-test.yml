@@ -46,8 +46,17 @@ jobs:
       - name: Run doc tests
         run: cargo test --doc --all-features
 
-      - name: Smoke-test demo via spore test
-        run: cargo run --release --bin spore -- test demo.sp
+      - name: Smoke-test example entrypoints
+        run: |
+          cargo run --release --bin spore -- run examples/demo.sp
+          cargo run --release --bin spore -- check examples/demo.sp
+          cargo run --release --bin spore -- test examples/demo.sp
+
+      - name: Smoke-test project-aware build
+        run: |
+          cargo run --release --bin spore -- new ci-build-smoke
+          cd ci-build-smoke
+          ../target/release/spore build
 
       - name: Smoke-test stdlib specs
         run: cargo run --release --bin spore -- test stdlib/math.sp stdlib/string.sp stdlib/collections.sp stdlib/char.sp stdlib/set.sp stdlib/dict.sp

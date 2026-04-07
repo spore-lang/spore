@@ -1,0 +1,13 @@
+- id: spore-format
+  name: spore format
+  description: Format Spore source files with `spore format`.
+  entry: cargo run --quiet --bin spore -- format
+  language: system
+  files: \.sp$
+
+- id: spore-check
+  name: spore check
+  description: Type-check Spore source files with `spore check`.
+  entry: cargo run --quiet --bin spore -- check
+  language: system
+  files: \.sp$

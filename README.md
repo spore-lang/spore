@@ -17,13 +17,16 @@ Spore is a compiled language where function signatures are "gravity centers" —
 ## Quick Start
 
 ```bash
-cargo build                             # build the compiler
-cargo run --bin spore -- run demo.sp    # run the demo program (outputs 204)
-cargo run --bin spore -- check demo.sp  # type-check only
-cargo test --all                        # run all tests
+cargo build                                      # build the compiler
+cargo run --bin spore -- run examples/demo.sp    # run the demo program (outputs 204)
+cargo run --bin spore -- check examples/demo.sp  # type-check only
+cargo run --bin spore -- test examples/demo.sp   # validate the example as a spec file
+cargo test --all                                 # run all tests
 ```
 
 ## Examples
+
+The canonical runnable example lives in [`examples/demo.sp`](examples/demo.sp).
 
 ### Hello World
 
@@ -135,6 +138,28 @@ spore (stateful codebase manager — handles IO)
 **Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, and cost analysis. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, and try-operator support.
 
 See [docs/](docs/) for comprehensive specifications.
+
+## Development
+
+### Local hooks
+
+```bash
+just pre-commit-install  # install pre-commit + commit-msg hooks via prek
+just pre-commit          # run the configured hooks on all files
+```
+
+Spore also publishes reusable pre-commit-compatible hooks for `.sp` files:
+
+```yaml
+repos:
+  - repo: https://github.com/spore-lang/spore
+    rev: <tag-or-sha>
+    hooks:
+      - id: spore-format
+      - id: spore-check
+```
+
+These hooks currently shell out through `cargo run --bin spore`, so consumers need a working Rust toolchain.
 
 ## Documentation
 

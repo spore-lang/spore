@@ -145,13 +145,14 @@ impl Formatter {
 
         // Error types
         if !f.errors.is_empty() {
-            self.write(" ! ");
+            self.write(" ! [");
             for (i, e) in f.errors.iter().enumerate() {
                 if i > 0 {
-                    self.write(" | ");
+                    self.write(", ");
                 }
                 self.fmt_type_expr(e);
             }
+            self.write("]");
         }
 
         // Where clause
@@ -1159,6 +1160,12 @@ mod tests {
     }
 
     #[test]
+    fn test_function_with_errors_roundtrips() {
+        let src = "fn risky(path: String) -> String ! [IoError, ParseError] { path }\n";
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
     fn test_struct_def() {
         let src = "struct Point { x: Int, y: Int }\n";
         let out = roundtrip(src);
@@ -1245,6 +1252,12 @@ mod tests {
     #[test]
     fn test_foreign_fn_with_uses_roundtrips() {
         let src = "foreign fn read_file(path: String) -> String uses [FileRead]\n";
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_foreign_fn_with_errors_roundtrips() {
+        let src = "foreign fn process_run(cmd: String, args: List[String]) -> String ! [IoError, ExecError] uses [Spawn]\n";
         assert_eq!(roundtrip(src), src);
     }
 
