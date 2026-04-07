@@ -1,3 +1,5 @@
+> ⚠️ **Superseded by hole-report-v0.3.md. Kept for historical reference.**
+
 # Spore Hole System — Design Document v0.2
 
 > **Status**: Draft

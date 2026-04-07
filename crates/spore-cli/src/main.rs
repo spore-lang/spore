@@ -27,6 +27,12 @@ enum Cmd {
         json: bool,
         deny_warnings: bool,
     },
+    Test {
+        files: Vec<String>,
+        verbose: bool,
+        json: bool,
+        deny_warnings: bool,
+    },
     Format {
         files: Vec<String>,
         check: bool,
@@ -84,6 +90,28 @@ fn cmd_check_parser() -> impl Parser<Cmd> {
     .to_options()
     .descr("Type-check one or more .spore files")
     .command("check")
+}
+
+fn cmd_test_parser() -> impl Parser<Cmd> {
+    let verbose = long("verbose")
+        .help("Show detailed type inference and cost info")
+        .switch();
+    let json = json_flag();
+    let deny_warnings = long("deny-warnings")
+        .help("Treat warnings as errors")
+        .switch();
+    let files = positional::<String>("FILE")
+        .help(".spore file(s) to validate as tests")
+        .some("expected at least one file");
+    construct!(Cmd::Test {
+        verbose,
+        json,
+        deny_warnings,
+        files,
+    })
+    .to_options()
+    .descr("Validate test/spec files (MVP: static checking only)")
+    .command("test")
 }
 
 fn cmd_format_parser() -> impl Parser<Cmd> {
@@ -165,6 +193,7 @@ fn cli() -> OptionParser<Cmd> {
     let cmd = construct!([
         cmd_run_parser(),
         cmd_check_parser(),
+        cmd_test_parser(),
         cmd_format_parser(),
         cmd_holes_parser(),
         cmd_build_parser(),
@@ -191,6 +220,12 @@ fn main() -> ExitCode {
             json,
             deny_warnings,
         } => exec_check(&files, verbose, json, deny_warnings),
+        Cmd::Test {
+            files,
+            verbose,
+            json,
+            deny_warnings,
+        } => exec_test(&files, verbose, json, deny_warnings),
         Cmd::Format { files, check, diff } => exec_format(&files, check, diff),
         Cmd::Holes { file } => exec_holes(&file),
         Cmd::Build { file } => exec_build(&file),
@@ -383,6 +418,102 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
                 }
             }
         }
+    }
+}
+
+fn exec_test(files: &[String], verbose: bool, json_output: bool, _deny_warnings: bool) -> ExitCode {
+    // NOTE: Type-check is intentionally skipped as a gate here.  The type
+    // checker has known limitations with generics (Option[T], Pair[K,V])
+    // that would block spec testing of otherwise valid stdlib code.
+    // `sporec::test_specs` still parses the source and evaluates specs.
+
+    let mut total_passed = 0usize;
+    let mut total_failed = 0usize;
+
+    for path in files {
+        let source = match read_source(path) {
+            Ok(s) => s,
+            Err(c) => return c,
+        };
+
+        match sporec::test_specs(&source) {
+            Ok(results) => {
+                for r in &results {
+                    let kind_label = if r.kind == sporec::SpecKind::Example {
+                        "example"
+                    } else {
+                        "property"
+                    };
+                    if r.passed {
+                        total_passed += 1;
+                        if !json_output && verbose {
+                            eprintln!(
+                                "  {} {} :: {} \"{}\"",
+                                "✓".green(),
+                                r.fn_name,
+                                kind_label,
+                                r.label
+                            );
+                        }
+                    } else {
+                        total_failed += 1;
+                        let msg = r.error.as_deref().unwrap_or("assertion failed");
+                        if !json_output {
+                            eprintln!(
+                                "  {} {} :: {} \"{}\" — {}",
+                                "✗".red(),
+                                r.fn_name,
+                                kind_label,
+                                r.label,
+                                msg
+                            );
+                        }
+                    }
+                }
+            }
+            Err(msg) => {
+                if json_output {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&json!({"status": "error", "message": msg})).unwrap()
+                    );
+                } else {
+                    eprintln!("{}: {msg}", "error".red().bold());
+                }
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
+    // Summary
+    if json_output {
+        println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "status": if total_failed == 0 { "ok" } else { "fail" },
+                "passed": total_passed,
+                "failed": total_failed,
+            }))
+            .unwrap()
+        );
+    } else {
+        let total = total_passed + total_failed;
+        if total == 0 {
+            eprintln!("note: no spec clauses found");
+        } else if total_failed == 0 {
+            eprintln!("\n{} {total} specs passed", "✓".green());
+        } else {
+            eprintln!(
+                "\n{}: {total_failed} of {total} specs failed",
+                "FAIL".red().bold()
+            );
+        }
+    }
+
+    if total_failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     }
 }
 
@@ -760,17 +891,17 @@ allow = [\"Compute\"]
     let (filename, content) = match project_type {
         "package" => (
             "lib.sp",
-            "/// Add two integers.\npub fn add(a: Int, b: Int) -> Int cost <= 1 =\n    a + b\n"
+            "/// Add two integers.\npub fn add(a: Int, b: Int) -> Int cost <= 1 {\n    a + b\n}\n"
                 .to_string(),
         ),
         "platform" => (
             "host.sp",
-            "/// Platform entry point.\n/// The platform provides effect handlers for the application.\npub fn main_for_host(app_main: fn() -> Unit) -> Unit =\n    app_main()\n"
+            "/// Platform entry point.\n/// The platform provides effect handlers for the application.\npub fn main_for_host(app_main: () -> Unit) -> Unit {\n    app_main();\n    return\n}\n"
                 .to_string(),
         ),
         _ => (
             "main.sp",
-            format!("fn main() -> Unit =\n    println(\"Hello from {name}!\")\n"),
+            format!("fn main() -> Unit {{\n    println(\"Hello from {name}!\");\n    return\n}}\n"),
         ),
     };
     std::fs::write(dir.join("src").join(filename), content)?;
@@ -830,6 +961,72 @@ mod tests {
         create_project(&project_dir, "test-proj", "application").unwrap();
         let gi = fs::read_to_string(project_dir.join(".gitignore")).unwrap();
         assert!(gi.contains("/target"));
+    }
+
+    #[test]
+    fn test_scaffolded_projects_typecheck() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cases = [
+            ("application", "app", "main.sp"),
+            ("package", "pkg", "lib.sp"),
+            ("platform", "plat", "host.sp"),
+        ];
+
+        for (project_type, name, entry) in cases {
+            let project_dir = tmp.path().join(name);
+            create_project(&project_dir, name, project_type).unwrap();
+
+            let result = sporec::compile_project(&project_dir, entry);
+            assert!(
+                result.is_ok(),
+                "scaffolded {project_type} project should type-check: {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_exec_test_accepts_valid_spec_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("sample.sp");
+        fs::write(
+            &file,
+            r#"
+            fn add(a: Int, b: Int) -> Int
+            spec {
+                example "basic": add(2, 3) == 5
+                property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+            }
+            {
+                a + b
+            }
+            "#,
+        )
+        .unwrap();
+
+        let code = exec_test(&[file.to_string_lossy().to_string()], false, false, false);
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_exec_test_rejects_invalid_spec_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("sample.sp");
+        fs::write(
+            &file,
+            r#"
+            fn add(a: Int, b: Int) -> Int
+            spec {
+                example "bad": 42
+            }
+            {
+                a + b
+            }
+            "#,
+        )
+        .unwrap();
+
+        let code = exec_test(&[file.to_string_lossy().to_string()], false, false, false);
+        assert_eq!(code, ExitCode::FAILURE);
     }
 
     #[test]

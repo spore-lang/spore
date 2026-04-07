@@ -2064,12 +2064,166 @@ Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
 
 **版本历史**:
 - v0.1 (2024): 初始规范，定义核心语法与设计决策
+- v0.1.1 (2025): 合并 signature-syntax-v0.2 内容为附录 B
 
 **下一步**:
 - 补充标准库 API 规范
 - 细化效应系统的语义定义
 - 完善成本模型的形式化描述
 - 添加更多实际项目示例
+
+---
+
+## 附录 B: 签名语法详解 (Signature Details)
+
+> 本节内容整合自 `signature-syntax-v0.2.md`，提供函数签名的完整规范与示例。
+> §5（函数定义）定义了签名的基本结构，本附录补充设计原则、效果推断规则、
+> Snapshot Hash 覆盖范围等细节。
+
+### B.1 设计原则
+
+1. 错误是特殊返回类型 → 紧跟 `->` 用 `!` 分隔
+2. 泛型约束 → `where`（Rust 风格）；资源 → `uses`；代价 → `cost`，各自独立子句；效果属性由编译器从 `uses` 自动推断
+3. 简单纯函数零开销 → 无 where、无 `!`
+4. 编译器推断并显示所有省略的元数据
+
+### B.2 语法模板
+
+```
+fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
+[where <GenericName>: <Constraint>, ...]
+[uses [<Capability>, ...]]
+[cost ≤ <N>]
+{
+    <body>
+}
+```
+
+### B.3 签名子句排列顺序（约定）
+
+```
+-- 1. 泛型约束（Rust 风格，每条独立一行）
+where T: Serialize + Eq
+where U: Display
+
+-- 2. 资源/能力集
+uses [Compute]
+
+-- 3. 代价上界
+cost ≤ 500
+```
+
+顺序不强制，但编译器格式化输出会遵循此约定。
+
+### B.4 效果属性（编译器自动推断）
+
+编译器根据 `uses` 声明自动推断以下属性，无需手动标注：
+
+| 属性 | 推断规则 |
+|------|---------|
+| `pure` | `uses []` → 自动推断为 pure |
+| `deterministic` | `uses` 中不含 Random/Clock → 自动推断 |
+| `total` | 编译器验证终止性 → 自动推断 |
+
+`idempotent` 无法从 `uses` 自动推断，需通过文档注释标注：`/// @idempotent`
+
+蕴含关系：`pure` ⊃ `deterministic`（pure 必然 deterministic）
+
+### B.5 Snapshot Hash 覆盖范围
+
+以下任一变更 → 新 hash → 需要 `--permit`：
+
+| 签名组件 | 示例变更 |
+|----------|---------|
+| 函数名 | `parse_config` → `load_config` |
+| 参数名 | `raw` → `input` |
+| 参数顺序 | `(a, b)` → `(b, a)` |
+| 参数类型 | `String` → `Bytes` |
+| 返回类型 | `Config` → `Settings` |
+| 错误类型集合 | 增删任一错误类型 |
+| 代价上界 | `≤ 200` → `≤ 300` |
+| 能力集 | 增删任一能力 |
+| 泛型约束 | `T: Eq` → `T: Eq + Hash` |
+
+### B.6 补充示例
+
+#### 编译器推断输出示例
+
+```spore
+fn add(a: Int, b: Int) -> Int {
+    a + b
+}
+```
+
+编译器推断输出：
+```
+  cost = 1
+  uses []
+  -- 编译器自动推断: pure, deterministic, total (基于 uses [])
+```
+
+#### 有错误的纯函数
+
+```spore
+fn parse_int(input: String) -> Int ! [InvalidFormat] {
+    ...
+}
+```
+
+编译器推断输出：
+```
+  cost = 12
+  uses [Compute]
+  -- 编译器自动推断: deterministic (基于 uses [Compute])
+```
+
+#### 不完整函数（未声明 uses，有能力依赖）
+
+```spore
+fn fetch_data(url: Url) -> Data ! [NetworkError] {
+    http.get(url)    -- 调用了 http 模块
+}
+```
+
+编译器输出：
+```
+ERROR [incomplete-function] fetch_data 是不完整函数：
+  检测到能力依赖但未声明 `uses`。
+  推断能力集: [NetRead]
+
+  建议添加:
+    uses [NetRead]
+
+  当前状态: 可模拟执行，不可真实执行
+```
+
+#### Hole（部分定义，可模拟执行）
+
+```spore
+/// @idempotent
+fn validate_payment(amount: Money, method: PaymentMethod) -> Receipt ! [Declined, InsufficientFunds]
+uses [NetRead]
+{
+    ?validate_logic
+}
+```
+
+模拟执行输出：
+```json
+{
+  "hole": "validate_logic",
+  "expected_type": "Receipt",
+  "bindings": {
+    "amount": "Money",
+    "method": "PaymentMethod"
+  },
+  "available_capabilities": ["NetRead"],
+  "candidate_functions": [
+    "payment_gateway.charge(amount: Money, method: PaymentMethod) -> Receipt ! [Declined, InsufficientFunds]"
+  ],
+  "error_types_to_handle": ["Declined", "InsufficientFunds"]
+}
+```
 
 ---
 

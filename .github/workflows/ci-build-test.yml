@@ -1,4 +1,4 @@
-name: "CI - Build & Test"
+name: "CI - Tests"
 
 on:
   push:
@@ -45,6 +45,12 @@ jobs:
 
       - name: Run doc tests
         run: cargo test --doc --all-features
+
+      - name: Smoke-test demo via spore test
+        run: cargo run --release --bin spore -- test demo.sp
+
+      - name: Smoke-test stdlib specs
+        run: cargo run --release --bin spore -- test stdlib/math.sp stdlib/string.sp stdlib/collections.sp stdlib/char.sp stdlib/set.sp stdlib/dict.sp
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5

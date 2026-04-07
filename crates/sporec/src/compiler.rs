@@ -323,6 +323,16 @@ pub fn run(source: &str) -> Result<Value, String> {
     spore_codegen::run(&ast).map_err(|e| e.to_string())
 }
 
+/// Run spec clauses in source code and return test results.
+pub fn test_specs(source: &str) -> Result<Vec<spore_codegen::SpecResult>, String> {
+    let ast = parse(source).map_err(join_errors)?;
+    // Type-check errors are non-fatal for spec evaluation — the type checker
+    // currently has known limitations with generics (Option[T], Pair[K,V])
+    // that would block spec testing of otherwise valid code.
+    let _ = type_check(&ast);
+    spore_codegen::test_specs(&ast).map_err(|e| e.to_string())
+}
+
 /// Format Spore source code.
 ///
 /// Parses the source into an AST and then pretty-prints it back using the

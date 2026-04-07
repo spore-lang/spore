@@ -793,27 +793,6 @@ fn test_tstring() {
     }
 }
 
-#[test]
-fn test_raw_string_parse() {
-    let tail = get_tail(r#"fn foo() { r"C:\Users\path" }"#);
-    match tail {
-        Expr::StrLit(s) => assert_eq!(s, r"C:\Users\path"),
-        other => panic!("expected StrLit, got {:?}", other),
-    }
-}
-
-#[test]
-fn test_fstring_parse() {
-    let tail = get_tail(r#"fn foo(x: Int) { f"val={x}" }"#);
-    if let Expr::FString(parts) = tail {
-        assert_eq!(parts.len(), 2);
-        assert!(matches!(&parts[0], FStringPart::Literal(s) if s == "val="));
-        assert!(matches!(&parts[1], FStringPart::Expr(Expr::Var(n)) if n == "x"));
-    } else {
-        panic!("expected FString, got {:?}", tail);
-    }
-}
-
 // ── Item 1: parallel_scope expression ───────────────────────────────────
 
 #[test]

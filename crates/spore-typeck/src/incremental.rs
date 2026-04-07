@@ -44,9 +44,6 @@ impl Revision {
 #[derive(Debug, Clone)]
 struct CachedResult<T: Clone> {
     value: T,
-    /// The revision at which this result was computed.
-    #[allow(dead_code)]
-    computed_at: Revision,
     /// Fingerprint of the input that produced this result.
     input_fingerprint: Fingerprint,
 }
@@ -143,7 +140,6 @@ impl IncrementalDb {
             fn_name.to_string(),
             CachedResult {
                 value: errors,
-                computed_at: self.revision,
                 input_fingerprint: input_fp,
             },
         );
@@ -167,7 +163,6 @@ impl IncrementalDb {
             fn_name.to_string(),
             CachedResult {
                 value: cost,
-                computed_at: self.revision,
                 input_fingerprint: input_fp,
             },
         );

@@ -1,5 +1,7 @@
 # Spore Type System: Design Trade-offs & Recommendations
 
+> 📦 **Frozen design artifact. Key decisions incorporated into type-system-v0.1.md.**
+
 > **Status**: Research deliverable · June 2025
 > **Scope**: Comprehensive analysis of type-system design choices for Spore, a general-purpose language optimized for Human–Agent collaboration.
 

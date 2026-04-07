@@ -1,7 +1,7 @@
 name: "CI - PR Checks"
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, edited, reopened, synchronize]
     branches: [main]
 
@@ -10,36 +10,17 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: pr-title-${{ github.event.pull_request.number }}
+  group: pr-checks-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   title:
-    name: title
+    name: PR title
     runs-on: ubuntu-latest
     steps:
-      - name: Validate PR title
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          python - <<'PY'
-          import os
-          import re
-          import sys
+      - uses: actions/checkout@v6
 
-          title = os.environ["PR_TITLE"]
-          pattern = r"^(?:[^\w\s]+\s+)?(?:feat|fix|refactor|docs|chore|ci|test|perf|build|revert): .+"
-
-          if re.match(pattern, title):
-              print(f"PR title OK: {title}")
-              sys.exit(0)
-
-          print("PR title must match '[emoji ]type: summary'.")
-          print("Allowed types: feat, fix, refactor, docs, chore, ci, test, perf, build, revert.")
-          print("Examples:")
-          print("  ✨ feat: add parser support for ...")
-          print("  🐛 fix: preserve formatter headers")
-          print("  ♻️ refactor: simplify import resolution")
-          print(f"Got: {title}")
-          sys.exit(1)
-          PY
+      - name: Check PR title
+        uses: zrr1999/zendev-actions/validate-title@9013ad848b32d287d0258fdbc9f51e350b8eca33
+        with:
+          text: ${{ github.event.pull_request.title }}

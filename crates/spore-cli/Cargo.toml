@@ -11,7 +11,6 @@ name = "spore"
 path = "src/main.rs"
 
 [dependencies]
-ariadne = { workspace = true }
 bpaf = { workspace = true }
 notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }
