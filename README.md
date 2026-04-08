@@ -14,6 +14,14 @@ Spore is a compiled language where function signatures are "gravity centers" —
 - **Structured Concurrency**: Task trees with cancellation propagation, channels for communication
 - **Expression-Based**: Everything is an expression, no loops (recursion + higher-order functions)
 
+## Canonical Surface Syntax
+
+- Modules come only from file paths; there is no `module ...` header.
+- Capability checks live on function signatures and package/Platform boundaries only; source files have no module-level `uses` carrier.
+- Stable generic bounds use repeated single-bound clauses: `where T: Trait`.
+- Error sets are checked contracts: `throw expr` must match the current `! [...]`, calling a throwing function requires compatible caller errors, and `?` is propagation sugar.
+- Primitive syntax is `I32`/`I64`/`U32`/`U64`/`F32`/`F64`/`Bool`/`Char`/`Str`/`()`. Hole syntax stays at the richer docs target in the syntax spec.
+
 ## Quick Start
 
 ```bash
@@ -66,10 +74,15 @@ fn main() -> I32 {
 ### Capabilities, Costs, and Error Sets
 
 These annotations are part of the function signature — the compiler verifies
-that callers supply the required capabilities and that costs stay within budget.
+capabilities, cost budgets, and checked error contracts at call boundaries.
+`throw expr` must be covered by the current function's `! [...]`, calling a
+`! [...]` function requires a compatible caller signature, and `?` is sugar for
+that propagation rule.
 
 The parser accepts `where`, `uses`, `cost`, and `spec` clauses in any order.
-Documentation examples use the canonical order: `where`, `uses`, `cost`, `spec`.
+Documentation examples use the canonical order: `where`, `uses`, `cost`, `spec`,
+and stable `where` syntax is the single-bound form `where T: Trait` (repeat
+clauses as needed).
 
 ```spore
 fn fetch(url: Str) -> Str ! [NetError, Timeout]
@@ -156,19 +169,21 @@ just package-cli-sdist  # build a source distribution into dist/
 | [Syntax Spec](docs/specs/syntax-spec-v0.1.md) | Complete syntax reference |
 | [Signature Details](docs/specs/syntax-spec-v0.1.md#appendix-b-signature-details) | Function signature design |
 | [Type System](docs/specs/type-system-v0.1.md) | Type system specification |
-| [Module System](docs/specs/module-system-v0.1.md) | Module & dual hash system |
-| [Hole System](docs/specs/hole-system-v0.2.md) | Hole system for Agent collaboration |
-| [Cost Model](docs/specs/cost-model-v0.1.md) | 4-dimension cost analysis |
-| [Compiler Output](docs/specs/compiler-output-v0.1.md) | Diagnostic format (3 modes) |
+| [Module System](docs/specs/module-system-v0.1.md) | File-derived modules and dual hash addressing |
+| [Effect Algebra](docs/specs/effect-algebra-v0.1.md) | Capability set algebra and composition |
+| [Cost Analysis](docs/specs/cost-analysis-v0.1.md) | Cost model and static analysis |
+| [Compiler Output](docs/specs/compiler-output-v0.1.md) | Diagnostic format (text / verbose / JSON) |
+| [Hole Report v0.3](docs/specs/hole-report-v0.3.md) | Active hole protocol and report format |
+| [Hole Dependency Graph](docs/specs/hole-dependency-graph-v0.1.md) | Hole DAG and parallel fill ordering |
 | [Concurrency](docs/specs/concurrency-model-v0.1.md) | Structured concurrency model |
 | [Package Management](docs/specs/package-management-v0.1.md) | Content-addressed packages |
 | [Platform System](docs/specs/platform-system-v0.1.md) | IO through effect handlers |
-| [Incremental Compilation](docs/specs/incremental-compilation-v0.1.md) | Watch mode & incremental builds |
-| [Effect Algebra](docs/specs/effect-algebra-v0.1.md) | Capability set algebra & composition |
-| [Recursion Analysis](docs/specs/recursion-analysis-v0.1.md) | Three-tier recursive cost analysis |
-| [Cost Decidability](docs/specs/cost-decidability-v0.1.md) | CostExpr grammar & decidability proof |
-| [Hole Report v0.3](docs/specs/hole-report-v0.3.md) | Extended HoleReport & Agent protocol |
-| [Hole Dependency Graph](docs/specs/hole-dependency-graph-v0.1.md) | Hole DAG & parallel fill algorithm |
+| [Incremental Compilation](docs/specs/incremental-compilation-v0.1.md) | Watch mode and incremental builds |
+
+### Historical Reference
+| Document | Description |
+|----------|-------------|
+| [Hole System v0.2](docs/archive/hole-system-v0.2.md) | Replaced by the active hole docs; kept as archive only |
 
 ### Design Overview
 See [docs/DESIGN.md](docs/DESIGN.md) for the master design document with all confirmed decisions.

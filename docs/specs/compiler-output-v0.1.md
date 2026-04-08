@@ -46,7 +46,7 @@ All diagnostics carry a categorized error code:
 |--------|----------|----------|
 | `E0xxx` | Type errors | type mismatch, missing field, arity error |
 | `W0xxx` | Warnings | unused variable, redundant pattern, shadowing |
-| `C0xxx` | Capability violations | undeclared capability, callee capability leak, deferred ceiling checks |
+| `C0xxx` | Capability violations | undeclared capability, callee capability leak, platform capability denial |
 | `K0xxx` | Cost violations | exceeding budget, unbounded call without `cost_limit` |
 | `H0xxx` | Hole diagnostics | hole report, partial function, hole type conflict |
 | `M0xxx` | Module errors | circular dependency, visibility violation, import not found |
@@ -141,7 +141,7 @@ error[E0301]: type mismatch
   --> src/billing.spore:42:22
    |
 42 |     charge(card, "fifty dollars")
-   |                  ^^^^^^^^^^^^^^^ expected `Money`, found `String`
+   |                  ^^^^^^^^^^^^^^^ expected `Money`, found `Str`
    |
 help: try `Money.from_string("fifty dollars")`
 ```
@@ -253,18 +253,18 @@ error[E0301]: type mismatch
   --> src/billing.spore:42:22
    |
 42 |     charge(card, "fifty dollars")
-   |                  ^^^^^^^^^^^^^^^ expected `Money`, found `String`
+   |                  ^^^^^^^^^^^^^^^ expected `Money`, found `Str`
    |
 help: try `Money.from_string("fifty dollars")`
 
   inference chain:
-    "fifty dollars" : String       (literal, line 42)
+    "fifty dollars" : Str       (literal, line 42)
     charge.amount : Money          (from signature, sig@b3c1e2)
-    String ≠ Money                 (nominal mismatch)
+    Str ≠ Money                 (nominal mismatch)
 
   candidates considered:
-    String -> Money via Money.from_string  ✓ (exact match)
-    String -> Money via Money.parse        ✓ (may raise ParseError)
+    Str -> Money via Money.from_string  ✓ (exact match)
+    Str -> Money via Money.parse        ✓ (may raise ParseError)
 
   capability context: [PaymentGateway]
   cost at this point: 120 / budget 500
@@ -499,7 +499,7 @@ Spore extension fields (`inference_chain`, `candidates`, `context`) are placed i
 {
   "severity": 1,
   "code": "E0301",
-  "message": "type mismatch: expected `Money`, found `String`",
+  "message": "type mismatch: expected `Money`, found `Str`",
   "range": { ... },
   "relatedInformation": [ ... ],
   "data": {
@@ -534,7 +534,7 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
 {
   "severity": "error",
   "code": "E0301",
-  "message": "type mismatch: expected `Money`, found `String`",
+  "message": "type mismatch: expected `Money`, found `Str`",
   "location": {
     "file": "src/billing.spore",
     "range": {
@@ -552,12 +552,12 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
     }
   ],
   "inference_chain": [
-    { "expr": "\"fifty dollars\"", "type": "String", "source": "literal" },
+    { "expr": "\"fifty dollars\"", "type": "Str", "source": "literal" },
     { "expr": "charge.amount", "type": "Money", "source": "signature:b3c1e2" }
   ],
   "candidates": [
-    { "from": "String", "to": "Money", "via": "Money.from_string", "quality": "exact", "note": null },
-    { "from": "String", "to": "Money", "via": "Money.parse", "quality": "partial", "note": "may raise ParseError" }
+    { "from": "Str", "to": "Money", "via": "Money.from_string", "quality": "exact", "note": null },
+    { "from": "Str", "to": "Money", "via": "Money.parse", "quality": "partial", "note": "may raise ParseError" }
   ],
   "context": {
     "capabilities": ["PaymentGateway"],
@@ -677,7 +677,7 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
 
 ### 5.1 E0xxx — Type Errors
 
-Type errors arise from mismatches in the Spore type system: wrong types, missing fields, arity violations, and generic constraint failures.
+Type errors arise from mismatches in the Spore type system: wrong types, missing fields, arity violations, generic constraint failures, and checked error-set contract violations at `throw` / call boundaries.
 
 | Code | Name | Description |
 |------|------|-------------|
@@ -717,7 +717,7 @@ error[E0201]: function `format_date` takes 2 arguments, but 3 were given
 22 |     format_date(date, "YYYY-MM-DD", locale)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected 2 arguments
    |
-   = note: signature: fn format_date(date: Date, fmt: String) -> String
+   = note: signature: fn format_date(date: Date, fmt: Str) -> Str
 help: remove the extra argument `locale`
 ```
 
@@ -815,15 +815,9 @@ Capability errors occur when code tries to perform operations beyond its declare
 | Code | Name | Description |
 |------|------|-------------|
 | `C0101` | undeclared-capability | Function uses a capability not listed in `uses` |
-| `C0102` | exceeds-ceiling | Reserved for a future module-level capability carrier (currently deferred / TBD) |
 | `C0103` | callee-capability-leak | Calling a function whose `uses` exceeds the caller's `uses` |
 | `C0201` | platform-capability-denied | Package requests a capability the Platform does not grant |
 | `C0301` | effects-capability-conflict | Declared effects conflict with declared capabilities |
-
-#### C0102 — exceeds-ceiling
-
-`C0102` is reserved for a future design if Spore reintroduces a module-level capability carrier.
-Because file paths now determine module identity and there is no in-file `module ... uses ...` syntax, this diagnostic is currently **deferred / TBD**.
 
 #### C0103 — callee-capability-leak
 
@@ -883,12 +877,12 @@ help: wrap in `with_cost_limit(K) { fibonacci(n) }` and handle `CostExceeded`
 error[K0102]: symbolic cost may exceed budget
   --> src/sort.spore:15:5
    |
-15 |     fn sort_all(items: List<Int>) -> List<Int>
+15 |     fn sort_all(items: List<I32>) -> List<I32>
    |        ^^^^^^^^ cost is `N × log(N) × 3 + N` where N = len(items)
    |
    = note: declared `cost ≤ 5000`, but N is unbounded
    = note: for N = 1000, cost = 29,933 op > 5000 op
-help: add a size constraint: `items: List<Int, max: 100>` or increase budget
+help: add a size constraint: `items: List<I32, max: 100>` or increase budget
 ```
 
 ### 5.5 H0xxx — Hole Diagnostics
@@ -909,12 +903,12 @@ Hole diagnostics are emitted as `note` severity — holes are valid states, not 
 warning[H0102]: hole type annotation conflicts with inference
   --> src/format.spore:51:20
    |
-51 |     let body: Int = ?report_body : String
-   |                     ^^^^^^^^^^^^^^^^^^^^^^^^ annotated as `String`, but context expects `Int`
+51 |     let body: I32 = ?report_body : Str
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^ annotated as `Str`, but context expects `I32`
    |
-   = note: `body` is declared as `Int` on the left side of the binding
-   = note: hole annotation `String` contradicts the binding type
-help: change annotation to `: Int` or change binding type to `String`
+   = note: `body` is declared as `I32` on the left side of the binding
+   = note: hole annotation `Str` contradicts the binding type
+help: change annotation to `: I32` or change binding type to `Str`
 ```
 
 #### H0202 — hole-cost-tight
@@ -968,7 +962,7 @@ error[M0401]: signature hash changed — requires --permit
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ signature hash mismatch
    |
    = note: expected sig@a3f7c2, found sig@b8d2e1
-   = note: `calculate_total` added parameter `tax_rate: Float`
+   = note: `calculate_total` added parameter `tax_rate: F64`
 help: run `spore --permit` to accept the signature change, then update call sites
 ```
 
@@ -990,11 +984,11 @@ $ sporec --explain E0301
   - Struct fields (value type ≠ field type)
 
   Example:
-      fn greet(name: String) -> String { ... }
-      greet(42)   -- error: expected String, found Int
+      fn greet(name: Str) -> Str { ... }
+      greet(42)   -- error: expected Str, found I32
 
   Common fixes:
-  - Use a conversion function (e.g. `Int.to_string(42)`)
+  - Use a conversion function (e.g. `I32.to_string(42)`)
   - Change the declaration to accept the actual type
   - Add a type annotation to guide inference
 
@@ -1151,8 +1145,7 @@ Cost diagnostics (K0xxx) are emitted when the abstract interpretation engine (se
 Capability diagnostics (C0xxx) enforce the capability algebra at the levels currently specified:
 
 1. **Function level** (C0101): a function's body uses operations beyond its `uses` declaration.
-2. **Module level** (C0102): reserved for a future module-level capability carrier; currently deferred / TBD.
-3. **Platform level** (C0201): a package requests capabilities the Platform does not grant.
+2. **Platform level** (C0201): a package requests capabilities the Platform does not grant.
 
 The `context.capabilities` field in every diagnostic lists the capabilities in scope at the error site, enabling Agents to reason about what operations are available.
 
@@ -1303,7 +1296,7 @@ Making `--json` the superset of all information eliminates a common problem: dif
 - Verbose mode renders a *larger projection*.
 - JSON mode renders *everything*.
 
-This ensures consistency: if the default output shows `expected Money, found String`, the JSON will contain the same message plus the inference chain that led to that conclusion. No information is generated exclusively for one mode.
+This ensures consistency: if the default output shows `expected Money, found Str`, the JSON will contain the same message plus the inference chain that led to that conclusion. No information is generated exclusively for one mode.
 
 ---
 

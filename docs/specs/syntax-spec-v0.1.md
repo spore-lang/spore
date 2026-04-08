@@ -33,9 +33,10 @@ Spore 是一门**表达式为中心**（expression-based）的编程语言，设
    - `f"Hello {name}"` — 格式化字符串（f-string）
    - `t"Hello {name}"` — 模板对象（t-string）
 
-7. **错误传播** (Error propagation)
-   - 函数签名中使用 `! [ErrorType]` 声明可能抛出的错误
-   - 函数体内使用 `?` 操作符快速传播错误
+7. **错误契约** (Checked error contracts)
+   - 函数签名中使用 `! [ErrorType]` 声明闭合错误集合
+   - `throw expr` 只能抛出当前函数 `! [...]` 中已声明的错误
+   - 调用 `! [E]` 函数时，调用者必须声明兼容错误集合；`?` 只是该传播规则的语法糖
 
 8. **Lambda 表达式** (Lambda)
    Rust 风格闭包语法：`|x, y| x + y`
@@ -94,7 +95,7 @@ Err         Result      Option      Ref         deriving
 | **逻辑** (Logical) | `&&` `||` `!` | 与、或、非 |
 | **位运算** (Bitwise) | `&` `|` `^` `~` `<<` `>>` | 按位与、或、异或、取反、左移、右移 |
 | **管道** (Pipe) | `|>` | 数据流管道 |
-| **错误传播** (Error) | `?` | 快速错误传播 |
+| **错误传播** (Error) | `?` | 按已声明错误集合传播错误 |
 | **范围** (Range) | `..` `..=` | 半开区间、闭区间 |
 | **字段访问** (Field) | `.` | 结构体字段/方法访问 |
 | **赋值** (Assignment) | `=` | 绑定赋值 |
@@ -639,6 +640,8 @@ fn pipeline(data: Data) -> Output ! [Error] {
 }
 ```
 
+`?` 不会绕过错误检查。若被调用函数的签名包含 `! [E]`，则当前函数要么本地处理该错误，要么在自己的 `! [...]` 中声明兼容集合后再使用 `?` 传播。
+
 ### 4.10 Ref 操作 (Ref operations)
 
 `Ref[T]` 是 Spore 的可变容器类型，需要 `StateWrite` capability。
@@ -675,7 +678,8 @@ fn function_name[TypeParam1, TypeParam2](
     param1: Type1,
     param2: Type2,
 ) -> ReturnType ! [Error1, Error2]
-where TypeParam1: Constraint1, TypeParam2: Constraint2
+where TypeParam1: Constraint1
+where TypeParam2: Constraint2
 uses [resource1, resource2]
 cost ≤ 1000
 spec {
@@ -686,6 +690,8 @@ spec {
     body_expression
 }
 ```
+
+说明：稳定语法只支持单一约束 `where T: Trait`。若同一函数需要多个约束，请重复书写多行 `where`；逗号分组、`+` 组合和 `where { ... }` 形式都不在 v0.1 范围内。
 
 ### 5.2 简单函数 (Simple functions)
 
@@ -1078,10 +1084,10 @@ alias HashMap = std.collections.HashMap
 - `alias` 仅用于具体项绑定。
 - 当前文档**不支持** `import foo.{bar}`、`import foo.*` 或嵌套 `module` 语法。
 
-### 7.4 模块级 capability carrier（Deferred / TBD）
+### 7.4 无模块级 capability carrier (No module-level capability carrier)
 
-函数级 `uses [...]` 仍然存在，但模块级 `uses` 不再通过任何 `module ...` 文件头表达。
-模块名由文件路径决定；若将来需要“模块级 capability ceiling”，其 carrier 另行设计，当前 **TBD**。
+模块名仅由文件路径决定，源码中没有 `module ...` 文件头，也没有模块级 `uses` / capability ceiling 语法。
+能力检查只发生在函数签名的 `uses [...]` 与项目 / Platform 边界；模块导入本身不会携带或放宽能力。
 
 ---
 
@@ -1271,14 +1277,18 @@ fn try_parse[T, E](input: Str, parser: (Str) -> Result[T, E]) -> T ! [E] {
 }
 ```
 
+`throw expr` 与 `?` 形成同一闭环：`throw expr` 只有在 `expr` 的错误类型已出现在当前函数 `! [...]` 中时才合法；调用 `! [E]` callee 时，要么在本地处理，要么把 `E` 纳入调用者签名。
+
 ### 9.3 错误传播操作符 (Error propagation operator)
+
+`?` 是对“调用一个 `! [E]` 函数并把 `E` 继续暴露给当前调用者”的简写。它不会自动扩展签名；当前函数仍必须显式声明兼容的 `! [...]` 错误集合。
 
 ```spore
 /// 自动传播错误 (Automatic error propagation)
 fn process_file(path: Str) -> Data ! [FileError, ParseError] {
-    let content = read_file(path)?;  // FileError 自动传播
-    let data = parse(content)?;      // ParseError 自动传播
-    validate(data)?;                 // ParseError 自动传播
+    let content = read_file(path)?;  // `read_file` 的 FileError 已包含在当前签名中
+    let data = parse(content)?;      // `parse` 的 ParseError 也已显式声明
+    validate(data)?;                 // 仍然要求当前签名兼容被调函数的错误集合
     data
 }
 
@@ -2072,7 +2082,7 @@ Type          = Ident | Type "[" Types "]" | "(" [ Types ] ")" "->" Type [ "!" "
 
 ```
 fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
-[where <GenericName>: <Constraint>, ...]
+[where <GenericName>: <Constraint>]  -- repeat one line per bound
 [uses [<Capability>, ...]]
 [cost ≤ <N>]
 [spec { ... }]
@@ -2087,7 +2097,8 @@ fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
 
 ```spore
 -- Canonical order
-where T: Serialize + Eq
+where T: Serialize
+where T: Eq
 where U: Display
 uses [Compute]
 cost ≤ 500
@@ -2096,7 +2107,7 @@ spec {
 }
 ```
 
-编译器格式化输出与文档示例都遵循这一顺序。
+编译器格式化输出与文档示例都遵循这一顺序。`where T: Serialize + Eq`、`where { ... }` 与逗号分组写法仍然属于未来讨论，不是当前规范的一部分。
 
 ### B.4 效果属性（编译器自动推断）
 

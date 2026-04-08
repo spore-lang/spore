@@ -351,9 +351,9 @@ sig_hash = BLAKE3(canonicalize(
 
 ```spore
 // 公开接口
-pub fn add(a: Int, b: Int) -> Int
-pub fn sub(a: Int, b: Int) -> Int
-pub type Vector = { x: Float, y: Float }
+pub fn add(a: I32, b: I32) -> I32
+pub fn sub(a: I32, b: I32) -> I32
+pub type Vector = { x: F64, y: F64 }
 
 // 私有实现
 fn internal_helper() { ... }
@@ -362,9 +362,9 @@ fn internal_helper() { ... }
 签名哈希计算输入:
 ```
 module: math
-pub fn add(a: Int, b: Int) -> Int
-pub fn sub(a: Int, b: Int) -> Int
-pub type Vector = { x: Float, y: Float }
+pub fn add(a: I32, b: I32) -> I32
+pub fn sub(a: I32, b: I32) -> I32
+pub type Vector = { x: F64, y: F64 }
 ```
 
 **规范化规则**:
@@ -662,7 +662,7 @@ spore gc --all
 
 ## 7. 能力封顶 (Capability Ceiling)
 
-Spore 当前明确的是**项目/包级能力系统** (package/project capability system)。若未来需要模块级 carrier，将另行设计（TBD）:
+Spore 当前只定义**函数级**与**项目 / 包级**能力检查。模块级 capability ceiling / carrier 已被移除，不属于 v0.1 语言:
 
 ### 7.1 能力声明 (Capability Declaration)
 

@@ -24,7 +24,7 @@ Spore's module system is the organizational backbone of the language. It answers
 
 1. **Where does code live?** — One `.spore` file = one module. No ambiguity.
 2. **Who can see what?** — Default private, explicit `pub` / `pub(pkg)` for visibility.
-3. **What can code do?** — Capabilities flow from Platforms through packages to functions. A future module-level capability carrier is deferred; today there is no in-file `module ...` declaration.
+3. **What can code do?** — Capabilities flow from Platforms through packages to functions. Modules have no separate capability carrier or ceiling; only function signatures and package/Platform boundaries are checked.
 
 ### 1.1 Design Coordinates
 
@@ -130,7 +130,7 @@ Rules:
 
 - There is **no** optional module header.
 - A file's module name is always derived from its relative path under `src/`.
-- Any future module-level metadata carrier is outside this spec unless explicitly introduced later.
+- Source files carry no module-level capability metadata; capability checking stays on functions and package/Platform configuration.
 
 ### 2.3 Directory Structure Conventions
 
@@ -244,7 +244,7 @@ pub(pkg) type ValidatedOrder {
 
 -- Private type: only used in this module
 type InternalCache {
-    entries: Map<String, CacheEntry>,
+    entries: Map[Str, CacheEntry],
 }
 ```
 
@@ -661,32 +661,24 @@ When a hole is filled, `sig` and the interface hash remain unchanged. Only `impl
 
 ---
 
-## 6. Module-Level Capabilities (Deferred)
+## 6. Module-Level Capabilities
 
-Spore still has function-level `uses [...]` clauses, but it no longer has any in-file `module ... uses ...` syntax.
-The idea of a module-level capability ceiling remains a possible future design direction; its carrier is **deferred / TBD**.
+Spore does **not** define module-level capability carriers or module-level capability ceilings.
+Capability checking is intentionally scoped to:
 
-### 6.1 What Is Settled Today
+- function signatures via `uses [...]`
+- package / application ceilings in `spore.toml`
+- Platform grants
 
-- Function capabilities are declared on each function via `uses [...]`.
-- Package/application capability ceilings live in `spore.toml` and Platform specs.
-- Importing a module does **not** grant capabilities to the importer.
-- Module names come only from file paths; there is no header to host module-level metadata.
+Importing a module never grants ambient authority, and modules do not have their own hidden capability metadata apart from the functions they contain.
 
-### 6.2 What Is Explicitly Not in the Language
+### 6.1 Explicitly Out of Scope
 
-The previous header-based `module` + module-level `uses` syntax is **not supported**.
-There is no optional header form, no inferred header insertion, and no `sporec --fixes` flow that writes module-level `uses` into source files.
+- header-based `module ... uses ...` syntax
+- inferred or compiler-written module capability headers
+- diagnostics about module-level capability ceilings
 
-### 6.3 Follow-Up Design Needed
-
-If Spore later wants a module-level capability ceiling, the project still needs to decide:
-
-1. **Carrier** — where module-level capability metadata lives, since it is no longer an in-file `module` header.
-2. **Enforcement scope** — whether the ceiling constrains all functions, only exported functions, or only package boundaries.
-3. **Tooling UX** — how diagnostics and autofixes should work without inventing syntax prematurely.
-
-Until that design exists, capability checking is defined at the function level and at the package/platform level only.
+If the project ever revisits module-level capabilities, that would be a new design rather than latent v0.1 syntax.
 
 ### 6.4 Capability Propagation via Import
 
@@ -803,7 +795,7 @@ Random         = "platform.io.random"
 -- Only platform code can perform raw IO operations.
 
 -- Platform-provided capability: Stdout
-pub fn stdout_write(message: String) -> Unit ! [IoError]
+pub fn stdout_write(message: Str) -> () ! [IoError]
     uses [RawSyscall]       -- only platforms have RawSyscall
 {
     -- This is the only place where raw system calls happen
@@ -835,7 +827,7 @@ pub fn clock_now() -> Timestamp
 import billing.invoice as invoice
 import std.io as io
 
-pub fn main(args: Vec<String>) -> Unit ! [AppError]
+pub fn main(args: Vec<Str>) -> () ! [AppError]
     uses [Stdout, FileRead, PaymentGateway, AuditLog]
 {
     let order = load_order(args.get(1))
@@ -843,7 +835,7 @@ pub fn main(args: Vec<String>) -> Unit ! [AppError]
     io.println(created.to_string())
 }
 
-fn load_order(path: String) -> Order ! [IoError, ParseError]
+fn load_order(path: Str) -> Order ! [IoError, ParseError]
     uses [FileRead]
 {
     let content = std.io.read_file(FilePath.new(path))
@@ -1142,14 +1134,14 @@ Modules define and export error types like any other type:
 -- src/billing/errors.spore
 
 pub type BillingError {
-    TaxCalculationFailed { region: Region, reason: String },
+    TaxCalculationFailed { region: Region, reason: Str },
     InvoiceGenerationFailed { order_id: OrderId },
     PaymentDeclined { amount: Money, code: ErrorCode },
 }
 
 pub type ValidationError {
-    MissingField { field_name: String },
-    InvalidValue { field_name: String, value: String, expected: String },
+    MissingField { field_name: Str },
+    InvalidValue { field_name: Str, value: Str, expected: Str },
 }
 ```
 
@@ -1308,8 +1300,8 @@ pub type InvoiceStatus {
 }
 
 pub type LineItem {
-    description: String,
-    quantity: Int,
+    description: Str,
+    quantity: I32,
     unit_price: Money,
     tax_rate: Decimal,
 }
@@ -1541,19 +1533,11 @@ Spore uses generics (`where T: Constraint`) for type-level parameterization and 
 
 **Reference**: Rust's decision to use generics instead of functors. Haskell's use of typeclasses. The observation from the research that "languages that integrate parameterization into the core type system seem to achieve similar results with less conceptual overhead."
 
-### 12.7 Module-Level Capability Carrier (deferred)
+### 12.7 No Module-Level Capability Ceiling
 
-**Decision**: Spore does **not** currently define a module-level capability carrier.
+**Decision**: Spore has no module-level capability carrier and no module-level capability ceiling.
 
-**Why**: The language now follows file=`module` strictly, with no in-file `module ...` header. That removes the previous place where a module-level `uses` ceiling could live. Rather than invent a replacement prematurely, this capability is explicitly deferred.
-
-Open design questions:
-
-- how module-level capability metadata should be represented, if at all;
-- whether it belongs in source, manifest data, or derived metadata;
-- how much value it adds beyond function-level `uses` plus package/platform ceilings.
-
-**Reference**: Koka's insight that effects and modules should be designed together still applies, but Spore is postponing the carrier decision.
+**Why**: File paths fully determine module identity, while capability checking stays attached to function signatures and package / Platform configuration. This keeps authority explicit at call boundaries and avoids hidden module metadata.
 
 ### 12.8 Import/Alias Separation (novel)
 
@@ -1583,7 +1567,7 @@ sporec check --show-deps      Show dependency graph
 sporec build                  Build all modules in topological order
 sporec build --show-order     Show build order
 sporec --holes [path]         List all holes across modules
-sporec --fixes [path]         Apply compiler-provided source fixes (module-level `uses` carrier deferred)
+sporec --fixes [path]         Apply compiler-provided source fixes (never writes module capability metadata)
 sporec fmt [path]             Format source, including import ordering
 ```
 
@@ -1619,7 +1603,6 @@ $ touch src/billing/refund.spore
 $ sporec check src/billing/refund.spore
 
 # 4. Review function-level capabilities in signatures
-#    (module-level capability carrier is deferred / TBD)
 
 # 5. Check again — clean
 $ sporec check src/billing/refund.spore

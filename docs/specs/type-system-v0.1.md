@@ -70,7 +70,8 @@ Spore documentation uses a width-specific primitive family as the canonical surf
 
 When a document example does not care about a specific machine width, it still uses one of
 these canonical names explicitly (`I32` for integers and `F64` for floating-point examples by
-default) rather than fallback aliases such as `Int`, `Float`, `String`, or `Unit`.
+default). Active canonical docs do not present `Int`, `Float`, or `String` as primitive surface
+syntax, and use `()` rather than `Unit` for the unit type.
 
 ### Named Numeric Widths
 
@@ -301,7 +302,7 @@ impl Display for Shape {
 
 ### 4.3 Trait Bounds
 
-Trait bounds constrain generic type parameters in `where` clauses:
+Trait bounds constrain generic type parameters in `where` clauses. The stable surface form is single-bound-only: each clause is exactly `where T: Trait`, and additional bounds are written as additional `where` lines:
 
 ```spore
 fn sort<T>(list: List<T>) -> List<T>
@@ -312,7 +313,8 @@ cost <= 500
 }
 
 fn serialize_all<T>(items: Vec<T>) -> Vec<Bytes> ! [SerializeError]
-where T: Serialize + Display
+where T: Serialize
+where T: Display
 {
     items.map(|item| item.serialize())
 }
@@ -1267,19 +1269,26 @@ dependents. Changing body or `@allows` does not.
 
 ### 10.6 Error Types
 
-Spore's `! [Err1, Err2]` is a **closed, row-typed error union**. Error types are
-themselves enum variants (ADTs), and the `!` syntax computes unions automatically
-across call chains:
+Spore's `! [Err1, Err2]` is a **closed, row-typed error union**. The checking rule is
+intentionally minimal and explicit at function boundaries:
+
+1. `throw expr` is legal only when `expr`'s error type appears in the current function's declared `! [...]`.
+2. Calling a function with `! [E...]` is legal only when the caller either handles those errors locally or declares a compatible `! [...]` superset.
+3. `?` is sugar for rule 2 — it forwards the callee's declared errors through the current function's checked signature; it does not create implicit exception flow.
 
 ```spore
 fn parse(input: Str) -> Ast ! [SyntaxError, EncodingError]
 fn validate(ast: Ast) -> ValidAst ! [TypeError, RangeError]
 
--- Error sets union automatically via `?` propagation:
 fn compile(input: Str) -> ValidAst ! [SyntaxError, EncodingError, TypeError, RangeError]
 {
     let ast = parse(input)?
     validate(ast)?
+}
+
+fn fail_fast(message: Str) -> Never ! [ConfigError]
+{
+    throw ConfigError { message: message }
 }
 ```
 

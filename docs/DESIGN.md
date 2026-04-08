@@ -75,7 +75,7 @@ fn name(params) -> ReturnType ! [Errors]
 - Platform 概念（Roc 风格）: Platform 提供所有 IO 能力，纯包无法直接 IO
 - 无 Functor: 泛型 + 能力集替代
 - 模块名仅由文件路径决定；无 `module ...` 头声明
-- 模块级 capability carrier 延后决定（TBD），当前不支持 module-level `uses`
+- 不存在模块级 capability ceiling / carrier；能力检查仅在函数级 `uses [...]` 与项目 / Platform 边界发生
 - 导入: `import mod as alias` / `alias x = mod.item`（无通配符、无隐式嵌套）
 
 ### 类型系统（v0.1）
@@ -116,7 +116,7 @@ fn name(params) -> ReturnType ! [Errors]
 - 清单: spore.toml（元数据+依赖）+ .spore-lock（精确 hash pin）
 - 钻石依赖: 无冲突，不同 hash 共存
 - Platform 不特殊化，只是提供 IO 能力的普通包
-- 能力封顶当前仅明确到项目级 `spore.toml`；模块级 carrier 延后决定（TBD）
+- 能力封顶仅存在于项目级 `spore.toml` / Platform 边界；源码层没有模块级 capability carrier
 - 编译器自动推导 + `--fixes` 补全
 
 ### 增量编译与 Watch 模式（v0.1）
@@ -131,7 +131,7 @@ fn name(params) -> ReturnType ! [Errors]
 - 大括号 `{}`，分号 Rust 语义（有分号=语句，无分号=返回表达式）
 - 管道 `|>` 操作符，不允许自定义操作符
 - 字符串: f-string `f"..."` + t-string `t"..."` + raw `r"..."`
-- 错误: `! [Errors]` + `?` 操作符
+- 错误: `! [Errors]` 签名契约 + `throw expr` + `?` 传播糖（调用边界受检）
 - Lambda: `|x, y| x + y`
 - 注释: `//` / `///` / `/* */`（可嵌套）
 - 绑定: `let` 不可变 + shadowing，`Ref[T]` 可变容器（需 StateWrite）
@@ -144,7 +144,7 @@ fn name(params) -> ReturnType ! [Errors]
 - `capability` 关键字（= trait）
 - 函数属性（pure, deterministic, total）— 从 `uses` 自动推断，无需关键字
 - `if` 子句用于细化类型谓词（`if |n| n > 0`），不再使用 `where`
-- `where` 关键字仅保留用于泛型约束（`where T: Constraint`）
+- `where` 关键字仅保留用于单一泛型约束（`where T: Constraint`）；多重 / 分组形式暂不纳入 v0.1
 - 基本类型（文档规范写法）: I32/I64/U32/U64/F32/F64/Bool/Char/Str/() + List[T]/Map[K,V]/Set[T]
 
 ## 设计文档索引
