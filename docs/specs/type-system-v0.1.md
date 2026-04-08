@@ -55,31 +55,28 @@ Generics + Traits + Associated Types + GATs + Const Generics + Lightweight Refin
 
 ## 2. Primitive Types
 
-Spore provides a small, fixed set of primitive types. All are nominal.
+Spore documentation uses a width-specific primitive family as the canonical surface syntax.
 
 | Type | Description | Default Literal |
 |---|---|---|
-| `Int` | Arbitrary-precision integer | `42` |
-| `Float` | 64-bit IEEE 754 floating point | `3.14` |
+| `I32`, `I64` | Signed integers | `42`, `42i64` |
+| `U32`, `U64` | Unsigned integers | `0u32`, `0u64` |
+| `F32`, `F64` | IEEE 754 floating point | `3.14f32`, `3.14` |
 | `Bool` | Boolean | `true`, `false` |
-| `String` | UTF-8 string | `"hello"` |
 | `Char` | Unicode scalar value | `'a'` |
-| `Unit` | Zero-information type (like Rust `()`) | `()` |
+| `Str` | UTF-8 string | `"hello"` |
+| `()` | Zero-information type | `()` |
 | `Never` | The bottom type — uninhabited, no values exist | (no literal) |
 
-### Numeric Sub-types (via Refinement)
+When a document example does not care about a specific machine width, it still uses one of
+these canonical names explicitly (`I32` for integers and `F64` for floating-point examples by
+default) rather than fallback aliases such as `Int`, `Float`, `String`, or `Unit`.
 
-Rather than proliferating primitive numeric types (i8, u16, f32, …), Spore uses refinement
-types on `Int` and `Float` for bounded numerics:
+### Named Numeric Widths
 
-```spore
-type U8  = Int if 0 <= self <= 255
-type I32 = Int if -2147483648 <= self <= 2147483647
-type F32 = Float if self.precision == 32
-```
-
-Platform capabilities determine the runtime representation. The type system reasons about
-the logical constraints; the codegen layer maps to machine types.
+Numeric widths are part of the surface syntax rather than hidden behind compatibility aliases.
+Documentation examples may define domain aliases on top of these primitives when needed, but the
+underlying primitive family stays explicit.
 
 ### The Never Type
 
@@ -88,13 +85,13 @@ the type of expressions like `panic` or non-terminating recursion. It is a subty
 enabling:
 
 ```spore
-fn abort(msg: String) -> Never {
+fn abort(msg: Str) -> Never {
     panic(msg)
 }
 
-fn safe_divide(a: Int, b: Int) -> Int {
+fn safe_divide(a: I32, b: I32) -> I32 {
     if b == 0 {
-        abort("division by zero")   -- Never coerces to Int
+        abort("division by zero")   -- Never coerces to I32
     } else {
         a / b
     }
@@ -104,13 +101,13 @@ fn safe_divide(a: Int, b: Int) -> Int {
 `Never` appears in exhaustive pattern matching: a branch that returns `Never` is
 compatible with any arm type. This is critical for error-handling patterns.
 
-### Unit
+### `()`
 
-`Unit` signals "this function completes but produces no meaningful value." It is distinct
+`()` signals "this function completes but produces no meaningful value." It is distinct
 from `Never` (which signals non-termination) and from the absence of a return type.
 
 ```spore
-fn log_event(event: Event) -> Unit
+fn log_event(event: Event) -> ()
 uses [FileWrite, Clock]
 {
     write_log(event.to_string())
@@ -128,13 +125,13 @@ positional fields, consistent with Spore's no-positional philosophy.
 
 ```spore
 type Point = {
-    x: Float,
-    y: Float,
+    x: F64,
+    y: F64,
 }
 
 type Customer = {
     id: CustomerId,
-    name: String,
+    name: Str,
     email: Email,
     tier: CustomerTier,
 }
@@ -161,15 +158,15 @@ reasoning.
 
 ```spore
 type Shape =
-    | Circle { radius: Float }
-    | Rectangle { width: Float, height: Float }
-    | Triangle { a: Float, b: Float, c: Float }
+    | Circle { radius: F64 }
+    | Rectangle { width: F64, height: F64 }
+    | Triangle { a: F64, b: F64, c: F64 }
 
 type HttpError =
     | NotFound { url: Url }
     | Timeout { after: Duration }
     | Unauthorized
-    | ServerError { code: Int, message: String }
+    | ServerError { code: I32, message: Str }
 ```
 
 Enum variants may carry named fields (as above), or no data:
@@ -191,7 +188,7 @@ type Color = | Red | Green | Blue
 
 -- Open: new implementations can be added
 trait Drawable {
-    fn draw(self, canvas: Canvas) -> Unit
+    fn draw(self, canvas: Canvas) -> ()
 }
 ```
 
@@ -201,14 +198,14 @@ Anonymous records are the structural escape hatch. They have no declared name an
 compatible by field shape, not by declaration site.
 
 ```spore
-fn greet(person: { name: String, age: Int }) -> String
+fn greet(person: { name: Str, age: I32 }) -> Str
 {
     "Hello, " ++ person.name ++ " (age " ++ show(person.age) ++ ")"
 }
 
 -- Any value with matching fields satisfies this:
 let alice = { name: "Alice", age: 30, role: "Engineer" }
-greet(alice)   -- OK: alice has name: String and age: Int (extra fields ignored)
+greet(alice)   -- OK: alice has name: Str and age: I32 (extra fields ignored)
 ```
 
 **Rules for anonymous records**:
@@ -220,27 +217,27 @@ greet(alice)   -- OK: alice has name: String and age: Int (extra fields ignored)
 
 ### 3.4 Function Types
 
-Function types use `Fn` with named parameters:
+Function types use the canonical `(A, B) -> R` form:
 
 ```spore
-type Predicate<T> = Fn(value: T) -> Bool
+type Predicate<T> = (T) -> Bool
 
-type Transformer<A, B> = Fn(input: A) -> B ! [TransformError]
+type Transformer<A, B> = (A) -> B ! [TransformError]
 
 -- Higher-order function accepting a function argument:
-fn apply_twice<T>(f: Fn(x: T) -> T, value: T) -> T
+fn apply_twice<T>(f: (T) -> T, value: T) -> T
 where T: Clone
 {
-    f(x: f(x: value))
+    f(f(value))
 }
 ```
 
 Closures capture their environment:
 
 ```spore
-fn make_adder(n: Int) -> Fn(x: Int) -> Int
+fn make_adder(n: I32) -> (I32) -> I32
 {
-    |x: Int| -> Int { x + n }
+    |x: I32| { x + n }
 }
 ```
 
@@ -263,7 +260,7 @@ trait Ord: Eq {
 }
 
 trait Display {
-    fn display(self) -> String
+    fn display(self) -> Str
 }
 
 trait Serialize {
@@ -292,7 +289,7 @@ impl Ord for Point {
 }
 
 impl Display for Shape {
-    fn display(self) -> String {
+    fn display(self) -> Str {
         match self {
             Circle { radius }          => "Circle(r=" ++ show(radius) ++ ")",
             Rectangle { width, height } => "Rect(" ++ show(width) ++ "x" ++ show(height) ++ ")",
@@ -335,7 +332,7 @@ capability FileRead {
 }
 
 capability FileWrite {
-    fn write_file(path: Path, data: Bytes) -> Unit ! [IoError]
+    fn write_file(path: Path, data: Bytes) -> () ! [IoError]
     cost write_file <= 200
 }
 
@@ -382,8 +379,8 @@ trait Iterator {
 }
 
 impl Iterator for LineReader {
-    type Item = String
-    fn next(self) -> Option<String> {
+    type Item = Str
+    fn next(self) -> Option<Str> {
         self.read_line()
     }
 }
@@ -393,7 +390,7 @@ trait Collection {
     type Iter: Iterator where Iter.Item == Self.Item
 
     fn iter(self) -> Self.Iter
-    fn len(self) -> Int
+    fn len(self) -> I32
     fn is_empty(self) -> Bool { self.len() == 0 }   -- default method
 }
 ```
@@ -402,16 +399,16 @@ Associated types eliminate the need for extra type parameters on trait users:
 
 ```spore
 -- With associated types (clean):
-fn sum_all<C>(collection: C) -> Int
+fn sum_all<C>(collection: C) -> I32
 where
     C: Collection
-    C.Item: Add<Output = Int>
+    C.Item: Add<Output = I32>
 {
     collection.iter() |> fold(0, fn(total, item) { total + item })
 }
 
 -- Without associated types (verbose, requires extra params):
--- fn sum_all<C, T, I>(collection: C) -> Int where C: Collection<T, I>, ...
+-- fn sum_all<C, T, I>(collection: C) -> I32 where C: Collection<T, I>, ...
 ```
 
 ### 4.6 Generic Associated Types (GATs)
@@ -459,10 +456,10 @@ modules.
 impl Display for Point { ... }
 
 -- OK: you own MyTrait, so you can implement it for any type
-impl MyTrait for String { ... }
+impl MyTrait for Str { ... }
 
--- ERROR: you own neither Display nor String
-impl Display for String { ... }   -- orphan rule violation
+-- ERROR: you own neither Display nor Str
+impl Display for Str { ... }   -- orphan rule violation
 ```
 
 **Extension — Adapters**: For cross-crate interop, Spore provides an explicit `adapter`
@@ -470,10 +467,10 @@ mechanism that is visible in function signatures:
 
 ```spore
 adapter ExternalType as Printable {
-    fn display(self) -> String { ... }
+    fn display(self) -> Str { ... }
 }
 
-fn use_external(x: ExternalType) -> String
+fn use_external(x: ExternalType) -> Str
 where adapter: ExternalType as Printable
 {
     x.display()
@@ -504,8 +501,8 @@ fields all implement the trait:
 
 ```spore
 type Point = {
-    x: Float,
-    y: Float,
+    x: F64,
+    y: F64,
 } deriving [Eq, Clone, Debug, Hash]
 ```
 
@@ -523,12 +520,12 @@ fn identity<T>(value: T) -> T
     value
 }
 
-fn map<A, B>(list: List<A>, f: Fn(item: A) -> B) -> List<B>
+fn map<A, B>(list: List<A>, f: (A) -> B) -> List<B>
 {
     -- implementation
 }
 
-fn merge<T, U, V>(left: List<T>, right: List<U>, resolver: Fn(a: T, b: U) -> V) -> List<V>
+fn merge<T, U, V>(left: List<T>, right: List<U>, resolver: (T, U) -> V) -> List<V>
 where
     T: Eq + Hash
     U: Eq + Hash
@@ -545,18 +542,18 @@ Const generics allow value-level parameters in type position. This is central to
 bounded collections and cost-aware types.
 
 ```spore
-type Vec<T, max: Int> = {
+type Vec<T, max: I32> = {
     data: Array<T>,
-    len: Int,
+    len: I32,
 }
 
-fn take<T, N: Int>(list: List<T>, count: N) -> Vec<T, max: N>
+fn take<T, N: I32>(list: List<T>, count: N) -> Vec<T, max: N>
 where N <= list.max
 {
     -- implementation
 }
 
-type Matrix<T, rows: Int, cols: Int> = {
+type Matrix<T, rows: I32, cols: I32> = {
     data: Array<Array<T>>,
 }
 ```
@@ -567,7 +564,7 @@ Const generic parameters support arithmetic in type-level expressions, enabling
 compile-time dimensional checking:
 
 ```spore
-fn concat<T, M: Int, N: Int>(
+fn concat<T, M: I32, N: I32>(
     a: Vec<T, max: M>,
     b: Vec<T, max: N>,
 ) -> Vec<T, max: M + N>
@@ -575,14 +572,14 @@ fn concat<T, M: Int, N: Int>(
     -- implementation
 }
 
-fn transpose<T, R: Int, C: Int>(
+fn transpose<T, R: I32, C: I32>(
     matrix: Matrix<T, rows: R, cols: C>,
 ) -> Matrix<T, rows: C, cols: R>
 {
     -- implementation
 }
 
-fn flatten<T, N: Int, M: Int>(
+fn flatten<T, N: I32, M: I32>(
     nested: Vec<Vec<T, max: M>, max: N>,
 ) -> Vec<T, max: N * M>
 {
@@ -600,14 +597,14 @@ Const generics interact naturally with the cost system. A function's cost may de
 on its const generic parameters:
 
 ```spore
-fn linear_search<T, N: Int>(items: Vec<T, max: N>, target: T) -> Option<Int>
+fn linear_search<T, N: I32>(items: Vec<T, max: N>, target: T) -> Option<I32>
 where T: Eq
 cost <= N * 5
 {
     -- O(N) search, cost scales linearly
 }
 
-fn sort_bounded<T, N: Int>(items: Vec<T, max: N>) -> Vec<T, max: N>
+fn sort_bounded<T, N: I32>(items: Vec<T, max: N>) -> Vec<T, max: N>
 where T: Ord
 cost <= N * N * 2   -- O(N²) worst case
 {
@@ -641,27 +638,27 @@ L0 refinements are predicates that the compiler can fully evaluate at compile ti
 They use the `if` clause on type aliases with `self` referring to the value.
 
 ```spore
-type Port = Int if 1 <= self <= 65535
+type Port = I32 if 1 <= self <= 65535
 
-type Percentage = Float if 0.0 <= self <= 100.0
+type Percentage = F64 if 0.0 <= self <= 100.0
 
-type NonEmptyString = String if self.len() > 0
+type NonEmptyString = Str if self.len() > 0
 
-type PositiveInt = Int if self > 0
+type PositiveInt = I32 if self > 0
 
-type HttpStatusCode = Int if 100 <= self <= 599
+type HttpStatusCode = I32 if 100 <= self <= 599
 ```
 
 **Usage in signatures**:
 
 ```spore
-fn connect(host: String, port: Port) -> Connection ! [ConnectionError]
+fn connect(host: Str, port: Port) -> Connection ! [ConnectionError]
 uses [NetRead, NetWrite]
 {
     -- `port` is guaranteed to be in [1, 65535]
 }
 
-fn compute_discount(rate: Percentage, price: Float) -> Float
+fn compute_discount(rate: Percentage, price: F64) -> F64
 {
     price * (rate / 100.0)
 }
@@ -679,7 +676,7 @@ connect(host: "example.com", port: 70000)   -- ERROR: 70000 violates self <= 655
 
 - Numeric comparisons: `<`, `<=`, `==`, `!=`, `>=`, `>`
 - Arithmetic on constants: `self + 1 <= 100`
-- String length: `self.len() > 0`, `self.len() <= 255`
+- Str length: `self.len() > 0`, `self.len() <= 255`
 - Collection size: `self.len() <= N` (with const generics)
 - Boolean connectives: `&&`, `||`, `!`
 - Const equality: `self == "production" || self == "staging"`
@@ -691,7 +688,7 @@ propagate refinement information through control flow, narrowing types as values
 through conditionals and assertions.
 
 ```spore
-fn process_port(raw: Int) -> Port ! [InvalidPort] {
+fn process_port(raw: I32) -> Port ! [InvalidPort] {
     if raw < 1 || raw > 65535 {
         raise InvalidPort { value: raw }
     }
@@ -704,7 +701,7 @@ fn process_port(raw: Int) -> Port ! [InvalidPort] {
 **Range narrowing through branches**:
 
 ```spore
-fn categorize_age(age: Int) -> String
+fn categorize_age(age: I32) -> Str
 {
     if age < 0 {
         panic("negative age")
@@ -727,7 +724,7 @@ fn categorize_age(age: Int) -> String
 **Propagation through let bindings**:
 
 ```spore
-fn clamp_to_port(raw: Int) -> Port {
+fn clamp_to_port(raw: I32) -> Port {
     let clamped = max(1, min(raw, 65535))
     -- compiler infers: 1 <= clamped <= 65535
     clamped   -- OK: satisfies Port refinement
@@ -774,7 +771,7 @@ Error: Cannot verify refinement
 
 20 |    connect(host: "example.com", port: user_input)
                                            ^^^^^^^^^^
-   `user_input` is Int, but `port` requires Port (1 <= self <= 65535).
+   `user_input` is I32, but `port` requires Port (1 <= self <= 65535).
    The compiler cannot prove this statically.
 
    Hint: Add a runtime check:
@@ -800,7 +797,7 @@ that every possible variant is handled. This is non-negotiable for:
 ### 7.1 Exhaustiveness
 
 ```spore
-fn describe(shape: Shape) -> String
+fn describe(shape: Shape) -> Str
 {
     match shape {
         Circle { radius }           => "circle with radius " ++ show(radius),
@@ -828,7 +825,7 @@ Patterns can be nested to match deeply into data structures:
 
 ```spore
 type Expr =
-    | Literal { value: Int }
+    | Literal { value: I32 }
     | BinOp { op: Op, left: Expr, right: Expr }
     | UnaryOp { op: Op, operand: Expr }
 
@@ -856,7 +853,7 @@ fn simplify(expr: Expr) -> Expr
 Guards add boolean conditions to pattern branches:
 
 ```spore
-fn classify_temperature(temp: Float) -> String
+fn classify_temperature(temp: F64) -> Str
 {
     match temp {
         t if t < -40.0  => "extreme cold",
@@ -886,7 +883,7 @@ fn is_weekend(day: Day) -> Bool
     }
 }
 
-fn area(shape: Shape) -> Float
+fn area(shape: Shape) -> F64
 {
     match shape {
         Circle { radius }           => pi * radius * radius,
@@ -924,7 +921,7 @@ fn is_simple_shape(shape: Shape) -> Bool
 Pattern matching is not limited to `match` — destructuring works in `let` bindings:
 
 ```spore
-fn distance(a: Point, b: Point) -> Float
+fn distance(a: Point, b: Point) -> F64
 {
     let Point { x: x1, y: y1 } = a
     let Point { x: x2, y: y2 } = b
@@ -938,7 +935,7 @@ Pattern matching integrates with Spore's row-typed error sets for exhaustive err
 handling:
 
 ```spore
-fn handle_result(result: Invoice ! [TaxError, ValidationError]) -> String
+fn handle_result(result: Invoice ! [TaxError, ValidationError]) -> Str
 {
     match result {
         Ok(invoice) => "Invoice #" ++ show(invoice.id),
@@ -984,22 +981,22 @@ call boundaries and return expressions.
 ### 8.3 Bidirectional Checking in Practice
 
 ```spore
-fn process_items<T>(items: Vec<T>) -> Vec<String> ! [FormatError]
+fn process_items<T>(items: Vec<T>) -> Vec<Str> ! [FormatError]
 where T: Display
 cost <= 1000
 {
-    -- Check mode (top-down): return type Vec<String> ! [FormatError] pushes down
+    -- Check mode (top-down): return type Vec<Str> ! [FormatError] pushes down
     -- Synth mode (bottom-up): expression types bubble up
 
     let results = items.map(|item| {
         -- item type inferred from Vec<T>.map signature → T
         -- T: Display, so .display() is available
-        let formatted = item.display()   -- inferred: String
-        let trimmed = formatted.trim()   -- inferred: String
-        trimmed                          -- synthesized: String, checked against Vec<String>
+        let formatted = item.display()   -- inferred: Str
+        let trimmed = formatted.trim()   -- inferred: Str
+        trimmed                          -- synthesized: Str, checked against Vec<Str>
     })
 
-    results   -- synthesized: Vec<String>, checked against return type ✓
+    results   -- synthesized: Vec<Str>, checked against return type ✓
 }
 ```
 
@@ -1009,9 +1006,9 @@ Holes participate in bidirectional checking: the expected type flows into the ho
 (check mode), and the hole's inferred type from context flows out (synth mode).
 
 ```spore
-fn example(x: Int, y: String) -> Bool ! []
+fn example(x: I32, y: Str) -> Bool ! []
 {
-    let a: Int = ?h1          -- check mode: ?h1 must produce Int
+    let a: I32 = ?h1          -- check mode: ?h1 must produce I32
     let b = if a > 0 {
         ?h2                   -- check mode from return type: ?h2 must produce Bool
     } else {
@@ -1022,7 +1019,7 @@ fn example(x: Int, y: String) -> Bool ! []
 ```
 
 The compiler reports:
-- `?h1` has expected type `Int` (from let binding annotation)
+- `?h1` has expected type `I32` (from let binding annotation)
 - `?h2` has expected type `Bool` (from return type, since this branch determines the return)
 
 ### 8.5 Compiler Diagnostic Output
@@ -1030,7 +1027,7 @@ The compiler reports:
 When a function omits declarations the compiler infers, it reports what was inferred:
 
 ```spore
-fn add(a: Int, b: Int) -> Int {
+fn add(a: I32, b: I32) -> I32 {
     a + b
 }
 ```
@@ -1038,7 +1035,7 @@ fn add(a: Int, b: Int) -> Int {
 Compiler output:
 
 ```
-[ok] add : (a: Int, b: Int) -> Int
+[ok] add : (a: I32, b: I32) -> I32
   inferred:
     effects: pure, deterministic, total
     cost = 1
@@ -1066,7 +1063,7 @@ ERROR [incomplete-function] fetch_data is incomplete:
 
 | Context | Typing Discipline | Rationale |
 |---|---|---|
-| Named types (`type X = ...`) | **Nominal** | `UserId ≠ String` even if same shape |
+| Named types (`type X = ...`) | **Nominal** | `UserId ≠ Str` even if same shape |
 | Enums | **Nominal** | Sealed, exhaustiveness-checked |
 | Traits | **Nominal** | Explicit `impl` required |
 | Capabilities | **Nominal** (always) | Security boundary — no structural coincidence |
@@ -1077,11 +1074,11 @@ ERROR [incomplete-function] fetch_data is incomplete:
 ### Nominal Type Examples
 
 ```spore
-type UserId = String       -- nominal wrapper: UserId ≠ String
-type Celsius = Float       -- nominal: Celsius ≠ Fahrenheit
-type Fahrenheit = Float    -- nominal: Fahrenheit ≠ Celsius
+type UserId = Str       -- nominal wrapper: UserId ≠ Str
+type Celsius = F64       -- nominal: Celsius ≠ Fahrenheit
+type Fahrenheit = F64    -- nominal: Fahrenheit ≠ Celsius
 
-fn format_temp(temp: Celsius) -> String
+fn format_temp(temp: Celsius) -> Str
 {
     show(temp) ++ "°C"
 }
@@ -1091,26 +1088,26 @@ let f: Fahrenheit = 212.0
 
 format_temp(temp: c)    -- OK
 format_temp(temp: f)    -- ERROR: expected Celsius, got Fahrenheit
-format_temp(temp: 98.6) -- ERROR: expected Celsius, got Float
+format_temp(temp: 98.6) -- ERROR: expected Celsius, got F64
 ```
 
 ### Anonymous Record Rules
 
 ```spore
 -- Anonymous record type in signature:
-fn summarize(data: { count: Int, total: Float }) -> String
+fn summarize(data: { count: I32, total: F64 }) -> Str
 {
     "Count: " ++ show(data.count) ++ ", Avg: " ++ show(data.total / data.count)
 }
 
 -- Any matching record works (width subtyping):
 let stats = { count: 10, total: 95.5, median: 9.2 }
-summarize(data: stats)   -- OK: stats has count: Int and total: Float
+summarize(data: stats)   -- OK: stats has count: I32 and total: F64
 
 -- Named types do NOT satisfy anonymous record types:
-type Stats = { count: Int, total: Float }
+type Stats = { count: I32, total: F64 }
 let named_stats = Stats { count: 10, total: 95.5 }
-summarize(data: named_stats)   -- ERROR: Stats is nominal, not { count: Int, total: Float }
+summarize(data: named_stats)   -- ERROR: Stats is nominal, not { count: I32, total: F64 }
 ```
 
 **Key insight**: Structural typing is an implementation detail of the Agent's search
@@ -1141,7 +1138,7 @@ Every capability is a trait, and `uses [Cap]` is a trait bound on the execution 
 4. Excess declared capability (declared but unused) → warning
 
 ```spore
-fn fetch_and_save(url: Url, path: Path) -> Unit ! [NetworkError, IoError]
+fn fetch_and_save(url: Url, path: Path) -> () ! [NetworkError, IoError]
 uses [NetRead, FileWrite]
 cost <= 5000
 {
@@ -1156,7 +1153,7 @@ cost <= 5000
 Cost bounds interact with the type system through const generics:
 
 ```spore
-fn batch_process<T, N: Int>(items: Vec<T, max: N>) -> Vec<T, max: N>
+fn batch_process<T, N: I32>(items: Vec<T, max: N>) -> Vec<T, max: N>
 where T: Processable
 cost <= N * 50
 {
@@ -1274,11 +1271,11 @@ themselves enum variants (ADTs), and the `!` syntax computes unions automaticall
 across call chains:
 
 ```spore
-fn parse(input: String) -> Ast ! [SyntaxError, EncodingError]
+fn parse(input: Str) -> Ast ! [SyntaxError, EncodingError]
 fn validate(ast: Ast) -> ValidAst ! [TypeError, RangeError]
 
 -- Error sets union automatically via `?` propagation:
-fn compile(input: String) -> ValidAst ! [SyntaxError, EncodingError, TypeError, RangeError]
+fn compile(input: Str) -> ValidAst ! [SyntaxError, EncodingError, TypeError, RangeError]
 {
     let ast = parse(input)?
     validate(ast)?
@@ -1289,15 +1286,15 @@ Each error type carries structured data:
 
 ```spore
 type SyntaxError = {
-    line: Int,
-    column: Int,
-    message: String,
-    snippet: String,
+    line: I32,
+    column: I32,
+    message: Str,
+    snippet: Str,
 }
 
 type TypeError = {
-    expected: String,
-    found: String,
+    expected: Str,
+    found: Str,
     location: SourceLocation,
 }
 ```
@@ -1336,13 +1333,13 @@ Newtypes are zero-cost nominal wrappers around existing types. They enforce type
 distinctions without runtime overhead:
 
 ```spore
-type UserId = String
-type Email = String
-type Meters = Float
-type Seconds = Float
+type UserId = Str
+type Email = Str
+type Meters = F64
+type Seconds = F64
 
 -- These are all distinct types:
-fn send_email(to: Email, subject: String) -> Unit ! [DeliveryError]
+fn send_email(to: Email, subject: Str) -> () ! [DeliveryError]
 
 let uid: UserId = "user-123"
 let email: Email = "alice@example.com"
@@ -1354,10 +1351,10 @@ send_email(to: uid, subject: "Hello")      -- ERROR: expected Email, got UserId
 Newtypes may have refinements:
 
 ```spore
-type Port = Int if 1 <= self <= 65535
-type NonEmptyString = String if self.len() > 0
-type Latitude = Float if -90.0 <= self <= 90.0
-type Longitude = Float if -180.0 <= self <= 180.0
+type Port = I32 if 1 <= self <= 65535
+type NonEmptyString = Str if self.len() > 0
+type Latitude = F64 if -90.0 <= self <= 90.0
+type Longitude = F64 if -180.0 <= self <= 180.0
 ```
 
 ### 11.3 Recursive Types
@@ -1366,7 +1363,7 @@ Enums and structs may be recursive. The compiler detects and supports this:
 
 ```spore
 type Expr =
-    | Literal { value: Int }
+    | Literal { value: I32 }
     | BinOp { op: Op, left: Expr, right: Expr }
     | UnaryOp { op: Op, operand: Expr }
     | IfExpr { cond: Expr, then_branch: Expr, else_branch: Expr }
@@ -1374,10 +1371,10 @@ type Expr =
 type JsonValue =
     | JsonNull
     | JsonBool { value: Bool }
-    | JsonNumber { value: Float }
-    | JsonString { value: String }
+    | JsonNumber { value: F64 }
+    | JsonString { value: Str }
     | JsonArray { elements: List<JsonValue> }
-    | JsonObject { fields: List<{ key: String, value: JsonValue }> }
+    | JsonObject { fields: List<{ key: Str, value: JsonValue }> }
 ```
 
 **Infinite-size check**: The compiler rejects types that would require infinite
@@ -1402,19 +1399,19 @@ Type aliases provide alternative names without creating new types. Unlike newtyp
 aliases are transparent — they are interchangeable with their definition:
 
 ```spore
-alias StringList = List<String>
-alias Callback<T> = Fn(event: T) -> Unit
+alias StringList = List<Str>
+alias Callback<T> = (T) -> ()
 alias Result<T> = T ! [GenericError]
 
-fn process(items: StringList) -> StringList   -- same as List<String>
-fn on_click(handler: Callback<ClickEvent>) -> Unit
+fn process(items: StringList) -> StringList   -- same as List<Str>
+fn on_click(handler: Callback<ClickEvent>) -> ()
 ```
 
 The `alias` keyword distinguishes aliases from newtypes (`type`):
 
 ```spore
-type UserId = String       -- newtype: UserId ≠ String (nominal)
-alias UserName = String    -- alias: UserName == String (transparent)
+type UserId = Str       -- newtype: UserId ≠ Str (nominal)
+alias UserName = Str    -- alias: UserName == Str (transparent)
 ```
 
 ### 11.5 Orphan Rules
@@ -1423,15 +1420,15 @@ The orphan rule prevents conflicting trait implementations:
 
 ```spore
 -- In module `shapes`:
-type Circle = { radius: Float }
+type Circle = { radius: F64 }
 
 -- In module `rendering`:
-trait Drawable { fn draw(self, canvas: Canvas) -> Unit }
+trait Drawable { fn draw(self, canvas: Canvas) -> () }
 
 -- In module `app`:
 -- Can implement Drawable for Circle ONLY if `app` owns Circle OR Drawable
 impl Drawable for Circle {    -- OK if shapes or rendering is the same crate
-    fn draw(self, canvas: Canvas) -> Unit { ... }
+    fn draw(self, canvas: Canvas) -> () { ... }
 }
 ```
 
@@ -1440,11 +1437,11 @@ impl Drawable for Circle {    -- OK if shapes or rendering is the same crate
 ```spore
 -- When you own neither the trait nor the type:
 adapter Circle as Drawable {
-    fn draw(self, canvas: Canvas) -> Unit { ... }
+    fn draw(self, canvas: Canvas) -> () { ... }
 }
 
 -- Adapter must be declared in the function signature:
-fn render(shape: Circle) -> Unit
+fn render(shape: Circle) -> ()
 where adapter: Circle as Drawable
 {
     shape.draw(canvas)
@@ -1506,7 +1503,7 @@ Structural typing (TypeScript, Go interfaces) was rejected as the default becaus
    This is a security boundary.
 
 2. **Error messages are clearer.** "Expected `Temperature`, got `Pressure`" is better
-   than "Expected `{ value: Float, unit: String }`, got `{ value: Float, unit: String }`"
+   than "Expected `{ value: F64, unit: Str }`, got `{ value: F64, unit: Str }`"
    when two structurally identical types are semantically different.
 
 3. **Refactoring is safer.** Renaming a nominal type is caught by the compiler everywhere.
@@ -1539,8 +1536,8 @@ Unifying capabilities and traits provides:
 1. **Conceptual economy.** One mechanism (traits) handles both "what operations does
    this type support" and "what operations does this execution context provide."
 
-2. **Signature-clause separation.** Trait bounds use `where`, effects and capabilities use `with` and
-   `uses` — all in the function signature with consistent syntax.
+2. **Signature-clause separation.** Trait bounds use `where`, capabilities use `uses`, and
+   the remaining signature metadata (`cost`, `spec`) stays in adjacent dedicated clauses.
 
 3. **Composability.** Composite capabilities (`capability DB = [Read, Write]`) work exactly
    like trait supertypes.
@@ -1591,7 +1588,7 @@ How each type system feature interacts with Spore's other systems:
 
 |  | Capabilities | Cost Model | Holes | Error Sets | Pattern Matching |
 |---|---|---|---|---|---|
-| **Generics** | Type bounds in `where`, capabilities via `with`/`uses` | Cost of generic calls | Type params flow into holes | Error sets are generic | Generic type destructuring |
+| **Generics** | Type bounds in `where`, capabilities via `uses` | Cost of generic calls | Type params flow into holes | Error sets are generic | Generic type destructuring |
 | **Traits** | Capabilities ARE traits | Trait methods have costs | Trait bounds constrain holes | Error traits compose | Trait-based dispatch |
 | **Enums** | ✗ (nominal only) | Construction has cost | Variant fields fill holes | Error enums in `! [...]` | Exhaustive matching |
 | **Refinements** | ✗ | `cost ≤ N` IS refinement | Refinement narrows hole type | Error set IS refinement | Guard clause integration |
@@ -1607,16 +1604,16 @@ A full example showing multiple type system features working together:
 -- types.spore
 module billing.types
 
-type Money = Float if self >= 0.0
+type Money = F64 if self >= 0.0
 
 type TaxRegion =
-    | US { state: String }
-    | EU { country: String }
-    | Other { code: String }
+    | US { state: Str }
+    | EU { country: Str }
+    | Other { code: Str }
 
 type LineItem = {
-    name: String,
-    quantity: Int if self > 0,
+    name: Str,
+    quantity: I32 if self > 0,
     unit_price: Money,
 }
 
@@ -1630,11 +1627,11 @@ type Invoice = {
 
 type TaxError =
     | UnknownRegion { region: TaxRegion }
-    | RateUnavailable { reason: String }
+    | RateUnavailable { reason: Str }
 
 type ValidationError =
     | EmptyItems
-    | InvalidQuantity { item: String, quantity: Int }
+    | InvalidQuantity { item: Str, quantity: I32 }
 ```
 
 ```spore
@@ -1644,7 +1641,7 @@ module billing.tax
 import billing.types { Money, TaxRegion, TaxError }
 
 capability TaxTable {
-    fn lookup_rate(region: TaxRegion) -> Float ! [TaxError]
+    fn lookup_rate(region: TaxRegion) -> F64 ! [TaxError]
     cost lookup_rate <= 50
 }
 
@@ -1712,13 +1709,13 @@ module billing.display
 import billing.types { Invoice, LineItem, TaxRegion }
 
 impl Display for LineItem {
-    fn display(self) -> String {
+    fn display(self) -> Str {
         self.name ++ " x" ++ show(self.quantity) ++ " @ " ++ show(self.unit_price)
     }
 }
 
 impl Display for TaxRegion {
-    fn display(self) -> String {
+    fn display(self) -> Str {
         match self {
             US { state }     => "US-" ++ state,
             EU { country }   => "EU-" ++ country,
@@ -1728,7 +1725,7 @@ impl Display for TaxRegion {
 }
 
 impl Display for Invoice {
-    fn display(self) -> String {
+    fn display(self) -> Str {
         let header = "Invoice for " ++ self.customer.name ++ "\n"
         let items = self.items
             .map(|item| "  " ++ item.display())

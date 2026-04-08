@@ -24,8 +24,13 @@ fn name(params) -> ReturnType ! [Errors]
     where T: Constraint
     uses [Capabilities]
     cost ≤ N
+    spec {
+        example "..." => ...
+    }
 { body }
 ```
+
+> 解析器接受 `where`、`uses`、`cost`、`spec` 子句按任意顺序出现；文档与格式化输出统一推荐顺序为 `where` → `uses` → `cost` → `spec`。
 
 > **v0.2→v0.3 变更**: 原 `where { ... }` 统一块拆分为独立子句：
 > - `where T: Constraint` — 泛型约束（保留 where 关键字）
@@ -139,7 +144,7 @@ fn name(params) -> ReturnType ! [Errors]
 - 函数属性（pure, deterministic, total）— 从 `uses` 自动推断，无需关键字
 - `if` 子句用于细化类型谓词（`if |n| n > 0`），不再使用 `where`
 - `where` 关键字仅保留用于泛型约束（`where T: Constraint`）
-- 基本类型: I32/I64/U32/U64/F32/F64/Bool/Str + List[T]/Map[K,V]/Set[T]
+- 基本类型（文档规范写法）: I32/I64/U32/U64/F32/F64/Bool/Char/Str/() + List[T]/Map[K,V]/Set[T]
 
 ## 设计文档索引
 
@@ -173,7 +178,7 @@ fn name(params) -> ReturnType ! [Errors]
 - [hole-system-v0.2.md](archive/hole-system-v0.2.md) — ⚠️ 已被 hole-report-v0.3.md 取代，保留供历史参考
 
 ### 标准库（极简）
-- **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Str, Option[T], Result[T,E], 基本操作符, |>, ?
+- **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Char/Str/(), Option[T], Result[T,E], 基本操作符, |>, ?
 - **spore.list** — List[T]: map/fold/filter/zip/head/tail/len/reverse/sort/...
 - **spore.map** — Map[K,V]: insert/get/remove/keys/values/merge/...
 - **spore.set** — Set[T]: add/remove/contains/union/intersect/diff/...

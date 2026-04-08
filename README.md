@@ -28,7 +28,7 @@ cargo test --all                        # run all tests
 ### Hello World
 
 ```spore
-fn main() -> Int {
+fn main() -> I32 {
     let greeting = "Hello, Spore!";
     42
 }
@@ -37,14 +37,14 @@ fn main() -> Int {
 ### Structs and Pattern Matching
 
 ```spore
-struct Point { x: Int, y: Int }
+struct Point { x: I32, y: I32 }
 
 type Shape {
-    Circle(Int),
-    Rect(Int, Int),
+    Circle(I32),
+    Rect(I32, I32),
 }
 
-fn area(s: Shape) -> Int {
+fn area(s: Shape) -> I32 {
     match s {
         Circle(r) => r * r * 3,
         Rect(w, h) => w * h,
@@ -55,10 +55,10 @@ fn area(s: Shape) -> Int {
 ### Lambdas, Pipes, and Higher-Order Functions
 
 ```spore
-fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
+fn apply(f: (I32) -> I32, x: I32) -> I32 { f(x) }
 
-fn main() -> Int {
-    let double = |x: Int| x * 2;
+fn main() -> I32 {
+    let double = |x: I32| x * 2;
     apply(double, 21)
 }
 ```
@@ -68,10 +68,13 @@ fn main() -> Int {
 These annotations are part of the function signature — the compiler verifies
 that callers supply the required capabilities and that costs stay within budget.
 
+The parser accepts `where`, `uses`, `cost`, and `spec` clauses in any order.
+Documentation examples use the canonical order: `where`, `uses`, `cost`, `spec`.
+
 ```spore
-fn fetch(url: String) -> String ! [NetError, Timeout]
-    cost ≤ 1000
+fn fetch(url: Str) -> Str ! [NetError, Timeout]
     uses [NetRead]
+    cost ≤ 1000
 {
     ?todo
 }
@@ -80,9 +83,9 @@ fn fetch(url: String) -> String ! [NetError, Timeout]
 ### Parallel Fetch (Design Intent — not yet runnable)
 
 ```spore
-fn fetch_all(urls: List[String]) -> List[String] ! [NetError, Timeout]
-    cost ≤ urls.len * per_fetch_cost
+fn fetch_all(urls: List[Str]) -> List[Str] ! [NetError, Timeout]
     uses [NetRead, Spawn]
+    cost ≤ urls.len * per_fetch_cost
 {
     parallel_scope {
         urls |> map(|url| spawn { fetch(url) })
@@ -98,11 +101,11 @@ fn fetch_all(urls: List[String]) -> List[String] ! [NetError, Timeout]
 
 ```spore
 capability Display[T] {
-    fn show(self: T) -> String
+    fn show(self: T) -> Str
 }
 
 impl Display for Point {
-    fn show(self: Point) -> String { "point" }
+    fn show(self: Point) -> Str { "point" }
 }
 ```
 
@@ -151,7 +154,7 @@ just package-cli-sdist  # build a source distribution into dist/
 | Document | Description |
 |----------|-------------|
 | [Syntax Spec](docs/specs/syntax-spec-v0.1.md) | Complete syntax reference |
-| [Signature Syntax](docs/specs/signature-syntax-v0.2.md) | Function signature design |
+| [Signature Details](docs/specs/syntax-spec-v0.1.md#appendix-b-signature-details) | Function signature design |
 | [Type System](docs/specs/type-system-v0.1.md) | Type system specification |
 | [Module System](docs/specs/module-system-v0.1.md) | Module & dual hash system |
 | [Hole System](docs/specs/hole-system-v0.2.md) | Hole system for Agent collaboration |
