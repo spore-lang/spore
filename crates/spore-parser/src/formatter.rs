@@ -54,17 +54,6 @@ impl Formatter {
     // ── Module ──────────────────────────────────────────────────────────
 
     fn fmt_module(&mut self, module: &Module) {
-        if !module.name.is_empty() {
-            self.write("module ");
-            self.write(&module.name);
-            if let Some(uses) = &module.uses_clause {
-                self.write(" ");
-                self.fmt_uses_clause(uses);
-            }
-            self.newline();
-            self.newline();
-        }
-
         for (i, item) in module.items.iter().enumerate() {
             if i > 0 {
                 self.newline();
@@ -1228,12 +1217,6 @@ mod tests {
         let src = "fn read() -> String uses [IO, FileRead] { ?todo }\n";
         let out = roundtrip(src);
         assert!(out.contains("uses [IO, FileRead]"));
-    }
-
-    #[test]
-    fn test_module_header_without_uses_roundtrips() {
-        let src = concat!("module mymod\n", "\n", "fn foo() -> Int { 42 }\n",);
-        assert_eq!(roundtrip(src), src);
     }
 
     #[test]

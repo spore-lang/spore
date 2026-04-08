@@ -169,12 +169,7 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
 fn build_prelude_interface() -> ModuleInterface {
     let module = parse(include_str!("../../../stdlib/prelude.sp"))
         .expect("embedded stdlib/prelude.sp must parse");
-    let path = if module.name.is_empty() {
-        vec!["Std".into(), "Prelude".into()]
-    } else {
-        module.name.split('.').map(|s| s.to_string()).collect()
-    };
-    let mut iface = ModuleInterface::new(path);
+    let mut iface = ModuleInterface::new(vec!["Std".into(), "Prelude".into()]);
 
     for item in &module.items {
         match item {

@@ -99,7 +99,11 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
     use module::{ModuleInterface, SymbolVisibility};
     use spore_parser::ast::Item;
 
-    let path: Vec<String> = module.name.split('.').map(|s| s.to_string()).collect();
+    let path: Vec<String> = if module.name.is_empty() {
+        Vec::new()
+    } else {
+        module.name.split('.').map(|s| s.to_string()).collect()
+    };
     let mut iface = ModuleInterface::new(path);
 
     let checker = Checker::new();

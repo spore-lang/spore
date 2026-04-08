@@ -161,12 +161,8 @@ fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> 
         .map_err(|e| format!("cannot read `{}`: {e}", entry_path.display()))?;
     let ast = parse(&source).map_err(join_errors)?;
 
-    // Derive a module name from the entry path
-    let module_name = if ast.name.is_empty() {
-        entry.trim_end_matches(".sp").replace(['/', '\\'], ".")
-    } else {
-        ast.name.clone()
-    };
+    // Module names are derived from file paths.
+    let module_name = entry.trim_end_matches(".sp").replace(['/', '\\'], ".");
 
     // Build registry and register the entry module
     let mut registry = ModuleRegistry::new();
@@ -197,12 +193,8 @@ fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> 
     })
 }
 
-fn entry_module_name(ast: &spore_parser::ast::Module, entry: &str) -> String {
-    if ast.name.is_empty() {
-        entry.trim_end_matches(".sp").replace(['/', '\\'], ".")
-    } else {
-        ast.name.clone()
-    }
+fn entry_module_name(entry: &str) -> String {
+    entry.trim_end_matches(".sp").replace(['/', '\\'], ".")
 }
 
 fn source_label_for_module(module_path: &str) -> String {
@@ -214,9 +206,7 @@ fn with_module_name(
     module_name: &str,
 ) -> spore_parser::ast::Module {
     let mut ast = ast.clone();
-    if ast.name.is_empty() {
-        ast.name = module_name.to_string();
-    }
+    ast.name = module_name.to_string();
     ast
 }
 
@@ -247,7 +237,7 @@ fn collect_prepared_project_results(
     }
 
     let entry_label = entry.replace('\\', "/");
-    let entry_name = entry_module_name(&prep.ast, entry);
+    let entry_name = entry_module_name(entry);
     let entry_ast = with_module_name(&prep.ast, &entry_name);
     match type_check_with_registry(&entry_ast, prep.registry.clone()) {
         Ok(result) => results.push((entry_label, result)),

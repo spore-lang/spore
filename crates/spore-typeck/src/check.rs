@@ -147,8 +147,10 @@ impl Checker {
             .resolve_import(&path_segments, &all_names)
         {
             Ok(resolved) => {
-                self.module_registry
-                    .record_dependency(&self.current_module_name, path);
+                if !self.current_module_name.is_empty() {
+                    self.module_registry
+                        .record_dependency(&self.current_module_name, path);
+                }
                 self.import_resolved_symbols(&module, &resolved, alias);
             }
             Err(ModuleError::PrivateSymbol { symbol, module: m }) => {

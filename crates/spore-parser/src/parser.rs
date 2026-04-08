@@ -194,28 +194,20 @@ impl Parser {
     // ── Top-level: Module ───────────────────────────────────────────
 
     pub fn parse_module(&mut self) -> Result<Module, ParseError> {
-        // Check for optional `module name uses [...]` declaration
-        let (mod_name, uses_clause) = if self.at(&Token::Mod) {
-            self.advance();
-            let name = self.expect_ident()?;
-            let uses = if self.at(&Token::Uses) {
-                Some(self.parse_uses_clause()?)
-            } else {
-                None
-            };
-            (name, uses)
-        } else {
-            (String::new(), None)
-        };
+        if self.at(&Token::Mod) {
+            return Err(self.error(
+                "module declarations are not supported; module names are derived from file paths"
+                    .to_string(),
+            ));
+        }
 
         let mut items = Vec::new();
         while !self.at_eof() {
             items.push(self.parse_item()?);
         }
         Ok(Module {
-            name: mod_name,
+            name: String::new(),
             items,
-            uses_clause,
         })
     }
 

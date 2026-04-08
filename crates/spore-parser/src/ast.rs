@@ -5,10 +5,9 @@ pub use crate::lexer::Span;
 /// A Spore module (one .spore file = one module).
 #[derive(Debug, Clone)]
 pub struct Module {
+    /// Module name metadata (derived from file path by compiler/tooling).
     pub name: String,
     pub items: Vec<Item>,
-    /// `module name uses [Cap1, Cap2]` at module level.
-    pub uses_clause: Option<UsesClause>,
 }
 
 /// Top-level items in a module.

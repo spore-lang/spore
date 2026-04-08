@@ -873,24 +873,29 @@ fn test_select_expr() {
     }
 }
 
-// ── Item 3: module uses clause ──────────────────────────────────────────
+// ── Item 3: module declarations are rejected ───────────────────────────
 
 #[test]
-fn test_module_uses_clause() {
-    let src = r#"module mymod uses [NetRead, FileSystem]
-        fn foo() -> Int { 42 }
-    "#;
-    let m = parse_ok(src);
-    assert_eq!(m.name, "mymod");
-    let uses = m.uses_clause.as_ref().unwrap();
-    assert_eq!(uses.resources, vec!["NetRead", "FileSystem"]);
-    assert_eq!(m.items.len(), 1);
+fn test_module_header_is_rejected() {
+    let errs = parse("module mymod\nfn foo() -> Int { 42 }").expect_err("expected parse error");
+    assert!(
+        errs.iter().any(|e| e
+            .to_string()
+            .contains("module declarations are not supported")),
+        "expected module declaration rejection, got: {errs:?}"
+    );
 }
 
 #[test]
-fn test_module_without_uses() {
-    let m = parse_ok("fn foo() -> Int { 42 }");
-    assert!(m.uses_clause.is_none());
+fn test_module_header_with_uses_is_rejected() {
+    let errs = parse("module mymod uses [NetRead]\nfn foo() -> Int { 42 }")
+        .expect_err("expected parse error");
+    assert!(
+        errs.iter().any(|e| e
+            .to_string()
+            .contains("module declarations are not supported")),
+        "expected module declaration rejection, got: {errs:?}"
+    );
 }
 
 // ── Item 4: alias declaration ───────────────────────────────────────────

@@ -131,7 +131,7 @@ fn multi_file_cross_module_function_call() {
     let src_a = "pub fn add(a: Int, b: Int) -> Int { a + b }";
     let ast_a = parse(src_a).unwrap();
     let mut iface_a = build_module_interface(&ast_a);
-    // Override path to a named module (parser gives empty name w/o module decl)
+    // Override path to a named module (module path comes from file layout).
     iface_a.path = vec!["ModA".into()];
 
     let mut registry = ModuleRegistry::new();
