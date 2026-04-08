@@ -74,7 +74,7 @@ Spore 语言的保留关键字列表：
 ```
 fn          let         if          else        match
 struct      type        capability  pub         import
-alias       module      spawn       select      parallel_scope
+alias       spawn       select      parallel_scope
 where       with        uses        effects     cost
 return
 trait       impl        as          in          mut
@@ -215,7 +215,7 @@ Spore 遵循以下命名约定：
   ```spore
   let user_name = "Alice";
   fn calculate_total() { ... }
-  module http_client { ... }
+  import http.client as http_client
   ```
 
 - **PascalCase**: 类型、capability、枚举变体
@@ -1035,30 +1035,17 @@ match color {
 
 ## 7. 模块与导入 (Modules & Imports)
 
-### 7.1 模块声明 (Module declaration)
+### 7.1 文件即模块 (File = module)
 
-```spore
-/// 模块定义 (Module definition)
-module math uses [] {
-    pub fn add(a: I32, b: I32) -> I32 { a + b }
-    pub fn multiply(a: I32, b: I32) -> I32 { a * b }
+每个 `.spore` 源文件就是一个模块，模块名由其相对 `src/` 的文件路径决定：
 
-    // 私有函数（默认）(Private function - default)
-    fn helper() -> I32 { 42 }
-}
+| 文件路径 | 模块名 |
+|----------|--------|
+| `src/math.spore` | `math` |
+| `src/geometry/shapes.spore` | `geometry.shapes` |
+| `src/http/client.spore` | `http.client` |
 
-/// 嵌套模块 (Nested module)
-module geometry uses [] {
-    pub module shapes uses [] {
-        pub struct Circle { radius: F64 }
-        pub struct Rectangle { width: F64, height: F64 }
-    }
-
-    pub fn area(shape: shapes.Circle) -> F64 {
-        3.14 * shape.radius * shape.radius
-    }
-}
-```
+Spore **没有** `module ...` 文件头，也没有内联/嵌套模块声明语法。
 
 ### 7.2 可见性修饰符 (Visibility modifiers)
 
@@ -1069,48 +1056,32 @@ pub fn public_function() { }
 /// 包内可见（同一 package 内可见）(Package-visible)
 pub(pkg) fn package_function() { }
 
-/// 私有（默认，仅当前模块可见）(Private - default, only visible in current module)
+/// 私有（默认，仅当前文件模块可见）(Private - default, only visible in current file module)
 fn private_function() { }
 ```
 
 ### 7.3 导入语句 (Import statements)
 
 ```spore
-/// 导入模块 (Import module)
-import std.collections as collections;
-
-/// 导入特定项 (Import specific items)
-import std.math.{sin, cos, tan};
-
-/// 导入所有公开项 (Import all public items)
-import std.io.*;
-
-/// 重命名导入 (Rename import)
-import very.long.module.name as short;
+/// 导入模块并重命名 (Import module with alias)
+import std.collections as collections
+import very.long.module.name as short
 
 /// 别名特定项 (Alias specific item)
-alias Vec = std.collections.Vector;
-alias HashMap = std.collections.HashMap;
+alias Vec = std.collections.Vector
+alias HashMap = std.collections.HashMap
 ```
 
-### 7.4 模块使用依赖 (Module uses dependencies)
+说明：
 
-```spore
-/// 声明模块需要的 capability (Declare required capabilities)
-module http_client uses [Network, Allocate] {
-    pub fn fetch(url: Str) -> Result[Str] ! [NetworkError]
-    {
-        ?implementation
-    }
-}
+- `import` 仅用于模块路径，可选 `as` 别名。
+- `alias` 仅用于具体项绑定。
+- 当前文档**不支持** `import foo.{bar}`、`import foo.*` 或嵌套 `module` 语法。
 
-/// 声明多个依赖 (Multiple dependencies)
-module database uses [Database, FileRead, FileWrite, Allocate] {
-    pub fn init(path: Str) -> Connection ! [IoError] {
-        ?implementation
-    }
-}
-```
+### 7.4 模块级 capability carrier（Deferred / TBD）
+
+函数级 `uses [...]` 仍然存在，但模块级 `uses` 不再通过任何 `module ...` 文件头表达。
+模块名由文件路径决定；若将来需要“模块级 capability ceiling”，其 carrier 另行设计，当前 **TBD**。
 
 ---
 
@@ -1573,8 +1544,8 @@ let is_valid = true;
 fn calculate_total(items: List[Item]) -> F64 { ... }
 fn parse_json(input: Str) -> Result[Json] { ... }
 
-module http_client { ... }
-module data_processing { ... }
+import http.client as http_client
+import data.processing as data_processing
 ```
 
 ### 12.2 PascalCase
@@ -1934,8 +1905,7 @@ fn main() {
 | `impl` | Trait 实现块 (Trait implementation block) |
 | `deriving` | 自动派生声明 (Auto-derive declaration) |
 | `pub` / `pub(pkg)` | 可见性修饰符 (Visibility modifiers) |
-| `module` | 模块定义 (Module definition) |
-| `import` | 导入模块 (Import module) |
+| `import` | 导入模块路径 (Import module path) |
 | `alias` | 类型/项别名 (Type/item alias) |
 | `where` | 泛型类型约束 (Generic type constraints) |
 | `with` | （已移除）属性由编译器从 `uses` 集合自动推断 (Removed - properties auto-inferred from `uses` set) |
@@ -2004,13 +1974,16 @@ Channel[T]    // 并发通道 (Concurrent channel)
 ### 14.4 语法 EBNF 概要 (EBNF grammar sketch)
 
 ```ebnf
-Program       = { Module | Function | Struct | Type | Capability }
-Module        = "module" Ident "uses" "[" [ Ident { "," Ident } ] "]" Block
+Program       = { ImportDecl | AliasDecl | Function | Struct | Type | Capability }
+ImportDecl    = "import" ModulePath [ "as" Ident ]
+AliasDecl     = "alias" Ident "=" QualifiedItem
 Function      = "fn" Ident [ TypeParams ] "(" [ Params ] ")" [ "->" Type ]
                 [ "!" "[" Types "]" ] [ WhereClause ] [ UsesClause ] [ CostClause ] [ SpecClause ] Block
 Struct        = "struct" Ident [ TypeParams ] StructBody [ "deriving" "[" Capabilities "]" ]
 Type          = "type" Ident [ TypeParams ] "=" TypeDef
 Capability    = "capability" Ident [ TypeParams ] "{" { CapabilityItem } "}"
+ModulePath    = Ident { "." Ident }
+QualifiedItem = ModulePath "." Ident
 
 Expr          = Literal | Ident | Block | If | Match | Lambda | BinOp | UnaryOp | Call | Pipe
 Block         = "{" { Stmt ";" } [ Expr ] "}"

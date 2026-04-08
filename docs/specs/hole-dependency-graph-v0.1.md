@@ -570,8 +570,6 @@ Hole Dependency Graph (6 holes, 5 edges):
 一个订单处理系统包含 6 个 hole：
 
 ```spore
-module OrderPipeline
-
 fn handle_order(raw: RawOrder) -> FinalStatus ! [ValidationErr, PaymentErr, NotifyErr]
     uses [PaymentGateway, Inventory, EmailService]
     cost ≤ 10000

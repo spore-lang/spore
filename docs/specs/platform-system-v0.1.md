@@ -678,11 +678,9 @@ fn caller() -> Unit ! [FileRead] {
 
 ```spore
 // app.spore
-module App
-
-uses [FileRead, StdOut, Exit]
-
-fn main(args: List[String]) -> I32 ! [Exit] {
+fn main(args: List[String]) -> I32 ! [Exit]
+    uses [FileRead, StdOut]
+{
     match read_config() {
         Ok(config) -> {
             println("Loaded config: {}", config)
@@ -780,11 +778,9 @@ fn main(args: List[String]) -> I32 ! [Exit, StdOut, StdErr] {
 
 ```spore
 // app.spore
-module HttpClient
-
-uses [NetRead, NetWrite, StdOut]
-
-fn main(args: List[String]) -> I32 ! [Exit] {
+fn main(args: List[String]) -> I32 ! [Exit]
+    uses [NetRead, NetWrite, StdOut]
+{
     let url = "https://api.github.com/users/octocat"
 
     match fetch_user(url) {
@@ -981,7 +977,6 @@ fn fetch_weather(city: String) -> Result[Weather, Error] ! [NetRead] {
 }
 
 // test/weather_test.spore
-module WeatherTest
 
 test "fetch_weather returns valid data" {
     // 设置 mock HTTP 响应
@@ -1356,10 +1351,9 @@ Platform **定义了 capability 的上界**：
 
 ```spore
 // 应用声明需要的 capability
-module App
-uses [FileRead, NetWrite]
-
-fn main() { ... }
+fn main()
+    uses [FileRead, NetWrite]
+{ ... }
 ```
 
 编译器检查：
@@ -1367,19 +1361,18 @@ fn main() { ... }
 2. Platform 提供的 capability 是应用所需 capability 的超集
 
 ```
-App.uses = {FileRead, NetWrite}
+main.uses = {FileRead, NetWrite}
 Platform.handles = {FileRead, FileWrite, NetRead, NetWrite, Clock}
 
-Check: App.uses ⊆ Platform.handles  ✓
+Check: main.uses ⊆ Platform.handles  ✓
 ```
 
 如果应用尝试使用 Platform 不支持的 capability：
 
 ```spore
-module App
-uses [DatabaseQuery]  // Platform 不支持
-
-fn main() {
+fn main()
+    uses [DatabaseQuery]  // Platform 不支持
+{
     Db.query("SELECT ...")  // 编译错误
 }
 ```
@@ -1750,11 +1743,9 @@ Spore = Koka 的 effect system + Roc 的 Platform 概念
 
 ```spore
 // app.spore
-module TodoApi
-
-uses [HttpServer, DbQuery, Clock, Spawn]
-
-fn main(req: Request) -> Response ! [HttpServer, DbQuery] {
+fn main(req: Request) -> Response ! [HttpServer, DbQuery]
+    uses [HttpServer, DbQuery, Clock, Spawn]
+{
     match (req.method, req.path) {
         (GET, "/todos") -> list_todos(req)
         (POST, "/todos") -> create_todo(req)

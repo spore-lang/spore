@@ -348,11 +348,11 @@ type ModuleInfo:
 
 ```
 # 修改前
-module HttpClient:
+file src/http_client.spore:
     capabilities: {Network}
 
 # 修改后 — 新增 FileSystem
-module HttpClient:
+file src/http_client.spore:
     capabilities: {Network, FileSystem}
 ```
 

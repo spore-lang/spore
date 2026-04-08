@@ -662,7 +662,7 @@ spore gc --all
 
 ## 7. 能力封顶 (Capability Ceiling)
 
-Spore 使用**两层能力系统** (two-layer capability system):
+Spore 当前明确的是**项目/包级能力系统** (package/project capability system)。若未来需要模块级 carrier，将另行设计（TBD）:
 
 ### 7.1 能力声明 (Capability Declaration)
 

@@ -74,7 +74,8 @@ fn name(params) -> ReturnType ! [Errors]
 - 禁止循环依赖（Elm 风格）
 - Platform 概念（Roc 风格）: Platform 提供所有 IO 能力，纯包无法直接 IO
 - 无 Functor: 泛型 + 能力集替代
-- 模块能力封顶: `module billing uses [...]`，可省略自动推断 + `--fixes` 修复
+- 模块名仅由文件路径决定；无 `module ...` 头声明
+- 模块级 capability carrier 延后决定（TBD），当前不支持 module-level `uses`
 - 导入: `import mod as alias` / `alias x = mod.item`（无通配符、无隐式嵌套）
 
 ### 类型系统（v0.1）
@@ -115,7 +116,7 @@ fn name(params) -> ReturnType ! [Errors]
 - 清单: spore.toml（元数据+依赖）+ .spore-lock（精确 hash pin）
 - 钻石依赖: 无冲突，不同 hash 共存
 - Platform 不特殊化，只是提供 IO 能力的普通包
-- 能力封顶两层: 项目级 spore.toml ≥ 模块级
+- 能力封顶当前仅明确到项目级 `spore.toml`；模块级 carrier 延后决定（TBD）
 - 编译器自动推导 + `--fixes` 补全
 
 ### 增量编译与 Watch 模式（v0.1）

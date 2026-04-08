@@ -46,7 +46,7 @@ All diagnostics carry a categorized error code:
 |--------|----------|----------|
 | `E0xxx` | Type errors | type mismatch, missing field, arity error |
 | `W0xxx` | Warnings | unused variable, redundant pattern, shadowing |
-| `C0xxx` | Capability violations | undeclared capability, exceeding module ceiling |
+| `C0xxx` | Capability violations | undeclared capability, callee capability leak, deferred ceiling checks |
 | `K0xxx` | Cost violations | exceeding budget, unbounded call without `cost_limit` |
 | `H0xxx` | Hole diagnostics | hole report, partial function, hole type conflict |
 | `M0xxx` | Module errors | circular dependency, visibility violation, import not found |
@@ -165,10 +165,9 @@ error[C0101]: undeclared capability
   --> src/report.spore:27:5
    |
 27 |     http.get(endpoint)
-   |     ^^^^^^^^^^^^^^^^^^ requires `NetRead`, not declared in `uses`
-   |
-   = note: enclosing function `fetch_data` has `uses []`
-   = note: module ceiling for `report` allows [Compute, FileRead]
+    |     ^^^^^^^^^^^^^^^^^^ requires `NetRead`, not declared in `uses`
+    |
+    = note: enclosing function `fetch_data` has `uses []`
 help: add a `uses [NetRead]` clause to `fetch_data`
 ```
 
@@ -278,10 +277,9 @@ error[C0101]: undeclared capability
   --> src/report.spore:27:5
    |
 27 |     http.get(endpoint)
-   |     ^^^^^^^^^^^^^^^^^^ requires `NetRead`, not declared in `uses`
-   |
-   = note: enclosing function `fetch_data` has `uses []`
-   = note: module ceiling for `report` allows [Compute, FileRead]
+    |     ^^^^^^^^^^^^^^^^^^ requires `NetRead`, not declared in `uses`
+    |
+    = note: enclosing function `fetch_data` has `uses []`
 help: add a `uses [NetRead]` clause to `fetch_data`
 
   inference chain:
@@ -293,7 +291,7 @@ help: add a `uses [NetRead]` clause to `fetch_data`
   candidates considered:
     (none — no alternative without NetRead)
 
-  capability context: [] (function level), [Compute, FileRead] (module ceiling)
+  capability context: [] (function level)
   cost at this point: 45 / budget 2000
 ```
 
@@ -817,24 +815,15 @@ Capability errors occur when code tries to perform operations beyond its declare
 | Code | Name | Description |
 |------|------|-------------|
 | `C0101` | undeclared-capability | Function uses a capability not listed in `uses` |
-| `C0102` | exceeds-ceiling | Function declares a capability its module ceiling does not allow |
+| `C0102` | exceeds-ceiling | Reserved for a future module-level capability carrier (currently deferred / TBD) |
 | `C0103` | callee-capability-leak | Calling a function whose `uses` exceeds the caller's `uses` |
 | `C0201` | platform-capability-denied | Package requests a capability the Platform does not grant |
 | `C0301` | effects-capability-conflict | Declared effects conflict with declared capabilities |
 
 #### C0102 — exceeds-ceiling
 
-```
-error[C0102]: capability exceeds module ceiling
-  --> src/report.spore:8:5
-   |
- 8 |     uses [NetWrite, Compute]
-   |           ^^^^^^^^ `NetWrite` exceeds module ceiling
-   |
-   = note: module `report` has ceiling: [Compute, FileRead, NetRead]
-   = note: `NetWrite` is not in the ceiling
-help: either add `NetWrite` to the module ceiling or move this function to a module that allows it
-```
+`C0102` is reserved for a future design if Spore reintroduces a module-level capability carrier.
+Because file paths now determine module identity and there is no in-file `module ... uses ...` syntax, this diagnostic is currently **deferred / TBD**.
 
 #### C0103 — callee-capability-leak
 
@@ -1159,10 +1148,10 @@ Cost diagnostics (K0xxx) are emitted when the abstract interpretation engine (se
 
 ### 7.3 Capability System Integration
 
-Capability diagnostics (C0xxx) enforce the capability algebra at three levels:
+Capability diagnostics (C0xxx) enforce the capability algebra at the levels currently specified:
 
 1. **Function level** (C0101): a function's body uses operations beyond its `uses` declaration.
-2. **Module level** (C0102): a function's `uses` exceeds the module's capability ceiling.
+2. **Module level** (C0102): reserved for a future module-level capability carrier; currently deferred / TBD.
 3. **Platform level** (C0201): a package requests capabilities the Platform does not grant.
 
 The `context.capabilities` field in every diagnostic lists the capabilities in scope at the error site, enabling Agents to reason about what operations are available.

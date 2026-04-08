@@ -1226,16 +1226,17 @@ those are removed). Modules provide namespacing and visibility control:
 
 ```spore
 -- src/billing/tax.spore
-module billing.tax
-
-import core.math { round, ceil }
-import billing.types { Money, TaxRegion, TaxRate }
+import core.math as math
+import billing.types as types
+alias Money = types.Money
+alias TaxRegion = types.TaxRegion
+alias TaxRate = types.TaxRate
 
 fn compute_tax(amount: Money, region: TaxRegion) -> Money ! [TaxError]
 cost <= 200
 {
     let rate = lookup_rate(region)
-    round(amount * rate.value)
+    math.round(amount * rate.value)
 }
 ```
 
@@ -1602,8 +1603,6 @@ A full example showing multiple type system features working together:
 
 ```spore
 -- types.spore
-module billing.types
-
 type Money = F64 if self >= 0.0
 
 type TaxRegion =
@@ -1636,9 +1635,10 @@ type ValidationError =
 
 ```spore
 -- tax.spore
-module billing.tax
-
-import billing.types { Money, TaxRegion, TaxError }
+import billing.types as types
+alias Money = types.Money
+alias TaxRegion = types.TaxRegion
+alias TaxError = types.TaxError
 
 capability TaxTable {
     fn lookup_rate(region: TaxRegion) -> F64 ! [TaxError]
@@ -1657,11 +1657,15 @@ cost <= 200
 
 ```spore
 -- invoice.spore
-module billing.invoice
-
-import billing.types { Money, LineItem, Invoice, Customer, TaxRegion,
-                       TaxError, ValidationError }
-import billing.tax { compute_tax }
+import billing.types as types
+import billing.tax as tax_mod
+alias Money = types.Money
+alias LineItem = types.LineItem
+alias Invoice = types.Invoice
+alias Customer = types.Customer
+alias TaxRegion = types.TaxRegion
+alias TaxError = types.TaxError
+alias ValidationError = types.ValidationError
 
 fn validate_items(items: Vec<LineItem>) -> Vec<LineItem> ! [ValidationError]
 cost <= 500
@@ -1689,7 +1693,7 @@ cost <= 5000
     let subtotal = validated
         .map(|item| item.unit_price * item.quantity)
         .sum()
-    let tax = compute_tax(amount: subtotal, region: tax_region)?
+    let tax = tax_mod.compute_tax(amount: subtotal, region: tax_region)?
     let total = subtotal + tax
 
     Invoice {
@@ -1704,9 +1708,10 @@ cost <= 5000
 
 ```spore
 -- invoice_display.spore
-module billing.display
-
-import billing.types { Invoice, LineItem, TaxRegion }
+import billing.types as types
+alias Invoice = types.Invoice
+alias LineItem = types.LineItem
+alias TaxRegion = types.TaxRegion
 
 impl Display for LineItem {
     fn display(self) -> Str {
