@@ -26,13 +26,16 @@ Spore is a compiled language where function signatures are "gravity centers" —
 ## Quick Start
 
 ```bash
-cargo build                             # build the compiler
-cargo run --bin spore -- run demo.sp    # run the demo program (outputs 204)
-cargo run --bin spore -- check demo.sp  # type-check only
-cargo test --all                        # run all tests
+cargo build                                      # build the compiler
+cargo run --bin spore -- run examples/demo.sp    # run the demo program (outputs 204)
+cargo run --bin spore -- check examples/demo.sp  # type-check only
+cargo run --bin spore -- test examples/demo.sp   # validate the example as a spec file
+cargo test --all                                 # run all tests
 ```
 
 ## Examples
+
+The canonical runnable example lives in [`examples/demo.sp`](examples/demo.sp).
 
 ### Hello World
 
@@ -179,7 +182,7 @@ just pre-commit-install  # install pre-commit + commit-msg hooks via prek
 just pre-commit          # run the configured hooks on all files
 ```
 
-In this repository, the local Spore hooks intentionally focus on the canonical demo surface (`demo.sp` today). The reusable published hooks below are for arbitrary `.sp` files in downstream repos.
+In this repository, the local Spore hooks intentionally focus on the canonical example surface under `examples/`. The reusable published hooks below are for arbitrary `.sp` files in downstream repos.
 
 ### Reusable hooks
 
