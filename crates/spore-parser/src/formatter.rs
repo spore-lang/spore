@@ -100,6 +100,12 @@ impl Formatter {
             self.write("@unbounded\n");
             self.write_indent();
         }
+        if let Some(allows) = &f.hole_allows {
+            self.write("@allows[");
+            self.write(&allows.join(", "));
+            self.write("]\n");
+            self.write_indent();
+        }
         self.fmt_visibility(&f.visibility);
         if f.is_foreign {
             self.write("foreign ");
@@ -636,6 +642,12 @@ impl Formatter {
     fn fmt_type_expr(&mut self, ty: &TypeExpr) {
         match ty {
             TypeExpr::Named(n) => self.write(n),
+            TypeExpr::Hole(name) => {
+                self.write("?");
+                if let Some(name) = name {
+                    self.write(name);
+                }
+            }
             TypeExpr::Generic(name, args) => {
                 self.write(name);
                 self.write("[");
@@ -813,7 +825,9 @@ impl Formatter {
             }
             Expr::Hole(name, ty, _ctx) => {
                 self.write("?");
-                self.write(name);
+                if let Some(name) = name {
+                    self.write(name);
+                }
                 if let Some(t) = ty {
                     self.write(": ");
                     self.fmt_type_expr(t);
@@ -1217,6 +1231,18 @@ mod tests {
         let src = "fn read() -> String uses [IO, FileRead] { ?todo }\n";
         let out = roundtrip(src);
         assert!(out.contains("uses [IO, FileRead]"));
+    }
+
+    #[test]
+    fn test_hole_syntax_roundtrip() {
+        let src = "fn f(x: ?) -> ? { ? }\n";
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_allows_annotation_roundtrip() {
+        let src = "@allows[validate, sanitize]\nfn f() -> Int { ?todo }\n";
+        assert_eq!(roundtrip(src), src);
     }
 
     #[test]

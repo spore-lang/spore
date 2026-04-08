@@ -237,6 +237,9 @@ impl Lowering {
                 "Never" => HirTypeRef::Primitive(PrimitiveTy::Never),
                 _ => HirTypeRef::Named(name.clone(), self.resolve_name(name)),
             },
+            ast::TypeExpr::Hole(name) => {
+                HirTypeRef::Named(name.clone().unwrap_or_else(|| "_".to_string()), UNRESOLVED)
+            }
             ast::TypeExpr::Generic(name, args) => HirTypeRef::Generic(
                 name.clone(),
                 args.iter().map(|a| self.lower_type_expr(a)).collect(),
@@ -361,7 +364,9 @@ impl Lowering {
             }
             ast::Expr::CharLit(c) => HirExpr::CharLit(*c),
 
-            ast::Expr::Hole(name, _ty_hint, _) => HirExpr::Hole(name.clone()),
+            ast::Expr::Hole(name, _ty_hint, _) => {
+                HirExpr::Hole(name.clone().unwrap_or_else(|| "_".to_string()))
+            }
 
             ast::Expr::ParallelScope { body, .. } => {
                 // PoC: lower to just the body expression

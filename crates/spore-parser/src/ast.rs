@@ -81,6 +81,8 @@ pub struct FnDef {
     pub uses_clause: Option<UsesClause>,
     /// `@unbounded` annotation — skip cost analysis.
     pub is_unbounded: bool,
+    /// `@allows[...]` annotation — default allow-list for holes in this function.
+    pub hole_allows: Option<Vec<String>>,
     /// `foreign fn` — implemented by host platform, no body.
     pub is_foreign: bool,
     /// None means this is a hole (?name)
@@ -186,6 +188,8 @@ pub enum CostExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     Named(String),
+    /// Type hole in signatures, e.g. `-> ?` or `x: ?`.
+    Hole(Option<String>),
     Generic(String, Vec<TypeExpr>),
     Tuple(Vec<TypeExpr>),
     /// Function type with optional error set: `(I32) -> I32 ! ParseError | IoError`
@@ -217,7 +221,7 @@ pub enum Expr {
     Match(Box<Expr>, Vec<MatchArm>),
     Block(Vec<Stmt>, Option<Box<Expr>>),
     Try(Box<Expr>),
-    Hole(String, Option<Box<TypeExpr>>, Option<Vec<String>>),
+    Hole(Option<String>, Option<Box<TypeExpr>>, Option<Vec<String>>),
     StructLit(String, Vec<(String, Expr)>),
     Spawn(Box<Expr>),
     Await(Box<Expr>),

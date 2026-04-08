@@ -815,6 +815,7 @@ fn format_fn_full(f: &FnDef) -> String {
 pub fn format_type_expr(ty: &TypeExpr) -> String {
     match ty {
         TypeExpr::Named(n) => n.clone(),
+        TypeExpr::Hole(name) => format!("?{}", name.clone().unwrap_or_default()),
         TypeExpr::Generic(n, args) => {
             let a: Vec<String> = args.iter().map(format_type_expr).collect();
             format!("{}[{}]", n, a.join(", "))

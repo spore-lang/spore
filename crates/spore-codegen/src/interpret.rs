@@ -342,10 +342,11 @@ impl Interpreter {
                     let func = &self.functions[name];
                     Ok(Value::Closure(Closure {
                         params: func.params.iter().map(|p| p.name.clone()).collect(),
-                        body: func
-                            .body
-                            .clone()
-                            .unwrap_or(Expr::Hole(name.clone(), None, None)),
+                        body: func.body.clone().unwrap_or(Expr::Hole(
+                            Some(name.clone()),
+                            None,
+                            None,
+                        )),
                         env: BTreeMap::new(),
                     }))
                 } else {
@@ -554,7 +555,8 @@ impl Interpreter {
             }
 
             Expr::Hole(name, _, _) => {
-                Err(RuntimeError::new(format!("hit unfilled hole `?{name}`")))
+                let label = name.as_deref().unwrap_or("_");
+                Err(RuntimeError::new(format!("hit unfilled hole `?{label}`")))
             }
 
             Expr::Spawn(expr) => {

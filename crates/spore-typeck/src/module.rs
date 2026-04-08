@@ -116,6 +116,9 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
                 .cloned()
                 .unwrap_or_else(|| Ty::Named(name.clone())),
         },
+        TypeExpr::Hole(name) => name
+            .as_ref()
+            .map_or_else(|| Ty::Named("_".into()), |n| Ty::Named(n.clone())),
         TypeExpr::Generic(name, args) => Ty::App(
             name.clone(),
             args.iter()

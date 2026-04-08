@@ -271,6 +271,16 @@ fn test_hole_accepts_any_type() {
     check_ok("fn f() -> Int { ?todo }");
 }
 
+#[test]
+fn test_unnamed_hole_accepts_any_type() {
+    check_ok("fn f() -> Int { ? }");
+}
+
+#[test]
+fn test_signature_holes_typecheck() {
+    check_ok("fn identity(x: ?) -> ? { x }");
+}
+
 // ── Multiple functions ───────────────────────────────────────────────────
 
 #[test]
@@ -317,6 +327,13 @@ fn test_hole_report_basic() {
 }
 
 #[test]
+fn test_unnamed_hole_gets_synthetic_name_in_report() {
+    let module = parse("fn f() -> Int { ? }").unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(result.hole_report.holes[0].name.starts_with("_hole"));
+}
+
+#[test]
 fn test_hole_report_with_bindings() {
     let module = parse("fn f(x: Int) -> Int { let y = 42; ?impl_ }").unwrap();
     let result = type_check(&module).unwrap();
@@ -335,6 +352,21 @@ fn test_hole_report_suggestions() {
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
     assert!(hole.candidates.iter().any(|c| c.name == "double"));
+}
+
+#[test]
+fn test_hole_report_suggestions_respect_allows_annotation() {
+    let module = parse(
+        "@allows[double]\n\
+         fn chooser() -> Int { ?todo }\n\
+         fn double(x: Int) -> Int { x + x }\n\
+         fn triple(x: Int) -> Int { x + x + x }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    assert!(hole.candidates.iter().any(|c| c.name == "double"));
+    assert!(!hole.candidates.iter().any(|c| c.name == "triple"));
 }
 
 #[test]

@@ -106,7 +106,7 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
     };
     let mut iface = ModuleInterface::new(path);
 
-    let checker = Checker::new();
+    let mut checker = Checker::new();
     for item in &module.items {
         match item {
             Item::Function(f) => {

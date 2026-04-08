@@ -44,8 +44,12 @@ pub struct Checker {
     current_module_name: String,
     /// Declared return type of the current function (for hole inference).
     expected_return_type: Option<Ty>,
+    /// `@allows[...]` default allow-list in scope for hole suggestions.
+    current_hole_allows: Option<Vec<String>>,
     /// Next type variable ID for fresh type variables.
     next_var_id: u32,
+    /// Next synthetic name ID for unnamed holes (`?`).
+    next_unnamed_hole_id: u32,
     /// Substitution map: type variable ID → resolved type.
     substitution: HashMap<u32, Ty>,
     /// Capability hierarchy for expanding parent caps (e.g. IO → 4 leaves).
@@ -65,7 +69,9 @@ impl Checker {
             current_function: String::new(),
             current_module_name: String::new(),
             expected_return_type: None,
+            current_hole_allows: None,
             next_var_id: 0,
+            next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
             hierarchy: default_hierarchy(),
         }
@@ -84,7 +90,9 @@ impl Checker {
             current_function: String::new(),
             current_module_name: String::new(),
             expected_return_type: None,
+            current_hole_allows: None,
             next_var_id: 0,
+            next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
             hierarchy: default_hierarchy(),
         }
@@ -710,6 +718,8 @@ impl Checker {
             .unwrap_or(Ty::Unit);
         let prev_expected = self.expected_return_type.take();
         self.expected_return_type = Some(declared_ret.clone());
+        let prev_hole_allows = self.current_hole_allows.take();
+        self.current_hole_allows = f.hole_allows.clone();
 
         self.env.push_scope();
 
@@ -738,6 +748,7 @@ impl Checker {
         self.current_errors = prev_errors;
         self.current_function = prev_function;
         self.expected_return_type = prev_expected;
+        self.current_hole_allows = prev_hole_allows;
     }
 
     /// Type-check a `spec { ... }` clause attached to a function.
@@ -1052,19 +1063,23 @@ impl Checker {
 
             Expr::Try(expr) => self.check_expr(expr),
 
-            Expr::Hole(name, ty_hint, _allows) => {
+            Expr::Hole(name, ty_hint, allows) => {
+                let hole_name = name
+                    .clone()
+                    .unwrap_or_else(|| self.fresh_unnamed_hole_name());
                 let ty = if let Some(te) = ty_hint {
                     self.resolve_type(te)
                 } else if let Some(ref ret) = self.expected_return_type {
                     ret.clone()
                 } else {
-                    Ty::Hole(name.clone())
+                    Ty::Hole(hole_name.clone())
                 };
 
                 // Collect hole info for the report (v0.3)
                 let bindings = self.env.all_bindings();
                 let expected = ty.clone();
-                let suggestions = self.find_suggestions(&expected);
+                let effective_allows = allows.clone().or_else(|| self.current_hole_allows.clone());
+                let suggestions = self.find_suggestions(&expected, effective_allows.as_deref());
 
                 // Build scored candidates from simple suggestions
                 let candidates: Vec<crate::hole::CandidateScore> = suggestions
@@ -1083,7 +1098,7 @@ impl Checker {
                 let errors_to_handle: Vec<String> = self.current_errors.iter().cloned().collect();
 
                 self.hole_report.holes.push(HoleInfo {
-                    name: name.clone(),
+                    name: hole_name,
                     location: None,
                     expected_type: expected,
                     type_inferred_from: None,
@@ -1607,7 +1622,7 @@ impl Checker {
 
     // ── Type resolution ─────────────────────────────────────────────
 
-    pub fn resolve_type(&self, te: &TypeExpr) -> Ty {
+    pub fn resolve_type(&mut self, te: &TypeExpr) -> Ty {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
                 "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "Int" => Ty::Int,
@@ -1625,6 +1640,7 @@ impl Checker {
                     }
                 }
             },
+            TypeExpr::Hole(_) => self.fresh_var(),
             TypeExpr::Generic(name, args) => {
                 let resolved: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
                 Ty::App(name.clone(), resolved)
@@ -2314,7 +2330,7 @@ impl Checker {
     }
 
     /// Find registered functions whose return type matches the expected type.
-    fn find_suggestions(&self, expected: &Ty) -> Vec<String> {
+    fn find_suggestions(&self, expected: &Ty, allow_list: Option<&[String]>) -> Vec<String> {
         if expected.is_error() || matches!(expected, Ty::Hole(_)) {
             return Vec::new();
         }
@@ -2322,11 +2338,21 @@ impl Checker {
             .registry
             .functions
             .iter()
-            .filter(|(name, (_, ret_ty, _))| ret_ty == expected && *name != &self.current_function)
+            .filter(|(name, (_, ret_ty, _))| {
+                ret_ty == expected
+                    && *name != &self.current_function
+                    && allow_list.is_none_or(|allowed| allowed.iter().any(|a| a == *name))
+            })
             .map(|(name, _)| name.clone())
             .collect();
         suggestions.sort();
         suggestions
+    }
+
+    fn fresh_unnamed_hole_name(&mut self) -> String {
+        let id = self.next_unnamed_hole_id;
+        self.next_unnamed_hole_id += 1;
+        format!("_hole{id}")
     }
 
     /// Build a dependency graph between holes based on shared type variables.

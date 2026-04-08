@@ -236,18 +236,35 @@ impl Parser {
 
     fn parse_annotated_item(&mut self) -> Result<Item, ParseError> {
         let start = self.peek_span().start;
-        self.expect(&Token::At)?;
-        let annotation = self.expect_ident()?;
-        match annotation.as_str() {
-            "unbounded" => {
-                let mut fn_def = self.parse_fn_def()?;
-                fn_def.is_unbounded = true;
-                // Extend span to include the annotation
-                fn_def.span = fn_def.span.map(|s| Span::new(start, s.end));
-                Ok(Item::Function(fn_def))
+        let mut is_unbounded = false;
+        let mut hole_allows = None;
+
+        while self.at(&Token::At) {
+            self.expect(&Token::At)?;
+            let annotation = self.expect_ident()?;
+            match annotation.as_str() {
+                "unbounded" => {
+                    is_unbounded = true;
+                }
+                "allows" => {
+                    if hole_allows.is_some() {
+                        return Err(self.error("duplicate `@allows[...]` annotation".into()));
+                    }
+                    self.expect(&Token::LBracket)?;
+                    let allows = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+                    self.expect(&Token::RBracket)?;
+                    hole_allows = Some(allows);
+                }
+                _ => return Err(self.error(format!("unknown annotation `@{annotation}`"))),
             }
-            _ => Err(self.error(format!("unknown annotation `@{annotation}`"))),
         }
+
+        let mut fn_def = self.parse_fn_def()?;
+        fn_def.is_unbounded = is_unbounded;
+        fn_def.hole_allows = hole_allows;
+        // Extend span to include annotations
+        fn_def.span = fn_def.span.map(|s| Span::new(start, s.end));
+        Ok(Item::Function(fn_def))
     }
 
     fn parse_fn_or_const_or_alias_item(&mut self) -> Result<Item, ParseError> {
@@ -434,6 +451,7 @@ impl Parser {
             spec_clause,
             uses_clause,
             is_unbounded: false,
+            hole_allows: None,
             is_foreign,
             body,
             span: Some(Span::new(start, end)),
@@ -679,6 +697,15 @@ impl Parser {
             Token::Self_ => {
                 self.advance();
                 Ok(TypeExpr::Named("Self".into()))
+            }
+            Token::Question => {
+                self.advance();
+                let name = if matches!(self.peek(), Token::Ident(_)) {
+                    Some(self.expect_ident()?)
+                } else {
+                    None
+                };
+                Ok(TypeExpr::Hole(name))
             }
             Token::Ident(name) => {
                 self.advance();
@@ -1282,10 +1309,14 @@ impl Parser {
                 Ok(Expr::CharLit(c))
             }
 
-            // Hole: `?name` or `?name: Type` or `?name @allows [Cap1, Cap2]`
+            // Hole: `?`, `?name`, `?: Type`, `?name: Type`, optional `@allows [...]`
             Token::Question => {
                 self.advance();
-                let name = self.expect_ident()?;
+                let name = if matches!(self.peek(), Token::Ident(_)) {
+                    Some(self.expect_ident()?)
+                } else {
+                    None
+                };
                 let ty = if self.at(&Token::Colon) {
                     self.advance();
                     Some(Box::new(self.parse_type_expr()?))

@@ -463,11 +463,61 @@ fn test_hole() {
             let body = f.body.as_ref().unwrap();
             match body {
                 spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    spore_parser::ast::Expr::Hole(name, _, _) => assert_eq!(name, "todo"),
+                    spore_parser::ast::Expr::Hole(Some(name), _, _) => assert_eq!(name, "todo"),
                     _ => panic!("expected hole, got {:?}", tail),
                 },
                 _ => panic!("expected block"),
             }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_unnamed_hole() {
+    let m = parse_ok("fn f() -> Int { ? }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            match body {
+                spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
+                    spore_parser::ast::Expr::Hole(None, None, None) => {}
+                    _ => panic!("expected unnamed hole, got {:?}", tail),
+                },
+                _ => panic!("expected block"),
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_signature_type_holes() {
+    let m = parse_ok("fn mystery(x: ?) -> ? { x }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert!(matches!(
+                f.params[0].ty,
+                spore_parser::ast::TypeExpr::Hole(None)
+            ));
+            assert!(matches!(
+                f.return_type.as_ref(),
+                Some(spore_parser::ast::TypeExpr::Hole(None))
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_allows_annotation_on_function() {
+    let m = parse_ok("@allows[validate, sanitize]\nfn f() -> Int { ? }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert_eq!(
+                f.hole_allows.as_ref().unwrap(),
+                &vec!["validate".to_string(), "sanitize".to_string()]
+            );
         }
         _ => panic!("expected function"),
     }
