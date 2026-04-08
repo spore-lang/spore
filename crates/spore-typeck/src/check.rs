@@ -1050,30 +1050,7 @@ impl Checker {
                 }
             }
 
-            Expr::Try(expr) => {
-                // Extract the callee name for error-set lookup when inner is a call
-                let callee_name = match expr.as_ref() {
-                    Expr::Call(callee, _) => {
-                        if let Expr::Var(name) = callee.as_ref() {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
-
-                let inner_ty = self.check_expr(expr);
-
-                // Check error propagation: callee's error set ⊆ caller's error set
-                if let Some(name) = callee_name
-                    && let Some(callee_errors) = self.registry.fn_errors.get(&name).cloned()
-                {
-                    self.check_error_propagation(&callee_errors);
-                }
-
-                inner_ty
-            }
+            Expr::Try(expr) => self.check_expr(expr),
 
             Expr::Hole(name, ty_hint, _allows) => {
                 let ty = if let Some(te) = ty_hint {
@@ -1161,6 +1138,7 @@ impl Checker {
 
             Expr::Throw(expr) => {
                 let _ = self.check_expr(expr);
+                self.check_throw_coverage(expr);
                 Ty::Never
             }
 
@@ -1452,6 +1430,9 @@ impl Checker {
             }
             self.check_where_bounds(name, &type_mapping);
             self.check_cap_propagation(&callee_caps);
+            if let Some(callee_errors) = self.registry.fn_errors.get(name).cloned() {
+                self.check_error_propagation(&callee_errors);
+            }
             return self.apply_subst(&ret_ty);
         }
 
@@ -1849,6 +1830,48 @@ impl Checker {
                     missing.join(", ")
                 ),
             );
+        }
+    }
+
+    fn check_throw_coverage(&mut self, thrown_expr: &Expr) {
+        if self.current_errors.is_empty() {
+            self.err(
+                ErrorCode::E0012,
+                format!(
+                    "`throw` in `{}` requires declaring an error set with `! [E]`",
+                    self.current_function
+                ),
+            );
+            return;
+        }
+
+        let Some(thrown_name) = self.infer_thrown_error_name(thrown_expr) else {
+            return;
+        };
+        if !self.current_errors.contains(&thrown_name) {
+            self.err(
+                ErrorCode::E0012,
+                format!(
+                    "thrown error `{thrown_name}` is not declared in `{}` error set",
+                    self.current_function
+                ),
+            );
+        }
+    }
+
+    fn infer_thrown_error_name(&self, expr: &Expr) -> Option<String> {
+        fn looks_like_error_name(name: &str) -> bool {
+            name.chars().next().is_some_and(char::is_uppercase)
+        }
+
+        match expr {
+            Expr::Var(name) if looks_like_error_name(name) => Some(name.clone()),
+            Expr::Call(callee, _) => match callee.as_ref() {
+                Expr::Var(name) if looks_like_error_name(name) => Some(name.clone()),
+                _ => None,
+            },
+            Expr::StructLit(name, _) if looks_like_error_name(name) => Some(name.clone()),
+            _ => None,
         }
     }
 

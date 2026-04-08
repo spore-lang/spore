@@ -871,12 +871,27 @@ fn try_propagation_partial_missing() {
 }
 
 #[test]
-fn no_try_no_error_check() {
-    // Calling a throwing function without ? doesn't require the caller to declare errors
-    check_ok(
+fn direct_call_missing_error_check() {
+    let errs = check_err(
         r#"
         fn read_file(path: String) -> String ! [IoError] { "content" }
         fn process() -> String {
+            read_file("test.txt")
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("IoError")),
+        "expected error about IoError, got: {errs:?}"
+    );
+}
+
+#[test]
+fn direct_call_declared_error_check() {
+    check_ok(
+        r#"
+        fn read_file(path: String) -> String ! [IoError] { "content" }
+        fn process() -> String ! [IoError] {
             read_file("test.txt")
         }
     "#,
@@ -2019,6 +2034,52 @@ fn test_error_set_propagation_declared() {
         }
         fn caller() -> Int ! [MyError] {
             risky()?
+        }
+    "#,
+    );
+}
+
+#[test]
+fn throw_requires_declared_error_set() {
+    let errs = check_err(
+        r#"
+        struct MyError {}
+        fn fail() -> Int {
+            throw MyError {}
+        }
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("requires declaring an error set")),
+        "expected throw-without-declaration diagnostic, got: {errs:?}"
+    );
+}
+
+#[test]
+fn throw_named_error_must_be_declared() {
+    let errs = check_err(
+        r#"
+        struct IoError {}
+        struct ParseError {}
+        fn fail() -> Int ! [IoError] {
+            throw ParseError {}
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("ParseError")),
+        "expected throw-name mismatch diagnostic, got: {errs:?}"
+    );
+}
+
+#[test]
+fn throw_named_error_declared_ok() {
+    check_ok(
+        r#"
+        struct MyError {}
+        fn fail() -> Int ! [MyError] {
+            throw MyError {}
         }
     "#,
     );
