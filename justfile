@@ -41,6 +41,14 @@ ci: check test
 pre-commit:
     uvx prek run --all-files
 
+# Build a PyPI wheel for spore-cli
+package-cli:
+    uvx maturin build --release --locked --out dist
+
+# Build a source distribution for spore-cli
+package-cli-sdist:
+    uvx maturin sdist --out dist
+
 # Display project information
 info:
     @echo "=== Spore ==="

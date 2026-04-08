@@ -58,3 +58,48 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: lcov.info
           fail_ci_if_error: false
+
+  package-cli:
+    name: package-cli
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.12.6
+          command: build
+          args: --release --locked --out dist
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: v1.12.6
+          command: sdist
+          args: --out dist
+
+      - name: Install packaged CLI
+        run: |
+          uv sync --locked
+
+      - name: Smoke-test packaged CLI
+        run: |
+          test "$(uv run spore run demo.sp)" = "204"
+          uv run spore check demo.sp
+          uv run spore test demo.sp
+
+      - name: Smoke-test built wheel
+        run: |
+          uv tool run --from ./dist/spore_cli-*.whl spore run demo.sp > /tmp/spore-wheel.out
+          grep -qx '204' /tmp/spore-wheel.out
+          uv tool run --from ./dist/spore_cli-*.whl spore check demo.sp
+          uv tool run --from ./dist/spore_cli-*.whl spore test demo.sp

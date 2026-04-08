@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Spore language compiler (stateless, pure function: source → compiled output)"
+repository.workspace = true
 license.workspace = true
 
 [dependencies]
