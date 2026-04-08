@@ -186,6 +186,39 @@ fn test_fn_clauses_parse_in_any_order() {
 }
 
 #[test]
+fn test_throw_signature_clause_is_rejected() {
+    let errs =
+        spore_parser::parse("fn read(path: Str) -> Str throw [IoError] { \"x\" }").unwrap_err();
+    assert!(!errs.is_empty());
+}
+
+#[test]
+fn test_width_primitive_and_unit_syntax() {
+    let m = parse_ok("fn f(x: I32, y: F64, s: Str) -> () { return }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert!(matches!(
+                f.return_type.as_ref(),
+                Some(spore_parser::ast::TypeExpr::Tuple(ts)) if ts.is_empty()
+            ));
+            assert!(matches!(
+                &f.params[0].ty,
+                spore_parser::ast::TypeExpr::Named(n) if n == "I32"
+            ));
+            assert!(matches!(
+                &f.params[1].ty,
+                spore_parser::ast::TypeExpr::Named(n) if n == "F64"
+            ));
+            assert!(matches!(
+                &f.params[2].ty,
+                spore_parser::ast::TypeExpr::Named(n) if n == "Str"
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
 fn test_trait_item_ast_shape() {
     let m = parse_ok(
         r#"

@@ -893,13 +893,26 @@ fn function_with_throws_and_uses() {
 }
 
 #[test]
-fn throw_keyword_still_works() {
+fn throw_signature_clause_is_rejected() {
+    let src = r#"
+        fn read_file(path: Str) -> Str throw [IoError] { "content" }
+    "#;
+    let errs = parse(src).expect_err("expected parse failure for legacy throw clause");
+    assert!(
+        errs.iter()
+            .any(|e| e.message.contains("expected expression") || e.message.contains("expected")),
+        "unexpected parse errors: {errs:?}"
+    );
+}
+
+#[test]
+fn width_specific_primitives_and_unit_type_work() {
     check_ok(
         r#"
-        fn read_file(path: String) -> String throw [IoError] { "content" }
-        fn process() -> String throw [IoError] {
-            read_file("test.txt")?
-        }
+        fn id_i32(x: I32) -> I32 { x }
+        fn keep_f64(x: F64) -> F64 { x }
+        fn greet(name: Str) -> Str { name }
+        fn done() -> () { return }
     "#,
     );
 }

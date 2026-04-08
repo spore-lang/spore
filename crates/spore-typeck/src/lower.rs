@@ -227,13 +227,14 @@ impl Lowering {
     fn lower_type_expr(&self, te: &ast::TypeExpr) -> HirTypeRef {
         match te {
             ast::TypeExpr::Named(name) => match name.as_str() {
-                "Int" => HirTypeRef::Primitive(PrimitiveTy::Int),
-                "Float" => HirTypeRef::Primitive(PrimitiveTy::Float),
+                "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "Int" => {
+                    HirTypeRef::Primitive(PrimitiveTy::Int)
+                }
+                "F32" | "F64" | "Float" => HirTypeRef::Primitive(PrimitiveTy::Float),
                 "Bool" => HirTypeRef::Primitive(PrimitiveTy::Bool),
-                "String" => HirTypeRef::Primitive(PrimitiveTy::Str),
+                "Str" | "String" => HirTypeRef::Primitive(PrimitiveTy::Str),
                 "Char" => HirTypeRef::Primitive(PrimitiveTy::Char),
                 "Never" => HirTypeRef::Primitive(PrimitiveTy::Never),
-                "()" => HirTypeRef::Primitive(PrimitiveTy::Unit),
                 _ => HirTypeRef::Named(name.clone(), self.resolve_name(name)),
             },
             ast::TypeExpr::Generic(name, args) => HirTypeRef::Generic(
@@ -244,10 +245,16 @@ impl Lowering {
                 params.iter().map(|p| self.lower_type_expr(p)).collect(),
                 Box::new(self.lower_type_expr(ret)),
             ),
-            ast::TypeExpr::Tuple(ts) => HirTypeRef::Generic(
-                "Tuple".to_string(),
-                ts.iter().map(|t| self.lower_type_expr(t)).collect(),
-            ),
+            ast::TypeExpr::Tuple(ts) => {
+                if ts.is_empty() {
+                    HirTypeRef::Primitive(PrimitiveTy::Unit)
+                } else {
+                    HirTypeRef::Generic(
+                        "Tuple".to_string(),
+                        ts.iter().map(|t| self.lower_type_expr(t)).collect(),
+                    )
+                }
+            }
             ast::TypeExpr::Refinement(base, _, _) => self.lower_type_expr(base),
             ast::TypeExpr::Record(fields) => HirTypeRef::Record(
                 fields

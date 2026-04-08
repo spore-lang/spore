@@ -372,8 +372,8 @@ impl Parser {
             None
         };
 
-        // optional errors clause: `! [E1, E2]` or `throw [E1, E2]`
-        let errors = if self.at(&Token::Bang) || self.at(&Token::Throw) {
+        // optional errors clause: `! [E1, E2]`
+        let errors = if self.at(&Token::Bang) {
             self.advance();
             self.expect(&Token::LBracket)?;
             let errs = self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RBracket)?;

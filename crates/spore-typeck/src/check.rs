@@ -1608,12 +1608,11 @@ impl Checker {
     pub fn resolve_type(&self, te: &TypeExpr) -> Ty {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
-                "Int" => Ty::Int,
-                "Float" => Ty::Float,
+                "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "Int" => Ty::Int,
+                "F32" | "F64" | "Float" => Ty::Float,
                 "Bool" => Ty::Bool,
-                "String" => Ty::Str,
+                "Str" | "String" => Ty::Str,
                 "Char" => Ty::Char,
-                "()" => Ty::Unit,
                 "Never" => Ty::Never,
                 _ => {
                     // Check type aliases (supports refined aliases like `alias Port = Int when ...`)
@@ -1629,7 +1628,11 @@ impl Checker {
                 Ty::App(name.clone(), resolved)
             }
             TypeExpr::Tuple(types) => {
-                Ty::Tuple(types.iter().map(|t| self.resolve_type(t)).collect())
+                if types.is_empty() {
+                    Ty::Unit
+                } else {
+                    Ty::Tuple(types.iter().map(|t| self.resolve_type(t)).collect())
+                }
             }
             TypeExpr::Function(params, ret, error_exprs) => {
                 let ptys: Vec<Ty> = params.iter().map(|p| self.resolve_type(p)).collect();

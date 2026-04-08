@@ -105,12 +105,11 @@ fn prelude_type_mapping(type_params: &[String]) -> HashMap<String, Ty> {
 fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
     match te {
         TypeExpr::Named(name) => match name.as_str() {
-            "Int" => Ty::Int,
-            "Float" => Ty::Float,
+            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "Int" => Ty::Int,
+            "F32" | "F64" | "Float" => Ty::Float,
             "Bool" => Ty::Bool,
-            "String" => Ty::Str,
+            "Str" | "String" => Ty::Str,
             "Char" => Ty::Char,
-            "()" => Ty::Unit,
             "Never" => Ty::Never,
             _ => mapping
                 .get(name)
@@ -123,12 +122,18 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
                 .map(|arg| resolve_prelude_type(arg, mapping))
                 .collect(),
         ),
-        TypeExpr::Tuple(types) => Ty::Tuple(
-            types
-                .iter()
-                .map(|ty| resolve_prelude_type(ty, mapping))
-                .collect(),
-        ),
+        TypeExpr::Tuple(types) => {
+            if types.is_empty() {
+                Ty::Unit
+            } else {
+                Ty::Tuple(
+                    types
+                        .iter()
+                        .map(|ty| resolve_prelude_type(ty, mapping))
+                        .collect(),
+                )
+            }
+        }
         TypeExpr::Function(params, ret, error_exprs) => {
             let errors: ErrorSet = error_exprs
                 .iter()

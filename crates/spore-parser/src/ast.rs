@@ -189,7 +189,7 @@ pub enum TypeExpr {
     Named(String),
     Generic(String, Vec<TypeExpr>),
     Tuple(Vec<TypeExpr>),
-    /// Function type with optional error set: `fn(Int) -> Int ! ParseError | IoError`
+    /// Function type with optional error set: `(I32) -> I32 ! ParseError | IoError`
     Function(Vec<TypeExpr>, Box<TypeExpr>, Vec<TypeExpr>),
     /// Refinement type using `when`: `{ x: Int when x > 0 }`
     ///

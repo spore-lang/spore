@@ -54,10 +54,10 @@ pub fn expr_to_const(expr: &Expr) -> Option<ConstValue> {
 
 fn describe(v: &ConstValue) -> &'static str {
     match v {
-        ConstValue::Int(_) => "Int",
-        ConstValue::Float(_) => "Float",
+        ConstValue::Int(_) => "I32",
+        ConstValue::Float(_) => "F64",
         ConstValue::Bool(_) => "Bool",
-        ConstValue::Str(_) => "String",
+        ConstValue::Str(_) => "Str",
     }
 }
 

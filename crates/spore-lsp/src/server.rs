@@ -825,7 +825,7 @@ pub fn format_type_expr(ty: &TypeExpr) -> String {
         }
         TypeExpr::Function(params, ret, _errors) => {
             let p: Vec<String> = params.iter().map(format_type_expr).collect();
-            format!("fn({}) -> {}", p.join(", "), format_type_expr(ret))
+            format!("({}) -> {}", p.join(", "), format_type_expr(ret))
         }
         TypeExpr::Refinement(base, binding, _pred) => {
             format!("{{ {}: {} when ... }}", binding, format_type_expr(base))

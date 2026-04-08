@@ -106,7 +106,7 @@ fn flatten_result[T, E](res: Result[Result[T, E], E]) -> Result[T, E] cost <= 3 
 
 type Ordering { Less, Equal, Greater }
 
-fn compare(a: Int, b: Int) -> Ordering cost <= 3 {
+fn compare(a: I32, b: I32) -> Ordering cost <= 3 {
     if a < b { Less }
     else { if a > b { Greater } else { Equal } }
 }
@@ -117,7 +117,7 @@ fn not(b: Bool) -> Bool cost <= 1 {
     if b { false } else { true }
 }
 
-fn bool_to_int(b: Bool) -> Int cost <= 1 {
+fn bool_to_int(b: Bool) -> I32 cost <= 1 {
     if b { 1 } else { 0 }
 }
 

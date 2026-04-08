@@ -3,7 +3,7 @@
 
 fn dict_new[K, V]() -> List[Pair[K, V]] cost <= 1 { [] }
 
-fn dict_len[K, V](d: List[Pair[K, V]]) -> Int cost <= 2
+fn dict_len[K, V](d: List[Pair[K, V]]) -> I32 cost <= 2
 spec {
     example "empty": dict_len(dict_new()) == 0
     example "one": dict_len(dict_insert(dict_new(), 1, 10)) == 1
@@ -23,7 +23,7 @@ fn dict_insert[K, V](d: List[Pair[K, V]], key: K, value: V) -> List[Pair[K, V]] 
 }
 
 @unbounded
-fn dict_get[V](d: List[Pair[Int, V]], key: Int) -> Option[V]
+fn dict_get[V](d: List[Pair[I32, V]], key: I32) -> Option[V]
 spec {
     example "found": unwrap_or(dict_get(dict_insert(dict_new(), 1, 42), 1), 0) == 42
     example "missing": unwrap_or(dict_get(dict_new(), 1), 0) == 0
@@ -36,7 +36,7 @@ spec {
 }
 
 @unbounded
-fn dict_get_str[V](d: List[Pair[String, V]], key: String) -> Option[V]
+fn dict_get_str[V](d: List[Pair[Str, V]], key: Str) -> Option[V]
 spec {
     example "found": unwrap_or(dict_get_str(dict_insert(dict_new(), "a", 99), "a"), 0) == 99
     example "missing": unwrap_or(dict_get_str(dict_new(), "z"), 0) == 0

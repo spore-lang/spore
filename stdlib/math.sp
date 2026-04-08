@@ -1,6 +1,6 @@
 // Spore standard library — math module
 
-fn abs(x: Int) -> Int cost <= 2
+fn abs(x: I32) -> I32 cost <= 2
 spec {
     example "positive": abs(5) == 5
     example "negative": abs(0 - 5) == 5
@@ -8,14 +8,14 @@ spec {
 }
 { if x < 0 { 0 - x } else { x } }
 
-fn negate(x: Int) -> Int cost <= 1
+fn negate(x: I32) -> I32 cost <= 1
 spec {
     example "zero": negate(0) == 0
     example "positive": negate(5) == 0 - 5
 }
 { 0 - x }
 
-fn sign(x: Int) -> Int cost <= 2
+fn sign(x: I32) -> I32 cost <= 2
 spec {
     example "positive": sign(5) == 1
     example "negative": sign(0 - 3) == 0 - 1
@@ -23,7 +23,7 @@ spec {
 }
 { if x > 0 { 1 } else { if x < 0 { 0 - 1 } else { 0 } } }
 
-fn min(a: Int, b: Int) -> Int cost <= 2
+fn min(a: I32, b: I32) -> I32 cost <= 2
 spec {
     example "first_smaller": min(3, 7) == 3
     example "second_smaller": min(7, 3) == 3
@@ -31,7 +31,7 @@ spec {
 }
 { if a < b { a } else { b } }
 
-fn max(a: Int, b: Int) -> Int cost <= 2
+fn max(a: I32, b: I32) -> I32 cost <= 2
 spec {
     example "first_larger": max(7, 3) == 7
     example "second_larger": max(3, 7) == 7
@@ -39,7 +39,7 @@ spec {
 }
 { if a > b { a } else { b } }
 
-fn clamp(x: Int, lo: Int, hi: Int) -> Int cost <= 5
+fn clamp(x: I32, lo: I32, hi: I32) -> I32 cost <= 5
 spec {
     example "in_range": clamp(5, 1, 10) == 5
     example "below": clamp(0, 1, 10) == 1
@@ -47,7 +47,7 @@ spec {
 }
 { min(max(x, lo), hi) }
 
-fn is_even(n: Int) -> Bool cost <= 2
+fn is_even(n: I32) -> Bool cost <= 2
 spec {
     example "even": is_even(4) == true
     example "odd": is_even(3) == false
@@ -55,14 +55,14 @@ spec {
 }
 { n % 2 == 0 }
 
-fn is_odd(n: Int) -> Bool cost <= 2
+fn is_odd(n: I32) -> Bool cost <= 2
 spec {
     example "odd": is_odd(3) == true
     example "even": is_odd(4) == false
 }
 { n % 2 != 0 }
 
-fn is_positive(n: Int) -> Bool cost <= 1
+fn is_positive(n: I32) -> Bool cost <= 1
 spec {
     example "positive": is_positive(5) == true
     example "zero": is_positive(0) == false
@@ -70,7 +70,7 @@ spec {
 }
 { n > 0 }
 
-fn is_negative(n: Int) -> Bool cost <= 1
+fn is_negative(n: I32) -> Bool cost <= 1
 spec {
     example "negative": is_negative(0 - 1) == true
     example "zero": is_negative(0) == false
@@ -78,14 +78,14 @@ spec {
 }
 { n < 0 }
 
-fn is_zero(n: Int) -> Bool cost <= 1
+fn is_zero(n: I32) -> Bool cost <= 1
 spec {
     example "zero": is_zero(0) == true
     example "nonzero": is_zero(5) == false
 }
 { n == 0 }
 
-fn pow(base: Int, exp: Int) -> Int cost <= 64
+fn pow(base: I32, exp: I32) -> I32 cost <= 64
 spec {
     example "zero_exp": pow(2, 0) == 1
     example "basic": pow(2, 10) == 1024
@@ -96,7 +96,7 @@ spec {
     else { base * pow(base, exp - 1) }
 }
 
-fn gcd(a: Int, b: Int) -> Int cost <= 128
+fn gcd(a: I32, b: I32) -> I32 cost <= 128
 spec {
     example "basic": gcd(12, 8) == 4
     example "coprime": gcd(7, 13) == 1
@@ -110,7 +110,7 @@ spec {
     else { gcd(y, x % y) }
 }
 
-fn lcm(a: Int, b: Int) -> Int cost <= 130
+fn lcm(a: I32, b: I32) -> I32 cost <= 130
 spec {
     example "basic": lcm(4, 6) == 12
     example "coprime": lcm(3, 5) == 15
@@ -125,7 +125,7 @@ spec {
 // NOTE: only correct for non-negative a and positive b.
 // For negative dividends, Spore's truncation-toward-zero means a/b+1
 // would over-count. A future version may add a signed variant.
-fn div_ceil(a: Int, b: Int) -> Int cost <= 3
+fn div_ceil(a: I32, b: I32) -> I32 cost <= 3
 spec {
     example "exact": div_ceil(10, 5) == 2
     example "remainder": div_ceil(7, 3) == 3
@@ -136,26 +136,26 @@ spec {
     else { a / b + 1 }
 }
 
-fn sum_list(xs: List[Int]) -> Int cost <= 1000
+fn sum_list(xs: List[I32]) -> I32 cost <= 1000
 spec {
     example "basic": sum_list([1, 2, 3]) == 6
     example "empty": sum_list([]) == 0
     example "single": sum_list([42]) == 42
 }
 {
-    fold(xs, 0, |acc: Int, x: Int| acc + x)
+    fold(xs, 0, |acc: I32, x: I32| acc + x)
 }
 
-fn product_list(xs: List[Int]) -> Int cost <= 1000
+fn product_list(xs: List[I32]) -> I32 cost <= 1000
 spec {
     example "basic": product_list([2, 3, 4]) == 24
     example "empty": product_list([]) == 1
     example "single": product_list([7]) == 7
 }
 {
-    fold(xs, 1, |acc: Int, x: Int| acc * x)
+    fold(xs, 1, |acc: I32, x: I32| acc * x)
 }
 
-fn checked_div(a: Int, b: Int) -> Option[Int] cost <= 2 {
+fn checked_div(a: I32, b: I32) -> Option[I32] cost <= 2 {
     if b == 0 { None } else { Some(a / b) }
 }

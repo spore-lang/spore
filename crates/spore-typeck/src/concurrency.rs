@@ -165,19 +165,19 @@ mod tests {
     #[test]
     fn basic_task_type() {
         let t = TaskType {
-            result_type: "Int".into(),
+            result_type: "I32".into(),
             capabilities: vec!["NetConnect".into()],
             errors: vec![],
         };
-        assert_eq!(t.result_type, "Int");
+        assert_eq!(t.result_type, "I32");
     }
 
     #[test]
     fn analyzer_records_spawns() {
         let mut analyzer = ConcurrencyAnalyzer::new();
         analyzer.enter_function("main");
-        let id1 = analyzer.record_spawn("main", "Int", vec![]);
-        let id2 = analyzer.record_spawn("main", "String", vec!["NetConnect".into()]);
+        let id1 = analyzer.record_spawn("main", "I32", vec![]);
+        let id2 = analyzer.record_spawn("main", "Str", vec!["NetConnect".into()]);
         assert_ne!(id1, id2);
         assert_eq!(analyzer.total_spawns(), 2);
     }
@@ -205,7 +205,7 @@ mod tests {
             scope.children.push(TaskInfo {
                 id: i,
                 task_type: TaskType {
-                    result_type: "Unit".into(),
+                    result_type: "()".into(),
                     capabilities: vec![],
                     errors: vec![],
                 },
