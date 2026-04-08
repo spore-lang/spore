@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 description = "Spore codebase manager (stateful: file IO, watch mode, scaffolding)"
+repository.workspace = true
 license.workspace = true
 
 [[bin]]

@@ -136,6 +136,15 @@ spore (stateful codebase manager — handles IO)
 
 See [docs/](docs/) for comprehensive specifications.
 
+## Packaging
+
+The `spore` CLI is packaged from `crates/spore-cli` via `maturin` so it can be built and published as a PyPI binary package.
+
+```bash
+just package-cli        # build a wheel into dist/
+just package-cli-sdist  # build a source distribution into dist/
+```
+
 ## Documentation
 
 ### Specifications

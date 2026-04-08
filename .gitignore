@@ -1,5 +1,8 @@
 # Build artifacts
 /target
+/dist
+.venv/
+.learnings/
 
 # Rust
 **/*.rs.bk
