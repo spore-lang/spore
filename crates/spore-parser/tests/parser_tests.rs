@@ -105,6 +105,19 @@ fn test_fn_with_where() {
 }
 
 #[test]
+fn test_fn_where_multi_bound_is_rejected() {
+    let err = parse("fn show(x: T) -> String where T: Display + Debug { \"\" }")
+        .expect_err("multi-bound where clause should be rejected");
+    assert!(
+        err.iter().any(|e| {
+            e.message
+                .contains("multiple trait bounds are not supported yet")
+        }),
+        "unexpected parse errors: {err:?}"
+    );
+}
+
+#[test]
 fn test_fn_with_spec_clause_preserves_item_order() {
     let m = parse_ok(
         r#"

@@ -307,6 +307,17 @@ impl Checker {
                         .fn_type_params
                         .insert(f.name.clone(), type_params);
                 }
+                if let Some(wc) = &f.where_clause
+                    && !wc.constraints.is_empty()
+                {
+                    self.registry.fn_where_bounds.insert(
+                        f.name.clone(),
+                        wc.constraints
+                            .iter()
+                            .map(|c| (c.type_var.clone(), c.bound.clone()))
+                            .collect(),
+                    );
+                }
             }
             Item::StructDef(s) => {
                 let fields: Vec<(String, Ty)> = s
@@ -1409,8 +1420,14 @@ impl Checker {
                 self.registry.functions.get(name).cloned()
         {
             // Instantiate generic functions with fresh type variables
+            let mut type_mapping = HashMap::new();
             let (param_tys, ret_ty) = match self.registry.fn_type_params.get(name).cloned() {
-                Some(ref tp) if !tp.is_empty() => self.instantiate_sig(tp, &param_tys, &ret_ty),
+                Some(ref tp) if !tp.is_empty() => {
+                    let (inst_params, inst_ret, mapping) =
+                        self.instantiate_sig(tp, &param_tys, &ret_ty);
+                    type_mapping = mapping;
+                    (inst_params, inst_ret)
+                }
                 _ => (param_tys, ret_ty),
             };
 
@@ -1433,6 +1450,7 @@ impl Checker {
                     &format!("argument {} of `{name}`", i + 1),
                 );
             }
+            self.check_where_bounds(name, &type_mapping);
             self.check_cap_propagation(&callee_caps);
             return self.apply_subst(&ret_ty);
         }
@@ -1549,7 +1567,8 @@ impl Checker {
         if type_params.is_empty() {
             Some((param_tys, ret_ty))
         } else {
-            Some(self.instantiate_sig(&type_params, &param_tys, &ret_ty))
+            let (params, ret, _) = self.instantiate_sig(&type_params, &param_tys, &ret_ty);
+            Some((params, ret))
         }
     }
 
@@ -1721,7 +1740,7 @@ impl Checker {
         type_params: &[String],
         param_tys: &[Ty],
         ret_ty: &Ty,
-    ) -> (Vec<Ty>, Ty) {
+    ) -> (Vec<Ty>, Ty, HashMap<String, Ty>) {
         let mapping: HashMap<String, Ty> = type_params
             .iter()
             .map(|name| (name.clone(), self.fresh_var()))
@@ -1731,7 +1750,76 @@ impl Checker {
             .map(|t| self.instantiate_ty(t, &mapping))
             .collect();
         let new_ret = self.instantiate_ty(ret_ty, &mapping);
-        (new_params, new_ret)
+        (new_params, new_ret, mapping)
+    }
+
+    fn check_where_bounds(&mut self, fn_name: &str, type_mapping: &HashMap<String, Ty>) {
+        let Some(constraints) = self.registry.fn_where_bounds.get(fn_name).cloned() else {
+            return;
+        };
+        for (type_var, bound) in constraints {
+            if !self.registry.capabilities.contains_key(&bound) {
+                self.err(
+                    ErrorCode::E0403,
+                    format!("unknown trait bound `{bound}` in where clause of `{fn_name}`"),
+                );
+                continue;
+            }
+            let Some(instantiated) = type_mapping.get(&type_var) else {
+                continue;
+            };
+            let resolved = self.apply_subst(instantiated);
+            if self.has_unresolved_type_var(&resolved) {
+                self.err(
+                    ErrorCode::E0404,
+                    format!(
+                        "cannot infer type parameter `{type_var}` for where bound `{type_var}: {bound}` in `{fn_name}`"
+                    ),
+                );
+                continue;
+            }
+            if !self.satisfies_trait_bound(&bound, &resolved) {
+                self.err(
+                    ErrorCode::E0403,
+                    format!(
+                        "type `{resolved}` does not satisfy where bound `{type_var}: {bound}` in `{fn_name}`"
+                    ),
+                );
+            }
+        }
+    }
+
+    fn has_unresolved_type_var(&self, ty: &Ty) -> bool {
+        let mut found = false;
+        ty.visit(&mut |t| {
+            if matches!(t, Ty::Var(_)) {
+                found = true;
+            }
+        });
+        found
+    }
+
+    fn satisfies_trait_bound(&self, bound: &str, ty: &Ty) -> bool {
+        self.bound_target_names(ty).into_iter().any(|target| {
+            self.registry
+                .impls
+                .contains_key(&(bound.to_string(), target))
+        })
+    }
+
+    fn bound_target_names(&self, ty: &Ty) -> Vec<String> {
+        match ty {
+            Ty::Refined(base, _, _) => self.bound_target_names(base),
+            Ty::Named(name) | Ty::App(name, _) => vec![name.clone()],
+            Ty::Int => vec!["Int".into()],
+            Ty::Float => vec!["Float".into()],
+            Ty::Bool => vec!["Bool".into()],
+            Ty::Str => vec!["String".into(), "Str".into()],
+            Ty::Char => vec!["Char".into()],
+            Ty::Unit => vec!["Unit".into()],
+            Ty::Never => vec!["Never".into()],
+            _ => vec![],
+        }
     }
 
     // ── Set propagation checks ─────────────────────────────────────

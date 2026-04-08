@@ -481,6 +481,12 @@ impl Parser {
             let type_var = self.expect_ident()?;
             self.expect(&Token::Colon)?;
             let bound = self.expect_ident()?;
+            if self.at(&Token::Plus) {
+                return Err(self.error(
+                    "multiple trait bounds are not supported yet; use a single bound like `T: Trait`"
+                        .into(),
+                ));
+            }
             constraints.push(TypeConstraint { type_var, bound });
             if !self.at(&Token::Comma) {
                 break;

@@ -104,7 +104,7 @@ pub enum Visibility {
 
 /// Generic type constraints introduced by `where`.
 ///
-/// Example: `where T: Display, U: Clone + Debug`
+/// Example: `where T: Display, U: Clone`
 ///
 /// This only covers type-parameter bounds. Effects, cost, and resources
 /// are expressed with their own dedicated clauses (`with`, `cost`, `uses`).

@@ -2348,6 +2348,42 @@ fn trait_keyword_missing_method_error() {
     assert!(errs.iter().any(|e| e.contains("missing method")));
 }
 
+#[test]
+fn where_bound_single_trait_is_enforced() {
+    check_ok(
+        r#"
+        trait Display[T] {
+            fn show(self: T) -> String
+        }
+        struct Point { x: Int, y: Int }
+        impl Display for Point {
+            fn show(self: Point) -> String { "point" }
+        }
+        fn render(x: T) -> String where T: Display { "ok" }
+        fn run() -> String { render(Point { x: 1, y: 2 }) }
+    "#,
+    );
+}
+
+#[test]
+fn where_bound_reports_unsatisfied_trait() {
+    let errs = check_err_with_codes(
+        r#"
+        trait Display[T] {
+            fn show(self: T) -> String
+        }
+        fn render(x: T) -> String where T: Display { "ok" }
+        fn run() -> String { render(1) }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|(code, msg)| {
+            *code == ErrorCode::E0403 && msg.contains("does not satisfy where bound `T: Display`")
+        }),
+        "expected E0403 for unsatisfied where bound, got: {errs:?}"
+    );
+}
+
 // ── Effect keyword ──────────────────────────────────────────────────────
 
 #[test]
