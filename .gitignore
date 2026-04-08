@@ -1,5 +1,6 @@
 # Build artifacts
 /target
+/dist
 
 # Rust
 **/*.rs.bk

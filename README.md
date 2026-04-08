@@ -148,19 +148,19 @@ just pre-commit-install  # install pre-commit + commit-msg hooks via prek
 just pre-commit          # run the configured hooks on all files
 ```
 
-Spore also publishes reusable pre-commit-compatible hooks for `.sp` files:
+This repository intentionally only documents local `prek`-based hooks today.
+Public pre-commit distribution should move through a dedicated thin mirror repo once the packaged CLI is published.
 
-```yaml
-repos:
-  - repo: https://github.com/spore-lang/spore
-    rev: <tag-or-sha>
-    hooks:
-      - id: spore-format
-      - id: spore-check
+### Binary packaging
+
+The `spore` CLI is packaged from `crates/spore-cli` via `maturin` so it can be published as a PyPI binary package.
+
+```bash
+just package-cli        # build a wheel into dist/
+just package-cli-sdist  # build a source distribution into dist/
 ```
 
-These hooks currently shell out through `cargo run --bin spore`, so consumers need a working Rust toolchain.
-The hook entrypoints resolve the bundled `spore-cli` manifest from the hook checkout, so they do not depend on running from the Spore repository root.
+The future public hook mirror should depend on the packaged CLI instead of building Spore directly from a source checkout.
 
 ## Documentation
 
