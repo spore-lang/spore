@@ -77,7 +77,7 @@ pub fn type_check_with_registry(
             ErrorCode::K0101,
             format!(
                 "function `{fn_name}` exceeds its declared cost budget: \
-                 actual vector {actual} exceeds declared vector {declared}"
+                 actual {actual} exceeds declared {declared}"
             ),
         ));
     }
