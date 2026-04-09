@@ -39,14 +39,14 @@ $$S \subseteq E, \quad |S| < \infty$$
 
 空集 `{}` 表示纯函数——不与外部世界交互。
 
-### 1.4 `capability` 关键字：命名别名
+### 1.4 `trait` 关键字：命名别名
 
-`capability` 关键字创建一个 **命名别名**，展开后得到原子能力的扁平集合：
+`trait` 关键字创建一个 **命名别名**，展开后得到原子能力的扁平集合：
 
 ```spore
-capability FileIO = [FileRead, FileWrite]
-capability DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
-capability FullIO = [FileIO, NetRead, NetWrite]
+trait FileIO = [FileRead, FileWrite]
+trait DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
+trait FullIO = [FileIO, NetRead, NetWrite]
 ```
 
 别名展开是 **完全展开**（递归扁平化）：
@@ -78,7 +78,7 @@ FullIO → {FileIO, NetRead, NetWrite}
 
 给定别名定义：
 
-$$\text{capability } C = [A_1, A_2, \ldots, A_n]$$
+$$\text{trait } C = [A_1, A_2, \ldots, A_n]$$
 
 则在任何 `uses` 声明中：
 
@@ -132,14 +132,15 @@ $$S_{\text{child}} \subseteq S_{\text{parent}}$$
 这保证子任务不会获得超出父任务授权范围的能力。
 
 ```spore
-fn process(data: List[Item]) -> List[Result] ! [NetworkError]
+fn process(data: List[Item]) -> List[Result] ! NetworkError
 uses [NetRead, Spawn]
 {
     parallel_scope {
         -- 子任务只能使用 NetRead（⊆ {NetRead, Spawn}）
-        data.iter().map(|item| spawn {
+        let tasks = data.iter().map(|item| spawn {
             fetch(item)  -- fetch uses [NetRead]
-        }).collect_results()
+        })
+        tasks.map(|task| task.await)
     }
 }
 ```
@@ -166,7 +167,7 @@ $$\Gamma;\ S \vdash e : T$$
 
 
 ────────────────────────────────  [PURE-LITERAL]
-Γ; S ⊢ 42 : Int      ∀ S
+Γ; S ⊢ 42 : I32      ∀ S
 ```
 
 ---
@@ -178,7 +179,7 @@ $$\Gamma;\ S \vdash e : T$$
 函数类型的完整形式：
 
 ```
-(T₁, T₂, ..., Tₙ) -> R  uses S  ! [E₁, E₂, ...]
+(T₁, T₂, ..., Tₙ) -> R  uses S  ! E₁ | E₂ | ...
 ```
 
 其中：
@@ -193,10 +194,10 @@ $$\Gamma;\ S \vdash e : T$$
 
 ```spore
 -- 完整形式
-fn add(a: Int, b: Int) -> Int uses [] { a + b }
+fn add(a: I32, b: I32) -> I32 uses [] { a + b }
 
 -- 简写形式（等价）
-fn add(a: Int, b: Int) -> Int { a + b }
+fn add(a: I32, b: I32) -> I32 { a + b }
 ```
 
 两种写法在类型系统中完全等价：
@@ -227,13 +228,13 @@ $$\text{closure } |x| \text{ expr} \text{ 在上下文 } S \text{ 中} \implies 
 S' 由闭包体内实际使用的能力决定（编译器推断）。
 
 ```spore
-fn example() -> Unit
+fn example() -> ()
 uses [FileRead, NetRead]
 {
-    -- 此闭包类型为 (String) -> Data uses [NetRead]
+    -- 此闭包类型为 (Str) -> Data uses [NetRead]
     let fetch_fn = |url| http.get(url)
 
-    -- 此闭包类型为 (Int) -> Int uses []  （纯函数）
+    -- 此闭包类型为 (I32) -> I32 uses []  （纯函数）
     let double = |x| x * 2
 }
 ```
@@ -277,7 +278,7 @@ $$\text{pure} \implies \text{deterministic}$$
 
 ```spore
 /// @idempotent
-fn sync_user(user_id: UserId) -> SyncResult ! [NetworkError]
+fn sync_user(user_id: UserId) -> SyncResult ! NetworkError
 uses [NetRead, NetWrite, StateRead, StateWrite]
 {
     ...
@@ -375,7 +376,7 @@ Spawn ∈ S_scope    S_body ⊆ S_scope
   "available_capabilities": ["NetRead"],
   "cost_budget": 5000,
   "candidate_functions": [
-    "http.get(url: Url) -> Data ! [NetworkError] uses [NetRead]"
+    "http.get(url: Url) -> Data ! NetworkError uses [NetRead]"
   ]
 }
 ```
@@ -433,7 +434,7 @@ $$S \cap \{NetRead, NetWrite, FileRead, FileWrite\} = \emptyset \implies \text{c
 ### 示例 1：纯函数 (uses [])
 
 ```spore
-fn fibonacci(n: Int) -> Int {
+fn fibonacci(n: I32) -> I32 {
     match n {
         0 => 0,
         1 => 1,
@@ -447,13 +448,13 @@ fn fibonacci(n: Int) -> Int {
 uses []
 -- 自动推断: pure, deterministic
 -- total: 需要终止性证明（结构递归，n 递减 → 可证明）
-cost ≤ O(2^n)
+cost [O(2^n), 0, 0, 0]
 ```
 
 ### 示例 2：IO 函数 (uses [FileRead])
 
 ```spore
-fn read_config(path: String) -> Config ! [IoError, ParseError]
+fn read_config(path: Str) -> Config ! IoError | ParseError
 uses [FileRead]
 {
     let content = read_file(path)
@@ -466,16 +467,15 @@ uses [FileRead]
 uses [FileRead]
 -- 自动推断: ¬pure, deterministic（FileRead 不破坏确定性）
 -- total: 是（无递归）
-cost ≤ 200
-  io = 1  -- 一次文件读取
+cost [200, 0, 1, 0]
 ```
 
 ### 示例 3：能力别名 (capability alias)
 
 ```spore
-capability DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
+trait DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
 
-fn query_user(id: UserId) -> User ! [DbError, NotFound]
+fn query_user(id: UserId) -> User ! DbError | NotFound
 uses [DatabaseAccess]
 {
     let conn = pool.get_connection()
@@ -492,17 +492,17 @@ uses [NetRead, NetWrite, StateRead, StateWrite]
 ### 示例 4：高阶函数与纯闭包
 
 ```spore
-fn process_scores(scores: List[Int]) -> List[String] {
+fn process_scores(scores: List[I32]) -> List[Str] {
     scores
-        .filter(|s| s >= 60)          -- 纯闭包: (Int) -> Bool
-        .map(|s| format("Pass: {}", s))  -- 纯闭包: (Int) -> String
+        .filter(|s| s >= 60)          -- 纯闭包: (I32) -> Bool
+        .map(|s| format("Pass: {}", s))  -- 纯闭包: (I32) -> Str
 }
 ```
 
 `filter` 和 `map` 的参数类型要求闭包为纯函数。以下代码 **不合法**：
 
 ```spore
-fn bad_example(scores: List[Int]) -> List[Unit]
+fn bad_example(scores: List[I32]) -> List[()]
 uses [FileWrite]
 {
     -- ❌ 编译错误: map 要求纯闭包，但此闭包 uses [FileWrite]
@@ -515,7 +515,7 @@ uses [FileWrite]
 对于需要在迭代中执行副作用的场景，使用 `parallel_scope` + `spawn`：
 
 ```spore
-fn fetch_all(urls: List[Url]) -> List[Response] ! [NetworkError]
+fn fetch_all(urls: List[Url]) -> List[Response] ! NetworkError
 uses [NetRead, Spawn]
 {
     parallel_scope {
@@ -525,7 +525,7 @@ uses [NetRead, Spawn]
                 http.get(url)
             }
         })
-        tasks.collect_results()
+        tasks.map(|task| task.await)
     }
 }
 ```
@@ -567,7 +567,7 @@ uses [All \ Spawn]  -- "除 Spawn 外的所有能力"
 
 ```spore
 -- 假设的未来语法（当前不支持）
-fn with_timeout[E](duration: Duration, f: () -> T uses E) -> T ! [Timeout]
+fn with_timeout[E](duration: Duration, f: () -> T uses E) -> T ! Timeout
 uses [E, Clock]
 {
     ...

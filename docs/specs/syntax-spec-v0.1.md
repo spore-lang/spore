@@ -33,9 +33,10 @@ Spore 是一门**表达式为中心**（expression-based）的编程语言，设
    - `f"Hello {name}"` — 格式化字符串（f-string）
    - `t"Hello {name}"` — 模板对象（t-string）
 
-7. **错误传播** (Error propagation)
-   - 函数签名中使用 `! [ErrorType]` 声明可能抛出的错误
-   - 函数体内使用 `?` 操作符快速传播错误
+7. **错误契约** (Checked error contracts)
+   - 函数签名中使用 `! ErrorType` 声明闭合错误集合
+   - `throw expr` 只能抛出当前函数 `! E1 | E2` 中已声明的错误
+   - 调用 `! E` 函数时，调用者必须声明兼容错误集合；`?` 只是该传播规则的语法糖
 
 8. **Lambda 表达式** (Lambda)
    Rust 风格闭包语法：`|x, y| x + y`
@@ -73,8 +74,8 @@ Spore 语言的保留关键字列表：
 
 ```
 fn          let         if          else        match
-struct      type        capability  pub         import
-alias       module      spawn       select      parallel_scope
+struct      type        trait       pub         import
+alias       spawn       select      parallel_scope
 where       with        uses        effects     cost
 return
 trait       impl        as          in          mut
@@ -94,7 +95,7 @@ Err         Result      Option      Ref         deriving
 | **逻辑** (Logical) | `&&` `||` `!` | 与、或、非 |
 | **位运算** (Bitwise) | `&` `|` `^` `~` `<<` `>>` | 按位与、或、异或、取反、左移、右移 |
 | **管道** (Pipe) | `|>` | 数据流管道 |
-| **错误传播** (Error) | `?` | 快速错误传播 |
+| **错误传播** (Error) | `?` | 按已声明错误集合传播错误 |
 | **范围** (Range) | `..` `..=` | 半开区间、闭区间 |
 | **字段访问** (Field) | `.` | 结构体字段/方法访问 |
 | **赋值** (Assignment) | `=` | 绑定赋值 |
@@ -215,14 +216,14 @@ Spore 遵循以下命名约定：
   ```spore
   let user_name = "Alice";
   fn calculate_total() { ... }
-  module http_client { ... }
+  import http.client as http_client
   ```
 
-- **PascalCase**: 类型、capability、枚举变体
+- **PascalCase**: 类型、trait、枚举变体
   ```spore
   struct UserAccount { ... }
   type Option[T] = Some(T) | None;
-  capability Readable { ... }
+  trait Readable { ... }
   ```
 
 - **SCREAMING_SNAKE_CASE**: 常量
@@ -249,8 +250,8 @@ struct Point {
 /// 用户账户 (User account)
 struct User {
     id: U64,
-    name: String,
-    email: String,
+    name: Str,
+    email: Str,
     age: U32,
 } deriving [Debug, Serialize]
 ```
@@ -278,7 +279,7 @@ struct NoData;
 
 ```spore
 type UserId = U64;
-type Callback = fn(I32) -> String;
+type Callback = (I32) -> Str;
 ```
 
 #### 3.2.2 枚举与求和类型 (Enum & sum type)
@@ -313,17 +314,17 @@ Capability 是 Spore 的 trait/interface 机制，同时也是能力系统的一
 
 ```spore
 /// 可显示 capability (Display capability)
-capability Display {
-    fn to_string(self) -> String;
+trait Display {
+    fn to_string(self) -> Str;
 }
 
 /// 可序列化 capability (Serializable capability)
-capability Serialize {
-    fn serialize(self) -> String ! [SerializeError];
+trait Serialize {
+    fn serialize(self) -> Str ! SerializeError;
 }
 
 /// 带关联类型的 capability (Capability with associated type)
-capability Collection {
+trait Collection {
     type Item;
 
     fn len(self) -> U64;
@@ -334,7 +335,7 @@ capability Collection {
 }
 
 /// 可比较 capability (Comparable capability)
-capability Comparable {
+trait Comparable {
     fn compare(self, other: Self) -> Ordering;
 
     fn less_than(self, other: Self) -> Bool {
@@ -393,16 +394,16 @@ let identity: Matrix[F64, 3, 3] = Matrix.identity();
 
 ```spore
 /// 非空字符串 (Non-empty string)
-type NonEmptyStr = String if |s| s.len() > 0;
+type NonEmptyStr = Str when self.len() > 0;
 
 /// 正整数 (Positive integer)
-type PositiveInt = I32 if |n| n > 0;
+type PositiveInt = I32 when self > 0;
 
 /// 范围约束 (Range constraint)
-type Percentage = F64 if |p| p >= 0.0 && p <= 100.0;
+type Percentage = F64 when self >= 0.0 && self <= 100.0;
 
 /// 偶数 (Even number)
-type EvenInt = I32 if |n| n % 2 == 0;
+type EvenInt = I32 when self % 2 == 0;
 ```
 
 ---
@@ -593,7 +594,7 @@ let double = |x| x * 2;
 let add = |a, b| a + b;
 
 /// 带类型注解的 lambda (Lambda with type annotations)
-let multiply: fn(I32, I32) -> I32 = |a: I32, b: I32| a * b;
+let multiply: (I32, I32) -> I32 = |a: I32, b: I32| a * b;
 
 /// 带块体的 lambda (Lambda with block body)
 let complex_fn = |x, y| {
@@ -616,14 +617,14 @@ let sum = numbers.fold(0, |acc, x| acc + x);
 
 ```spore
 /// 基本用法 (Basic usage)
-fn read_config(path: String) -> Config ! [IoError, ParseError] {
+fn read_config(path: Str) -> Config ! IoError | ParseError {
     let content = read_file(path)?;  // 如果失败，立即返回错误
     let config = parse_config(content)?;  // 同上
     config  // 成功则返回配置
 }
 
 /// 链式传播 (Chained propagation)
-fn process_data(input: String) -> Result ! [ValidationError, ProcessError] {
+fn process_data(input: Str) -> Result ! ValidationError | ProcessError {
     let validated = validate(input)?;
     let transformed = transform(validated)?;
     let result = finalize(transformed)?;
@@ -631,13 +632,15 @@ fn process_data(input: String) -> Result ! [ValidationError, ProcessError] {
 }
 
 /// 与管道结合 (Combined with pipe)
-fn pipeline(data: Data) -> Output ! [Error] {
+fn pipeline(data: Data) -> Output ! Error {
     data
         |> step1?
         |> step2?
         |> step3?
 }
 ```
+
+`?` 不会绕过错误检查。若被调用函数的签名包含 `! E`，则当前函数要么本地处理该错误，要么在自己的 `! E1 | E2` 中声明兼容集合后再使用 `?` 传播。
 
 ### 4.10 Ref 操作 (Ref operations)
 
@@ -674,15 +677,21 @@ fn increment_counter(counter: Ref[I32]) {
 fn function_name[TypeParam1, TypeParam2](
     param1: Type1,
     param2: Type2,
-) -> ReturnType ! [Error1, Error2]
-where TypeParam1: Constraint1, TypeParam2: Constraint2
+) -> ReturnType ! Error1 | Error2
+where TypeParam1: Constraint1
+where TypeParam2: Constraint2
 uses [resource1, resource2]
-cost ≤ 1000
+cost [compute, alloc, io, parallel]
+spec {
+    example "baseline" => function_name(sample1, sample2) == expected
+}
 {
     // 函数体 (Function body)
     body_expression
 }
 ```
+
+说明：稳定语法只支持单一约束 `where T: Trait`。若同一函数需要多个约束，请重复书写多行 `where`；逗号分组、`+` 组合和 `where { ... }` 形式都不在 v0.1 范围内。`cost` 子句固定写成 `cost [compute, alloc, io, parallel]`，四个位置依次表示计算、分配、IO 与并行宽度。当前每个槽位只接受最小表达式子集：整数常量、参数变量或线性 `O(n)`；`log`/`max`/`min`、成员访问（如 `urls.len`）以及更丰富的代数组合都留待后续版本。
 
 ### 5.2 简单函数 (Simple functions)
 
@@ -697,8 +706,8 @@ fn get_pi() -> F64 {
     3.14159265359
 }
 
-/// 无返回值函数（返回 unit type）(No return value - returns unit)
-fn print_hello() {
+/// 无返回值函数（显式返回 `()`）(No return value - returns unit)
+fn print_hello() -> () {
     print("Hello, World!");
 }
 
@@ -729,7 +738,7 @@ fn pair[A, B](first: A, second: B) -> Pair[A, B] {
 }
 
 /// 泛型集合操作 (Generic collection operation)
-fn map[A, B](list: List[A], f: fn(A) -> B) -> List[B] {
+fn map[A, B](list: List[A], f: (A) -> B) -> List[B] {
     match list {
         [] => [],
         [head, ..tail] => [f(head), ..map(tail, f)],
@@ -741,7 +750,7 @@ fn map[A, B](list: List[A], f: fn(A) -> B) -> List[B] {
 
 ```spore
 /// 声明 I/O 效应 (Declaring I/O effects)
-fn read_file(path: String) -> String ! [IoError]
+fn read_file(path: Str) -> Str ! IoError
 uses [FileRead]
 {
     // 实现代码 (Implementation)
@@ -749,7 +758,7 @@ uses [FileRead]
 }
 
 /// 声明网络效应 (Declaring network effects)
-fn fetch_data(url: String) -> Data ! [NetworkError]
+fn fetch_data(url: Str) -> Data ! NetworkError
 uses [Network]
 {
     ?implementation
@@ -766,24 +775,26 @@ uses [StateRead, StateWrite]
 
 ### 5.5 带成本约束的函数 (Functions with cost constraints)
 
+当前文档中的 `cost` 示例只展示三类允许的槽位写法：整数常量、参数变量、线性 `O(n)`。
+
 ```spore
 /// O(1) 常数时间操作 (O(1) constant time)
 fn array_get[T](arr: Array[T, N], index: U64) -> Option[T]
-cost ≤ 10
+cost [10, 1, 0, 0]
 {
     if index < N { Some(arr.data[index]) } else { None }
 }
 
 /// O(n) 线性时间操作 (O(n) linear time)
-fn sum_list(list: List[I32]) -> I32
-cost ≤ list.len() * 5
+fn sum_list(list: List[I32], n: I32) -> I32
+cost [O(n), 0, 0, 0]
 {
     list.fold(0, |acc, x| acc + x)
 }
 
 /// 递归函数的成本 (Recursive function cost)
 fn factorial(n: I32) -> I32
-cost ≤ n * 10
+cost [O(n), 0, 0, 0]
 {
     if n <= 1 { 1 } else { n * factorial(n - 1) }
 }
@@ -793,14 +804,14 @@ cost ≤ n * 10
 
 ```spore
 /// 声明资源依赖 (Declaring resource dependencies)
-fn query_database(sql: String) -> Result[Data] ! [DbError]
+fn query_database(sql: Str) -> Result[Data] ! DbError
 uses [Database, db_connection]
 {
     ?implementation
 }
 
 /// 多资源依赖 (Multiple resource dependencies)
-fn process_request(req: Request) -> Response ! [Error]
+fn process_request(req: Request) -> Response ! Error
 uses [Network, Database, FileRead, db_pool, cache, logger]
 {
     ?implementation
@@ -811,9 +822,6 @@ uses [Network, Database, FileRead, db_pool, cache, logger]
 
 ```spore
 /// 计算两个数的最大公约数 (Calculate GCD of two numbers)
-///
-/// 使用欧几里得算法，时间复杂度 O(log(min(a, b)))
-/// (Uses Euclidean algorithm, time complexity O(log(min(a, b))))
 ///
 /// # 参数 (Parameters)
 /// - `a`: 第一个整数 (First integer)
@@ -827,7 +835,6 @@ uses [Network, Database, FileRead, db_pool, cache, logger]
 /// let result = gcd(48, 18);  // result == 6
 /// ```
 fn gcd(a: I32, b: I32) -> I32
-cost ≤ log2(min(a, b)) * 20
 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
@@ -1032,30 +1039,17 @@ match color {
 
 ## 7. 模块与导入 (Modules & Imports)
 
-### 7.1 模块声明 (Module declaration)
+### 7.1 文件即模块 (File = module)
 
-```spore
-/// 模块定义 (Module definition)
-module math uses [] {
-    pub fn add(a: I32, b: I32) -> I32 { a + b }
-    pub fn multiply(a: I32, b: I32) -> I32 { a * b }
+每个 `.spore` 源文件就是一个模块，模块名由其相对 `src/` 的文件路径决定：
 
-    // 私有函数（默认）(Private function - default)
-    fn helper() -> I32 { 42 }
-}
+| 文件路径 | 模块名 |
+|----------|--------|
+| `src/math.spore` | `math` |
+| `src/geometry/shapes.spore` | `geometry.shapes` |
+| `src/http/client.spore` | `http.client` |
 
-/// 嵌套模块 (Nested module)
-module geometry uses [] {
-    pub module shapes uses [] {
-        pub struct Circle { radius: F64 }
-        pub struct Rectangle { width: F64, height: F64 }
-    }
-
-    pub fn area(shape: shapes.Circle) -> F64 {
-        3.14 * shape.radius * shape.radius
-    }
-}
-```
+Spore **没有** `module ...` 文件头，也没有内联/嵌套模块声明语法。
 
 ### 7.2 可见性修饰符 (Visibility modifiers)
 
@@ -1066,48 +1060,32 @@ pub fn public_function() { }
 /// 包内可见（同一 package 内可见）(Package-visible)
 pub(pkg) fn package_function() { }
 
-/// 私有（默认，仅当前模块可见）(Private - default, only visible in current module)
+/// 私有（默认，仅当前文件模块可见）(Private - default, only visible in current file module)
 fn private_function() { }
 ```
 
 ### 7.3 导入语句 (Import statements)
 
 ```spore
-/// 导入模块 (Import module)
-import std.collections as collections;
-
-/// 导入特定项 (Import specific items)
-import std.math.{sin, cos, tan};
-
-/// 导入所有公开项 (Import all public items)
-import std.io.*;
-
-/// 重命名导入 (Rename import)
-import very.long.module.name as short;
+/// 导入模块并重命名 (Import module with alias)
+import std.collections as collections
+import very.long.module.name as short
 
 /// 别名特定项 (Alias specific item)
-alias Vec = std.collections.Vector;
-alias HashMap = std.collections.HashMap;
+alias Vec = std.collections.Vector
+alias HashMap = std.collections.HashMap
 ```
 
-### 7.4 模块使用依赖 (Module uses dependencies)
+说明：
 
-```spore
-/// 声明模块需要的 capability (Declare required capabilities)
-module http_client uses [Network, Allocate] {
-    pub fn fetch(url: String) -> Result[String] ! [NetworkError]
-    {
-        ?implementation
-    }
-}
+- `import` 仅用于模块路径，可选 `as` 别名。
+- `alias` 仅用于具体项绑定。
+- 当前文档**不支持** `import foo.{bar}`、`import foo.*` 或嵌套 `module` 语法。
 
-/// 声明多个依赖 (Multiple dependencies)
-module database uses [Database, FileRead, FileWrite, Allocate] {
-    pub fn init(path: String) -> Connection ! [IoError] {
-        ?implementation
-    }
-}
-```
+### 7.4 无模块级 capability carrier (No module-level capability carrier)
+
+模块名仅由文件路径决定，源码中没有 `module ...` 文件头，也没有模块级 `uses` / capability ceiling 语法。
+能力检查只发生在函数签名的 `uses [...]` 与项目 / Platform 边界；模块导入本身不会携带或放宽能力。
 
 ---
 
@@ -1154,7 +1132,7 @@ parallel_scope {
 }
 
 /// 多生产者单消费者 (Multiple producers single consumer)
-let (tx, rx) = Channel.new[String](buffer: 5);
+let (tx, rx) = Channel.new[Str](buffer: 5);
 
 parallel_scope {
     let tx1 = tx.clone();
@@ -1181,11 +1159,11 @@ parallel_scope {
 ```spore
 /// 多路复用 channel (Multiplex channels)
 let (tx1, rx1) = Channel.new[I32](buffer: 1);
-let (tx2, rx2) = Channel.new[String](buffer: 1);
+let (tx2, rx2) = Channel.new[Str](buffer: 1);
 
 parallel_scope {
     /// 递归事件循环 (Recursive event loop with TCO)
-    fn event_loop(rx1: Channel.Receiver[I32], rx2: Channel.Receiver[String]) {
+    fn event_loop(rx1: Receiver[I32], rx2: Receiver[Str]) {
         select {
             value from rx1 => {
                 print(f"Got integer: {value}");
@@ -1215,13 +1193,16 @@ select {
     value from rx => {
         print(f"Received: {value}");
     },
-    timeout 1000 => {
+    timeout(1.seconds) => {
         print("Timed out after 1 second");
     },
 }
 ```
 
-### 8.4 Await 操作 (Await operation)
+### 8.4 Task.await 操作 (Task.await operation)
+
+活动规范里的并发表面语法使用后缀形式 `task.await`。旧的前缀 `await expr`
+兼容策略仍待单独决策，不影响这里的目标语法。
 
 ```spore
 /// 等待异步任务完成 (Wait for async task completion)
@@ -1258,9 +1239,9 @@ parallel_scope {
 ```spore
 /// 自定义错误类型 (Custom error type)
 type FileError =
-    | NotFound(path: String)
-    | PermissionDenied(path: String)
-    | IoError(message: String);
+    | NotFound(path: Str)
+    | PermissionDenied(path: Str)
+    | IoError(message: Str);
 
 type NetworkError =
     | Timeout
@@ -1268,8 +1249,8 @@ type NetworkError =
     | InvalidResponse(code: I32);
 
 type ParseError =
-    | SyntaxError(line: U32, column: U32, message: String)
-    | UnexpectedToken(token: String)
+    | SyntaxError(line: U32, column: U32, message: Str)
+    | UnexpectedToken(token: Str)
     | UnexpectedEof;
 ```
 
@@ -1277,19 +1258,19 @@ type ParseError =
 
 ```spore
 /// 单一错误类型 (Single error type)
-fn read_file(path: String) -> String ! [FileError] {
+fn read_file(path: Str) -> Str ! FileError {
     ?implementation
 }
 
 /// 多种错误类型 (Multiple error types)
-fn fetch_and_parse(url: String) -> Data ! [NetworkError, ParseError] {
+fn fetch_and_parse(url: Str) -> Data ! NetworkError | ParseError {
     let response = fetch(url)?;  // 可能抛出 NetworkError
     let data = parse(response)?;  // 可能抛出 ParseError
     data
 }
 
 /// 泛型错误 (Generic error)
-fn try_parse[T, E](input: String, parser: fn(String) -> Result[T, E]) -> T ! [E] {
+fn try_parse[T, E](input: Str, parser: (Str) -> Result[T, E]) -> T ! E {
     match parser(input) {
         Ok(value) => value,
         Err(e) => throw e,  // 抛出错误
@@ -1297,19 +1278,23 @@ fn try_parse[T, E](input: String, parser: fn(String) -> Result[T, E]) -> T ! [E]
 }
 ```
 
+`throw expr` 与 `?` 形成同一闭环：`throw expr` 只有在 `expr` 的错误类型已出现在当前函数 `! E1 | E2` 中时才合法；调用 `! E` callee 时，要么在本地处理，要么把 `E` 纳入调用者签名。
+
 ### 9.3 错误传播操作符 (Error propagation operator)
+
+`?` 是对“调用一个 `! E` 函数并把 `E` 继续暴露给当前调用者”的简写。它不会自动扩展签名；当前函数仍必须显式声明兼容的 `! E1 | E2` 错误集合。
 
 ```spore
 /// 自动传播错误 (Automatic error propagation)
-fn process_file(path: String) -> Data ! [FileError, ParseError] {
-    let content = read_file(path)?;  // FileError 自动传播
-    let data = parse(content)?;      // ParseError 自动传播
-    validate(data)?;                 // ParseError 自动传播
+fn process_file(path: Str) -> Data ! FileError | ParseError {
+    let content = read_file(path)?;  // `read_file` 的 FileError 已包含在当前签名中
+    let data = parse(content)?;      // `parse` 的 ParseError 也已显式声明
+    validate(data)?;                 // 仍然要求当前签名兼容被调函数的错误集合
     data
 }
 
 /// 错误转换 (Error transformation)
-fn load_config(path: String) -> Config ! [ConfigError] {
+fn load_config(path: Str) -> Config ! ConfigError {
     let content = read_file(path)?;  // FileError -> ConfigError
     let config = parse_toml(content)?;  // ParseError -> ConfigError
     config
@@ -1364,9 +1349,9 @@ fn get_config() -> Config {
 }
 
 /// 重试逻辑 (Retry logic)
-fn fetch_with_retry(url: String, max_retries: I32) -> Data ! [NetworkError] {
+fn fetch_with_retry(url: Str, max_retries: I32) -> Data ! NetworkError {
     /// 递归重试 (Recursive retry with TCO)
-    fn retry(url: String, attempts: I32, max_retries: I32) -> Data ! [NetworkError] {
+    fn retry(url: Str, attempts: I32, max_retries: I32) -> Data ! NetworkError {
         match fetch(url) {
             Ok(data) => data,
             Err(NetworkError.Timeout) if attempts < max_retries => {
@@ -1415,7 +1400,7 @@ fn mysterious_function(x: I32) -> ? {
 }  // 编译器推断返回类型为 I32
 
 /// 参数类型 hole (Parameter type hole)
-fn generic_wrapper(value: ?) -> String {
+fn generic_wrapper(value: ?) -> Str {
     f"Value: {value}"
 }
 ```
@@ -1425,7 +1410,7 @@ fn generic_wrapper(value: ?) -> String {
 ```spore
 /// 使用 @allows 注解限制可用函数 (Use @allows to restrict available functions)
 @allows[validate, sanitize, format]
-fn process_input(raw: String) -> Result ! [ValidationError] {
+fn process_input(raw: Str) -> Result ! ValidationError {
     let validated = validate(raw)?;
     let sanitized = sanitize(validated);
     ?final_step  // 此 hole 只能调用 validate/sanitize/format
@@ -1452,6 +1437,8 @@ fn example() {
         |> fold(0, ?);  // hole: |acc, x| acc + x
 }
 ```
+
+> **Tooling note**: 面向 Agent / IDE 的协议使用稳定 `hole id` 标识**函数体里的 expression hole**。命名 hole 直接复用源码中的名字；匿名 `?` 由编译器分配稳定 id。函数签名中的 `?` 仅用于类型推断，不单独进入 HoleReport / `--query-hole` 填充协议。
 
 ---
 
@@ -1568,15 +1555,15 @@ let user_count = 42;
 let is_valid = true;
 
 fn calculate_total(items: List[Item]) -> F64 { ... }
-fn parse_json(input: String) -> Result[Json] { ... }
+fn parse_json(input: Str) -> Result[Json] { ... }
 
-module http_client { ... }
-module data_processing { ... }
+import http.client as http_client
+import data.processing as data_processing
 ```
 
 ### 12.2 PascalCase
 
-用于：类型、capability、枚举变体
+用于：类型、trait、枚举变体
 
 ```spore
 struct UserAccount { ... }
@@ -1585,8 +1572,8 @@ struct HttpRequest { ... }
 type Option[T] = Some(T) | None;
 type NetworkError = Timeout | ConnectionRefused;
 
-capability Readable { ... }
-capability Serializable { ... }
+trait Readable { ... }
+trait Serializable { ... }
 
 // 枚举变体 (Enum variants)
 Color.Red
@@ -1600,7 +1587,7 @@ Status.Success
 ```spore
 const MAX_CONNECTIONS: I32 = 100;
 const DEFAULT_TIMEOUT: I32 = 5000;
-const API_BASE_URL: String = "https://api.example.com";
+const API_BASE_URL: Str = "https://api.example.com";
 const PI: F64 = 3.14159265359;
 ```
 
@@ -1612,7 +1599,7 @@ fn identity[T](x: T) -> T { x }
 fn pair[A, B](first: A, second: B) -> Pair[A, B] { ... }
 
 /// 描述性名称（PascalCase）(Descriptive names)
-fn convert[From, To](value: From, converter: fn(From) -> To) -> To { ... }
+fn convert[From, To](value: From, converter: (From) -> To) -> To { ... }
 fn cache[Key, Value](key: Key) -> Option[Value] { ... }
 ```
 
@@ -1625,30 +1612,30 @@ fn cache[Key, Value](key: Key) -> Option[Value] { ... }
 ```spore
 /// HTTP 请求类型 (HTTP request type)
 struct Request {
-    method: String,
-    path: String,
-    headers: Map[String, String],
-    body: String,
+    method: Str,
+    path: Str,
+    headers: Map[Str, Str],
+    body: Str,
 }
 
 /// HTTP 响应类型 (HTTP response type)
 struct Response {
     status: I32,
-    headers: Map[String, String],
-    body: String,
+    headers: Map[Str, Str],
+    body: Str,
 }
 
 /// 路由处理器类型 (Route handler type)
-type Handler = fn(Request) -> Response ! [HttpError];
+type Handler = (Request) -> Response ! HttpError;
 
 /// HTTP 错误 (HTTP error)
 type HttpError =
-    | BadRequest(message: String)
-    | NotFound(path: String)
-    | InternalError(message: String);
+    | BadRequest(message: Str)
+    | NotFound(path: Str)
+    | InternalError(message: Str);
 
 /// 路由匹配 (Route matching)
-fn route(req: Request) -> Response ! [HttpError] {
+fn route(req: Request) -> Response ! HttpError {
     match (req.method, req.path) {
         ("GET", "/") =>
             Ok(Response {
@@ -1669,7 +1656,7 @@ fn route(req: Request) -> Response ! [HttpError] {
 }
 
 /// API 处理器 (API handler)
-fn handle_api(req: Request) -> Response ! [HttpError]
+fn handle_api(req: Request) -> Response ! HttpError
 uses [Network, Database]
 {
     let data = query_database()?;
@@ -1683,13 +1670,13 @@ uses [Network, Database]
 }
 
 /// 启动服务器 (Start server)
-fn start_server(port: I32) ! [IoError]
+fn start_server(port: I32) ! IoError
 uses [Network]
 {
     let listener = TcpListener.bind(f"127.0.0.1:{port}")?;
 
     /// 递归接受连接 (Recursive accept loop with TCO)
-    fn accept_loop(listener: TcpListener) ! [IoError] {
+    fn accept_loop(listener: TcpListener) ! IoError {
         let connection = listener.accept()?;
 
         parallel_scope {
@@ -1714,10 +1701,10 @@ uses [Network]
 /// 表达式 AST (Expression AST)
 type Expr =
     | Literal(I32)
-    | Variable(name: String)
+    | Variable(name: Str)
     | BinOp(op: Op, left: Expr, right: Expr)
     | UnaryOp(op: UnaryOp, expr: Expr)
-    | Let(name: String, value: Expr, body: Expr)
+    | Let(name: Str, value: Expr, body: Expr)
     | If(condition: Expr, then_branch: Expr, else_branch: Expr);
 
 /// 二元操作符 (Binary operator)
@@ -1727,17 +1714,16 @@ type Op = Add | Sub | Mul | Div | Equal | LessThan;
 type UnaryOp = Negate | Not;
 
 /// 环境（变量绑定）(Environment - variable bindings)
-type Env = Map[String, I32];
+type Env = Map[Str, I32];
 
 /// 求值错误 (Evaluation error)
 type EvalError =
-    | UndefinedVariable(name: String)
+    | UndefinedVariable(name: Str)
     | DivisionByZero
-    | TypeError(message: String);
+    | TypeError(message: Str);
 
 /// 求值器 (Evaluator)
-fn eval(expr: Expr, env: Env) -> I32 ! [EvalError]
-cost ≤ expr_size(expr) * 10
+fn eval(expr: Expr, env: Env) -> I32 ! EvalError
 {
     match expr {
         Literal(n) => n,
@@ -1779,7 +1765,7 @@ cost ≤ expr_size(expr) * 10
 }
 
 /// 求值二元操作 (Evaluate binary operation)
-fn eval_binop(op: Op, left: I32, right: I32) -> I32 ! [EvalError] {
+fn eval_binop(op: Op, left: I32, right: I32) -> I32 ! EvalError {
     match op {
         Add => left + right,
         Sub => left - right,
@@ -1821,12 +1807,12 @@ fn example() {
 ```spore
 /// 任务类型 (Task type)
 type Task =
-    | Process(id: I32, data: String)
+    | Process(id: I32, data: Str)
     | Stop;
 
 /// 生产者 (Producer)
 fn producer(
-    tx: Channel.Sender[Task],
+    tx: Sender[Task],
     task_count: I32
 )
 {
@@ -1841,12 +1827,12 @@ fn producer(
 /// 消费者 (Consumer)
 fn consumer(
     id: I32,
-    rx: Channel.Receiver[Task],
-    result_tx: Channel.Sender[String]
+    rx: Receiver[Task],
+    result_tx: Sender[Str]
 )
 {
     /// 递归处理消息 (Recursive message processing with TCO)
-    fn process(id: I32, rx: Channel.Receiver[Task], result_tx: Channel.Sender[String]) {
+    fn process(id: I32, rx: Receiver[Task], result_tx: Sender[Str]) {
         match rx.recv() {
             Task.Process(task_id, data) => {
                 // 模拟处理 (Simulate processing)
@@ -1864,12 +1850,12 @@ fn consumer(
 
 /// 结果收集器 (Result collector)
 fn collector(
-    rx: Channel.Receiver[String],
+    rx: Receiver[Str],
     expected_count: I32
 )
 {
     /// 递归收集结果 (Recursive result collection with TCO)
-    fn collect(rx: Channel.Receiver[String], remaining: I32) {
+    fn collect(rx: Receiver[Str], remaining: I32) {
         if remaining <= 0 {
             return;
         }
@@ -1886,7 +1872,7 @@ fn main() {
     let consumer_count = 3;
 
     let (task_tx, task_rx) = Channel.new[Task](buffer: 5);
-    let (result_tx, result_rx) = Channel.new[String](buffer: 10);
+    let (result_tx, result_rx) = Channel.new[Str](buffer: 10);
 
     parallel_scope {
         // 启动生产者 (Start producer)
@@ -1927,12 +1913,11 @@ fn main() {
 | `match` | 模式匹配 (Pattern matching) |
 | `struct` | 结构体定义 (Struct definition) |
 | `type` | 类型别名/枚举定义 (Type alias/enum definition) |
-| `capability` | Trait 定义 (Trait definition) |
+| `trait` | Trait 定义 (Trait definition) |
 | `impl` | Trait 实现块 (Trait implementation block) |
 | `deriving` | 自动派生声明 (Auto-derive declaration) |
 | `pub` / `pub(pkg)` | 可见性修饰符 (Visibility modifiers) |
-| `module` | 模块定义 (Module definition) |
-| `import` | 导入模块 (Import module) |
+| `import` | 导入模块路径 (Import module path) |
 | `alias` | 类型/项别名 (Type/item alias) |
 | `where` | 泛型类型约束 (Generic type constraints) |
 | `with` | （已移除）属性由编译器从 `uses` 集合自动推断 (Removed - properties auto-inferred from `uses` set) |
@@ -1975,7 +1960,9 @@ I32, I64      // 有符号整数 (Signed integers)
 U32, U64      // 无符号整数 (Unsigned integers)
 F32, F64      // 浮点数 (Floating point)
 Bool          // 布尔 (Boolean)
-String        // 字符串
+Char          // Unicode 标量值 (Unicode scalar value)
+Str           // UTF-8 字符串 (UTF-8 string)
+()            // unit 类型 (unit type)
 ```
 
 #### 集合类型 (Collection types)
@@ -1999,13 +1986,19 @@ Channel[T]    // 并发通道 (Concurrent channel)
 ### 14.4 语法 EBNF 概要 (EBNF grammar sketch)
 
 ```ebnf
-Program       = { Module | Function | Struct | Type | Capability }
-Module        = "module" Ident "uses" "[" [ Ident { "," Ident } ] "]" Block
+Program       = { ImportDecl | AliasDecl | Function | Struct | Type | Capability }
+ImportDecl    = "import" ModulePath [ "as" Ident ]
+AliasDecl     = "alias" Ident "=" QualifiedItem
 Function      = "fn" Ident [ TypeParams ] "(" [ Params ] ")" [ "->" Type ]
-                [ "!" "[" Types "]" ] [ WhereClause ] [ UsesClause ] [ CostClause ] Block
+                [ "!" "[" Types "]" ] [ WhereClause ] [ UsesClause ] [ CostClause ] [ SpecClause ] Block
+CostClause    = "cost" "[" CostSlot "," CostSlot "," CostSlot "," CostSlot "]"
+CostSlot      = IntLiteral | ParamVar | "O" "(" ParamVar ")"
+ParamVar      = Ident   -- must name a function parameter
 Struct        = "struct" Ident [ TypeParams ] StructBody [ "deriving" "[" Capabilities "]" ]
 Type          = "type" Ident [ TypeParams ] "=" TypeDef
-Capability    = "capability" Ident [ TypeParams ] "{" { CapabilityItem } "}"
+Trait         = "trait" Ident [ TypeParams ] "{" { TraitItem } "}"
+ModulePath    = Ident { "." Ident }
+QualifiedItem = ModulePath "." Ident
 
 Expr          = Literal | Ident | Block | If | Match | Lambda | BinOp | UnaryOp | Call | Pipe
 Block         = "{" { Stmt ";" } [ Expr ] "}"
@@ -2016,9 +2009,12 @@ Pipe          = Expr "|>" Expr
 
 Pattern       = Literal | Ident | Constructor | Struct | List | "_" | Pattern "|" Pattern
 Constructor   = Ident "(" [ Pattern { "," Pattern } ] ")"
+SpecClause    = "spec" "{" { SpecItem } "}"
 
-Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
+Type          = Ident | Type "[" Types "]" | "(" [ Types ] ")" "->" Type [ "!" "[" Types "]" ]
 ```
+
+> 注：以上 `Function` 产生式按文档推荐顺序书写签名子句；解析器实际接受 `where`、`uses`、`cost`、`spec` 按任意顺序出现并进行规范化。当前 `CostSlot` 仅覆盖整数常量、参数变量与线性 `O(n)` 记法；`urls.len`、`expr_size(expr) * 10`、`O(log n)`、`max`/`min` 等更丰富形式仍待后续版本统一。
 
 ### 14.5 设计决策总结 (Design decisions summary)
 
@@ -2028,7 +2024,7 @@ Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
 4. **管道操作符**：提升数据流可读性，函数式风格
 5. **固定操作符**：避免操作符重载的复杂性
 6. **f-string/t-string**：现代字符串处理，灵活插值
-7. **`! [Errors]`**：显式错误声明，类型安全的异常
+7. **`! Errors`**：显式错误声明，类型安全的异常
 8. **Lambda `|x| x`**：简洁闭包语法，高阶函数友好
 9. **嵌套块注释**：更好的代码注释体验
 10. **`let` 不可变 + `Ref[T]`**：默认不可变，显式可变性
@@ -2038,7 +2034,7 @@ Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
 14. **后缀类型**：`name: Type` 与主流语言一致
 15. **`deriving` + `impl`**：自动派生常见 trait，手动实现用 `impl` 块
 16. **`struct`/`type`**：清晰区分记录与求和类型
-17. **`capability` 关键字**：统一 trait 与能力系统
+17. **`trait` 关键字**：统一 trait 与能力系统
 18. **TCO 保证**：递归无忧
 19. **基本类型清单**：覆盖常见数值、字符串、集合
 
@@ -2049,13 +2045,13 @@ Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
 本文档定义了 Spore 语言 v0.1 的核心语法规范，涵盖：
 
 - **词法结构**：关键字、操作符、字面量、注释、标识符
-- **类型系统**：struct、type、capability、泛型、refinement 类型
+- **类型系统**：struct、type、trait、泛型、refinement 类型
 - **表达式系统**：if、match、lambda、pipe、block、error propagation
-- **函数定义**：完整签名、where/with/uses/cost 子句、效应、成本、资源依赖
+- **函数定义**：完整签名、where/uses/cost/spec 子句、效应、成本、资源依赖
 - **模式匹配**：穷尽性、守卫、或模式、嵌套模式
 - **模块系统**：可见性、导入、别名
-- **并发机制**：parallel_scope、spawn、channel、select
-- **错误处理**：`! [Errors]`、`?` 操作符、match 错误
+- **并发机制**：parallel_scope、spawn、task.await、Channel.new、select
+- **错误处理**：`! Errors`、`?` 操作符、match 错误
 - **Hole 语法**：渐进式开发、类型推断
 - **语法糖**：字符串插值、字段省略、管道变换
 - **命名约定**：snake_case、PascalCase、SCREAMING_SNAKE_CASE
@@ -2090,30 +2086,35 @@ Type          = Ident | Type "[" Types "]" | "fn" "(" Types ")" "->" Type
 ### B.2 语法模板
 
 ```
-fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
-[where <GenericName>: <Constraint>, ...]
+fn <name>[<generics>](<params>) -> <ReturnType> [! ErrorTypes]
+[where <GenericName>: <Constraint>]  -- repeat one line per bound
 [uses [<Capability>, ...]]
-[cost ≤ <N>]
+[cost [<compute>, <alloc>, <io>, <parallel>]]
+[spec { ... }]
 {
     <body>
 }
 ```
 
-### B.3 签名子句排列顺序（约定）
+其中 `<compute>` / `<alloc>` / `<io>` / `<parallel>` 当前都只接受三类写法：整数常量、参数变量、线性 `O(n)`。
 
-```
--- 1. 泛型约束（Rust 风格，每条独立一行）
-where T: Serialize + Eq
+### B.3 签名子句排列顺序（规范约定）
+
+解析器接受 `where`、`uses`、`cost`、`spec` 子句按任意顺序出现。语法标准不把子句顺序视为语义的一部分；为了保证文档、格式化输出与代码评审的一致性，推荐的规范顺序为：`where` → `uses` → `cost` → `spec`。当前规范中 `cost` 只接受固定顺序向量 `cost [compute, alloc, io, parallel]`，并且每个槽位只接受整数常量、参数变量或线性 `O(n)`；旧的 `cost <= expr`、`log/max/min` 风格的标量表面语法，以及更丰富的代数/组合项都留待后续版本讨论。
+
+```spore
+-- Canonical order
+where T: Serialize
+where T: Eq
 where U: Display
-
--- 2. 资源/能力集
 uses [Compute]
-
--- 3. 代价上界
-cost ≤ 500
+cost [500, 0, 0, 0]
+spec {
+    example "round-trip" => encode(value) |> decode == value
+}
 ```
 
-顺序不强制，但编译器格式化输出会遵循此约定。
+编译器格式化输出与文档示例都遵循这一顺序。`where T: Serialize + Eq`、`where { ... }` 与逗号分组写法仍然属于未来讨论，不是当前规范的一部分。
 
 ### B.4 效果属性（编译器自动推断）
 
@@ -2138,7 +2139,7 @@ cost ≤ 500
 | 函数名 | `parse_config` → `load_config` |
 | 参数名 | `raw` → `input` |
 | 参数顺序 | `(a, b)` → `(b, a)` |
-| 参数类型 | `String` → `Bytes` |
+| 参数类型 | `Str` → `Bytes` |
 | 返回类型 | `Config` → `Settings` |
 | 错误类型集合 | 增删任一错误类型 |
 | 代价上界 | `≤ 200` → `≤ 300` |
@@ -2150,14 +2151,14 @@ cost ≤ 500
 #### 编译器推断输出示例
 
 ```spore
-fn add(a: Int, b: Int) -> Int {
+fn add(a: I32, b: I32) -> I32 {
     a + b
 }
 ```
 
 编译器推断输出：
 ```
-  cost = 1
+  cost [1, 0, 0, 0]
   uses []
   -- 编译器自动推断: pure, deterministic, total (基于 uses [])
 ```
@@ -2165,14 +2166,14 @@ fn add(a: Int, b: Int) -> Int {
 #### 有错误的纯函数
 
 ```spore
-fn parse_int(input: String) -> Int ! [InvalidFormat] {
+fn parse_int(input: Str) -> I32 ! InvalidFormat {
     ...
 }
 ```
 
 编译器推断输出：
 ```
-  cost = 12
+  cost [12, 0, 0, 0]
   uses [Compute]
   -- 编译器自动推断: deterministic (基于 uses [Compute])
 ```
@@ -2180,7 +2181,7 @@ fn parse_int(input: String) -> Int ! [InvalidFormat] {
 #### 不完整函数（未声明 uses，有能力依赖）
 
 ```spore
-fn fetch_data(url: Url) -> Data ! [NetworkError] {
+fn fetch_data(url: Url) -> Data ! NetworkError {
     http.get(url)    -- 调用了 http 模块
 }
 ```
@@ -2201,7 +2202,7 @@ ERROR [incomplete-function] fetch_data 是不完整函数：
 
 ```spore
 /// @idempotent
-fn validate_payment(amount: Money, method: PaymentMethod) -> Receipt ! [Declined, InsufficientFunds]
+fn validate_payment(amount: Money, method: PaymentMethod) -> Receipt ! Declined | InsufficientFunds
 uses [NetRead]
 {
     ?validate_logic
@@ -2219,7 +2220,7 @@ uses [NetRead]
   },
   "available_capabilities": ["NetRead"],
   "candidate_functions": [
-    "payment_gateway.charge(amount: Money, method: PaymentMethod) -> Receipt ! [Declined, InsufficientFunds]"
+    "payment_gateway.charge(amount: Money, method: PaymentMethod) -> Receipt ! Declined | InsufficientFunds"
   ],
   "error_types_to_handle": ["Declined", "InsufficientFunds"]
 }

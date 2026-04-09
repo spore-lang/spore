@@ -73,7 +73,7 @@ sig hash 变化时，沿依赖图向下游传播（topological order）。每层
 // NOTE: This is algorithm pseudocode; Spore itself has no loop constructs —
 //       use recursion + higher-order functions (each/fold/map/filter).
 
-fn compile_batch(modules: Set<ModuleId>, graph: DepGraph):
+fn compile_batch(modules: Set[ModuleId], graph: DepGraph):
     let levels = topological_levels(modules, graph)
     levels |> each(fn(level) {
         level |> parallel_each(fn(module_id) {
@@ -243,7 +243,7 @@ type HoleReport:
 type Hole:
     module: ModuleId
     location: SourceLocation
-    name: String
+    name: Str
     signature: Type
 
 type BlockedHole:
@@ -258,8 +258,8 @@ $ spore watch
 [watch] ✓ 初始编译完成，0 错误，3 holes
 
   Holes (3):
-    ◯ src/auth.spore:10  hash_password : String -> HashedPassword
-    ◯ src/auth.spore:20  verify_password : String -> HashedPassword -> Bool
+    ◯ src/auth.spore:10  hash_password : Str -> HashedPassword
+    ◯ src/auth.spore:20  verify_password : Str -> HashedPassword -> Bool
     ◯ src/app.spore:50   create_user : UserInput -> Result User Error
          ⚠ 被阻塞: 依赖 hash_password, verify_password
   可立即填充: hash_password, verify_password
@@ -269,7 +269,7 @@ $ spore watch
 [watch] 文件变化: src/auth.spore → 重编 OK (28ms)
   ✓ 0 错误，2 holes (之前: 3)
     ● hash_password  [已填充 ✓]
-    ◯ verify_password : String -> HashedPassword -> Bool
+    ◯ verify_password : Str -> HashedPassword -> Bool
     ◯ create_user ⚠ 被阻塞: 依赖 verify_password
   可立即填充: verify_password
 
@@ -348,11 +348,11 @@ type ModuleInfo:
 
 ```
 # 修改前
-module HttpClient:
+file src/http_client.spore:
     capabilities: {Network}
 
 # 修改后 — 新增 FileSystem
-module HttpClient:
+file src/http_client.spore:
     capabilities: {Network, FileSystem}
 ```
 
@@ -447,7 +447,7 @@ LSP server 启动 `spore watch --json` 子进程，解析 JSON 流转换为 LSP 
       "severity": 1,
       "code": "E042",
       "source": "spore",
-      "message": "类型不匹配: 期望 `Token`，实际 `String`"
+      "message": "类型不匹配: 期望 `Token`，实际 `Str`"
     }]
   }
 }

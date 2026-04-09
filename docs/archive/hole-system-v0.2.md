@@ -26,7 +26,7 @@
 Every hole has a name. Anonymous holes are forbidden—naming is how humans and Agents refer to a specific gap.
 
 ```spore
-fn calculate_tax(income: Money, region: Region) -> Money ! [InvalidRegion]
+fn calculate_tax(income: Money, region: Region) -> Money ! InvalidRegion
     uses [TaxTable]
     cost ≤ 500
 {
@@ -58,7 +58,7 @@ If the annotation conflicts with the inferred type, the compiler emits a `hole-t
 A function may contain any number of holes. Each independently named, independently fillable.
 
 ```spore
-fn reconcile(ledger: Ledger, transactions: Vec<Tx>) -> Ledger ! [Mismatch]
+fn reconcile(ledger: Ledger, transactions: Vec<Tx>) -> Ledger ! Mismatch
     cost ≤ 5000
 {
     let grouped = group_by_account(transactions)
@@ -73,7 +73,7 @@ fn reconcile(ledger: Ledger, transactions: Vec<Tx>) -> Ledger ! [Mismatch]
 Holes can appear anywhere an expression is expected, including inside function arguments, match arms, and let bindings:
 
 ```spore
-fn render(page: Page) -> Html ! [TemplateError]
+fn render(page: Page) -> Html ! TemplateError
     uses [Templates]
     cost ≤ 800
 {
@@ -89,7 +89,7 @@ fn render(page: Page) -> Html ! [TemplateError]
 
 The compiler infers:
 - `?nav_items` must have the type that `render_nav` expects as its first parameter.
-- `?gallery_renderer` must have the same type as the other match arms (here `Html ! [TemplateError]`).
+- `?gallery_renderer` must have the same type as the other match arms (here `Html ! TemplateError`).
 
 ### 1.5 Syntax Grammar (Formal)
 
@@ -190,7 +190,7 @@ Simulating with `shape = Rectangle(3.0, 4.0)` reaches `?describe_rect` and emits
 If the scrutinee of a `match` is itself a hole, the compiler reports **all branches** as blocked but still infers the hole's type from usage:
 
 ```spore
-fn classify(data: RawData) -> Category ! [ParseError]
+fn classify(data: RawData) -> Category ! ParseError
 {
     match ?parsed_data {         -- hole as scrutinee
         Valid(v)   => categorize(v),
@@ -253,7 +253,7 @@ When simulation reaches a hole, it emits:
     "dependencies": []
   },
   "type": {
-    "expected": "ChargeResult ! [PaymentFailed, GatewayTimeout]",
+    "expected": "ChargeResult ! PaymentFailed | GatewayTimeout",
     "inferred_from": "return position of fn charge_customer"
   },
   "bindings": [
@@ -287,14 +287,14 @@ When simulation reaches a hole, it emits:
   "candidates": [
     {
       "function": "gateway_charge",
-      "signature": "(Card, Money) -> ChargeResult ! [PaymentFailed, GatewayTimeout]",
+      "signature": "(Card, Money) -> ChargeResult ! PaymentFailed | GatewayTimeout",
       "match_quality": "exact",
       "requires_capabilities": ["PaymentGateway"],
       "estimated_cost": 800
     },
     {
       "function": "retry_charge",
-      "signature": "(Card, Money, RetryPolicy) -> ChargeResult ! [PaymentFailed, GatewayTimeout]",
+      "signature": "(Card, Money, RetryPolicy) -> ChargeResult ! PaymentFailed | GatewayTimeout",
       "match_quality": "partial (needs RetryPolicy)",
       "requires_capabilities": ["PaymentGateway"],
       "estimated_cost": 1500
@@ -303,7 +303,7 @@ When simulation reaches a hole, it emits:
   "dependent_holes": [],
   "enclosing_function": {
     "name": "charge_customer",
-    "signature": "(Customer, Money) -> ChargeResult ! [PaymentFailed, GatewayTimeout]",
+    "signature": "(Customer, Money) -> ChargeResult ! PaymentFailed | GatewayTimeout",
     "effects": ["deterministic"],
     "full_cost_budget": 2000
   }
@@ -332,7 +332,7 @@ When simulation reaches a hole, it emits:
 ### 3.4 Multi-Path Simulation
 
 ```spore
-fn route(request: Request) -> Response ! [NotFound, Unauthorized]
+fn route(request: Request) -> Response ! NotFound | Unauthorized
     uses [Auth, Database]
     cost ≤ 3000
 {
@@ -382,7 +382,7 @@ Summary:
 4. **Budget remaining**: reported so the Agent knows how much room is left.
 
 ```spore
-fn pipeline(data: Vec<Record>) -> Summary ! [DataError]
+fn pipeline(data: Vec<Record>) -> Summary ! DataError
     cost ≤ 10000
 {
     let cleaned = clean(data)          -- cost: 200
@@ -401,7 +401,7 @@ fn pipeline(data: Vec<Record>) -> Summary ! [DataError]
 A developer writes a hole to mark an unfinished piece of logic:
 
 ```spore
-fn send_notification(user: User, event: Event) -> NotifyResult ! [DeliveryFailed]
+fn send_notification(user: User, event: Event) -> NotifyResult ! DeliveryFailed
     uses [EmailService, PushService]
     cost ≤ 500
 {
@@ -421,7 +421,7 @@ Holes in project:
 
   ?dispatch_notification
     in: send_notification (src/notify.spore:8)
-    type: NotifyResult ! [DeliveryFailed]
+    type: NotifyResult ! DeliveryFailed
     capabilities: [EmailService, PushService]
 
   ?transform_step
@@ -431,12 +431,12 @@ Holes in project:
 
   ?handle_post
     in: route (src/server.spore:12)
-    type: Response ! [NotFound, Unauthorized]
+    type: Response ! NotFound | Unauthorized
     capabilities: [Auth, Database]
 
   ?handle_put
     in: route (src/server.spore:13)
-    type: Response ! [NotFound, Unauthorized]
+    type: Response ! NotFound | Unauthorized
     capabilities: [Auth, Database]
 
 Total: 4 holes across 3 functions
@@ -464,7 +464,7 @@ After filling, the compiler re-checks:
 ```
 $ sporec check src/notify.spore
 
-[ok] send_notification : (User, Event) -> NotifyResult ! [DeliveryFailed]
+[ok] send_notification : (User, Event) -> NotifyResult ! DeliveryFailed
   cost: 420 (within budget of 500)
   all holes filled ✓
 ```
@@ -474,9 +474,9 @@ If the filling is incorrect:
 ```
 $ sporec check src/notify.spore
 
-[error] send_notification : (User, Event) -> NotifyResult ! [DeliveryFailed]
+[error] send_notification : (User, Event) -> NotifyResult ! DeliveryFailed
   line 10: type mismatch
-    expected: NotifyResult ! [DeliveryFailed]
+    expected: NotifyResult ! DeliveryFailed
     found:    String
   holes remaining: 0 (but function has errors)
 ```
@@ -486,7 +486,7 @@ $ sporec check src/notify.spore
 Filling one hole may reveal new holes that were previously unreachable:
 
 ```spore
-fn process(input: RawData) -> Output ! [ProcessError]
+fn process(input: RawData) -> Output ! ProcessError
     cost ≤ 5000
 {
     let parsed = ?parse_step
@@ -535,11 +535,11 @@ $ sporec --holes --module billing    # filter by module
 ```
 $ sporec --holes
 
-  ?charge_payment     in process_order  (src/orders.spore:18)   Response ! [PaymentFailed]
-  ?handle_post        in route          (src/server.spore:12)   Response ! [NotFound, Unauthorized]
-  ?dispatch_notif     in send_notif     (src/notify.spore:8)    NotifyResult ! [DeliveryFailed]
-  ?reserve_stock      in process_order  (src/orders.spore:17)   ReserveResult ! [OutOfStock]
-  ?handle_put         in route          (src/server.spore:13)   Response ! [NotFound, Unauthorized]
+  ?charge_payment     in process_order  (src/orders.spore:18)   Response ! PaymentFailed
+  ?handle_post        in route          (src/server.spore:12)   Response ! NotFound | Unauthorized
+  ?dispatch_notif     in send_notif     (src/notify.spore:8)    NotifyResult ! DeliveryFailed
+  ?reserve_stock      in process_order  (src/orders.spore:17)   ReserveResult ! OutOfStock
+  ?handle_put         in route          (src/server.spore:13)   Response ! NotFound | Unauthorized
   ?transform_step     in pipeline       (src/etl.spore:14)      Vec<TransformedRecord>
 
 Total: 6 holes, 4 functions affected
@@ -556,7 +556,7 @@ $ sporec --holes --json
       "name": "charge_payment",
       "location": { "file": "src/orders.spore", "line": 18, "column": 5 },
       "enclosing_function": "process_order",
-      "expected_type": "Response ! [PaymentFailed]",
+      "expected_type": "Response ! PaymentFailed",
       "capabilities": ["Inventory", "PaymentGateway"],
       "dependencies": []
     },
@@ -663,7 +663,7 @@ The budget constraint propagates into the HoleReport so the Agent knows it canno
 Holes inherit the enclosing function's `uses` list. A filling can only call functions whose required capabilities are a subset of the available set.
 
 ```spore
-fn sync_data(src: Database, dst: Database) -> SyncResult ! [SyncError]
+fn sync_data(src: Database, dst: Database) -> SyncResult ! SyncError
     uses [DatabaseRead, DatabaseWrite, AuditLog]
     cost ≤ 10000
 {
@@ -702,10 +702,10 @@ This means:
 
 ### 6.4 Error System
 
-The enclosing function's declared error list (`! [Err1, Err2]`) flows into the hole. The HoleReport includes `errors_to_handle`—the subset of declared errors not already handled by code before the hole.
+The enclosing function's declared error list (`! Err1 | Err2`) flows into the hole. The HoleReport includes `errors_to_handle`—the subset of declared errors not already handled by code before the hole.
 
 ```spore
-fn fetch_and_parse(url: Url) -> Document ! [NetworkError, ParseError, Timeout]
+fn fetch_and_parse(url: Url) -> Document ! NetworkError | ParseError | Timeout
     uses [Http]
     cost ≤ 3000
 {
@@ -743,7 +743,7 @@ fn generate_invoice(
     customer: Customer,
     items: Vec<LineItem>,
     tax_region: TaxRegion,
-) -> Invoice ! [TaxCalculationError, InvalidLineItem]
+) -> Invoice ! TaxCalculationError | InvalidLineItem
     uses [TaxTable]
     cost ≤ 5000
 {
@@ -788,7 +788,7 @@ $ sporec --query-hole ?validate_items --json
   "candidates": [
     {
       "function": "validate_line_items",
-      "signature": "(Vec<LineItem>) -> Vec<LineItem> ! [InvalidLineItem]",
+      "signature": "(Vec<LineItem>) -> Vec<LineItem> ! InvalidLineItem",
       "match_quality": "exact",
       "requires_capabilities": [],
       "estimated_cost": 300
@@ -804,7 +804,7 @@ $ sporec --query-hole ?validate_items --json
   "dependent_holes": ["compute_tax"],
   "enclosing_function": {
     "name": "generate_invoice",
-    "signature": "(Customer, Vec<LineItem>, TaxRegion) -> Invoice ! [TaxCalculationError, InvalidLineItem]",
+    "signature": "(Customer, Vec<LineItem>, TaxRegion) -> Invoice ! TaxCalculationError | InvalidLineItem",
     "effects": ["pure", "deterministic"],
     "full_cost_budget": 5000
   }
@@ -831,7 +831,7 @@ Reasoning (Agent-internal):
 ```
 $ sporec check src/billing/invoice.spore
 
-[partial] generate_invoice : (Customer, Vec<LineItem>, TaxRegion) -> Invoice ! [TaxCalculationError, InvalidLineItem]
+[partial] generate_invoice : (Customer, Vec<LineItem>, TaxRegion) -> Invoice ! TaxCalculationError | InvalidLineItem
   ?validate_items: filled ✓ (cost 300)
   ?compute_tax: still open
   known cost: 300 + 120 (sum, map, Invoice.new) = 420
@@ -868,7 +868,7 @@ $ sporec --query-hole ?compute_tax --json
   "candidates": [
     {
       "function": "lookup_tax_rate",
-      "signature": "(TaxRegion, Money) -> Money ! [TaxCalculationError]",
+      "signature": "(TaxRegion, Money) -> Money ! TaxCalculationError",
       "match_quality": "exact",
       "requires_capabilities": ["TaxTable"],
       "estimated_cost": 100
@@ -889,7 +889,7 @@ lookup_tax_rate(tax_region, subtotal)
 ```
 $ sporec check src/billing/invoice.spore
 
-[ok] generate_invoice : (Customer, Vec<LineItem>, TaxRegion) -> Invoice ! [TaxCalculationError, InvalidLineItem]
+[ok] generate_invoice : (Customer, Vec<LineItem>, TaxRegion) -> Invoice ! TaxCalculationError | InvalidLineItem
   cost: 520 (within budget of 5000)
   all holes filled ✓
 ```
@@ -988,7 +988,7 @@ The hole still appears in `--holes` output and still gets a HoleReport. The Agen
 An empty function body is syntactic sugar for a single unnamed hole. The compiler auto-names it:
 
 ```spore
-fn not_yet_implemented(x: Int, y: Int) -> Int ! [OverflowError]
+fn not_yet_implemented(x: Int, y: Int) -> Int ! OverflowError
     cost ≤ 100
 {
 }
@@ -1009,7 +1009,7 @@ $ sporec --holes
 
   ?not_yet_implemented_body
     in: not_yet_implemented (src/math.spore:1)
-    type: Int ! [OverflowError]
+    type: Int ! OverflowError
     note: auto-generated (empty body)
 ```
 
@@ -1018,9 +1018,9 @@ $ sporec --holes
 Closures can contain holes. The hole captures the closure's bindings:
 
 ```spore
-fn make_processor(config: Config) -> Fn(Data) -> Result ! [ProcessError]
+fn make_processor(config: Config) -> Fn(Data) -> Result ! ProcessError
 {
-    |data: Data| -> Result ! [ProcessError] {
+    |data: Data| -> Result ! ProcessError {
         ?process_with_config
     }
 }

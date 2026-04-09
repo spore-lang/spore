@@ -24,7 +24,7 @@ Spore's module system is the organizational backbone of the language. It answers
 
 1. **Where does code live?** — One `.spore` file = one module. No ambiguity.
 2. **Who can see what?** — Default private, explicit `pub` / `pub(pkg)` for visibility.
-3. **What can code do?** — Capabilities flow from Platforms through packages to modules to functions. A module declares a capability ceiling; functions within cannot exceed it.
+3. **What can code do?** — Capabilities flow from Platforms through packages to functions. Modules have no separate capability carrier or ceiling; only function signatures and package/Platform boundaries are checked.
 
 ### 1.1 Design Coordinates
 
@@ -40,7 +40,7 @@ The module system sits at the intersection of several Spore subsystems:
                     └──────┬──────┘
                            │
                     ┌──────▼──────┐
-                    │   Module    │  one .spore file, capability ceiling
+                    │   Module    │  one .spore file, file-derived name
                     └──────┬──────┘
                            │
               ┌────────────┼────────────┐
@@ -92,35 +92,33 @@ Every `.spore` file is exactly one module. The module name is derived from its p
 
 There is no separate module declaration syntax — the filesystem **is** the declaration. The compiler verifies that the directory structure forms a valid module tree at build time.
 
-### 2.2 Module Header (Optional)
+### 2.2 No In-File Module Declaration
 
-A module may optionally declare its capability ceiling at the top of the file:
+Modules do **not** begin with a `module ...` declaration. The file path already determines the module name, so the source file starts directly with imports and declarations:
 
 ```spore
 -- src/billing/invoice.spore
-module billing.invoice uses [PaymentGateway, AuditLog]
+import billing.types as types
+import billing.tax as tax
 
-import billing.types
-import billing.tax
-
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
-    cost ≤ 3000
+pub fn generate_invoice(order: Order) -> Invoice ! TaxError | ValidationError
     uses [PaymentGateway, AuditLog]
+    cost [3000, 0, 0, 0]
 {
-    let tax = billing.tax.calculate(order.items, order.region)
-    let line_items = build_line_items(order.items, tax)
+    let tax_result = tax.calculate(order.items, order.region)
+    let line_items = build_line_items(order.items, tax_result)
     finalize(order.customer, line_items)
 }
 
-fn build_line_items(items: Vec<Item>, tax: TaxResult) -> Vec<LineItem>
-    cost ≤ 500
+fn build_line_items(items: Vec[Item], tax_result: TaxResult) -> Vec[LineItem]
+    cost [500, 0, 0, 0]
 {
-    items |> map(fn(item) -> to_line_item(item, tax))
+    items |> map(fn(item) -> to_line_item(item, tax_result))
 }
 
-fn finalize(customer: Customer, items: Vec<LineItem>) -> Invoice ! [ValidationError]
-    cost ≤ 1000
+fn finalize(customer: Customer, items: Vec[LineItem]) -> Invoice ! ValidationError
     uses [AuditLog]
+    cost [1000, 0, 0, 0]
 {
     let invoice = Invoice.new(customer, items)
     audit_log.record("invoice_created", invoice.id)
@@ -130,9 +128,9 @@ fn finalize(customer: Customer, items: Vec<LineItem>) -> Invoice ! [ValidationEr
 
 Rules:
 
-- The `module` header is **optional**. If omitted, the module name is inferred from the file path.
-- If present, the declared module name **must** match the file path. A mismatch is a compiler error.
-- The `uses [...]` in the module header is the **capability ceiling** (see §6).
+- There is **no** optional module header.
+- A file's module name is always derived from its relative path under `src/`.
+- Source files carry no module-level capability metadata; capability checking stays on functions and package/Platform configuration.
 
 ### 2.3 Directory Structure Conventions
 
@@ -208,14 +206,14 @@ Module names follow these constraints:
 -- src/billing/invoice.spore
 
 -- Public: any importer can call this
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError] {
+pub fn generate_invoice(order: Order) -> Invoice ! TaxError {
     let validated = validate(order)
     compute_totals(validated)
 }
 
 -- Package-internal: other modules in this package can call this,
 -- but external packages cannot
-pub(pkg) fn validate(order: Order) -> ValidatedOrder ! [ValidationError] {
+pub(pkg) fn validate(order: Order) -> ValidatedOrder ! ValidationError {
     ...
 }
 
@@ -246,7 +244,7 @@ pub(pkg) type ValidatedOrder {
 
 -- Private type: only used in this module
 type InternalCache {
-    entries: Map<String, CacheEntry>,
+    entries: Map[Str, CacheEntry],
 }
 ```
 
@@ -404,7 +402,7 @@ Consumers import the shortcuts module:
 -- src/api/handler.spore
 import billing.shortcuts as bill
 
-fn handle_order(order: Order) -> Response ! [BillingError] {
+fn handle_order(order: Order) -> Response ! BillingError {
     let tax = bill.calculate_tax(order.items, order.region)
     let invoice: bill.Invoice = bill.generate(order)
     Response.ok(invoice)
@@ -513,8 +511,8 @@ billing.invoice.generate_invoice  sig=a3f7c2  impl=d8e1b4
 The `sig` hash `a3f7c2` (truncated for display; full hash is 32 hex characters) is computed from the **canonical signature**:
 
 ```
-fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
-    cost ≤ 3000
+fn generate_invoice(order: Order) -> Invoice ! TaxError | ValidationError
+    cost [3000, 0, 0, 0]
     uses [PaymentGateway, AuditLog]
 ```
 
@@ -644,7 +642,7 @@ Module: billing.invoice
   interface hash: 4c8e2a (from 1 pub function, 0 pub(pkg) functions)
 
   pub generate_invoice  sig=a3f7c2  impl=d8e1b4
-    (Order) -> Invoice ! [TaxError, ValidationError]
+    (Order) -> Invoice ! TaxError | ValidationError
 ```
 
 For a partial module:
@@ -656,140 +654,46 @@ Module: billing.invoice (partial)
   interface hash: 4c8e2a (from 1 pub function, 0 pub(pkg) functions)
 
   pub generate_invoice  sig=a3f7c2  impl=None (partial — contains holes)
-    (Order) -> Invoice ! [TaxError, ValidationError]
+    (Order) -> Invoice ! TaxError | ValidationError
 ```
 
 When a hole is filled, `sig` and the interface hash remain unchanged. Only `impl` transitions from `None` to a concrete hash. Dependents are unaffected.
 
 ---
 
-## 6. Module Capabilities
+## 6. Module-Level Capabilities
 
-### 6.1 Capability Ceiling
+Spore does **not** define module-level capability carriers or module-level capability ceilings.
+Capability checking is intentionally scoped to:
 
-A module **may** declare the maximum set of capabilities that its functions can use:
+- function signatures via `uses [...]`
+- package / application ceilings in `spore.toml`
+- Platform grants
 
-```spore
-module billing.invoice uses [PaymentGateway, AuditLog]
-```
+Importing a module never grants ambient authority, and modules do not have their own hidden capability metadata apart from the functions they contain.
 
-This means:
+### 6.1 Explicitly Out of Scope
 
-- Any function in `billing.invoice` can use `PaymentGateway`, `AuditLog`, or any subset.
-- No function in `billing.invoice` can use capabilities **not** in this list.
-- The module header is the **ceiling**, not the floor — functions may use fewer capabilities.
+- header-based `module ... uses ...` syntax
+- inferred or compiler-written module capability headers
+- diagnostics about module-level capability ceilings
 
-### 6.2 Ceiling Violation
+If the project ever revisits module-level capabilities, that would be a new design rather than latent v0.1 syntax.
 
-```spore
-module billing.invoice uses [PaymentGateway, AuditLog]
-
--- ERROR: FileWrite is not in the module's capability ceiling
-pub fn export_to_file(invoice: Invoice) -> Unit ! [IoError]
-    uses [FileWrite]
-{
-    ...
-}
-```
-
-```
-[error] capability ceiling violation at src/billing/invoice.spore:8
-  function export_to_file uses [FileWrite]
-  module billing.invoice allows [PaymentGateway, AuditLog]
-  ─── FileWrite is not in the module's capability set
-
-  help: either add FileWrite to the module declaration:
-          module billing.invoice uses [PaymentGateway, AuditLog, FileWrite]
-        or move this function to a module that allows FileWrite
-```
-
-### 6.3 Capability Inference
-
-If a module omits the `uses` declaration, the compiler **infers** the capability set from the union of all `pub` functions' capabilities:
-
-```spore
--- src/billing/invoice.spore
--- no module header
-
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError]
-    uses [PaymentGateway, AuditLog]
-{ ... }
-
-pub fn void_invoice(id: InvoiceId) -> Unit ! [NotFound]
-    uses [AuditLog]
-{ ... }
-```
-
-```
-$ sporec check src/billing/invoice.spore
-
-[ok] billing.invoice
-  exports: generate_invoice, void_invoice
-
-  [info] inferred module capabilities: [PaymentGateway, AuditLog]
-    ─── derived from union of pub function capabilities
-    ─── consider adding: module billing.invoice uses [PaymentGateway, AuditLog]
-```
-
-### 6.4 Auto-Fix with `sporec --fixes`
-
-The `--fixes` flag writes the inferred capability declaration into the source file:
-
-```
-$ sporec --fixes src/billing/invoice.spore
-
-Applied 1 fix:
-  src/billing/invoice.spore:1  added module capability declaration
-    + module billing.invoice uses [AuditLog, PaymentGateway]
-```
-
-The full workflow:
-
-```
-$ sporec check src/              -- see [info] diagnostics suggesting capabilities
-$ sporec --fixes src/            -- auto-apply all capability declarations
-$ sporec check src/              -- clean: no more [info] suggestions
-```
-
-### 6.5 Private Functions and the Ceiling
-
-Private functions are **also** bound by the module's capability ceiling (if declared). However, they do **not** contribute to the inferred capability set:
-
-```spore
-module billing.invoice uses [PaymentGateway, AuditLog]
-
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError]
-    uses [PaymentGateway, AuditLog]
-{ ... }
-
--- Private function: OK, uses subset of module ceiling
-fn log_audit(action: String, id: InvoiceId) -> Unit
-    uses [AuditLog]
-{ ... }
-
--- Private function: ERROR, exceeds module ceiling
-fn send_email(to: Email, body: String) -> Unit ! [SmtpError]
-    uses [EmailService]    -- not in module ceiling
-{ ... }
-```
-
-### 6.6 Capability Inheritance via Import
+### 6.4 Capability Propagation via Import
 
 Importing a module does **not** grant its capabilities to the importer. Capabilities are per-function, declared in `uses [...]`:
 
 ```spore
 -- src/api/handler.spore
-import billing.invoice
+import billing.invoice as invoice
 
--- This function calls billing.invoice.generate_invoice, which uses
--- [PaymentGateway, AuditLog]. Those capabilities must be available
--- in the platform, but handler itself only needs what IT directly uses.
-pub fn handle_create_invoice(req: Request) -> Response ! [ApiError]
-    uses [PaymentGateway, AuditLog]   -- must declare because generate_invoice needs them
+pub fn handle_create_invoice(req: Request) -> Response ! ApiError
+    uses [PaymentGateway, AuditLog]
 {
     let order = parse_order(req.body)
-    let invoice = billing.invoice.generate_invoice(order)
-    Response.ok(invoice)
+    let created = invoice.generate_invoice(order)
+    Response.ok(created)
 }
 ```
 
@@ -890,10 +794,8 @@ Random         = "platform.io.random"
 -- This is the entry point of a Spore Platform.
 -- Only platform code can perform raw IO operations.
 
-module platform.main
-
 -- Platform-provided capability: Stdout
-pub fn stdout_write(message: String) -> Unit ! [IoError]
+pub fn stdout_write(message: Str) -> () ! IoError
     uses [RawSyscall]       -- only platforms have RawSyscall
 {
     -- This is the only place where raw system calls happen
@@ -901,7 +803,7 @@ pub fn stdout_write(message: String) -> Unit ! [IoError]
 }
 
 -- Platform-provided capability: FileRead
-pub fn file_read(path: FilePath) -> Bytes ! [IoError, FileNotFound]
+pub fn file_read(path: FilePath) -> Bytes ! IoError | FileNotFound
     uses [RawSyscall]
 {
     let fd = syscall.open(path.to_string(), OpenMode.Read)
@@ -922,20 +824,18 @@ pub fn clock_now() -> Timestamp
 
 ```spore
 -- src/main.spore
-module main
+import billing.invoice as invoice
+import std.io as io
 
-import billing.invoice
-import std.io
-
-pub fn main(args: Vec<String>) -> Unit ! [AppError]
+pub fn main(args: Vec<Str>) -> () ! AppError
     uses [Stdout, FileRead, PaymentGateway, AuditLog]
 {
     let order = load_order(args.get(1))
-    let invoice = billing.invoice.generate_invoice(order)
-    std.io.println(invoice.to_string())
+    let created = invoice.generate_invoice(order)
+    io.println(created.to_string())
 }
 
-fn load_order(path: String) -> Order ! [IoError, ParseError]
+fn load_order(path: Str) -> Order ! IoError | ParseError
     uses [FileRead]
 {
     let content = std.io.read_file(FilePath.new(path))
@@ -1124,7 +1024,7 @@ impl = "b2c4a7"
 
 Holes respect module boundaries:
 
-- A hole in module A can only be filled with code that respects A's capability ceiling.
+- A hole in module A can only be filled with code that respects the enclosing function's `uses [...]` requirements and any package/platform ceilings in force.
 - A hole's candidates (functions listed in the HoleReport) are filtered by visibility — only items visible from the hole's location are suggested.
 - Partial modules (modules containing holes) are valid compilation units. They export their `pub` items normally, but those items are marked `partial` and have `impl = None` in `.spore-lock` (no implementation hash is assigned until all holes are filled).
 
@@ -1135,7 +1035,7 @@ Holes by module:
 
   billing.invoice (partial)
     ?invoice_logic at line 12
-      type: Invoice ! [TaxError]
+      type: Invoice ! TaxError
       capabilities: [PaymentGateway, AuditLog]
       budget remaining: 2400 ops
 
@@ -1149,7 +1049,7 @@ A module that calls a partial function becomes **transitively partial**. The com
 -- src/api/handler.spore
 import billing.invoice
 
-pub fn handle(req: Request) -> Response ! [ApiError]
+pub fn handle(req: Request) -> Response ! ApiError
     uses [PaymentGateway, AuditLog]
 {
     -- generate_invoice is partial (contains holes)
@@ -1162,7 +1062,7 @@ pub fn handle(req: Request) -> Response ! [ApiError]
 ```
 $ sporec check src/api/handler.spore
 
-[partial] api.handler.handle : (Request) -> Response ! [ApiError]
+[partial] api.handler.handle : (Request) -> Response ! ApiError
   depends on partial: billing.invoice.generate_invoice
   ─── this function will become complete when billing.invoice.generate_invoice
       has all its holes filled
@@ -1172,7 +1072,7 @@ $ sporec check src/api/handler.spore
 
 #### Module-Level Cost Budgets
 
-Spore does not enforce module-level cost budgets. Cost is a per-function property declared via `cost ≤ N`. However, the `spore` tool can report aggregate cost information per module:
+Spore does not enforce module-level cost budgets. Cost is a per-function property declared via `cost [compute, alloc, io, parallel]`. However, the `spore` tool can report aggregate cost information per module:
 
 ```
 $ spore cost-report billing.invoice
@@ -1180,8 +1080,8 @@ $ spore cost-report billing.invoice
 Module: billing.invoice
 
   Function costs:
-    generate_invoice    cost ≤ 3000  (measured: 2800)
-    void_invoice        cost ≤ 500   (measured: 320)
+    generate_invoice    cost [3000, 0, 0, 0]  (measured: [2800, 40, 2, 0])
+    void_invoice        cost [500, 0, 0, 0]   (measured: [320, 12, 1, 0])
 
   Module aggregate:
     max single-call cost: 3000 ops (generate_invoice)
@@ -1193,7 +1093,7 @@ Module: billing.invoice
 When a function calls an imported function, the callee's declared cost bound is used for cost estimation:
 
 ```spore
--- billing.tax.calculate has: cost ≤ 800
+-- billing.tax.calculate has: cost [800, 0, 0, 0]
 -- billing.invoice.generate_invoice calls calculate:
 --   cost contribution = 800 (from calculate's declared bound)
 ```
@@ -1234,18 +1134,18 @@ Modules define and export error types like any other type:
 -- src/billing/errors.spore
 
 pub type BillingError {
-    TaxCalculationFailed { region: Region, reason: String },
+    TaxCalculationFailed { region: Region, reason: Str },
     InvoiceGenerationFailed { order_id: OrderId },
     PaymentDeclined { amount: Money, code: ErrorCode },
 }
 
 pub type ValidationError {
-    MissingField { field_name: String },
-    InvalidValue { field_name: String, value: String, expected: String },
+    MissingField { field_name: Str },
+    InvalidValue { field_name: Str, value: Str, expected: Str },
 }
 ```
 
-Error types follow the same visibility rules as all other types. A function's error list (`! [TaxError, ValidationError]`) must reference only error types that are visible from the function's module.
+Error types follow the same visibility rules as all other types. A function's error list (`! TaxError | ValidationError`) must reference only error types that are visible from the function's module.
 
 Cross-module error propagation:
 
@@ -1254,7 +1154,7 @@ Cross-module error propagation:
 import billing.invoice
 import billing.errors
 
-pub fn handle_create(req: Request) -> Response ! [billing.errors.BillingError, ParseError]
+pub fn handle_create(req: Request) -> Response ! billing.errors.BillingError | ParseError
     uses [PaymentGateway, AuditLog]
 {
     let order = parse_request(req)    -- may raise ParseError
@@ -1400,8 +1300,8 @@ pub type InvoiceStatus {
 }
 
 pub type LineItem {
-    description: String,
-    quantity: Int,
+    description: Str,
+    quantity: I32,
     unit_price: Money,
     tax_rate: Decimal,
 }
@@ -1475,12 +1375,12 @@ Within a single module, functions can reference each other regardless of declara
 ```spore
 -- src/billing/invoice.spore
 
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError] {
+pub fn generate_invoice(order: Order) -> Invoice ! TaxError {
     let tax = calculate_local_tax(order)    -- defined below: OK
     build_invoice(order, tax)               -- defined below: OK
 }
 
-fn calculate_local_tax(order: Order) -> TaxResult ! [TaxError] {
+fn calculate_local_tax(order: Order) -> TaxResult ! TaxError {
     ...
 }
 
@@ -1529,7 +1429,7 @@ A module with holes can still be imported and its types used. Only function **ca
 
 ```spore
 -- src/billing/invoice.spore (has holes)
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError] {
+pub fn generate_invoice(order: Order) -> Invoice ! TaxError {
     ?invoice_logic
 }
 
@@ -1537,7 +1437,7 @@ pub fn generate_invoice(order: Order) -> Invoice ! [TaxError] {
 import billing.invoice
 
 -- This compiles fine. handler is transitively partial.
-pub fn handle(req: Request) -> Response ! [ApiError] {
+pub fn handle(req: Request) -> Response ! ApiError {
     let inv = billing.invoice.generate_invoice(parse_order(req))
     Response.ok(inv)
 }
@@ -1633,19 +1533,11 @@ Spore uses generics (`where T: Constraint`) for type-level parameterization and 
 
 **Reference**: Rust's decision to use generics instead of functors. Haskell's use of typeclasses. The observation from the research that "languages that integrate parameterization into the core type system seem to achieve similar results with less conceptual overhead."
 
-### 12.7 Module-Level Capability Ceiling (novel)
+### 12.7 No Module-Level Capability Ceiling
 
-**Decision**: Modules can declare a capability ceiling that constrains all contained functions.
+**Decision**: Spore has no module-level capability carrier and no module-level capability ceiling.
 
-**Why**: This is Spore's unique contribution. No other language in the survey enforces module-level capability bounds. The benefits:
-
-- **Audibility**: A reader can glance at the module header and know the maximum capability surface.
-- **Architecture enforcement**: A module declared as `uses [Compute]` can never accidentally introduce IO.
-- **Agent-friendly**: An Agent can quickly filter modules by capability requirements.
-
-The optional nature (with inference and `--fixes` auto-application) makes it zero-cost to adopt: you start without capability declarations, the compiler suggests them, and `sporec --fixes` writes them in.
-
-**Reference**: Koka's insight that effects and modules should be designed together. Roc's insight that capability boundaries should be explicit.
+**Why**: File paths fully determine module identity, while capability checking stays attached to function signatures and package / Platform configuration. This keeps authority explicit at call boundaries and avoids hidden module metadata.
 
 ### 12.8 Import/Alias Separation (novel)
 
@@ -1675,7 +1567,7 @@ sporec check --show-deps      Show dependency graph
 sporec build                  Build all modules in topological order
 sporec build --show-order     Show build order
 sporec --holes [path]         List all holes across modules
-sporec --fixes [path]         Auto-apply inferred capability declarations
+sporec --fixes [path]         Apply compiler-provided source fixes (never writes module capability metadata)
 sporec fmt [path]             Format source, including import ordering
 ```
 
@@ -1710,25 +1602,21 @@ $ touch src/billing/refund.spore
 # 3. Check for errors
 $ sporec check src/billing/refund.spore
 
-# 4. See inferred capabilities
-# [info] inferred module capabilities: [PaymentGateway, AuditLog]
+# 4. Review function-level capabilities in signatures
 
-# 5. Auto-apply capability declaration
-$ sporec --fixes src/billing/refund.spore
-
-# 6. Check again — clean
+# 5. Check again — clean
 $ sporec check src/billing/refund.spore
 
-# 7. View the module's public API
+# 6. View the module's public API
 $ spore exports billing.refund
 
-# 8. View the full dependency graph
+# 7. View the full dependency graph
 $ sporec check --show-deps
 
-# 9. Build
+# 8. Build
 $ sporec build
 
-# 10. If a signature changed, review and accept
+# 9. If a signature changed, review and accept
 $ spore --permit billing.refund.process_refund
 ```
 
@@ -1737,8 +1625,7 @@ $ spore --permit billing.refund.process_refund
 ## Appendix B: Grammar Summary
 
 ```
--- Module header (optional)
-module_header ::= 'module' module_path ('uses' capability_list)?
+-- No in-file module header; module path comes from file location
 
 -- Imports
 import_decl   ::= 'import' module_path ('as' IDENT)?

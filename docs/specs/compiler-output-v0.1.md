@@ -46,7 +46,7 @@ All diagnostics carry a categorized error code:
 |--------|----------|----------|
 | `E0xxx` | Type errors | type mismatch, missing field, arity error |
 | `W0xxx` | Warnings | unused variable, redundant pattern, shadowing |
-| `C0xxx` | Capability violations | undeclared capability, exceeding module ceiling |
+| `C0xxx` | Capability violations | undeclared capability, callee capability leak, platform capability denial |
 | `K0xxx` | Cost violations | exceeding budget, unbounded call without `cost_limit` |
 | `H0xxx` | Hole diagnostics | hole report, partial function, hole type conflict |
 | `M0xxx` | Module errors | circular dependency, visibility violation, import not found |
@@ -141,7 +141,7 @@ error[E0301]: type mismatch
   --> src/billing.spore:42:22
    |
 42 |     charge(card, "fifty dollars")
-   |                  ^^^^^^^^^^^^^^^ expected `Money`, found `String`
+   |                  ^^^^^^^^^^^^^^^ expected `Money`, found `Str`
    |
 help: try `Money.from_string("fifty dollars")`
 ```
@@ -165,10 +165,9 @@ error[C0101]: undeclared capability
   --> src/report.spore:27:5
    |
 27 |     http.get(endpoint)
-   |     ^^^^^^^^^^^^^^^^^^ requires `NetRead`, not declared in `uses`
-   |
-   = note: enclosing function `fetch_data` has `uses []`
-   = note: module ceiling for `report` allows [Compute, FileRead]
+    |     ^^^^^^^^^^^^^^^^^^ requires `NetRead`, not declared in `uses`
+    |
+    = note: enclosing function `fetch_data` has `uses []`
 help: add a `uses [NetRead]` clause to `fetch_data`
 ```
 
@@ -183,7 +182,7 @@ error[K0101]: cost budget exceeded
    |
    = note: `summarize` budget is 5000 op, already used 1200 op
    = note: remaining budget: 3800 op, shortfall: 4400 op
-help: filter `records` before scanning, or increase budget to `cost ≤ 10000`
+help: filter `records` before scanning, or increase budget to `cost [10000, 0, 0, 0]`
 ```
 
 #### Hole Diagnostic (H0101)
@@ -234,14 +233,14 @@ Verbose blocks appear immediately after the `help:` line, indented with two extr
 
 ```
   inference chain:
-    <expr> : <Type>       (<source>)
-    <expr> : <Type>       (<source>)
-    <Type> ≠ <Type>       (<reason>)
+    <expr> : [Type]       (<source>)
+    <expr> : [Type]       (<source>)
+    [Type] ≠ [Type]       (<reason>)
 
   candidates considered:
-    <From> -> <To> via <path>     <status>
+    [From] -> [To] via <path>     <status>
 
-  capability context: [<Cap1>, <Cap2>, ...]
+  capability context: [[Cap1], [Cap2], ...]
   cost at this point: <used> / budget <total>
 ```
 
@@ -254,18 +253,18 @@ error[E0301]: type mismatch
   --> src/billing.spore:42:22
    |
 42 |     charge(card, "fifty dollars")
-   |                  ^^^^^^^^^^^^^^^ expected `Money`, found `String`
+   |                  ^^^^^^^^^^^^^^^ expected `Money`, found `Str`
    |
 help: try `Money.from_string("fifty dollars")`
 
   inference chain:
-    "fifty dollars" : String       (literal, line 42)
+    "fifty dollars" : Str       (literal, line 42)
     charge.amount : Money          (from signature, sig@b3c1e2)
-    String ≠ Money                 (nominal mismatch)
+    Str ≠ Money                 (nominal mismatch)
 
   candidates considered:
-    String -> Money via Money.from_string  ✓ (exact match)
-    String -> Money via Money.parse        ✓ (may raise ParseError)
+    Str -> Money via Money.from_string  ✓ (exact match)
+    Str -> Money via Money.parse        ✓ (may raise ParseError)
 
   capability context: [PaymentGateway]
   cost at this point: 120 / budget 500
@@ -278,14 +277,13 @@ error[C0101]: undeclared capability
   --> src/report.spore:27:5
    |
 27 |     http.get(endpoint)
-   |     ^^^^^^^^^^^^^^^^^^ requires `NetRead`, not declared in `uses`
-   |
-   = note: enclosing function `fetch_data` has `uses []`
-   = note: module ceiling for `report` allows [Compute, FileRead]
+    |     ^^^^^^^^^^^^^^^^^^ requires `NetRead`, not declared in `uses`
+    |
+    = note: enclosing function `fetch_data` has `uses []`
 help: add a `uses [NetRead]` clause to `fetch_data`
 
   inference chain:
-    http.get : Fn(Url) -> Response ! [NetworkError]   (from module http, sig@e4a1f9)
+    http.get : Fn(Url) -> Response ! NetworkError   (from module http, sig@e4a1f9)
     http.get.uses : [NetRead]                         (from signature)
     fetch_data.uses : []                              (declared)
     [NetRead] ⊄ []                                    (capability not available)
@@ -293,7 +291,7 @@ help: add a `uses [NetRead]` clause to `fetch_data`
   candidates considered:
     (none — no alternative without NetRead)
 
-  capability context: [] (function level), [Compute, FileRead] (module ceiling)
+  capability context: [] (function level)
   cost at this point: 45 / budget 2000
 ```
 
@@ -308,7 +306,7 @@ error[K0101]: cost budget exceeded
    |
    = note: `summarize` budget is 5000 op, already used 1200 op
    = note: remaining budget: 3800 op, shortfall: 4400 op
-help: filter `records` before scanning, or increase budget to `cost ≤ 10000`
+help: filter `records` before scanning, or increase budget to `cost [10000, 0, 0, 0]`
 
   inference chain:
     full_table_scan.cost : 8200 op        (from signature, sig@f7b2c3)
@@ -347,7 +345,7 @@ help: run `sporec --query-hole tax_logic` for full HoleReport
 
   candidates considered:
     tax_table.lookup(region, income) -> Money    ✓ (cost 50 op, within budget)
-    tax_table.calculate(income, region) -> Money ! [InvalidRegion]    ✓ (cost 200 op, error type compatible)
+    tax_table.calculate(income, region) -> Money ! InvalidRegion    ✓ (cost 200 op, error type compatible)
 
   capability context: [TaxTable]
   cost at this point: 100 / budget 500
@@ -395,7 +393,7 @@ A complete `--json` output is a JSON object containing an array of diagnostics a
 {
   "version": "0.1",
   "compiler": "sporec",
-  "diagnostics": [ <Diagnostic>, ... ],
+  "diagnostics": [ [Diagnostic], ... ],
   "summary": {
     "errors": 2,
     "warnings": 1,
@@ -501,7 +499,7 @@ Spore extension fields (`inference_chain`, `candidates`, `context`) are placed i
 {
   "severity": 1,
   "code": "E0301",
-  "message": "type mismatch: expected `Money`, found `String`",
+  "message": "type mismatch: expected `Money`, found `Str`",
   "range": { ... },
   "relatedInformation": [ ... ],
   "data": {
@@ -536,7 +534,7 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
 {
   "severity": "error",
   "code": "E0301",
-  "message": "type mismatch: expected `Money`, found `String`",
+  "message": "type mismatch: expected `Money`, found `Str`",
   "location": {
     "file": "src/billing.spore",
     "range": {
@@ -554,12 +552,12 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
     }
   ],
   "inference_chain": [
-    { "expr": "\"fifty dollars\"", "type": "String", "source": "literal" },
+    { "expr": "\"fifty dollars\"", "type": "Str", "source": "literal" },
     { "expr": "charge.amount", "type": "Money", "source": "signature:b3c1e2" }
   ],
   "candidates": [
-    { "from": "String", "to": "Money", "via": "Money.from_string", "quality": "exact", "note": null },
-    { "from": "String", "to": "Money", "via": "Money.parse", "quality": "partial", "note": "may raise ParseError" }
+    { "from": "Str", "to": "Money", "via": "Money.from_string", "quality": "exact", "note": null },
+    { "from": "Str", "to": "Money", "via": "Money.parse", "quality": "partial", "note": "may raise ParseError" }
   ],
   "context": {
     "capabilities": ["PaymentGateway"],
@@ -603,7 +601,7 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
         "file": "src/analytics.spore",
         "range": { "start": { "line": 48, "col": 1 }, "end": { "line": 48, "col": 15 } }
       },
-      "message": "`summarize` declares `cost ≤ 5000`"
+      "message": "`summarize` declares `cost [5000, 0, 0, 0]`"
     }
   ],
   "inference_chain": [
@@ -679,7 +677,7 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
 
 ### 5.1 E0xxx — Type Errors
 
-Type errors arise from mismatches in the Spore type system: wrong types, missing fields, arity violations, and generic constraint failures.
+Type errors arise from mismatches in the Spore type system: wrong types, missing fields, arity violations, generic constraint failures, and checked error-set contract violations at `throw` / call boundaries.
 
 | Code | Name | Description |
 |------|------|-------------|
@@ -719,7 +717,7 @@ error[E0201]: function `format_date` takes 2 arguments, but 3 were given
 22 |     format_date(date, "YYYY-MM-DD", locale)
    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected 2 arguments
    |
-   = note: signature: fn format_date(date: Date, fmt: String) -> String
+   = note: signature: fn format_date(date: Date, fmt: Str) -> Str
 help: remove the extra argument `locale`
 ```
 
@@ -817,24 +815,9 @@ Capability errors occur when code tries to perform operations beyond its declare
 | Code | Name | Description |
 |------|------|-------------|
 | `C0101` | undeclared-capability | Function uses a capability not listed in `uses` |
-| `C0102` | exceeds-ceiling | Function declares a capability its module ceiling does not allow |
 | `C0103` | callee-capability-leak | Calling a function whose `uses` exceeds the caller's `uses` |
 | `C0201` | platform-capability-denied | Package requests a capability the Platform does not grant |
 | `C0301` | effects-capability-conflict | Declared effects conflict with declared capabilities |
-
-#### C0102 — exceeds-ceiling
-
-```
-error[C0102]: capability exceeds module ceiling
-  --> src/report.spore:8:5
-   |
- 8 |     uses [NetWrite, Compute]
-   |           ^^^^^^^^ `NetWrite` exceeds module ceiling
-   |
-   = note: module `report` has ceiling: [Compute, FileRead, NetRead]
-   = note: `NetWrite` is not in the ceiling
-help: either add `NetWrite` to the module ceiling or move this function to a module that allows it
-```
 
 #### C0103 — callee-capability-leak
 
@@ -869,11 +852,11 @@ Cost errors arise when the compiler's abstract interpretation finds that a funct
 
 | Code | Name | Description |
 |------|------|-------------|
-| `K0101` | budget-exceeded | Concrete cost exceeds declared `cost ≤ K` |
+| `K0101` | budget-exceeded | Concrete cost exceeds declared `cost [compute, alloc, io, parallel]` |
 | `K0102` | symbolic-budget-exceeded | Symbolic cost exceeds declared bound for some input sizes |
 | `K0201` | unbounded-call | Calling an `unbounded` function without `with_cost_limit` |
 | `K0202` | unbounded-recursion | Recursive function without structural termination proof |
-| `K0301` | cost-declaration-missing | Function with cost-sensitive callees but no `cost ≤ K` declaration |
+| `K0301` | cost-declaration-missing | Function with cost-sensitive callees but no `cost [compute, alloc, io, parallel]` declaration |
 
 #### K0201 — unbounded-call
 
@@ -882,9 +865,9 @@ error[K0201]: calling `unbounded` function without cost limit
   --> src/math.spore:20:5
    |
 20 |     fibonacci(n)
-   |     ^^^^^^^^^^^^ `fibonacci` has `cost: unbounded`
+   |     ^^^^^^^^^^^^ `fibonacci` is marked `unbounded`
    |
-   = note: `compute` declares `cost ≤ 10000` but `fibonacci` has no static bound
+   = note: `compute` declares `cost [10000, 0, 0, 0]` but `fibonacci` has no static bound
 help: wrap in `with_cost_limit(K) { fibonacci(n) }` and handle `CostExceeded`
 ```
 
@@ -894,12 +877,12 @@ help: wrap in `with_cost_limit(K) { fibonacci(n) }` and handle `CostExceeded`
 error[K0102]: symbolic cost may exceed budget
   --> src/sort.spore:15:5
    |
-15 |     fn sort_all(items: List<Int>) -> List<Int>
+15 |     fn sort_all(items: List[I32]) -> List[I32]
    |        ^^^^^^^^ cost is `N × log(N) × 3 + N` where N = len(items)
    |
-   = note: declared `cost ≤ 5000`, but N is unbounded
+   = note: declared `cost [5000, 0, 0, 0]`, but N is unbounded
    = note: for N = 1000, cost = 29,933 op > 5000 op
-help: add a size constraint: `items: List<Int, max: 100>` or increase budget
+help: add a size constraint: `items: List[I32, max: 100]` or increase budget
 ```
 
 ### 5.5 H0xxx — Hole Diagnostics
@@ -920,12 +903,12 @@ Hole diagnostics are emitted as `note` severity — holes are valid states, not 
 warning[H0102]: hole type annotation conflicts with inference
   --> src/format.spore:51:20
    |
-51 |     let body: Int = ?report_body : String
-   |                     ^^^^^^^^^^^^^^^^^^^^^^^^ annotated as `String`, but context expects `Int`
+51 |     let body: I32 = ?report_body : Str
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^ annotated as `Str`, but context expects `I32`
    |
-   = note: `body` is declared as `Int` on the left side of the binding
-   = note: hole annotation `String` contradicts the binding type
-help: change annotation to `: Int` or change binding type to `String`
+   = note: `body` is declared as `I32` on the left side of the binding
+   = note: hole annotation `Str` contradicts the binding type
+help: change annotation to `: I32` or change binding type to `Str`
 ```
 
 #### H0202 — hole-cost-tight
@@ -979,13 +962,13 @@ error[M0401]: signature hash changed — requires --permit
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ signature hash mismatch
    |
    = note: expected sig@a3f7c2, found sig@b8d2e1
-   = note: `calculate_total` added parameter `tax_rate: Float`
+   = note: `calculate_total` added parameter `tax_rate: F64`
 help: run `spore --permit` to accept the signature change, then update call sites
 ```
 
 ### 5.7 sporec --explain Output
 
-`sporec --explain <CODE>` prints a detailed explanation of the error code, including common causes, examples, and fix strategies:
+`sporec --explain [CODE]` prints a detailed explanation of the error code, including common causes, examples, and fix strategies:
 
 ```
 $ sporec --explain E0301
@@ -1001,11 +984,11 @@ $ sporec --explain E0301
   - Struct fields (value type ≠ field type)
 
   Example:
-      fn greet(name: String) -> String { ... }
-      greet(42)   -- error: expected String, found Int
+      fn greet(name: Str) -> Str { ... }
+      greet(42)   -- error: expected Str, found I32
 
   Common fixes:
-  - Use a conversion function (e.g. `Int.to_string(42)`)
+  - Use a conversion function (e.g. `I32.to_string(42)`)
   - Change the declaration to accept the actual type
   - Add a type annotation to guide inference
 
@@ -1114,8 +1097,8 @@ $ sporec --fix --unsafe-fix src/billing.spore
 
 Hole diagnostics (H0xxx) bridge the compiler output and the Hole system (see *hole-report-v0.3*). The relationship:
 
-- **`sporec` compilation** emits `H0101` (hole-report) as `note` severity for each unfilled hole.
-- **`sporec --query-hole <name>`** returns a full `HoleReport` — this is a *superset* of the H0101 diagnostic, including full candidate ranking, binding types, and cost budget. The HoleReport follows the same JSON schema as `--json` diagnostics but with additional fields.
+- **`sporec` compilation** emits `H0101` (hole-report) as `note` severity for each unfilled expression hole in a function body.
+- **`sporec --query-hole <hole-id>`** returns a full `HoleReport` for a fillable expression hole — this is a *superset* of the H0101 diagnostic, including full candidate ranking, binding types, and cost budget. For named holes, the hole id matches the source name; for anonymous `?`, the compiler provides a stable id in diagnostics. The HoleReport follows the same JSON schema as `--json` diagnostics but with additional fields.
 - **Partial functions** (`H0201`) are compiled successfully — they produce diagnostics but not errors. The function is usable in simulation mode.
 
 A HoleReport JSON object extends the diagnostic schema:
@@ -1155,15 +1138,14 @@ Cost diagnostics (K0xxx) are emitted when the abstract interpretation engine (se
 - **K0101** (budget exceeded): emitted during pass [4] of the compilation flow (see cost-model §7.1). The diagnostic includes cost breakdown in the `inference_chain`.
 - **K0102** (symbolic budget exceeded): emitted when symbolic expressions cannot be proven within bounds. The diagnostic includes the symbolic expression and a concrete counterexample.
 - **K0201** (unbounded call): emitted during callee resolution when an `unbounded` function is called without `with_cost_limit`.
-- **Cost context** in every diagnostic: the `context.cost_used` and `context.cost_budget` fields are populated for all diagnostics inside functions with `cost ≤ K` declarations, not just cost errors.
+- **Cost context** in every diagnostic: the `context.cost_used` and `context.cost_budget` fields are populated for all diagnostics inside functions with `cost [compute, alloc, io, parallel]` declarations, not just cost errors.
 
 ### 7.3 Capability System Integration
 
-Capability diagnostics (C0xxx) enforce the capability algebra at three levels:
+Capability diagnostics (C0xxx) enforce the capability algebra at the levels currently specified:
 
 1. **Function level** (C0101): a function's body uses operations beyond its `uses` declaration.
-2. **Module level** (C0102): a function's `uses` exceeds the module's capability ceiling.
-3. **Platform level** (C0201): a package requests capabilities the Platform does not grant.
+2. **Platform level** (C0201): a package requests capabilities the Platform does not grant.
 
 The `context.capabilities` field in every diagnostic lists the capabilities in scope at the error site, enabling Agents to reason about what operations are available.
 
@@ -1194,7 +1176,7 @@ Agents should consume `sporec --json` output. The structured format enables prog
 1. `diagnostics[]` — iterate over all diagnostics
 2. `severity` — filter by error (must fix) vs. warning (should fix) vs. note (informational)
 3. `code` — categorize by prefix (E/W/C/K/H/M) for specialized handling
-4. `context.hole` — if non-null, this diagnostic is hole-related; use `--query-hole` for full report
+4. `context.hole` — if non-null, this diagnostic is hole-related; it carries the stable hole id to pass to `--query-hole`
 5. `suggested_fix.edits` — if `applicability == "safe"`, apply directly; if `"unsafe"`, apply with caution
 
 ### 8.2 Choosing Between Modes
@@ -1218,9 +1200,12 @@ $ sporec --json src/tax.spore > diagnostics.json
 
 # For each hole diagnostic, get full report
 $ sporec --query-hole tax_logic --json > hole_report.json
+
+# For anonymous holes, pass through the stable id from `context.hole`
+$ sporec --query-hole <context.hole> --json > anonymous_hole_report.json
 ```
 
-Both files share the same `Diagnostic` schema, enabling unified processing.
+Both files share the same `Diagnostic` schema, enabling unified processing. For anonymous holes, substitute the compiler-provided `context.hole` id instead of a source-level name. Signature holes in function types participate in type inference, but do not produce standalone HoleReport / `--query-hole` entries.
 
 ### 8.4 Example Agent Workflow
 
@@ -1314,7 +1299,7 @@ Making `--json` the superset of all information eliminates a common problem: dif
 - Verbose mode renders a *larger projection*.
 - JSON mode renders *everything*.
 
-This ensures consistency: if the default output shows `expected Money, found String`, the JSON will contain the same message plus the inference chain that led to that conclusion. No information is generated exclusively for one mode.
+This ensures consistency: if the default output shows `expected Money, found Str`, the JSON will contain the same message plus the inference chain that led to that conclusion. No information is generated exclusively for one mode.
 
 ---
 

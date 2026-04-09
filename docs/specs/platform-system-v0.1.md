@@ -14,7 +14,7 @@ Platform 是 Spore 语言中负责**执行所有 IO 操作**的运行时环境�
 
 ```spore
 // 应用代码：纯函数，只发出 effect
-fn read_config() -> Config ! [FileRead] {
+fn read_config() -> Config ! FileRead {
     let content = File.read("config.toml")  // 发出 FileRead effect
     parse_toml(content)
 }
@@ -43,7 +43,7 @@ Spore 的 Platform 模型解决了这些问题：
 
 ```spore
 // 相同的应用代码
-fn main(args: List[String]) -> I32 ! [FileRead, StdOut] {
+fn main(args: List[Str]) -> I32 ! FileRead | StdOut {
     let content = File.read("data.txt")
     println(content)
     0
@@ -84,7 +84,7 @@ platform CliPlatform {
     handles [FileRead, FileWrite, NetRead, NetWrite, Clock, Spawn, Exit]
 
     // 2. Entry point 类型约束
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! Exit
 
     // 3. Handler 实现（由 Platform 提供）
     handler FileReadHandler { ... }
@@ -113,7 +113,7 @@ platform CliPlatform {
         Exit,          // 退出程序
     ]
 
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! Exit
 
     // Platform 实现细节（应用代码看不到）
     handler FileReadHandler {
@@ -122,24 +122,27 @@ platform CliPlatform {
             resume(ffi_read_file(path))
         }
 
-        File.read_to_string(path: Path) -> Result[String, IoError] {
+        File.read_to_string(path: Path) -> Result[Str, IoError] {
             let bytes = File.read(path)?
-            String.from_utf8(bytes)
+            Str.from_utf8(bytes)
         }
     }
 
     handler SpawnHandler {
-        Task.spawn<T>(f: fn() -> T) -> Task[T] {
+        spawn[T](body: fn() -> T) -> Task[T] {
             // 使用 Platform 的 runtime（如 tokio）
-            resume(runtime_spawn(f))
+            resume(runtime_spawn(body))
         }
 
-        Task.await<T>(task: Task[T]) -> T {
+        await[T](task: Task[T]) -> T {
             resume(runtime_await(task))
         }
     }
 }
 ```
+
+应用层表面语法仍然写作 `spawn { ... }` 与 `task.await`；上面的 handler
+展示的是 Platform 对底层并发 effect 操作的实现。
 
 ### 2.3 示例：Web Platform
 
@@ -159,7 +162,7 @@ platform WebPlatform {
     ]
 
     // Entry point 是一个 HTTP handler
-    entry: fn(req: Request) -> Response ! [HttpServer, DbQuery]
+    entry: fn(req: Request) -> Response ! HttpServer | DbQuery
 
     handler HttpServerHandler {
         Server.listen(port: U16, handler: fn(Request) -> Response) {
@@ -174,7 +177,7 @@ platform WebPlatform {
 Lambda Platform 用于 AWS Lambda 函数：
 
 ```spore
-platform LambdaRlatform {
+platform LambdaPlatform {
     version: "1.0.0"
 
     handles [
@@ -187,10 +190,10 @@ platform LambdaRlatform {
     ]
 
     // Lambda 的 entry point
-    entry: fn(event: JsonValue) -> JsonValue ! [S3Read, DynamoWrite]
+    entry: fn(event: JsonValue) -> JsonValue ! S3Read | DynamoWrite
 
     handler S3Handler {
-        S3.get(bucket: String, key: String) -> Result[Bytes, S3Error] {
+        S3.get(bucket: Str, key: Str) -> Result[Bytes, S3Error] {
             resume(aws_s3_get(bucket, key))
         }
     }
@@ -215,7 +218,7 @@ platform MyPlatform {
     handles [Cap1, Cap2, Cap3]
 
     // Entry point 类型
-    entry: fn(Input) -> Output ! [Effects]
+    entry: fn(Input) -> Output ! Effects
 
     // 可选：平台特定的配置
     config: {
@@ -283,11 +286,11 @@ Platform 的底层实现通常使用 native 代码（Rust/C）：
 ```spore
 // Platform 中的 FFI 声明
 foreign fn ffi_read_file(path: Bytes) -> FfiResult[Bytes]
-foreign fn ffi_write_file(path: Bytes, content: Bytes) -> FfiResult[Unit]
+foreign fn ffi_write_file(path: Bytes, content: Bytes) -> FfiResult[()]
 foreign fn ffi_tcp_connect(host: Bytes, port: U16) -> FfiResult[FfiSocket]
 
 handler FileWriteHandler {
-    File.write(path: Path, content: Bytes) -> Result[Unit, IoError] {
+    File.write(path: Path, content: Bytes) -> Result[(), IoError] {
         let result = ffi_write_file(path.to_bytes(), content)
         match result {
             FfiOk(()) -> resume(Ok(()))
@@ -302,7 +305,7 @@ handler FileWriteHandler {
 ```rust
 // platform_ffi.rs
 #[no_mangle]
-pub extern "C" fn ffi_read_file(path: SporeBytes) -> FfiResult<SporeBytes> {
+pub extern "C" fn ffi_read_file(path: SporeBytes) -> FfiResult[SporeBytes] {
     let path_str = unsafe { path.to_str() };
     match std::fs::read(path_str) {
         Ok(bytes) => FfiResult::ok(SporeBytes::from_vec(bytes)),
@@ -320,7 +323,7 @@ platform SimplePlatform {
 
     handles [FileRead, StdOut, Exit]
 
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! Exit
 }
 
 // file: handlers/file.spore
@@ -332,7 +335,7 @@ handler FileReadHandler {
 
 // file: handlers/stdout.spore
 handler StdOutHandler {
-    println(s: String) -> Unit {
+    println(s: Str) -> () {
         resume(ffi_println(s.to_bytes()))
     }
 }
@@ -347,7 +350,7 @@ handler ExitHandler {
 
 // file: ffi.spore
 foreign fn ffi_read_file(path: Bytes) -> FfiResult[Bytes]
-foreign fn ffi_println(s: Bytes) -> Unit
+foreign fn ffi_println(s: Bytes) -> ()
 foreign fn ffi_exit(code: I32) -> Never
 ```
 
@@ -394,7 +397,7 @@ gpu = { git = "https://github.com/spore-platform/gpu", priority = 2 }
 
 ```spore
 // app.spore
-fn main(args: List[String]) -> I32 ! [FileRead, GpuCompute, Exit] {
+fn main(args: List[Str]) -> I32 ! FileRead | GpuCompute | Exit {
     let data = File.read("input.dat")  // FileRead
     let result = Gpu.matmul(data)      // GpuCompute
     0
@@ -475,7 +478,7 @@ Spore 允许应用同时使用多个 Platform，每个 Platform 负责不同的 
 // CLI Platform：文件和标准 IO
 platform CliPlatform {
     handles [FileRead, FileWrite, StdOut, StdErr, Exit, Spawn]
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! Exit
 }
 
 // GPU Platform：GPU 计算
@@ -489,7 +492,7 @@ platform GpuPlatform {
 
 ```spore
 // app.spore
-fn main(args: List[String]) -> I32 ! [FileRead, GpuCompute, Exit] {
+fn main(args: List[Str]) -> I32 ! FileRead | GpuCompute | Exit {
     // FileRead → CliPlatform
     let matrix = load_matrix_from_file("matrix.dat")
 
@@ -532,7 +535,7 @@ s3 = { git = "https://github.com/spore-platform/aws", priority = 3 }
 
 ```spore
 // app.spore
-fn main(args: List[String]) -> I32 ! [FileRead, GpuCompute, S3Write, Exit] {
+fn main(args: List[Str]) -> I32 ! FileRead | GpuCompute | S3Write | Exit {
     // 1. 从本地读取配置（CLI Platform）
     let config = File.read("config.toml") |> parse_config
 
@@ -549,7 +552,7 @@ fn main(args: List[String]) -> I32 ! [FileRead, GpuCompute, S3Write, Exit] {
     0
 }
 
-fn train_model_on_gpu(data: Tensor, config: Config) -> Model ! [GpuCompute] {
+fn train_model_on_gpu(data: Tensor, config: Config) -> Model ! GpuCompute {
     let gpu_mem = Gpu.alloc(data.size())
     Gpu.transfer_to(gpu_mem, data)
 
@@ -581,7 +584,7 @@ fn train_model_on_gpu(data: Tensor, config: Config) -> Model ! [GpuCompute] {
 如果应用使用了未被任何 Platform 覆盖的 capability：
 
 ```spore
-fn main(args: List[String]) -> I32 ! [FileRead, DatabaseQuery, Exit] {
+fn main(args: List[Str]) -> I32 ! FileRead | DatabaseQuery | Exit {
     let rows = Db.query("SELECT * FROM users")  // DatabaseQuery
     // ...
 }
@@ -621,7 +624,7 @@ error[E4202]: Missing effect handler
 
 ```spore
 // 应用代码
-fn read_and_process(path: Path) -> Result[Data, Error] ! [FileRead] {
+fn read_and_process(path: Path) -> Result[Data, Error] ! FileRead {
     // 看起来像普通函数调用，实际上发出 effect
     let content = File.read(path)?
     parse_data(content)
@@ -632,7 +635,7 @@ fn read_and_process(path: Path) -> Result[Data, Error] ! [FileRead] {
 
 ```spore
 // 编译器内部表示（伪代码）
-fn read_and_process(path: Path) -> Result[Data, Error] ! [FileRead] {
+fn read_and_process(path: Path) -> Result[Data, Error] ! FileRead {
     // 生成 effect，由 Platform handler 处理
     perform FileRead.read(path) with handler -> {
         let content = handler.result?
@@ -651,14 +654,14 @@ fn add(x: I32, y: I32) -> I32 {
     x + y
 }
 
-// 有 effect 的函数：使用 ! [Effects]
-fn read_number(path: Path) -> I32 ! [FileRead] {
+// 有 effect 的函数：使用 ! Effects
+fn read_number(path: Path) -> I32 ! FileRead {
     let s = File.read_to_string(path)
     s.parse_i32().unwrap()
 }
 
 // 多个 effect
-fn fetch_and_save(url: Url, dest: Path) -> Unit ! [NetRead, FileWrite] {
+fn fetch_and_save(url: Url, dest: Path) -> () ! NetRead | FileWrite {
     let data = Http.get(url)
     File.write(dest, data)
 }
@@ -667,7 +670,7 @@ fn fetch_and_save(url: Url, dest: Path) -> Unit ! [NetRead, FileWrite] {
 Effect 传播：
 
 ```spore
-fn caller() -> Unit ! [FileRead] {
+fn caller() -> () ! FileRead {
     // 调用有 effect 的函数，effect 会传播
     let n = read_number("num.txt")
     println("Number: {}", n)  // println 没有 effect（纯函数）
@@ -678,11 +681,9 @@ fn caller() -> Unit ! [FileRead] {
 
 ```spore
 // app.spore
-module App
-
-uses [FileRead, StdOut, Exit]
-
-fn main(args: List[String]) -> I32 ! [Exit] {
+fn main(args: List[Str]) -> I32 ! Exit
+    uses [FileRead, StdOut]
+{
     match read_config() {
         Ok(config) -> {
             println("Loaded config: {}", config)
@@ -695,19 +696,19 @@ fn main(args: List[String]) -> I32 ! [Exit] {
     }
 }
 
-fn read_config() -> Result[Config, Error] ! [FileRead] {
+fn read_config() -> Result[Config, Error] ! FileRead {
     let content = File.read_to_string("config.toml")?
     parse_toml(content)
 }
 
 type Config {
-    host: String,
+    host: Str,
     port: U16,
     debug: Bool,
 }
 
 // 纯函数：解析 TOML（不需要 IO）
-fn parse_toml(s: String) -> Result[Config, Error] {
+fn parse_toml(s: Str) -> Result[Config, Error] {
     // ...
 }
 ```
@@ -743,32 +744,32 @@ Loaded config: Config { host: "localhost", port: 8080, debug: true }
 ```spore
 // 应用定义的 effect
 effect Logger {
-    fn log_info(msg: String) -> Unit
-    fn log_error(msg: String) -> Unit
+    fn log_info(msg: Str) -> ()
+    fn log_error(msg: Str) -> ()
 }
 
 // 将 Logger 映射到 Platform 的 StdOut/StdErr
 handler ConsoleLogger uses [StdOut, StdErr] {
-    log_info(msg: String) {
+    log_info(msg: Str) {
         println("[INFO] {}", msg)
         resume(())
     }
 
-    log_error(msg: String) {
+    log_error(msg: Str) {
         eprintln("[ERROR] {}", msg)
         resume(())
     }
 }
 
 // 应用代码使用高级 effect
-fn process_data(data: Data) -> Unit ! [Logger] {
+fn process_data(data: Data) -> () ! Logger {
     log_info("Processing data...")
     // ...
     log_info("Done!")
 }
 
 // 在 main 中安装 handler
-fn main(args: List[String]) -> I32 ! [Exit, StdOut, StdErr] {
+fn main(args: List[Str]) -> I32 ! Exit | StdOut | StdErr {
     with ConsoleLogger {
         process_data(load_data())
     }
@@ -780,11 +781,9 @@ fn main(args: List[String]) -> I32 ! [Exit, StdOut, StdErr] {
 
 ```spore
 // app.spore
-module HttpClient
-
-uses [NetRead, NetWrite, StdOut]
-
-fn main(args: List[String]) -> I32 ! [Exit] {
+fn main(args: List[Str]) -> I32 ! Exit
+    uses [NetRead, NetWrite, StdOut]
+{
     let url = "https://api.github.com/users/octocat"
 
     match fetch_user(url) {
@@ -800,7 +799,7 @@ fn main(args: List[String]) -> I32 ! [Exit] {
     }
 }
 
-fn fetch_user(url: String) -> Result[GithubUser, HttpError] ! [NetRead, NetWrite] {
+fn fetch_user(url: Str) -> Result[GithubUser, HttpError] ! NetRead | NetWrite {
     let response = Http.get(url)?
 
     if response.status != 200 {
@@ -812,7 +811,7 @@ fn fetch_user(url: String) -> Result[GithubUser, HttpError] ! [NetRead, NetWrite
 }
 
 type GithubUser {
-    name: String,
+    name: Str,
     public_repos: I32,
 }
 ```
@@ -852,7 +851,7 @@ handler MockFileSystem {
         }
     }
 
-    File.write(path: Path, content: Bytes) -> Result[Unit, IoError] {
+    File.write(path: Path, content: Bytes) -> Result[(), IoError] {
         fs.set(path, content)
         resume(Ok(()))
     }
@@ -889,7 +888,7 @@ handler MockClock {
 
 ```spore
 // app.spore
-fn read_and_parse(path: Path) -> Result[Config, Error] ! [FileRead] {
+fn read_and_parse(path: Path) -> Result[Config, Error] ! FileRead {
     let content = File.read_to_string(path)?
     parse_config(content)
 }
@@ -974,14 +973,13 @@ platform ReplayPlatform {
 
 ```spore
 // app.spore
-fn fetch_weather(city: String) -> Result[Weather, Error] ! [NetRead] {
+fn fetch_weather(city: Str) -> Result[Weather, Error] ! NetRead {
     let url = "https://api.weather.com/v1/current?city={}"
     let response = Http.get(format(url, city))?
     Json.parse(response.body)
 }
 
 // test/weather_test.spore
-module WeatherTest
 
 test "fetch_weather returns valid data" {
     // 设置 mock HTTP 响应
@@ -1089,7 +1087,7 @@ platform EmbeddedPlatform {
     ]
 
     // Entry point：设备初始化 + 主循环
-    entry: fn() -> Never ! [GpioRead, GpioWrite, Timer]
+    entry: fn() -> Never ! GpioRead | GpioWrite | Timer
 
     config: {
         cpu_freq: U32,        // CPU 频率
@@ -1108,12 +1106,12 @@ handler GpioHandler {
         resume(ffi_gpio_read(pin))
     }
 
-    Gpio.write(pin: U8, value: Bool) -> Unit {
+    Gpio.write(pin: U8, value: Bool) -> () {
         ffi_gpio_write(pin, value)
         resume(())
     }
 
-    Gpio.set_mode(pin: U8, mode: GpioMode) -> Unit {
+    Gpio.set_mode(pin: U8, mode: GpioMode) -> () {
         ffi_gpio_set_mode(pin, mode as U8)
         resume(())
     }
@@ -1121,7 +1119,7 @@ handler GpioHandler {
 
 // handlers/timer.spore
 handler TimerHandler {
-    Timer.delay_ms(ms: U32) -> Unit {
+    Timer.delay_ms(ms: U32) -> () {
         ffi_delay_ms(ms)
         resume(())
     }
@@ -1194,7 +1192,7 @@ main = { git = "https://github.com/you/embedded-platform" }
 \`\`\`
 
 \`\`\`spore
-fn main() -> Never ! [GpioWrite, Timer] {
+fn main() -> Never ! GpioWrite | Timer {
     // LED 引脚
     Gpio.set_mode(13, GpioMode.Output)
 
@@ -1293,20 +1291,19 @@ Spore 的并发模型也是基于 effect handler，`Spawn` 就是一个 effect�
 
 ```spore
 // 并发 effect
-effect Concurrency {
-    fn spawn<T>(f: fn() -> T) -> Task[T]
-    fn await<T>(task: Task[T]) -> T
+effect Spawn {
+    fn spawn[T](body: fn() -> T) -> Task[T]
 }
 
 // Platform 提供 Spawn handler
 handler SpawnHandler {
-    spawn<T>(f: fn() -> T) -> Task[T] {
+    spawn[T](body: fn() -> T) -> Task[T] {
         // 使用 Platform 的运行时（如 tokio, async-std）
-        let task_id = runtime_spawn(f)
+        let task_id = runtime_spawn(body)
         resume(Task(task_id))
     }
 
-    await<T>(task: Task[T]) -> T {
+    await[T](task: Task[T]) -> T {
         let result = runtime_await(task.id)
         resume(result)
     }
@@ -1316,9 +1313,13 @@ handler SpawnHandler {
 应用代码：
 
 ```spore
-fn parallel_fetch(urls: List[Url]) -> List[Response] ! [NetRead, Spawn] {
-    let tasks = urls.map(|url| Task.spawn(|| Http.get(url)))
-    tasks.map(Task.await)
+fn parallel_fetch(urls: List[Url]) -> List[Response] ! NetRead
+uses [Spawn]
+{
+    parallel_scope {
+        let tasks = urls.map(|url| spawn { Http.get(url) })
+        tasks.map(|task| task.await)
+    }
 }
 ```
 
@@ -1356,10 +1357,9 @@ Platform **定义了 capability 的上界**：
 
 ```spore
 // 应用声明需要的 capability
-module App
-uses [FileRead, NetWrite]
-
-fn main() { ... }
+fn main()
+    uses [FileRead, NetWrite]
+{ ... }
 ```
 
 编译器检查：
@@ -1367,19 +1367,18 @@ fn main() { ... }
 2. Platform 提供的 capability 是应用所需 capability 的超集
 
 ```
-App.uses = {FileRead, NetWrite}
+main.uses = {FileRead, NetWrite}
 Platform.handles = {FileRead, FileWrite, NetRead, NetWrite, Clock}
 
-Check: App.uses ⊆ Platform.handles  ✓
+Check: main.uses ⊆ Platform.handles  ✓
 ```
 
 如果应用尝试使用 Platform 不支持的 capability：
 
 ```spore
-module App
-uses [DatabaseQuery]  // Platform 不支持
-
-fn main() {
+fn main()
+    uses [DatabaseQuery]  // Platform 不支持
+{
     Db.query("SELECT ...")  // 编译错误
 }
 ```
@@ -1410,7 +1409,7 @@ handler FileReadHandler {
 编译器生成成本分析：
 
 ```spore
-fn load_data() -> Data ! [FileRead] {
+fn load_data() -> Data ! FileRead {
     let f1 = File.read("a.txt")  // cost: io=1, mem=?
     let f2 = File.read("b.txt")  // cost: io=1, mem=?
     combine(f1, f2)
@@ -1602,28 +1601,28 @@ Generating platform bindings:
 platform CliPlatform {
     version: "1.0.0"
     handles [FileRead, FileWrite, StdOut, StdErr, NetRead, NetWrite, Clock, Spawn, Exit]
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! Exit
 }
 
 // File API
 effect FileRead {
     fn read(path: Path) -> Result[Bytes, IoError]
-    fn read_to_string(path: Path) -> Result[String, IoError]
+    fn read_to_string(path: Path) -> Result[Str, IoError]
     fn exists(path: Path) -> Bool
     fn list_dir(path: Path) -> Result[List[DirEntry], IoError]
     fn metadata(path: Path) -> Result[FileMetadata, IoError]
 }
 
 effect FileWrite {
-    fn write(path: Path, content: Bytes) -> Result[Unit, IoError]
-    fn append(path: Path, content: Bytes) -> Result[Unit, IoError]
-    fn delete(path: Path) -> Result[Unit, IoError]
-    fn create_dir(path: Path) -> Result[Unit, IoError]
+    fn write(path: Path, content: Bytes) -> Result[(), IoError]
+    fn append(path: Path, content: Bytes) -> Result[(), IoError]
+    fn delete(path: Path) -> Result[(), IoError]
+    fn create_dir(path: Path) -> Result[(), IoError]
 }
 
 // Network API
 effect NetRead {
-    fn tcp_connect(host: String, port: U16) -> Result[TcpSocket, NetError]
+    fn tcp_connect(host: Str, port: U16) -> Result[TcpSocket, NetError]
 }
 
 effect NetWrite {
@@ -1632,25 +1631,25 @@ effect NetWrite {
 
 // Standard IO
 effect StdOut {
-    fn println(s: String) -> Unit
-    fn print(s: String) -> Unit
+    fn println(s: Str) -> ()
+    fn print(s: Str) -> ()
 }
 
 effect StdErr {
-    fn eprintln(s: String) -> Unit
+    fn eprintln(s: Str) -> ()
 }
 
 // Clock
 effect Clock {
     fn now() -> Timestamp
-    fn sleep(duration: Duration) -> Unit
+    fn sleep(duration: Duration) -> ()
 }
 
 // Concurrency
 effect Spawn {
-    fn spawn<T>(f: fn() -> T) -> Task[T]
-    fn await<T>(task: Task[T]) -> T
-    fn spawn_blocking<T>(f: fn() -> T) -> Task[T]
+    fn spawn[T](f: fn() -> T) -> Task[T]
+    fn await[T](task: Task[T]) -> T
+    fn spawn_blocking[T](f: fn() -> T) -> Task[T]
 }
 
 // Exit
@@ -1665,7 +1664,7 @@ effect Exit {
 platform WebPlatform {
     version: "1.0.0"
     handles [HttpServer, HttpClient, DbQuery, Clock, Spawn]
-    entry: fn(req: Request) -> Response ! [HttpServer, DbQuery]
+    entry: fn(req: Request) -> Response ! HttpServer | DbQuery
 }
 
 effect HttpServer {
@@ -1680,21 +1679,21 @@ effect HttpClient {
 }
 
 effect DbQuery {
-    fn query<T>(sql: String) -> Result[List[T], DbError]
-    fn execute(sql: String) -> Result[U64, DbError]
-    fn transaction<T>(f: fn() -> T) -> Result[T, DbError]
+    fn query[T](sql: Str) -> Result[List[T], DbError]
+    fn execute(sql: Str) -> Result[U64, DbError]
+    fn transaction[T](f: fn() -> T) -> Result[T, DbError]
 }
 
 type Request {
     method: HttpMethod,
-    path: String,
-    headers: Map[String, String],
+    path: Str,
+    headers: Map[Str, Str],
     body: Bytes,
 }
 
 type Response {
     status: U16,
-    headers: Map[String, String],
+    headers: Map[Str, Str],
     body: Bytes,
 }
 ```
@@ -1750,11 +1749,9 @@ Spore = Koka 的 effect system + Roc 的 Platform 概念
 
 ```spore
 // app.spore
-module TodoApi
-
-uses [HttpServer, DbQuery, Clock, Spawn]
-
-fn main(req: Request) -> Response ! [HttpServer, DbQuery] {
+fn main(req: Request) -> Response ! HttpServer | DbQuery
+    uses [HttpServer, DbQuery, Clock, Spawn]
+{
     match (req.method, req.path) {
         (GET, "/todos") -> list_todos(req)
         (POST, "/todos") -> create_todo(req)
@@ -1765,12 +1762,12 @@ fn main(req: Request) -> Response ! [HttpServer, DbQuery] {
     }
 }
 
-fn list_todos(req: Request) -> Response ! [DbQuery] {
+fn list_todos(req: Request) -> Response ! DbQuery {
     let todos = Db.query("SELECT * FROM todos ORDER BY created_at DESC")
     Response.json(todos)
 }
 
-fn create_todo(req: Request) -> Response ! [DbQuery, Clock] {
+fn create_todo(req: Request) -> Response ! DbQuery | Clock {
     let todo: TodoInput = Json.parse(req.body)?
 
     let now = Clock.now()
@@ -1784,12 +1781,12 @@ fn create_todo(req: Request) -> Response ! [DbQuery, Clock] {
 }
 
 type TodoInput {
-    title: String,
+    title: Str,
 }
 
 type Todo {
     id: I64,
-    title: String,
+    title: Str,
     completed: Bool,
     created_at: Timestamp,
 }
