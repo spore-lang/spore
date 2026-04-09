@@ -166,19 +166,16 @@ fn name(params) -> ReturnType ! Errors
 - [concurrency-model-v0.1.md](specs/concurrency-model-v0.1.md) — 并发模型设计
 
 ### 调研文档 (docs/research/)
-- [syntax-comparison-v0.1.md](research/syntax-comparison-v0.1.md) — 参考语言语法对比
 - [module-system-research.md](research/module-system-research.md) — 10 语言模块系统调研
 - [type-research-dependent.md](research/type-research-dependent.md) — 依赖类型调研（7 语言）
 - [type-research-practical.md](research/type-research-practical.md) — 实用类型系统调研（7 语言）
-- [type-research-tradeoffs.md](research/type-research-tradeoffs.md) — 类型系统权衡分析
-- [concurrency-research.md](research/concurrency-research.md) — 13 并发模型调研
 - [pkg-management-research.md](research/pkg-management-research.md) — 10 语言包管理调研
 - [hot-reload-research.md](research/hot-reload-research.md) — 12 系统热重载调研
 - [syntax-research.md](research/syntax-research.md) — 10 语言语法设计调研
 - [impl-stack-research.md](research/impl-stack-research.md) — 10 语言编译器实现栈调研
 - [codegen-comparison.md](research/codegen-comparison.md) — LLVM vs Cranelift 深度对比
-### 归档文档 (docs/archive/)
-- [hole-system-v0.2.md](archive/hole-system-v0.2.md) — ⚠️ 已被 hole-report-v0.3.md 取代，保留供历史参考
+
+> 已被当前 specs 吸收且不再作为现行参考的旧调研/旧草案，直接从仓库移除，不保留 archive 副本。
 
 ### 标准库（极简）
 - **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Char/Str/(), Option[T], Result[T,E], 基本操作符, |>, ?

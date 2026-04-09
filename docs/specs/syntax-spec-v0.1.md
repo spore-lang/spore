@@ -1371,15 +1371,9 @@ fn fetch_with_retry(url: Str, max_retries: I32) -> Data ! NetworkError {
 
 Hole 是 Spore 的渐进式开发机制，允许在类型检查下保留未实现部分。
 
-### 10.1 基本 Hole (Basic hole)
+### 10.1 命名 Hole (Named hole)
 
 ```spore
-/// 未命名 hole (Unnamed hole)
-fn compute() -> I32 {
-    ?  // 编译器推断类型为 I32
-}
-
-/// 命名 hole (Named hole)
 fn process(data: Data) -> Result {
     let validated = validate(data);
     ?process_impl  // 命名 hole，便于追踪
@@ -1391,19 +1385,11 @@ fn complex_function() -> ComplexType {
 }
 ```
 
-### 10.2 Hole 在函数签名中 (Hole in function signature)
+### 10.2 Hole 限制 (Hole restrictions)
 
-```spore
-/// 返回类型 hole (Return type hole)
-fn mysterious_function(x: I32) -> ? {
-    x * 2 + 10
-}  // 编译器推断返回类型为 I32
-
-/// 参数类型 hole (Parameter type hole)
-fn generic_wrapper(value: ?) -> Str {
-    f"Value: {value}"
-}
-```
+- Hole 必须命名：`?name` 或 `?name : Type`
+- Hole 只能出现在实现体内的表达式位置
+- 函数签名中不允许使用 hole；例如 `-> ?` 与 `value: ?` 都不是合法语法
 
 ### 10.3 Hole 允许列表 (Hole allow-list)
 
@@ -1428,13 +1414,13 @@ fn arithmetic(a: I32, b: I32) -> I32 {
 ### 10.4 Hole 与类型推断 (Hole with type inference)
 
 ```spore
-/// 编译器填充 hole (Compiler fills hole)
+/// 编译器为命名 hole 推断期望类型 (Compiler infers expected types for named holes)
 fn example() {
     let list = [1, 2, 3, 4, 5];
     let result = list
-        |> filter(?)  // hole: |x| x > 0 (编译器可推断)
-        |> map(?)     // hole: |x| x * 2
-        |> fold(0, ?);  // hole: |acc, x| acc + x
+        |> filter(?positive_only)
+        |> map(?double_item)
+        |> fold(0, ?sum_item);
 }
 ```
 

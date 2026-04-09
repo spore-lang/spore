@@ -3,8 +3,7 @@
 > **Status**: Draft
 > **Version**: v0.3
 > **Scope**: `sporec` 编译器 HoleReport 输出格式, `spore watch` 增量编译集成, Agent 状态机协议
-> **Depends on**: Hole System v0.2, Cost system, Capability system, Error system, Incremental Compilation v0.1
-> **Extends**: `archive/hole-system-v0.2.md` §3.2 HoleReport Structure
+> **Depends on**: Cost system, Capability system, Error system, Incremental Compilation v0.1
 
 ---
 
@@ -12,7 +11,7 @@
 
 ### 1.1 动机
 
-HoleReport v0.2（见 `archive/hole-system-v0.2.md` §3.2）为每个 Hole 提供了名称、位置、期望类型、绑定、能力集、错误列表、成本预算和候选函数。这些信息足以让 Agent 做出基本的填充决策，但在以下场景中精度不足：
+早期 HoleReport 草案已经为每个 Hole 提供了名称、位置、期望类型、绑定、能力集、错误列表、成本预算和候选函数。这些信息足以让 Agent 做出基本的填充决策，但在以下场景中精度不足：
 
 | 场景 | v0.2 的不足 | v0.3 的改进 |
 |---|---|---|

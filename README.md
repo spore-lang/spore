@@ -218,11 +218,6 @@ Until a dedicated thin mirror repo exists, installing these hooks from the sourc
 | [Platform System](docs/specs/platform-system-v0.1.md) | IO through effect handlers |
 | [Incremental Compilation](docs/specs/incremental-compilation-v0.1.md) | Watch mode and incremental builds |
 
-### Historical Reference
-| Document | Description |
-|----------|-------------|
-| [Hole System v0.2](docs/archive/hole-system-v0.2.md) | Replaced by the active hole docs; kept as archive only |
-
 ### Design Overview
 See [docs/DESIGN.md](docs/DESIGN.md) for the master design document with all confirmed decisions.
 
