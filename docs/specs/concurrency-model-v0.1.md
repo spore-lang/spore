@@ -386,7 +386,8 @@ let (tx, rx) = Channel.new[Message](buffer: 10)
 let (tx, rx) = Channel.new[Message](buffer: 0)
 ```
 
-`Channel.new` 返回一对 `(Sender[T], Receiver[T])`，两者均不可 Clone：
+`Channel.new` 返回一对 `(Sender[T], Receiver[T])`。活动设计示例允许按需
+`clone()` 端点，以表达 fan-in / fan-out / work-sharing 等拓扑：
 
 | 类型 | 操作 | 阻塞行为 |
 |------|------|---------|

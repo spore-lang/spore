@@ -1163,7 +1163,7 @@ let (tx2, rx2) = Channel.new[Str](buffer: 1);
 
 parallel_scope {
     /// 递归事件循环 (Recursive event loop with TCO)
-    fn event_loop(rx1: Channel.Receiver[I32], rx2: Channel.Receiver[Str]) {
+    fn event_loop(rx1: Receiver[I32], rx2: Receiver[Str]) {
         select {
             value from rx1 => {
                 print(f"Got integer: {value}");
@@ -1193,13 +1193,16 @@ select {
     value from rx => {
         print(f"Received: {value}");
     },
-    timeout 1000 => {
+    timeout(1.seconds) => {
         print("Timed out after 1 second");
     },
 }
 ```
 
-### 8.4 Await 操作 (Await operation)
+### 8.4 Task.await 操作 (Task.await operation)
+
+活动规范里的并发表面语法使用后缀形式 `task.await`。旧的前缀 `await expr`
+兼容策略仍待单独决策，不影响这里的目标语法。
 
 ```spore
 /// 等待异步任务完成 (Wait for async task completion)
@@ -1807,7 +1810,7 @@ type Task =
 
 /// 生产者 (Producer)
 fn producer(
-    tx: Channel.Sender[Task],
+    tx: Sender[Task],
     task_count: I32
 )
 {
@@ -1822,12 +1825,12 @@ fn producer(
 /// 消费者 (Consumer)
 fn consumer(
     id: I32,
-    rx: Channel.Receiver[Task],
-    result_tx: Channel.Sender[Str]
+    rx: Receiver[Task],
+    result_tx: Sender[Str]
 )
 {
     /// 递归处理消息 (Recursive message processing with TCO)
-    fn process(id: I32, rx: Channel.Receiver[Task], result_tx: Channel.Sender[Str]) {
+    fn process(id: I32, rx: Receiver[Task], result_tx: Sender[Str]) {
         match rx.recv() {
             Task.Process(task_id, data) => {
                 // 模拟处理 (Simulate processing)
@@ -1845,12 +1848,12 @@ fn consumer(
 
 /// 结果收集器 (Result collector)
 fn collector(
-    rx: Channel.Receiver[Str],
+    rx: Receiver[Str],
     expected_count: I32
 )
 {
     /// 递归收集结果 (Recursive result collection with TCO)
-    fn collect(rx: Channel.Receiver[Str], remaining: I32) {
+    fn collect(rx: Receiver[Str], remaining: I32) {
         if remaining <= 0 {
             return;
         }
@@ -2045,7 +2048,7 @@ Type          = Ident | Type "[" Types "]" | "(" [ Types ] ")" "->" Type [ "!" "
 - **函数定义**：完整签名、where/uses/cost/spec 子句、效应、成本、资源依赖
 - **模式匹配**：穷尽性、守卫、或模式、嵌套模式
 - **模块系统**：可见性、导入、别名
-- **并发机制**：parallel_scope、spawn、channel、select
+- **并发机制**：parallel_scope、spawn、task.await、Channel.new、select
 - **错误处理**：`! [Errors]`、`?` 操作符、match 错误
 - **Hole 语法**：渐进式开发、类型推断
 - **语法糖**：字符串插值、字段省略、管道变换

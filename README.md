@@ -21,6 +21,7 @@ Spore is a compiled language where function signatures are "gravity centers" —
 - Stable generic bounds use repeated single-bound clauses: `where T: Trait`.
 - Error sets are checked contracts: `throw expr` must match the current `! [...]`, calling a throwing function requires compatible caller errors, and `?` is propagation sugar.
 - Primitive syntax is `I32`/`I64`/`U32`/`U64`/`F32`/`F64`/`Bool`/`Char`/`Str`/`()`. Hole syntax stays at the richer docs target in the syntax spec.
+- Active concurrency docs target `parallel_scope { ... }`, `spawn { ... }`, postfix `task.await`, `Channel.new[...]`, and `select { ... timeout(...) => ... }`.
 
 ## Quick Start
 
@@ -115,6 +116,8 @@ fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! [NetError, Timeout]
 > propagation. The parser accepts it but the interpreter cannot execute it yet.
 > Until richer cost-slot terms land, examples use explicit parameters such as
 > `n` instead of projections like `urls.len`.
+> The same active-docs target also uses `Channel.new[...]` and
+> `select { msg from rx => ..., timeout(5.seconds) => ... }`.
 
 ### Capabilities and Implementations
 

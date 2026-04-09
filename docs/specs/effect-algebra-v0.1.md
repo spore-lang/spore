@@ -137,9 +137,10 @@ uses [NetRead, Spawn]
 {
     parallel_scope {
         -- 子任务只能使用 NetRead（⊆ {NetRead, Spawn}）
-        data.iter().map(|item| spawn {
+        let tasks = data.iter().map(|item| spawn {
             fetch(item)  -- fetch uses [NetRead]
-        }).collect_results()
+        })
+        tasks.map(|task| task.await)
     }
 }
 ```
@@ -524,7 +525,7 @@ uses [NetRead, Spawn]
                 http.get(url)
             }
         })
-        tasks.collect_results()
+        tasks.map(|task| task.await)
     }
 }
 ```
