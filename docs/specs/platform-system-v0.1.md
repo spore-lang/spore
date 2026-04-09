@@ -43,7 +43,7 @@ Spore 的 Platform 模型解决了这些问题：
 
 ```spore
 // 相同的应用代码
-fn main(args: List[String]) -> I32 ! [FileRead, StdOut] {
+fn main(args: List[Str]) -> I32 ! [FileRead, StdOut] {
     let content = File.read("data.txt")
     println(content)
     0
@@ -84,7 +84,7 @@ platform CliPlatform {
     handles [FileRead, FileWrite, NetRead, NetWrite, Clock, Spawn, Exit]
 
     // 2. Entry point 类型约束
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! [Exit]
 
     // 3. Handler 实现（由 Platform 提供）
     handler FileReadHandler { ... }
@@ -113,7 +113,7 @@ platform CliPlatform {
         Exit,          // 退出程序
     ]
 
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! [Exit]
 
     // Platform 实现细节（应用代码看不到）
     handler FileReadHandler {
@@ -122,9 +122,9 @@ platform CliPlatform {
             resume(ffi_read_file(path))
         }
 
-        File.read_to_string(path: Path) -> Result[String, IoError] {
+        File.read_to_string(path: Path) -> Result[Str, IoError] {
             let bytes = File.read(path)?
-            String.from_utf8(bytes)
+            Str.from_utf8(bytes)
         }
     }
 
@@ -190,7 +190,7 @@ platform LambdaRlatform {
     entry: fn(event: JsonValue) -> JsonValue ! [S3Read, DynamoWrite]
 
     handler S3Handler {
-        S3.get(bucket: String, key: String) -> Result[Bytes, S3Error] {
+        S3.get(bucket: Str, key: Str) -> Result[Bytes, S3Error] {
             resume(aws_s3_get(bucket, key))
         }
     }
@@ -283,11 +283,11 @@ Platform 的底层实现通常使用 native 代码（Rust/C）：
 ```spore
 // Platform 中的 FFI 声明
 foreign fn ffi_read_file(path: Bytes) -> FfiResult[Bytes]
-foreign fn ffi_write_file(path: Bytes, content: Bytes) -> FfiResult[Unit]
+foreign fn ffi_write_file(path: Bytes, content: Bytes) -> FfiResult[()]
 foreign fn ffi_tcp_connect(host: Bytes, port: U16) -> FfiResult[FfiSocket]
 
 handler FileWriteHandler {
-    File.write(path: Path, content: Bytes) -> Result[Unit, IoError] {
+    File.write(path: Path, content: Bytes) -> Result[(), IoError] {
         let result = ffi_write_file(path.to_bytes(), content)
         match result {
             FfiOk(()) -> resume(Ok(()))
@@ -320,7 +320,7 @@ platform SimplePlatform {
 
     handles [FileRead, StdOut, Exit]
 
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! [Exit]
 }
 
 // file: handlers/file.spore
@@ -332,7 +332,7 @@ handler FileReadHandler {
 
 // file: handlers/stdout.spore
 handler StdOutHandler {
-    println(s: String) -> Unit {
+    println(s: Str) -> () {
         resume(ffi_println(s.to_bytes()))
     }
 }
@@ -347,7 +347,7 @@ handler ExitHandler {
 
 // file: ffi.spore
 foreign fn ffi_read_file(path: Bytes) -> FfiResult[Bytes]
-foreign fn ffi_println(s: Bytes) -> Unit
+foreign fn ffi_println(s: Bytes) -> ()
 foreign fn ffi_exit(code: I32) -> Never
 ```
 
@@ -394,7 +394,7 @@ gpu = { git = "https://github.com/spore-platform/gpu", priority = 2 }
 
 ```spore
 // app.spore
-fn main(args: List[String]) -> I32 ! [FileRead, GpuCompute, Exit] {
+fn main(args: List[Str]) -> I32 ! [FileRead, GpuCompute, Exit] {
     let data = File.read("input.dat")  // FileRead
     let result = Gpu.matmul(data)      // GpuCompute
     0
@@ -475,7 +475,7 @@ Spore 允许应用同时使用多个 Platform，每个 Platform 负责不同的 
 // CLI Platform：文件和标准 IO
 platform CliPlatform {
     handles [FileRead, FileWrite, StdOut, StdErr, Exit, Spawn]
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! [Exit]
 }
 
 // GPU Platform：GPU 计算
@@ -489,7 +489,7 @@ platform GpuPlatform {
 
 ```spore
 // app.spore
-fn main(args: List[String]) -> I32 ! [FileRead, GpuCompute, Exit] {
+fn main(args: List[Str]) -> I32 ! [FileRead, GpuCompute, Exit] {
     // FileRead → CliPlatform
     let matrix = load_matrix_from_file("matrix.dat")
 
@@ -532,7 +532,7 @@ s3 = { git = "https://github.com/spore-platform/aws", priority = 3 }
 
 ```spore
 // app.spore
-fn main(args: List[String]) -> I32 ! [FileRead, GpuCompute, S3Write, Exit] {
+fn main(args: List[Str]) -> I32 ! [FileRead, GpuCompute, S3Write, Exit] {
     // 1. 从本地读取配置（CLI Platform）
     let config = File.read("config.toml") |> parse_config
 
@@ -581,7 +581,7 @@ fn train_model_on_gpu(data: Tensor, config: Config) -> Model ! [GpuCompute] {
 如果应用使用了未被任何 Platform 覆盖的 capability：
 
 ```spore
-fn main(args: List[String]) -> I32 ! [FileRead, DatabaseQuery, Exit] {
+fn main(args: List[Str]) -> I32 ! [FileRead, DatabaseQuery, Exit] {
     let rows = Db.query("SELECT * FROM users")  // DatabaseQuery
     // ...
 }
@@ -658,7 +658,7 @@ fn read_number(path: Path) -> I32 ! [FileRead] {
 }
 
 // 多个 effect
-fn fetch_and_save(url: Url, dest: Path) -> Unit ! [NetRead, FileWrite] {
+fn fetch_and_save(url: Url, dest: Path) -> () ! [NetRead, FileWrite] {
     let data = Http.get(url)
     File.write(dest, data)
 }
@@ -667,7 +667,7 @@ fn fetch_and_save(url: Url, dest: Path) -> Unit ! [NetRead, FileWrite] {
 Effect 传播：
 
 ```spore
-fn caller() -> Unit ! [FileRead] {
+fn caller() -> () ! [FileRead] {
     // 调用有 effect 的函数，effect 会传播
     let n = read_number("num.txt")
     println("Number: {}", n)  // println 没有 effect（纯函数）
@@ -678,7 +678,7 @@ fn caller() -> Unit ! [FileRead] {
 
 ```spore
 // app.spore
-fn main(args: List[String]) -> I32 ! [Exit]
+fn main(args: List[Str]) -> I32 ! [Exit]
     uses [FileRead, StdOut]
 {
     match read_config() {
@@ -699,13 +699,13 @@ fn read_config() -> Result[Config, Error] ! [FileRead] {
 }
 
 type Config {
-    host: String,
+    host: Str,
     port: U16,
     debug: Bool,
 }
 
 // 纯函数：解析 TOML（不需要 IO）
-fn parse_toml(s: String) -> Result[Config, Error] {
+fn parse_toml(s: Str) -> Result[Config, Error] {
     // ...
 }
 ```
@@ -741,32 +741,32 @@ Loaded config: Config { host: "localhost", port: 8080, debug: true }
 ```spore
 // 应用定义的 effect
 effect Logger {
-    fn log_info(msg: String) -> Unit
-    fn log_error(msg: String) -> Unit
+    fn log_info(msg: Str) -> ()
+    fn log_error(msg: Str) -> ()
 }
 
 // 将 Logger 映射到 Platform 的 StdOut/StdErr
 handler ConsoleLogger uses [StdOut, StdErr] {
-    log_info(msg: String) {
+    log_info(msg: Str) {
         println("[INFO] {}", msg)
         resume(())
     }
 
-    log_error(msg: String) {
+    log_error(msg: Str) {
         eprintln("[ERROR] {}", msg)
         resume(())
     }
 }
 
 // 应用代码使用高级 effect
-fn process_data(data: Data) -> Unit ! [Logger] {
+fn process_data(data: Data) -> () ! [Logger] {
     log_info("Processing data...")
     // ...
     log_info("Done!")
 }
 
 // 在 main 中安装 handler
-fn main(args: List[String]) -> I32 ! [Exit, StdOut, StdErr] {
+fn main(args: List[Str]) -> I32 ! [Exit, StdOut, StdErr] {
     with ConsoleLogger {
         process_data(load_data())
     }
@@ -778,7 +778,7 @@ fn main(args: List[String]) -> I32 ! [Exit, StdOut, StdErr] {
 
 ```spore
 // app.spore
-fn main(args: List[String]) -> I32 ! [Exit]
+fn main(args: List[Str]) -> I32 ! [Exit]
     uses [NetRead, NetWrite, StdOut]
 {
     let url = "https://api.github.com/users/octocat"
@@ -796,7 +796,7 @@ fn main(args: List[String]) -> I32 ! [Exit]
     }
 }
 
-fn fetch_user(url: String) -> Result[GithubUser, HttpError] ! [NetRead, NetWrite] {
+fn fetch_user(url: Str) -> Result[GithubUser, HttpError] ! [NetRead, NetWrite] {
     let response = Http.get(url)?
 
     if response.status != 200 {
@@ -808,7 +808,7 @@ fn fetch_user(url: String) -> Result[GithubUser, HttpError] ! [NetRead, NetWrite
 }
 
 type GithubUser {
-    name: String,
+    name: Str,
     public_repos: I32,
 }
 ```
@@ -848,7 +848,7 @@ handler MockFileSystem {
         }
     }
 
-    File.write(path: Path, content: Bytes) -> Result[Unit, IoError] {
+    File.write(path: Path, content: Bytes) -> Result[(), IoError] {
         fs.set(path, content)
         resume(Ok(()))
     }
@@ -970,7 +970,7 @@ platform ReplayPlatform {
 
 ```spore
 // app.spore
-fn fetch_weather(city: String) -> Result[Weather, Error] ! [NetRead] {
+fn fetch_weather(city: Str) -> Result[Weather, Error] ! [NetRead] {
     let url = "https://api.weather.com/v1/current?city={}"
     let response = Http.get(format(url, city))?
     Json.parse(response.body)
@@ -1103,12 +1103,12 @@ handler GpioHandler {
         resume(ffi_gpio_read(pin))
     }
 
-    Gpio.write(pin: U8, value: Bool) -> Unit {
+    Gpio.write(pin: U8, value: Bool) -> () {
         ffi_gpio_write(pin, value)
         resume(())
     }
 
-    Gpio.set_mode(pin: U8, mode: GpioMode) -> Unit {
+    Gpio.set_mode(pin: U8, mode: GpioMode) -> () {
         ffi_gpio_set_mode(pin, mode as U8)
         resume(())
     }
@@ -1116,7 +1116,7 @@ handler GpioHandler {
 
 // handlers/timer.spore
 handler TimerHandler {
-    Timer.delay_ms(ms: U32) -> Unit {
+    Timer.delay_ms(ms: U32) -> () {
         ffi_delay_ms(ms)
         resume(())
     }
@@ -1595,28 +1595,28 @@ Generating platform bindings:
 platform CliPlatform {
     version: "1.0.0"
     handles [FileRead, FileWrite, StdOut, StdErr, NetRead, NetWrite, Clock, Spawn, Exit]
-    entry: fn(args: List[String]) -> I32 ! [Exit]
+    entry: fn(args: List[Str]) -> I32 ! [Exit]
 }
 
 // File API
 effect FileRead {
     fn read(path: Path) -> Result[Bytes, IoError]
-    fn read_to_string(path: Path) -> Result[String, IoError]
+    fn read_to_string(path: Path) -> Result[Str, IoError]
     fn exists(path: Path) -> Bool
     fn list_dir(path: Path) -> Result[List[DirEntry], IoError]
     fn metadata(path: Path) -> Result[FileMetadata, IoError]
 }
 
 effect FileWrite {
-    fn write(path: Path, content: Bytes) -> Result[Unit, IoError]
-    fn append(path: Path, content: Bytes) -> Result[Unit, IoError]
-    fn delete(path: Path) -> Result[Unit, IoError]
-    fn create_dir(path: Path) -> Result[Unit, IoError]
+    fn write(path: Path, content: Bytes) -> Result[(), IoError]
+    fn append(path: Path, content: Bytes) -> Result[(), IoError]
+    fn delete(path: Path) -> Result[(), IoError]
+    fn create_dir(path: Path) -> Result[(), IoError]
 }
 
 // Network API
 effect NetRead {
-    fn tcp_connect(host: String, port: U16) -> Result[TcpSocket, NetError]
+    fn tcp_connect(host: Str, port: U16) -> Result[TcpSocket, NetError]
 }
 
 effect NetWrite {
@@ -1625,18 +1625,18 @@ effect NetWrite {
 
 // Standard IO
 effect StdOut {
-    fn println(s: String) -> Unit
-    fn print(s: String) -> Unit
+    fn println(s: Str) -> ()
+    fn print(s: Str) -> ()
 }
 
 effect StdErr {
-    fn eprintln(s: String) -> Unit
+    fn eprintln(s: Str) -> ()
 }
 
 // Clock
 effect Clock {
     fn now() -> Timestamp
-    fn sleep(duration: Duration) -> Unit
+    fn sleep(duration: Duration) -> ()
 }
 
 // Concurrency
@@ -1673,21 +1673,21 @@ effect HttpClient {
 }
 
 effect DbQuery {
-    fn query<T>(sql: String) -> Result[List[T], DbError]
-    fn execute(sql: String) -> Result[U64, DbError]
+    fn query<T>(sql: Str) -> Result[List[T], DbError]
+    fn execute(sql: Str) -> Result[U64, DbError]
     fn transaction<T>(f: fn() -> T) -> Result[T, DbError]
 }
 
 type Request {
     method: HttpMethod,
-    path: String,
-    headers: Map[String, String],
+    path: Str,
+    headers: Map[Str, Str],
     body: Bytes,
 }
 
 type Response {
     status: U16,
-    headers: Map[String, String],
+    headers: Map[Str, Str],
     body: Bytes,
 }
 ```
@@ -1775,12 +1775,12 @@ fn create_todo(req: Request) -> Response ! [DbQuery, Clock] {
 }
 
 type TodoInput {
-    title: String,
+    title: Str,
 }
 
 type Todo {
     id: I64,
-    title: String,
+    title: Str,
     completed: Bool,
     created_at: Timestamp,
 }

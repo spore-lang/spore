@@ -149,7 +149,7 @@ cost(x |> f |> g |> h) = cost(x) + cost(f) + cost(g) + cost(h)
 ### 5.1 有界迭代（fold/map/filter）
 
 ```
-fn sum_list(items: List[Int]) -> Int {
+fn sum_list(items: List[I32]) -> I32 {
     items |> fold(start: 0, step: fn(acc, x) -> acc + x)
 }
 ```
@@ -168,7 +168,7 @@ cost(sum_list) = N × 2 + 5    -- 其中 N = len(items)
 
 签名中的 `cost ≤ K` 约束此时意味着：
 - 编译器验证 `N × 2 + 5 ≤ K` 在给定 N 范围内成立
-- 如果参数类型带有大小约束（如 `List[Int, max: 1000]`），编译器可以验证
+- 如果参数类型带有大小约束（如 `List[I32, max: 1000]`），编译器可以验证
 - 如果无大小约束，编译器要求开发者明确声明
 
 ### 5.2 有界类型（Bounded Types）
@@ -192,7 +192,7 @@ fn process_batch(items: List[Order, max: 500]) -> BatchResult ! [TooLarge]
 结构递归（每次递归参数严格变小）是可证终止的，代价可以推导：
 
 ```
-fn tree_depth[T](tree: Tree[T]) -> Int {
+fn tree_depth[T](tree: Tree[T]) -> I32 {
     match tree {
         Leaf(_) => 0
         Node(left, _, right) => 1 + max(tree_depth(left), tree_depth(right))
@@ -208,7 +208,7 @@ fn tree_depth[T](tree: Tree[T]) -> Int {
 无法证明终止 → 无法静态确定代价。处理方式：
 
 ```
-fn fibonacci(n: Int) -> Int {
+fn fibonacci(n: I32) -> I32 {
     match n {
         0 => 0
         1 => 1
@@ -224,14 +224,14 @@ WARNING [unbounded-cost] fibonacci 的代价无法静态确定。
   推断复杂度: O(2^n)
 
   选项:
-  (a) 添加 `cost ≤ K` + 参数约束 `n: Int if n ≤ 30`
+  (a) 添加 `cost ≤ K` + 参数约束 `n: I32 if n ≤ 30`
   (b) 标记为 `unbounded`（放弃代价约束）
   (c) 改用结构递归或尾递归 + 迭代上限
 ```
 
 标记为 `unbounded` 的函数：
 ```
-fn fibonacci(n: Int) -> Int
+fn fibonacci(n: I32) -> I32
     cost: unbounded
 {
     ...
@@ -240,7 +240,7 @@ fn fibonacci(n: Int) -> Int
 
 `unbounded` 函数**不能被 cost ≤ K 函数调用**，除非包裹在运行时代价限制器中：
 ```
-fn safe_fib(n: Int) -> Int ! [CostExceeded]
+fn safe_fib(n: I32) -> I32 ! [CostExceeded]
     cost ≤ 10000
     uses [Compute]
 {
@@ -842,7 +842,7 @@ scalar_cost(n̄) = C_compute(n̄) + α × C_alloc(n̄) + β × C_io(n̄) + γ ×
 编译器识别结构递归模式后，自动生成 CostExpr：
 
 ```
-fn tree_sum(tree: Tree<Int>) -> Int {
+fn tree_sum(tree: Tree<I32>) -> I32 {
     match tree {
         Leaf(v) => v                                    -- cost: O(1)
         Node(left, v, right) => tree_sum(left) + v + tree_sum(right)
@@ -928,7 +928,7 @@ C = 42, B = 100
 ### 示例 1：常量代价（平凡验证）
 
 ```spore
-fn get_first(pair: (Int, Int)) -> Int
+fn get_first(pair: (I32, I32)) -> I32
     cost ≤ 100
 {
     pair.0    -- 推断代价: 1 op (变量读取) = 1
@@ -947,7 +947,7 @@ NF(C) = {(1, ∅, ∅)},  NF(B) = {(100, ∅, ∅)}
 ### 示例 2：线性代价（系数比较）
 
 ```spore
-fn sum_list(items: List<Int, max: n>) -> Int
+fn sum_list(items: List<I32, max: n>) -> I32
     cost ≤ n * 5 + 10
 {
     items |> fold(start: 0, step: fn(acc, x) -> acc + x)
@@ -1196,7 +1196,7 @@ algorithm detect_structural_recursion(f):
 
 **自然数递减——阶乘：**
 ```spore
-fn factorial(n: Int) -> Int {
+fn factorial(n: I32) -> I32 {
     match n {
         0 => 1,
         n => n * factorial(n - 1),
@@ -1213,7 +1213,7 @@ fn factorial(n: Int) -> Int {
 
 **列表尾部——求和：**
 ```spore
-fn sum(list: List<Int>) -> Int {
+fn sum(list: List<I32>) -> I32 {
     match list {
         [] => 0,
         [head, ..tail] => head + sum(tail),
@@ -1230,7 +1230,7 @@ fn sum(list: List<Int>) -> Int {
 
 **树遍历——单侧递归：**
 ```spore
-fn depth<T>(tree: Tree<T>) -> Int {
+fn depth<T>(tree: Tree<T>) -> I32 {
     match tree {
         Leaf(_) => 0,
         Node(left, _, right) => 1 + max(depth(left), depth(right)),
@@ -1259,7 +1259,7 @@ fn depth<T>(tree: Tree<T>) -> Int {
 在函数签名中通过 `cost ≤ expr` 子句声明代价上界：
 
 ```spore
-fn ackermann(m: Int, n: Int) -> Int
+fn ackermann(m: I32, n: I32) -> I32
     cost ≤ ackermann_bound(m, n)
 {
     match (m, n) {
@@ -1275,7 +1275,7 @@ fn ackermann(m: Int, n: Int) -> Int
 当终止性证明需要显式的递减度量时，开发者可提供 `decreases` 子句：
 
 ```spore
-fn gcd(a: Int, b: Int) -> Int
+fn gcd(a: I32, b: I32) -> I32
     decreases a + b
     cost ≤ log(max(a, b))
 {
@@ -1385,7 +1385,7 @@ fn merge_sort<T>(list: List<T>) -> List<T>
 
 ```spore
 @unbounded
-fn collatz(n: Int) -> Int {
+fn collatz(n: I32) -> I32 {
     match n {
         1 => 0,
         n if n % 2 == 0 => 1 + collatz(n / 2),
@@ -1407,17 +1407,17 @@ fn collatz(n: Int) -> Int {
 
 ```spore
 @unbounded
-fn collatz(n: Int) -> Int { ... }
+fn collatz(n: I32) -> I32 { ... }
 
 // ✗ 编译错误: 不能在 cost-bounded 上下文中直接调用 @unbounded 函数
-fn analyze(n: Int) -> Int
+fn analyze(n: I32) -> I32
     cost ≤ 1000
 {
     collatz(n)  // ERROR [unbounded-in-bounded-context]
 }
 
 // ✓ 通过代价限制器包裹
-fn safe_analyze(n: Int) -> Int ! [CostExceeded]
+fn safe_analyze(n: I32) -> I32 ! [CostExceeded]
     cost ≤ 1000
 {
     with_cost_limit(1000) {
@@ -1427,7 +1427,7 @@ fn safe_analyze(n: Int) -> Int ! [CostExceeded]
 
 // ✓ 调用者也标记为 @unbounded
 @unbounded
-fn analyze_all(ns: List<Int>) -> List<Int> {
+fn analyze_all(ns: List<I32>) -> List<I32> {
     ns |> map(collatz)
 }
 ```
@@ -1480,7 +1480,7 @@ WARNING [unbounded-function] collatz 标记为 @unbounded。
 ### 5.3 嵌套高阶函数
 
 ```spore
-fn matrix_sum(matrix: List<List<Int>>) -> Int {
+fn matrix_sum(matrix: List<List<I32>>) -> I32 {
     matrix |> map(fn(row) { row |> fold(0, fn(a, b) { a + b }) })
            |> fold(0, fn(a, b) { a + b })
 }
@@ -1518,14 +1518,14 @@ algorithm detect_mutual_recursion(call_graph):
 将 SCC 中的所有函数视为**单一递归单元**，应用三层方案：
 
 ```spore
-fn is_even(n: Int) -> Bool {
+fn is_even(n: I32) -> Bool {
     match n {
         0 => true,
         n => is_odd(n - 1),
     }
 }
 
-fn is_odd(n: Int) -> Bool {
+fn is_odd(n: I32) -> Bool {
     match n {
         0 => false,
         n => is_even(n - 1),
@@ -1609,7 +1609,7 @@ fn process_tree<T>(tree: Tree<T>) -> Result<T>
 ### 示例 1: 简单结构递归 — 阶乘
 
 ```spore
-fn factorial(n: Int) -> Int {
+fn factorial(n: I32) -> I32 {
     match n {
         0 => 1,
         n => n * factorial(n - 1),
@@ -1628,7 +1628,7 @@ fn factorial(n: Int) -> Int {
 ### 示例 2: 树遍历 — 二叉结构递归
 
 ```spore
-fn tree_sum(tree: Tree<Int>) -> Int {
+fn tree_sum(tree: Tree<I32>) -> I32 {
     match tree {
         Leaf(v) => v,
         Node(left, val, right) => tree_sum(left) + val + tree_sum(right),
@@ -1647,13 +1647,13 @@ fn tree_sum(tree: Tree<Int>) -> Int {
 ### 示例 3: 二分查找 — 对数结构递归
 
 ```spore
-fn binary_search<T>(sorted: List<T>, target: T) -> Option<Int>
+fn binary_search<T>(sorted: List<T>, target: T) -> Option<I32>
     where T: Ord
 {
     search_helper(sorted, target, 0, len(sorted) - 1)
 }
 
-fn search_helper<T>(sorted: List<T>, target: T, low: Int, high: Int) -> Option<Int>
+fn search_helper<T>(sorted: List<T>, target: T, low: I32, high: I32) -> Option<I32>
     where T: Ord
 {
     match low > high {
@@ -1720,7 +1720,7 @@ fn merge_sort<T>(list: List<T>) -> List<T>
 
 ```spore
 @unbounded
-fn collatz_steps(n: Int) -> Int {
+fn collatz_steps(n: I32) -> I32 {
     match n {
         1 => 0,
         n if n % 2 == 0 => 1 + collatz_steps(n / 2),

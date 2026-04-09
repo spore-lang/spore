@@ -166,7 +166,7 @@ $$\Gamma;\ S \vdash e : T$$
 
 
 ────────────────────────────────  [PURE-LITERAL]
-Γ; S ⊢ 42 : Int      ∀ S
+Γ; S ⊢ 42 : I32      ∀ S
 ```
 
 ---
@@ -193,10 +193,10 @@ $$\Gamma;\ S \vdash e : T$$
 
 ```spore
 -- 完整形式
-fn add(a: Int, b: Int) -> Int uses [] { a + b }
+fn add(a: I32, b: I32) -> I32 uses [] { a + b }
 
 -- 简写形式（等价）
-fn add(a: Int, b: Int) -> Int { a + b }
+fn add(a: I32, b: I32) -> I32 { a + b }
 ```
 
 两种写法在类型系统中完全等价：
@@ -227,13 +227,13 @@ $$\text{closure } |x| \text{ expr} \text{ 在上下文 } S \text{ 中} \implies 
 S' 由闭包体内实际使用的能力决定（编译器推断）。
 
 ```spore
-fn example() -> Unit
+fn example() -> ()
 uses [FileRead, NetRead]
 {
-    -- 此闭包类型为 (String) -> Data uses [NetRead]
+    -- 此闭包类型为 (Str) -> Data uses [NetRead]
     let fetch_fn = |url| http.get(url)
 
-    -- 此闭包类型为 (Int) -> Int uses []  （纯函数）
+    -- 此闭包类型为 (I32) -> I32 uses []  （纯函数）
     let double = |x| x * 2
 }
 ```
@@ -433,7 +433,7 @@ $$S \cap \{NetRead, NetWrite, FileRead, FileWrite\} = \emptyset \implies \text{c
 ### 示例 1：纯函数 (uses [])
 
 ```spore
-fn fibonacci(n: Int) -> Int {
+fn fibonacci(n: I32) -> I32 {
     match n {
         0 => 0,
         1 => 1,
@@ -453,7 +453,7 @@ cost ≤ O(2^n)
 ### 示例 2：IO 函数 (uses [FileRead])
 
 ```spore
-fn read_config(path: String) -> Config ! [IoError, ParseError]
+fn read_config(path: Str) -> Config ! [IoError, ParseError]
 uses [FileRead]
 {
     let content = read_file(path)
@@ -492,17 +492,17 @@ uses [NetRead, NetWrite, StateRead, StateWrite]
 ### 示例 4：高阶函数与纯闭包
 
 ```spore
-fn process_scores(scores: List[Int]) -> List[String] {
+fn process_scores(scores: List[I32]) -> List[Str] {
     scores
-        .filter(|s| s >= 60)          -- 纯闭包: (Int) -> Bool
-        .map(|s| format("Pass: {}", s))  -- 纯闭包: (Int) -> String
+        .filter(|s| s >= 60)          -- 纯闭包: (I32) -> Bool
+        .map(|s| format("Pass: {}", s))  -- 纯闭包: (I32) -> Str
 }
 ```
 
 `filter` 和 `map` 的参数类型要求闭包为纯函数。以下代码 **不合法**：
 
 ```spore
-fn bad_example(scores: List[Int]) -> List[Unit]
+fn bad_example(scores: List[I32]) -> List[()]
 uses [FileWrite]
 {
     -- ❌ 编译错误: map 要求纯闭包，但此闭包 uses [FileWrite]

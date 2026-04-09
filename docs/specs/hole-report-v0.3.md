@@ -863,7 +863,7 @@ spore watch 检测到变化
 Agent 应以流式方式读取 NDJSON，按事件类型分发处理：
 
 ```
-fn consume_events(stdin) -> Unit:
+fn consume_events(stdin) -> ():
     match read_line(stdin):
         Some(line) =>
             event = parse_json(line)
