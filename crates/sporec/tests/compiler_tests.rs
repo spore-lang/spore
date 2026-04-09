@@ -46,7 +46,7 @@ impl Drop for TempProject {
 
 #[test]
 fn check_verbose_ok_includes_section_headers() {
-    let output = check_verbose("fn f() -> Int { 42 }").unwrap();
+    let output = check_verbose("fn f() -> I32 { 42 }").unwrap();
     assert!(
         output.contains("✓ no errors"),
         "verbose output should start with success marker, got: {output}"
@@ -61,7 +61,7 @@ fn check_verbose_ok_includes_section_headers() {
 fn check_verbose_reports_holes() {
     let output = check_verbose(
         r#"
-        fn f() -> Int {
+        fn f() -> I32 {
             ?todo
         }
     "#,
@@ -79,7 +79,7 @@ fn check_verbose_reports_holes() {
 
 #[test]
 fn check_verbose_returns_error_on_invalid() {
-    let result = check_verbose(r#"fn f() -> Int { "oops" }"#);
+    let result = check_verbose(r#"fn f() -> I32 { "oops" }"#);
     assert!(result.is_err(), "type error should produce Err");
     let msg = result.unwrap_err();
     assert!(
@@ -92,7 +92,7 @@ fn check_verbose_returns_error_on_invalid() {
 
 #[test]
 fn hole_summary_none_when_no_holes() {
-    let summary = hole_summary("fn f() -> Int { 42 }");
+    let summary = hole_summary("fn f() -> I32 { 42 }");
     assert!(summary.is_none(), "no holes should produce None");
 }
 
@@ -100,7 +100,7 @@ fn hole_summary_none_when_no_holes() {
 fn hole_summary_present_with_holes() {
     let summary = hole_summary(
         r#"
-        fn f() -> Int {
+        fn f() -> I32 {
             ?todo
         }
     "#,
@@ -115,7 +115,7 @@ fn hole_summary_present_with_holes() {
 fn hole_summary_json_format() {
     let summary = hole_summary(
         r#"
-        fn f() -> Int {
+        fn f() -> I32 {
             ?todo
         }
     "#,
@@ -144,7 +144,7 @@ fn hole_summary_json_format() {
 
 #[test]
 fn compile_error_uses_new_codes() {
-    let err = compile(r#"fn f() -> Int { "oops" }"#).unwrap_err();
+    let err = compile(r#"fn f() -> I32 { "oops" }"#).unwrap_err();
     assert!(
         err.contains("[E0001]"),
         "compile error should use 4-digit code, got: {err}"
@@ -159,7 +159,7 @@ fn compile_error_uses_new_codes() {
 fn compile_accepts_source_defined_prelude_items() {
     let output = compile(
         r#"
-        fn main() -> Int {
+        fn main() -> I32 {
             match compare(identity(2), bool_to_int(not(false))) {
                 Less => 0,
                 Equal => 1,
@@ -178,7 +178,7 @@ fn compile_accepts_source_defined_prelude_items() {
 
 #[test]
 fn compile_rejects_non_prelude_stdlib_by_default() {
-    let err = compile("fn main() -> Int { clamp(5, 0, 10) }")
+    let err = compile("fn main() -> I32 { clamp(5, 0, 10) }")
         .expect_err("non-prelude stdlib should not be globally injected");
     assert!(
         err.contains("undefined variable `clamp`"),
@@ -190,10 +190,10 @@ fn compile_rejects_non_prelude_stdlib_by_default() {
 fn compile_accepts_spec_clause_syntax() {
     let output = compile(
         r#"
-        fn add(a: Int, b: Int) -> Int
+        fn add(a: I32, b: I32) -> I32
         spec {
             example "basic": add(2, 3) == 5
-            property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+            property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
         }
         {
             a + b
@@ -213,12 +213,12 @@ fn compile_accepts_effect_and_handler_items() {
     let output = compile(
         r#"
         effect Console {
-            fn println(msg: String) -> Unit
+            fn println(msg: Str) -> ()
         }
         handler MockConsole for Console {
-            fn println(msg: String) -> Unit { return }
+            fn println(msg: Str) -> () { return }
         }
-        fn main() -> Int { 0 }
+        fn main() -> I32 { 0 }
     "#,
     )
     .expect("effect and handler items should compile through sporec");
@@ -236,13 +236,13 @@ fn compile_project_rejects_type_error_in_imported_module() {
         "src/main.sp",
         r#"
         import utils
-        fn main() -> Int { double(21) }
+        fn main() -> I32 { double(21) }
         "#,
     );
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: Int) -> Int { "oops" }
+        pub fn double(x: I32) -> I32 { "oops" }
         "#,
     );
 
@@ -265,13 +265,13 @@ fn run_project_rejects_type_error_in_imported_module_before_execution() {
         "src/main.sp",
         r#"
         import utils
-        fn main() -> Int { double(21) }
+        fn main() -> I32 { double(21) }
         "#,
     );
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: Int) -> Int { "oops" }
+        pub fn double(x: I32) -> I32 { "oops" }
         "#,
     );
 
@@ -294,13 +294,13 @@ fn check_project_verbose_rejects_type_error_in_imported_module() {
         "src/main.sp",
         r#"
         import utils
-        fn main() -> Int { double(21) }
+        fn main() -> I32 { double(21) }
         "#,
     );
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: Int) -> Int { "oops" }
+        pub fn double(x: I32) -> I32 { "oops" }
         "#,
     );
 
@@ -323,13 +323,13 @@ fn check_project_verbose_includes_imported_module_sections() {
         "src/main.sp",
         r#"
         import utils
-        fn main() -> Int { double(21) }
+        fn main() -> I32 { double(21) }
         "#,
     );
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: Int) -> Int { x + x }
+        pub fn double(x: I32) -> I32 { x + x }
         "#,
     );
 
@@ -376,7 +376,7 @@ fn cost_violation_emits_warning_not_error() {
 #[test]
 fn no_cost_annotation_no_warning() {
     // A function with no cost annotation should produce no warnings.
-    let output = compile("fn f(x: Int) -> Int { x + x }").unwrap();
+    let output = compile("fn f(x: I32) -> I32 { x + x }").unwrap();
     assert!(
         output.warnings.is_empty(),
         "expected no warnings for unannotated function, got: {:?}",
