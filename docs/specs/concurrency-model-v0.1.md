@@ -1,7 +1,7 @@
 # 并发模型设计 — 完整规范 v0.1
 
 > **状态**: 初稿
-> **前置依赖**: syntax-spec-v0.1.md (附录 B: 签名语法), cost-analysis-v0.1.md, type-system-v0.1, concurrency-research
+> **前置依赖**: syntax-spec-v0.1.md (附录 B: 签名语法), cost-analysis-v0.1.md, type-system-v0.1
 > **核心公式**: `Spore Concurrency = Koka Effects + Kotlin Structured Scoping + Zig Explicit Resources + Spore Cost Budgets`
 
 ---

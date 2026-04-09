@@ -51,8 +51,11 @@ jobs:
       - name: Validate published hook manifest
         run: uvx prek validate-manifest .pre-commit-hooks.yaml
 
-      - name: Smoke-test demo via spore test
-        run: cargo run --release --bin spore -- test demo.sp
+      - name: Smoke-test project-aware build
+        run: |
+          cargo run --release --bin spore -- new ci-build-smoke
+          cd ci-build-smoke
+          ../target/release/spore build
 
       - name: Smoke-test stdlib specs
         run: cargo run --release --bin spore -- test stdlib/math.sp stdlib/string.sp stdlib/collections.sp stdlib/char.sp stdlib/set.sp stdlib/dict.sp
@@ -96,15 +99,9 @@ jobs:
         run: |
           uv sync --locked
 
-      - name: Smoke-test packaged CLI
-        run: |
-          test "$(uv run spore run demo.sp)" = "204"
-          uv run spore check demo.sp
-          uv run spore test demo.sp
-
       - name: Smoke-test built wheel
         run: |
-          uv tool run --from ./dist/spore_cli-*.whl spore run demo.sp > /tmp/spore-wheel.out
+          uv tool run --from ./dist/spore_cli-*.whl spore run examples/demo.sp > /tmp/spore-wheel.out
           grep -qx '204' /tmp/spore-wheel.out
-          uv tool run --from ./dist/spore_cli-*.whl spore check demo.sp
-          uv tool run --from ./dist/spore_cli-*.whl spore test demo.sp
+          uv tool run --from ./dist/spore_cli-*.whl spore check examples/demo.sp
+          uv tool run --from ./dist/spore_cli-*.whl spore test examples/demo.sp
