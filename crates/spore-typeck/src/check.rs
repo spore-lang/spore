@@ -289,7 +289,7 @@ impl Checker {
                 self.registry
                     .functions
                     .insert(f.name.clone(), (param_tys, ret_ty, caps));
-                // Register error set (! [E1, E2])
+                // Register error set (! E1 | E2)
                 if !f.errors.is_empty() {
                     let error_set: ErrorSet = f
                         .errors
@@ -694,7 +694,7 @@ impl Checker {
                 .unwrap_or_default(),
         );
 
-        // Set current function's error set (! [E1, E2])
+        // Set current function's error set (! E1 | E2)
         let prev_errors = std::mem::replace(
             &mut self.current_errors,
             f.errors
@@ -1878,7 +1878,7 @@ impl Checker {
             self.err(
                 ErrorCode::E0012,
                 format!(
-                    "`throw` in `{}` requires declaring an error set with `! [E]`",
+                    "`throw` in `{}` requires declaring an error set with `! E`",
                     self.current_function
                 ),
             );

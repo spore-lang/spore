@@ -841,7 +841,7 @@ fn variable_pattern_makes_int_match_exhaustive() {
 fn function_with_throws_clause() {
     check_ok(
         r#"
-        fn read_file(path: Str) -> Str ! [IoError] { "content" }
+        fn read_file(path: Str) -> Str ! IoError { "content" }
     "#,
     );
 }
@@ -850,8 +850,8 @@ fn function_with_throws_clause() {
 fn try_propagation_ok() {
     check_ok(
         r#"
-        fn read_file(path: Str) -> Str ! [IoError] { "content" }
-        fn process() -> Str ! [IoError] {
+        fn read_file(path: Str) -> Str ! IoError { "content" }
+        fn process() -> Str ! IoError {
             read_file("test.txt")?
         }
     "#,
@@ -862,7 +862,7 @@ fn try_propagation_ok() {
 fn try_propagation_missing_error() {
     let errs = check_err(
         r#"
-        fn read_file(path: Str) -> Str ! [IoError] { "content" }
+        fn read_file(path: Str) -> Str ! IoError { "content" }
         fn process() -> Str {
             read_file("test.txt")?
         }
@@ -878,8 +878,8 @@ fn try_propagation_missing_error() {
 fn try_propagation_superset_ok() {
     check_ok(
         r#"
-        fn read_file(path: Str) -> Str ! [IoError] { "content" }
-        fn process() -> Str ! [IoError, ParseError] {
+        fn read_file(path: Str) -> Str ! IoError { "content" }
+        fn process() -> Str ! IoError | ParseError {
             read_file("test.txt")?
         }
     "#,
@@ -890,8 +890,8 @@ fn try_propagation_superset_ok() {
 fn try_propagation_partial_missing() {
     let errs = check_err(
         r#"
-        fn risky(x: I32) -> I32 ! [IoError, ParseError] { x }
-        fn caller() -> I32 ! [IoError] {
+        fn risky(x: I32) -> I32 ! IoError | ParseError { x }
+        fn caller() -> I32 ! IoError {
             risky(1)?
         }
     "#,
@@ -906,7 +906,7 @@ fn try_propagation_partial_missing() {
 fn direct_call_missing_error_check() {
     let errs = check_err(
         r#"
-        fn read_file(path: Str) -> Str ! [IoError] { "content" }
+        fn read_file(path: Str) -> Str ! IoError { "content" }
         fn process() -> Str {
             read_file("test.txt")
         }
@@ -922,8 +922,8 @@ fn direct_call_missing_error_check() {
 fn direct_call_declared_error_check() {
     check_ok(
         r#"
-        fn read_file(path: Str) -> Str ! [IoError] { "content" }
-        fn process() -> Str ! [IoError] {
+        fn read_file(path: Str) -> Str ! IoError { "content" }
+        fn process() -> Str ! IoError {
             read_file("test.txt")
         }
     "#,
@@ -934,7 +934,7 @@ fn direct_call_declared_error_check() {
 fn function_with_throws_and_uses() {
     check_ok(
         r#"
-        fn read_file(path: Str) -> Str ! [IoError] uses [Fs] { "content" }
+        fn read_file(path: Str) -> Str ! IoError uses [Fs] { "content" }
     "#,
     );
 }
@@ -1323,7 +1323,7 @@ fn hole_report_json_v03_fields() {
 fn hole_collects_capabilities_and_errors() {
     let module = parse(
         r#"
-        fn helper() -> I32 ! [ParseError] uses [IO] {
+        fn helper() -> I32 ! ParseError uses [IO] {
             ?todo
         }
     "#,
@@ -2037,7 +2037,7 @@ fn test_error_set_display_with_errors() {
 fn test_error_set_propagation() {
     // Using `?` to propagate errors from a caller that doesn't declare them
     let src = r#"
-        fn risky() -> I32 ! [MyError] {
+        fn risky() -> I32 ! MyError {
             42
         }
         fn caller() -> I32 {
@@ -2087,10 +2087,10 @@ fn test_error_set_propagation_declared() {
     // Using `?` from a caller that declares the errors should be OK
     check_ok(
         r#"
-        fn risky() -> I32 ! [MyError] {
+        fn risky() -> I32 ! MyError {
             42
         }
-        fn caller() -> I32 ! [MyError] {
+        fn caller() -> I32 ! MyError {
             risky()?
         }
     "#,
@@ -2120,7 +2120,7 @@ fn throw_named_error_must_be_declared() {
         r#"
         struct IoError {}
         struct ParseError {}
-        fn fail() -> I32 ! [IoError] {
+        fn fail() -> I32 ! IoError {
             throw ParseError {}
         }
     "#,
@@ -2136,7 +2136,7 @@ fn throw_named_error_declared_ok() {
     check_ok(
         r#"
         struct MyError {}
-        fn fail() -> I32 ! [MyError] {
+        fn fail() -> I32 ! MyError {
             throw MyError {}
         }
     "#,

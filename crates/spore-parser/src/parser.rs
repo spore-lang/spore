@@ -381,12 +381,14 @@ impl Parser {
             None
         };
 
-        // optional errors clause: `! [E1, E2]`
+        // optional errors clause: `! E1 | E2`
         let errors = if self.at(&Token::Bang) {
             self.advance();
-            self.expect(&Token::LBracket)?;
-            let errs = self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RBracket)?;
-            self.expect(&Token::RBracket)?;
+            let mut errs = vec![self.parse_type_expr()?];
+            while self.at(&Token::Pipe) {
+                self.advance();
+                errs.push(self.parse_type_expr()?);
+            }
             errs
         } else {
             vec![]
