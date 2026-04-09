@@ -4,7 +4,7 @@
 
 use crate::ast::*;
 use crate::error::ParseError;
-use crate::lexer::{Span, Spanned, TemplatePart, Token};
+use crate::lexer::{Comment, Span, Spanned, TemplatePart, Token};
 
 // ── Precedence table (Pratt parsing) ─────────────────────────────────────
 
@@ -194,6 +194,14 @@ impl Parser {
     // ── Top-level: Module ───────────────────────────────────────────
 
     pub fn parse_module(&mut self) -> Result<Module, ParseError> {
+        self.parse_module_with_comments(Vec::new())
+    }
+
+    /// Parse a module and attach pre-collected comments.
+    pub fn parse_module_with_comments(
+        &mut self,
+        comments: Vec<Comment>,
+    ) -> Result<Module, ParseError> {
         if self.at(&Token::Mod) {
             return Err(self.error(
                 "module declarations are not supported; module names are derived from file paths"
@@ -208,6 +216,7 @@ impl Parser {
         Ok(Module {
             name: String::new(),
             items,
+            comments,
         })
     }
 

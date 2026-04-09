@@ -3,10 +3,11 @@
 //! Takes a parsed `Module` and produces canonical, formatted source code.
 
 use crate::ast::*;
+use crate::lexer::Comment;
 
 /// Format a parsed Spore module back to canonical source text.
 pub fn format_module(module: &Module) -> String {
-    let mut f = Formatter::new();
+    let mut f = Formatter::new(&module.comments);
     f.fmt_module(module);
     let mut result = f.output;
     // Ensure trailing newline
@@ -16,16 +17,22 @@ pub fn format_module(module: &Module) -> String {
     result
 }
 
-struct Formatter {
+struct Formatter<'a> {
     output: String,
     indent: usize,
+    /// Source comments to interleave during formatting.
+    comments: &'a [Comment],
+    /// Index of the next comment to consider emitting.
+    comment_idx: usize,
 }
 
-impl Formatter {
-    fn new() -> Self {
+impl<'a> Formatter<'a> {
+    fn new(comments: &'a [Comment]) -> Self {
         Self {
             output: String::new(),
             indent: 0,
+            comments,
+            comment_idx: 0,
         }
     }
 
@@ -51,6 +58,29 @@ impl Formatter {
         }
     }
 
+    // ── Comment interleaving ─────────────────────────────────────────
+
+    /// Emit all comments whose position falls before `before_pos`.
+    /// If `before_pos` is `None`, emit all remaining comments.
+    fn emit_comments_before(&mut self, before_pos: Option<usize>) {
+        while self.comment_idx < self.comments.len() {
+            let c = &self.comments[self.comment_idx];
+            if let Some(pos) = before_pos
+                && c.span.start >= pos
+            {
+                break;
+            }
+            if c.has_leading_blank_line && !self.output.is_empty() && !self.output.ends_with("\n\n")
+            {
+                self.newline();
+            }
+            self.write_indent();
+            self.write(&c.text);
+            self.output.push('\n');
+            self.comment_idx += 1;
+        }
+    }
+
     // ── Module ──────────────────────────────────────────────────────────
 
     fn fmt_module(&mut self, module: &Module) {
@@ -58,8 +88,14 @@ impl Formatter {
             if i > 0 {
                 self.newline();
             }
+            // Emit comments that belong before this item.
+            let item_start = item.span().map(|s| s.start);
+            self.emit_comments_before(item_start);
+
             self.fmt_item(item);
         }
+        // Emit any trailing comments after the last item.
+        self.emit_comments_before(None);
     }
 
     // ── Items ───────────────────────────────────────────────────────────
@@ -1368,5 +1404,61 @@ mod tests {
         assert!(out.contains("effect Console {"));
         assert!(out.contains("effect IO = Console | FileRead"));
         assert!(out.contains("handler MockConsole for Console {"));
+    }
+
+    // ── Comment preservation tests ──────────────────────────────────
+
+    #[test]
+    fn test_doc_comment_preserved() {
+        let src = concat!(
+            "/// Adds two numbers.\n",
+            "fn add(a: Int, b: Int) -> Int { a + b }\n",
+        );
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_line_comment_between_items_preserved() {
+        let src = concat!(
+            "fn a() -> Int { 1 }\n",
+            "\n",
+            "// helper\n",
+            "fn b() -> Int { 2 }\n",
+        );
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_multi_line_doc_comment_preserved() {
+        let src = concat!(
+            "/// First line.\n",
+            "/// Second line.\n",
+            "fn greet() -> Str { \"hi\" }\n",
+        );
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_block_comment_preserved() {
+        let src = concat!("/* block comment */\n", "fn f() -> Int { 0 }\n",);
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_blank_line_between_comment_groups_preserved() {
+        let src = concat!(
+            "/// Module doc.\n",
+            "\n",
+            "/// Function doc.\n",
+            "fn f() -> Int { 0 }\n",
+        );
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_trailing_comment_after_last_item() {
+        let src = concat!("fn f() -> Int { 0 }\n", "\n", "// end of file\n",);
+        let out = roundtrip(src);
+        assert!(out.contains("// end of file"));
     }
 }

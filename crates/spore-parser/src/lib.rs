@@ -14,7 +14,8 @@ use parser::Parser;
 
 /// Parse Spore source code into an AST.
 pub fn parse(source: &str) -> Result<ast::Module, Vec<ParseError>> {
-    let tokens = Lexer::new(source).tokenize().map_err(|errs| {
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.tokenize().map_err(|errs| {
         errs.into_iter()
             .map(|e| ParseError {
                 message: e.message,
@@ -22,6 +23,9 @@ pub fn parse(source: &str) -> Result<ast::Module, Vec<ParseError>> {
             })
             .collect::<Vec<_>>()
     })?;
+    let comments = lexer.comments;
     let mut parser = Parser::new(tokens);
-    parser.parse_module().map_err(|e| vec![e])
+    parser
+        .parse_module_with_comments(comments)
+        .map_err(|e| vec![e])
 }

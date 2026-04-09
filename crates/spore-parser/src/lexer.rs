@@ -35,6 +35,29 @@ impl<T> Spanned<T> {
     }
 }
 
+/// Kind of source comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommentKind {
+    /// `//` line comment.
+    Line,
+    /// `///` doc comment attached to the following item.
+    Doc,
+    /// `//!` module-level doc comment.
+    ModuleDoc,
+    /// `/* ... */` block comment (possibly nested).
+    Block,
+}
+
+/// A source-level comment preserved for the formatter.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Comment {
+    pub kind: CommentKind,
+    pub text: String,
+    pub span: Span,
+    /// `true` when at least one blank line preceded this comment in the source.
+    pub has_leading_blank_line: bool,
+}
+
 /// Part of an f-string or t-string at the token level.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TemplatePart {
@@ -158,6 +181,8 @@ pub struct Lexer<'a> {
     source: &'a str,
     bytes: &'a [u8],
     pos: usize,
+    /// Comments collected during lexing, ordered by source position.
+    pub comments: Vec<Comment>,
 }
 
 impl<'a> Lexer<'a> {
@@ -166,6 +191,7 @@ impl<'a> Lexer<'a> {
             source,
             bytes: source.as_bytes(),
             pos: 0,
+            comments: Vec::new(),
         }
     }
 
@@ -233,19 +259,44 @@ impl<'a> Lexer<'a> {
 
     fn skip_whitespace_and_comments(&mut self) {
         loop {
-            // whitespace
+            // whitespace — count newlines to detect blank lines
+            let ws_start = self.pos;
+            let mut newline_count = 0u32;
             while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_whitespace() {
+                if self.bytes[self.pos] == b'\n' {
+                    newline_count += 1;
+                }
                 self.pos += 1;
             }
-            // line comment
+            let has_blank_line =
+                newline_count >= 2 || (newline_count >= 1 && ws_start == 0 && self.pos > 0);
+            // line comment (including doc comments)
             if self.remaining().starts_with("//") {
+                let start = self.pos;
+                let kind = if self.remaining().starts_with("//!") {
+                    CommentKind::ModuleDoc
+                } else if self.remaining().starts_with("///")
+                    && !self.remaining().starts_with("////")
+                {
+                    CommentKind::Doc
+                } else {
+                    CommentKind::Line
+                };
                 while self.pos < self.bytes.len() && self.bytes[self.pos] != b'\n' {
                     self.pos += 1;
                 }
+                let text = self.source[start..self.pos].to_string();
+                self.comments.push(Comment {
+                    kind,
+                    text,
+                    span: Span::new(start, self.pos),
+                    has_leading_blank_line: has_blank_line,
+                });
                 continue;
             }
             // block comment (nestable)
             if self.remaining().starts_with("/*") {
+                let start = self.pos;
                 self.pos += 2;
                 let mut depth = 1u32;
                 while self.pos + 1 < self.bytes.len() && depth > 0 {
@@ -259,6 +310,13 @@ impl<'a> Lexer<'a> {
                         self.pos += 1;
                     }
                 }
+                let text = self.source[start..self.pos].to_string();
+                self.comments.push(Comment {
+                    kind: CommentKind::Block,
+                    text,
+                    span: Span::new(start, self.pos),
+                    has_leading_blank_line: has_blank_line,
+                });
                 continue;
             }
             break;

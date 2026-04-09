@@ -1,6 +1,7 @@
 //! Spore Abstract Syntax Tree definitions.
 
 pub use crate::lexer::Span;
+pub use crate::lexer::{Comment, CommentKind};
 
 /// A Spore module (one .spore file = one module).
 #[derive(Debug, Clone)]
@@ -8,6 +9,8 @@ pub struct Module {
     /// Module name metadata (derived from file path by compiler/tooling).
     pub name: String,
     pub items: Vec<Item>,
+    /// Source-level comments preserved for the formatter.
+    pub comments: Vec<Comment>,
 }
 
 /// Top-level items in a module.
@@ -35,6 +38,29 @@ pub enum Item {
     EffectDef(EffectDef),
     EffectAlias(EffectAlias),
     HandlerDef(HandlerDef),
+}
+
+impl Item {
+    /// Return the source span of this item, if available.
+    pub fn span(&self) -> Option<Span> {
+        match self {
+            Item::Function(f) => f.span,
+            Item::Const(c) => c.span,
+            Item::StructDef(s) => s.span,
+            Item::TypeDef(t) => t.span,
+            Item::CapabilityDef(c) => c.span,
+            Item::CapabilityAlias { span, .. } => *span,
+            Item::ImplDef(i) => i.span,
+            Item::Import(i) => match i {
+                ImportDecl::Import { span, .. } | ImportDecl::Alias { span, .. } => *span,
+            },
+            Item::Alias(a) => a.span,
+            Item::TraitDef(t) => t.span,
+            Item::EffectDef(e) => e.span,
+            Item::EffectAlias(ea) => ea.span,
+            Item::HandlerDef(h) => h.span,
+        }
+    }
 }
 
 /// Type alias: `alias X = Y`
