@@ -2,9 +2,9 @@
 // Runtime builtins (do NOT redefine): map, filter, fold, each, append,
 // prepend, head, tail, reverse, range, contains, len.
 
-fn list_is_empty[T](list: List[T]) -> Bool cost <= 2 { len(list) == 0 }
+fn list_is_empty[T](list: List[T]) -> Bool cost [2, 0, 0, 0] { len(list) == 0 }
 
-fn head_option[T](list: List[T]) -> Option[T] cost <= 3 {
+fn head_option[T](list: List[T]) -> Option[T] cost [3, 0, 0, 0] {
     match list {
         [x, ..rest] => Some(x),
         [] => None,
@@ -73,7 +73,7 @@ fn enumerate_from[T](list: List[T], start: I32) -> List[Pair[I32, T]] {
     }
 }
 
-fn enumerate[T](list: List[T]) -> List[Pair[I32, T]] cost <= 2 {
+fn enumerate[T](list: List[T]) -> List[Pair[I32, T]] cost [2, 0, 0, 0] {
     enumerate_from(list, 0)
 }
 

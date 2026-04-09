@@ -3,21 +3,21 @@
 // ends_with, split, replace, string_length, char_at, substring)
 // are runtime builtins — do NOT redefine them here.
 
-fn is_empty(s: Str) -> Bool cost <= 2
+fn is_empty(s: Str) -> Bool cost [2, 0, 0, 0]
 spec {
     example "empty": is_empty("") == true
     example "nonempty": is_empty("hi") == false
 }
 { string_length(s) == 0 }
 
-fn is_not_empty(s: Str) -> Bool cost <= 2
+fn is_not_empty(s: Str) -> Bool cost [2, 0, 0, 0]
 spec {
     example "empty": is_not_empty("") == false
     example "nonempty": is_not_empty("hi") == true
 }
 { string_length(s) > 0 }
 
-fn is_blank(s: Str) -> Bool cost <= 3
+fn is_blank(s: Str) -> Bool cost [3, 0, 0, 0]
 spec {
     example "empty": is_blank("") == true
     example "spaces": is_blank("   ") == true
@@ -25,7 +25,7 @@ spec {
 }
 { string_length(trim(s)) == 0 }
 
-fn char_at_safe(s: Str, i: I32) -> Option[Str] cost <= 2 {
+fn char_at_safe(s: Str, i: I32) -> Option[Str] cost [2, 0, 0, 0] {
     if i < 0 { None }
     else { if i >= string_length(s) { None } else { char_at(s, i) } }
 }

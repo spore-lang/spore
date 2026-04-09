@@ -520,14 +520,27 @@ impl Parser {
 
     fn parse_cost_clause(&mut self) -> Result<CostClause, ParseError> {
         self.expect(&Token::Cost)?;
-        // expect `≤` or `<=`
         if self.at(&Token::Le2) || self.at(&Token::LtEq) {
-            self.advance();
-        } else {
-            return Err(self.error("expected `≤` or `<=` after `cost`".into()));
+            return Err(self.error(
+                "scalar `cost <= expr` syntax was removed; use `cost [compute, alloc, io, parallel]`"
+                    .into(),
+            ));
         }
-        let bound = self.parse_cost_expr()?;
-        Ok(CostClause { bound })
+        self.expect(&Token::LBracket)?;
+        let compute = self.parse_cost_expr()?;
+        self.expect(&Token::Comma)?;
+        let alloc = self.parse_cost_expr()?;
+        self.expect(&Token::Comma)?;
+        let io = self.parse_cost_expr()?;
+        self.expect(&Token::Comma)?;
+        let parallel = self.parse_cost_expr()?;
+        self.expect(&Token::RBracket)?;
+        Ok(CostClause {
+            compute,
+            alloc,
+            io,
+            parallel,
+        })
     }
 
     fn parse_cost_expr(&mut self) -> Result<CostExpr, ParseError> {
@@ -560,6 +573,18 @@ impl Parser {
                 Ok(CostExpr::Literal(n as u64))
             }
             Token::Ident(s) => {
+                if s == "O"
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.node),
+                        Some(Token::LParen)
+                    )
+                {
+                    self.advance(); // O
+                    self.expect(&Token::LParen)?;
+                    let var = self.expect_ident()?;
+                    self.expect(&Token::RParen)?;
+                    return Ok(CostExpr::Linear(var));
+                }
                 self.advance();
                 Ok(CostExpr::Var(s))
             }

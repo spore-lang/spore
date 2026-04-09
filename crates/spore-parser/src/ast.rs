@@ -61,7 +61,7 @@ pub struct ConstDef {
 /// Clauses are separate syntactic constructs:
 /// - `where T: Bound`  — generic type constraints
 /// - `uses [Memory]`    — resource dependencies
-/// - `cost ≤ O(n)`      — cost upper-bound
+/// - `cost [1, 0, 0, 0]` — cost upper-bound vector
 #[derive(Debug, Clone)]
 pub struct FnDef {
     pub name: String,
@@ -73,7 +73,7 @@ pub struct FnDef {
     pub errors: Vec<TypeExpr>,
     /// Generic type constraints: `where T: Display, U: Clone`
     pub where_clause: Option<WhereClause>,
-    /// Cost upper-bound: `cost ≤ O(n log n)`
+    /// Cost upper-bound: `cost [compute, alloc, io, parallel]`
     pub cost_clause: Option<CostClause>,
     /// Behavioral contract: `spec { example ... property ... }`
     pub spec_clause: Option<SpecClause>,
@@ -117,10 +117,13 @@ pub struct WhereClause {
 
 /// Cost upper-bound introduced by `cost`.
 ///
-/// Example: `cost ≤ O(n log n)` or `cost ≤ 100`
+/// Example: `cost [1, O(n), 2, 3]`
 #[derive(Debug, Clone)]
 pub struct CostClause {
-    pub bound: CostExpr,
+    pub compute: CostExpr,
+    pub alloc: CostExpr,
+    pub io: CostExpr,
+    pub parallel: CostExpr,
 }
 
 /// Resource dependencies introduced by `uses`.
@@ -181,6 +184,8 @@ pub struct TypeConstraint {
 pub enum CostExpr {
     Literal(u64),
     Var(String),
+    /// Big-O linear notation: `O(n)`.
+    Linear(String),
     Mul(Box<CostExpr>, Box<CostExpr>),
     Add(Box<CostExpr>, Box<CostExpr>),
 }

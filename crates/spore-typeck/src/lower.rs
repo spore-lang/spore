@@ -167,7 +167,7 @@ impl Lowering {
             cost_bound: f
                 .cost_clause
                 .as_ref()
-                .map(|cc| Box::new(self.lower_cost_expr(&cc.bound))),
+                .map(|cc| Box::new(self.lower_cost_expr(&cc.compute))),
         }
     }
 
@@ -517,6 +517,10 @@ impl Lowering {
         match ce {
             ast::CostExpr::Literal(n) => HirExpr::IntLit(*n as i64),
             ast::CostExpr::Var(name) => {
+                let def_id = self.resolve_name(name);
+                HirExpr::Var(name.clone(), def_id)
+            }
+            ast::CostExpr::Linear(name) => {
                 let def_id = self.resolve_name(name);
                 HirExpr::Var(name.clone(), def_id)
             }

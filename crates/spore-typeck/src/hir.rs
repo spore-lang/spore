@@ -37,7 +37,7 @@ pub struct HirFnDef {
     pub uses_clause: BTreeSet<String>,
     pub throws: Vec<HirTypeRef>,
     pub where_clause: Vec<HirTypeConstraint>,
-    /// Cost upper-bound expression: `cost <= N`
+    /// Compute-dimension upper bound from `cost [compute, alloc, io, parallel]`.
     pub cost_bound: Option<Box<HirExpr>>,
 }
 

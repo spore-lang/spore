@@ -658,8 +658,11 @@ pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
                 // Cost annotation
                 if let Some(ref cost) = f.cost_clause {
                     parts.push(format!(
-                        "\n**Cost:** `cost ≤ {}`",
-                        format_cost_expr(&cost.bound)
+                        "\n**Cost:** `cost [{}, {}, {}, {}]`",
+                        format_cost_expr(&cost.compute),
+                        format_cost_expr(&cost.alloc),
+                        format_cost_expr(&cost.io),
+                        format_cost_expr(&cost.parallel)
                     ));
                 }
 
@@ -804,7 +807,13 @@ pub fn format_fn_signature(f: &FnDef) -> String {
 fn format_fn_full(f: &FnDef) -> String {
     let mut sig = format_fn_signature(f);
     if let Some(ref cost) = f.cost_clause {
-        sig.push_str(&format!("\n  cost ≤ {}", format_cost_expr(&cost.bound)));
+        sig.push_str(&format!(
+            "\n  cost [{}, {}, {}, {}]",
+            format_cost_expr(&cost.compute),
+            format_cost_expr(&cost.alloc),
+            format_cost_expr(&cost.io),
+            format_cost_expr(&cost.parallel)
+        ));
     }
     if let Some(ref uses) = f.uses_clause {
         sig.push_str(&format!("\n  uses [{}]", uses.resources.join(", ")));
@@ -845,6 +854,7 @@ pub fn format_cost_expr(cost: &CostExpr) -> String {
     match cost {
         CostExpr::Literal(n) => n.to_string(),
         CostExpr::Var(v) => v.clone(),
+        CostExpr::Linear(v) => format!("O({v})"),
         CostExpr::Mul(a, b) => format!("{} * {}", format_cost_expr(a), format_cost_expr(b)),
         CostExpr::Add(a, b) => format!("{} + {}", format_cost_expr(a), format_cost_expr(b)),
     }

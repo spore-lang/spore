@@ -541,8 +541,8 @@ fn cost_budget_exceeded_emits_k0001() {
     // Cost violations are now warnings (SEP-0004), not errors
     let module = parse(
         r#"
-        fn expensive(x: Int) -> Int cost <= 100 { x + x }
-        fn cheap(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
+        fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] { x + x }
+        fn cheap(a: I32) -> I32 cost [2, 0, 0, 0] { expensive(expensive(a)) }
     "#,
     )
     .unwrap();
@@ -580,7 +580,7 @@ fn cost_warning_severity_is_warning() {
 #[test]
 fn cost_budget_within_limit_no_error() {
     // Budget of 1000 is generous enough for a simple function
-    check_ok("fn simple(x: Int) -> Int cost <= 1000 { x + x }");
+    check_ok("fn simple(x: I32) -> I32 cost [1000, 0, 0, 0] { x + x }");
 }
 
 #[test]
@@ -641,8 +641,8 @@ fn sep0006_cost_violation_uses_k0xxx() {
     // Verify K0101 code is used for cost violations (SEP-0004: warnings)
     let module = parse(
         r#"
-        fn expensive(x: Int) -> Int cost <= 100 { x + x }
-        fn over_budget(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
+        fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] { x + x }
+        fn over_budget(a: I32) -> I32 cost [2, 0, 0, 0] { expensive(expensive(a)) }
     "#,
     )
     .unwrap();

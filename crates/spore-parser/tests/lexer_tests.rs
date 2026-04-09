@@ -315,8 +315,8 @@ fn test_nested_block_comment() {
 #[test]
 fn test_unicode_le() {
     assert_eq!(
-        toks_no_eof("cost ≤ 100"),
-        vec![Token::Cost, Token::Le2, Token::Int(100)]
+        toks_no_eof("x ≤ 100"),
+        vec![Token::Ident("x".into()), Token::Le2, Token::Int(100)]
     );
 }
 

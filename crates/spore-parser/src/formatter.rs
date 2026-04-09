@@ -162,8 +162,15 @@ impl Formatter {
 
         // Cost clause
         if let Some(cc) = &f.cost_clause {
-            self.write(" cost <= ");
-            self.fmt_cost_expr(&cc.bound);
+            self.write(" cost [");
+            self.fmt_cost_expr(&cc.compute);
+            self.write(", ");
+            self.fmt_cost_expr(&cc.alloc);
+            self.write(", ");
+            self.fmt_cost_expr(&cc.io);
+            self.write(", ");
+            self.fmt_cost_expr(&cc.parallel);
+            self.write("]");
         }
 
         // Spec clause
@@ -618,6 +625,11 @@ impl Formatter {
         match ce {
             CostExpr::Literal(n) => self.write(&n.to_string()),
             CostExpr::Var(v) => self.write(v),
+            CostExpr::Linear(v) => {
+                self.write("O(");
+                self.write(v);
+                self.write(")");
+            }
             CostExpr::Mul(a, b) => {
                 self.fmt_cost_expr(a);
                 self.write(" * ");
@@ -1260,7 +1272,7 @@ mod tests {
     #[test]
     fn test_spec_clause_normalizes_clause_order_and_preserves_item_order() {
         let src = concat!(
-            "fn show[T](x: T) -> T cost <= 5 spec {\n",
+            "fn show[T](x: T) -> T cost [5, 0, 0, 0] spec {\n",
             "    property \"roundtrip\": |x: T| true\n",
             "    example \"block\" {\n",
             "        let y = x\n",
@@ -1269,7 +1281,7 @@ mod tests {
             "} uses [Console] where T: Display { x }\n",
         );
         let expected = concat!(
-            "fn show[T](x: T) -> T where T: Display uses [Console] cost <= 5\n",
+            "fn show[T](x: T) -> T where T: Display uses [Console] cost [5, 0, 0, 0]\n",
             "spec {\n",
             "    property \"roundtrip\": |x: T| true\n",
             "    example \"block\" {\n",

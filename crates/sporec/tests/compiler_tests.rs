@@ -357,12 +357,12 @@ fn check_project_verbose_includes_imported_module_sections() {
 
 #[test]
 fn cost_violation_emits_warning_not_error() {
-    // A function that declares cost <= 2 but calls expensive(cost=100) twice
+    // A function that declares cost [2, 0, 0, 0] but calls expensive(cost=100) twice
     // should succeed (warnings are not errors) but include a K0101 warning.
     let output = compile(
         r#"
-        fn expensive(x: Int) -> Int cost <= 100 { x + x }
-        fn cheap(a: Int) -> Int cost <= 2 { expensive(expensive(a)) }
+        fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] { x + x }
+        fn cheap(a: I32) -> I32 cost [2, 0, 0, 0] { expensive(expensive(a)) }
     "#,
     )
     .expect("cost violations should be warnings, not errors");
@@ -387,7 +387,7 @@ fn no_cost_annotation_no_warning() {
 #[test]
 fn cost_within_budget_no_warning() {
     // A function whose inferred cost fits within the budget.
-    let output = compile("fn f(x: Int) -> Int cost <= 1000 { x + x }").unwrap();
+    let output = compile("fn f(x: I32) -> I32 cost [1000, 0, 0, 0] { x + x }").unwrap();
     assert!(
         output.warnings.is_empty(),
         "expected no warnings when within budget, got: {:?}",

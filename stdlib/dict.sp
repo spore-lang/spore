@@ -1,16 +1,16 @@
 // Spore standard library — dictionary type stubs
 // Pure Spore dict implemented as List[Pair[K, V]].
 
-fn dict_new[K, V]() -> List[Pair[K, V]] cost <= 1 { [] }
+fn dict_new[K, V]() -> List[Pair[K, V]] cost [1, 0, 0, 0] { [] }
 
-fn dict_len[K, V](d: List[Pair[K, V]]) -> I32 cost <= 2
+fn dict_len[K, V](d: List[Pair[K, V]]) -> I32 cost [2, 0, 0, 0]
 spec {
     example "empty": dict_len(dict_new()) == 0
     example "one": dict_len(dict_insert(dict_new(), 1, 10)) == 1
 }
 { len(d) }
 
-fn dict_is_empty[K, V](d: List[Pair[K, V]]) -> Bool cost <= 2
+fn dict_is_empty[K, V](d: List[Pair[K, V]]) -> Bool cost [2, 0, 0, 0]
 spec {
     example "empty": dict_is_empty(dict_new()) == true
     example "nonempty": dict_is_empty(dict_insert(dict_new(), 1, 10)) == false

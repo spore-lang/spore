@@ -81,10 +81,20 @@ fn test_fn_with_uses() {
 
 #[test]
 fn test_fn_with_cost() {
-    let m = parse_ok("fn sort(xs: List) -> List cost ≤ n * n { xs }");
+    let m = parse_ok("fn sort(xs: List) -> List cost [O(n), 0, 0, 0] { xs }");
     match &m.items[0] {
         spore_parser::ast::Item::Function(f) => {
-            assert!(f.cost_clause.is_some());
+            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
+            assert!(matches!(cost.compute, spore_parser::ast::CostExpr::Linear(ref v) if v == "n"));
+            assert!(matches!(
+                cost.alloc,
+                spore_parser::ast::CostExpr::Literal(0)
+            ));
+            assert!(matches!(cost.io, spore_parser::ast::CostExpr::Literal(0)));
+            assert!(matches!(
+                cost.parallel,
+                spore_parser::ast::CostExpr::Literal(0)
+            ));
         }
         _ => panic!("expected function"),
     }
@@ -178,7 +188,7 @@ fn test_fn_clauses_parse_in_any_order() {
     let m = parse_ok(
         r#"
         fn show[T](x: T) -> T
-        cost ≤ 5
+        cost [5, 0, 0, 0]
         spec {
             example "identity": true
         }
@@ -196,6 +206,18 @@ fn test_fn_clauses_parse_in_any_order() {
         }
         _ => panic!("expected function"),
     }
+}
+
+#[test]
+fn test_scalar_cost_syntax_is_rejected() {
+    let errs = parse("fn f(x: Int) -> Int cost <= 5 { x }")
+        .expect_err("scalar cost syntax should be rejected");
+    assert!(
+        errs.iter().any(|e| e
+            .message
+            .contains("scalar `cost <= expr` syntax was removed")),
+        "unexpected errors: {errs:?}"
+    );
 }
 
 #[test]

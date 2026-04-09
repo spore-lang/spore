@@ -128,7 +128,7 @@ pub enum Token {
     FatArrow,
     DotDot,
     DotDotEq,
-    /// Unicode `≤` (for `cost ≤` expressions)
+    /// Unicode `≤` token.
     Le2,
 
     // ── Delimiters ──

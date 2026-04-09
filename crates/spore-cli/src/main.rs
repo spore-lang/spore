@@ -1065,7 +1065,7 @@ allow = [\"Compute\"]
     let (filename, content) = match project_type {
         "package" => (
             "lib.sp",
-            "/// Add two integers.\npub fn add(a: Int, b: Int) -> Int cost <= 1 {\n    a + b\n}\n"
+            "/// Add two integers.\npub fn add(a: Int, b: Int) -> Int cost [1, 0, 0, 0] {\n    a + b\n}\n"
                 .to_string(),
         ),
         "platform" => (

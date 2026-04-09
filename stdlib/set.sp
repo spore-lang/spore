@@ -1,7 +1,7 @@
 // Spore standard library — set type (list-backed)
 // Pure Spore implementation using sorted lists.
 
-fn set_new() -> List[I32] cost <= 1
+fn set_new() -> List[I32] cost [1, 0, 0, 0]
 spec {
     example "empty": set_is_empty(set_new()) == true
 }
@@ -27,7 +27,7 @@ spec {
     filter(s, |x: I32| x != item)
 }
 
-fn set_contains(s: List[I32], item: I32) -> Bool cost <= 2
+fn set_contains(s: List[I32], item: I32) -> Bool cost [2, 0, 0, 0]
 spec {
     example "present": set_contains(set_insert(set_new(), 3), 3) == true
     example "absent": set_contains(set_new(), 3) == false
@@ -36,14 +36,14 @@ spec {
     contains(s, item)
 }
 
-fn set_len(s: List[I32]) -> I32 cost <= 2
+fn set_len(s: List[I32]) -> I32 cost [2, 0, 0, 0]
 spec {
     example "empty": set_len(set_new()) == 0
     example "one": set_len(set_insert(set_new(), 1)) == 1
 }
 { len(s) }
 
-fn set_is_empty(s: List[I32]) -> Bool cost <= 2
+fn set_is_empty(s: List[I32]) -> Bool cost [2, 0, 0, 0]
 spec {
     example "empty": set_is_empty(set_new()) == true
     example "nonempty": set_is_empty(set_insert(set_new(), 1)) == false
@@ -82,7 +82,7 @@ spec {
 
 // ── Str set variants ─────────────────────────────────────────────
 
-fn set_new_str() -> List[Str] cost <= 1 { [] }
+fn set_new_str() -> List[Str] cost [1, 0, 0, 0] { [] }
 
 @unbounded
 fn set_insert_str(s: List[Str], item: Str) -> List[Str] {
@@ -94,7 +94,7 @@ fn set_remove_str(s: List[Str], item: Str) -> List[Str] {
     filter(s, |x: Str| x != item)
 }
 
-fn set_contains_str(s: List[Str], item: Str) -> Bool cost <= 2
+fn set_contains_str(s: List[Str], item: Str) -> Bool cost [2, 0, 0, 0]
 spec {
     example "present": set_contains_str(set_insert_str(set_new_str(), "hi"), "hi") == true
     example "absent": set_contains_str(set_new_str(), "hi") == false

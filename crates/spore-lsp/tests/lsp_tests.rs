@@ -38,7 +38,7 @@ trait Printable {
 }
 
 fn expensive(n: Int) -> Int
-  cost ≤ 100
+  cost [100, 0, 0, 0]
   uses [Memory] {
     n
 }
