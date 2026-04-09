@@ -23,7 +23,7 @@ Codebase Manager: `spore`（有状态）
 fn name(params) -> ReturnType ! [Errors]
     where T: Constraint
     uses [Capabilities]
-    cost ≤ N
+    cost [compute, alloc, io, parallel]
     spec {
         example "..." => ...
     }
@@ -35,7 +35,7 @@ fn name(params) -> ReturnType ! [Errors]
 > **v0.2→v0.3 变更**: 原 `where { ... }` 统一块拆分为独立子句：
 > - `where T: Constraint` — 泛型约束（保留 where 关键字）
 > - `uses [Capabilities]` — 能力集声明（独立子句）
-> - `cost ≤ N` — 代价上界（独立子句）
+> - `cost [compute, alloc, io, parallel]` — 四维代价声明（固定顺序独立子句）
 >
 > 细化类型谓词语法同步变更: `where |n| n > 0` → `if |n| n > 0`
 >
@@ -53,7 +53,9 @@ fn name(params) -> ReturnType ! [Errors]
 
 ### 抽象代价模型
 - 四维: compute(op) + alloc(cell) + io(call) + parallel(lane)
-- 签名显示标量，查询显示明细
+- 签名语法固定为 `cost [compute, alloc, io, parallel]`
+- 文档与格式化输出统一采用 compute → alloc → io → parallel 顺序
+- 旧的 `cost <= expr` 标量写法已移除；`log/max/min` 风格的标量表面语法留待后续讨论
 - 编译时模拟执行（抽象解释）
 - 符号代价表达式支持
 - unbounded 函数需 with_cost_limit 包裹

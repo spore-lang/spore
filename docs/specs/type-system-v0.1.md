@@ -266,7 +266,7 @@ trait Display {
 
 trait Serialize {
     fn serialize(self) -> Bytes ! [SerializeError]
-    cost serialize <= 100
+    cost serialize [100, 0, 0, 0]
 }
 ```
 
@@ -307,7 +307,7 @@ Trait bounds constrain generic type parameters in `where` clauses. The stable su
 ```spore
 fn sort<T>(list: List<T>) -> List<T>
 where T: Ord
-cost <= 500
+cost [500, 0, 0, 0]
 {
     -- implementation
 }
@@ -330,17 +330,17 @@ implicit execution context. The Platform implements capabilities.
 -- A capability is a trait on the execution context
 capability FileRead {
     fn read_file(path: Path) -> Bytes ! [IoError]
-    cost read_file <= 100
+    cost read_file [0, 0, 1, 0]
 }
 
 capability FileWrite {
     fn write_file(path: Path, data: Bytes) -> () ! [IoError]
-    cost write_file <= 200
+    cost write_file [0, 0, 1, 0]
 }
 
 capability Clock {
     fn now() -> Timestamp
-    cost now <= 1
+    cost now [1, 0, 0, 0]
 }
 ```
 
@@ -363,7 +363,7 @@ capability Analytics = [Compute, StateRead]
 
 fn generate_report(org_id: OrgId, period: DateRange) -> Report ! [ConnectionLost]
 uses [DatabaseAccess, Analytics]
-cost <= 12000
+cost [12000, 0, 0, 0]
 {
     -- can use any function requiring subsets of DatabaseAccess or Analytics
 }
@@ -377,7 +377,7 @@ Traits may declare associated types — types determined by the implementing typ
 trait Iterator {
     type Item
     fn next(self) -> Option<Self.Item>
-    cost next <= 10
+    cost next [10, 0, 0, 0]
 }
 
 impl Iterator for LineReader {
@@ -532,7 +532,7 @@ where
     T: Eq + Hash
     U: Eq + Hash
     V: Serialize
-cost <= 800
+cost [800, 0, 0, 0]
 {
     -- implementation
 }
@@ -601,21 +601,21 @@ on its const generic parameters:
 ```spore
 fn linear_search<T, N: I32>(items: Vec<T, max: N>, target: T) -> Option<I32>
 where T: Eq
-cost <= N * 5
+cost [N * 5, 0, 0, 0]
 {
     -- O(N) search, cost scales linearly
 }
 
 fn sort_bounded<T, N: I32>(items: Vec<T, max: N>) -> Vec<T, max: N>
 where T: Ord
-cost <= N * N * 2   -- O(N²) worst case
+cost [O(N^2), O(N), 0, 0]
 {
     -- implementation
 }
 ```
 
 This allows the compiler to verify cost bounds parametrically: calling
-`sort_bounded` on a `Vec<T, max: 100>` implies cost ≤ 20000.
+`sort_bounded` on a `Vec<T, max: 100>` implies a declared budget such as `cost [O(N^2), O(N), 0, 0]`.
 
 ---
 
@@ -985,7 +985,7 @@ call boundaries and return expressions.
 ```spore
 fn process_items<T>(items: Vec<T>) -> Vec<Str> ! [FormatError]
 where T: Display
-cost <= 1000
+cost [1000, 0, 0, 0]
 {
     -- Check mode (top-down): return type Vec<Str> ! [FormatError] pushes down
     -- Synth mode (bottom-up): expression types bubble up
@@ -1142,7 +1142,7 @@ Every capability is a trait, and `uses [Cap]` is a trait bound on the execution 
 ```spore
 fn fetch_and_save(url: Url, path: Path) -> () ! [NetworkError, IoError]
 uses [NetRead, FileWrite]
-cost <= 5000
+cost [5000, 0, 0, 0]
 {
     let data = http_get(url)       -- requires NetRead ✓
     write_file(path, data)         -- requires FileWrite ✓
@@ -1157,13 +1157,13 @@ Cost bounds interact with the type system through const generics:
 ```spore
 fn batch_process<T, N: I32>(items: Vec<T, max: N>) -> Vec<T, max: N>
 where T: Processable
-cost <= N * 50
+cost [N * 50, 0, 0, 0]
 {
     items.map(|item| item.process())   -- each process() costs <= 50
 }
 ```
 
-The compiler verifies: if `process()` has `cost <= 50` and we call it `N` times,
+The compiler verifies: if `process()` has `cost [50, 0, 0, 0]` and we call it `N` times,
 the total cost is bounded by `N * 50`, matching the declared bound.
 
 ### 10.3 Holes and @allows
@@ -1175,7 +1175,7 @@ without affecting the type system's soundness.
 ```spore
 fn process_payment(amount: Money, card: Card) -> Receipt ! [PaymentFailed]
 uses [PaymentGateway, AuditLog]
-cost <= 2000
+cost [2000, 0, 0, 0]
 {
     let validated = validate_card(card)
     @allows[charge, charge_with_retry]
@@ -1199,7 +1199,7 @@ to a trusted subset, expressing architectural intent.
 ```spore
 fn build_dashboard(org: Org) -> Dashboard ! [DataError]
 uses [Database, Cache, Analytics]
-cost <= 20000
+cost [20000, 0, 0, 0]
 {
     @allows[fetch_cached_metrics, compute_summary]
     let metrics = ?gather_metrics
@@ -1235,7 +1235,7 @@ alias TaxRegion = types.TaxRegion
 alias TaxRate = types.TaxRate
 
 fn compute_tax(amount: Money, region: TaxRegion) -> Money ! [TaxError]
-cost <= 200
+cost [200, 0, 0, 0]
 {
     let rate = lookup_rate(region)
     math.round(amount * rate.value)
@@ -1601,8 +1601,8 @@ How each type system feature interacts with Spore's other systems:
 | **Generics** | Type bounds in `where`, capabilities via `uses` | Cost of generic calls | Type params flow into holes | Error sets are generic | Generic type destructuring |
 | **Traits** | Capabilities ARE traits | Trait methods have costs | Trait bounds constrain holes | Error traits compose | Trait-based dispatch |
 | **Enums** | ✗ (nominal only) | Construction has cost | Variant fields fill holes | Error enums in `! [...]` | Exhaustive matching |
-| **Refinements** | ✗ | `cost ≤ N` IS refinement | Refinement narrows hole type | Error set IS refinement | Guard clause integration |
-| **Const Generics** | ✗ | `cost ≤ N * M` | Size bounds in holes | ✗ | ✗ |
+| **Refinements** | ✗ | `cost [N, 0, 0, 0]` can reference refined bounds | Refinement narrows hole type | Error set IS refinement | Guard clause integration |
+| **Const Generics** | ✗ | `cost [N * M, 0, 0, 0]` | Size bounds in holes | ✗ | ✗ |
 | **Inference** | Effects inferred in bodies | Costs inferred, checked | Hole types inferred | Error unions inferred | Exhaustiveness inferred |
 | **@allows** | Orthogonal | Orthogonal | Constrains hole filling | Orthogonal | Orthogonal |
 
@@ -1651,12 +1651,12 @@ alias TaxError = types.TaxError
 
 capability TaxTable {
     fn lookup_rate(region: TaxRegion) -> F64 ! [TaxError]
-    cost lookup_rate <= 50
+    cost lookup_rate [50, 0, 0, 0]
 }
 
 fn compute_tax(amount: Money, region: TaxRegion) -> Money ! [TaxError]
 uses [TaxTable]
-cost <= 200
+cost [200, 0, 0, 0]
 {
     let rate = lookup_rate(region)?
     let tax = amount * rate
@@ -1677,7 +1677,7 @@ alias TaxError = types.TaxError
 alias ValidationError = types.ValidationError
 
 fn validate_items(items: Vec<LineItem>) -> Vec<LineItem> ! [ValidationError]
-cost <= 500
+cost [500, 0, 0, 0]
 {
     if items.is_empty() {
         raise EmptyItems
@@ -1696,7 +1696,7 @@ fn generate_invoice(
     tax_region: TaxRegion,
 ) -> Invoice ! [TaxError, ValidationError]
 uses [TaxTable]
-cost <= 5000
+cost [5000, 0, 0, 0]
 {
     let validated = validate_items(items)?
     let subtotal = validated

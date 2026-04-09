@@ -681,7 +681,7 @@ fn function_name[TypeParam1, TypeParam2](
 where TypeParam1: Constraint1
 where TypeParam2: Constraint2
 uses [resource1, resource2]
-cost ≤ 1000
+cost [compute, alloc, io, parallel]
 spec {
     example "baseline" => function_name(sample1, sample2) == expected
 }
@@ -691,7 +691,7 @@ spec {
 }
 ```
 
-说明：稳定语法只支持单一约束 `where T: Trait`。若同一函数需要多个约束，请重复书写多行 `where`；逗号分组、`+` 组合和 `where { ... }` 形式都不在 v0.1 范围内。
+说明：稳定语法只支持单一约束 `where T: Trait`。若同一函数需要多个约束，请重复书写多行 `where`；逗号分组、`+` 组合和 `where { ... }` 形式都不在 v0.1 范围内。`cost` 子句固定写成 `cost [compute, alloc, io, parallel]`，四个位置依次表示计算、分配、IO 与并行宽度。
 
 ### 5.2 简单函数 (Simple functions)
 
@@ -778,21 +778,21 @@ uses [StateRead, StateWrite]
 ```spore
 /// O(1) 常数时间操作 (O(1) constant time)
 fn array_get[T](arr: Array[T, N], index: U64) -> Option[T]
-cost ≤ 10
+cost [10, 1, 0, 0]
 {
     if index < N { Some(arr.data[index]) } else { None }
 }
 
 /// O(n) 线性时间操作 (O(n) linear time)
 fn sum_list(list: List[I32]) -> I32
-cost ≤ list.len() * 5
+cost [O(list.len()), 0, 0, 0]
 {
     list.fold(0, |acc, x| acc + x)
 }
 
 /// 递归函数的成本 (Recursive function cost)
 fn factorial(n: I32) -> I32
-cost ≤ n * 10
+cost [O(n), 0, 0, 0]
 {
     if n <= 1 { 1 } else { n * factorial(n - 1) }
 }
@@ -821,8 +821,8 @@ uses [Network, Database, FileRead, db_pool, cache, logger]
 ```spore
 /// 计算两个数的最大公约数 (Calculate GCD of two numbers)
 ///
-/// 使用欧几里得算法，时间复杂度 O(log(min(a, b)))
-/// (Uses Euclidean algorithm, time complexity O(log(min(a, b))))
+/// 使用欧几里得算法，时间复杂度 O(log n)
+/// (Uses Euclidean algorithm, time complexity O(log n))
 ///
 /// # 参数 (Parameters)
 /// - `a`: 第一个整数 (First integer)
@@ -836,7 +836,7 @@ uses [Network, Database, FileRead, db_pool, cache, logger]
 /// let result = gcd(48, 18);  // result == 6
 /// ```
 fn gcd(a: I32, b: I32) -> I32
-cost ≤ log2(min(a, b)) * 20
+cost [O(log n), 0, 0, 0]
 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
@@ -1721,7 +1721,7 @@ type EvalError =
 
 /// 求值器 (Evaluator)
 fn eval(expr: Expr, env: Env) -> I32 ! [EvalError]
-cost ≤ expr_size(expr) * 10
+cost [expr_size(expr) * 10, 0, 0, 0]
 {
     match expr {
         Literal(n) => n,
@@ -2084,7 +2084,7 @@ Type          = Ident | Type "[" Types "]" | "(" [ Types ] ")" "->" Type [ "!" "
 fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
 [where <GenericName>: <Constraint>]  -- repeat one line per bound
 [uses [<Capability>, ...]]
-[cost ≤ <N>]
+[cost [<compute>, <alloc>, <io>, <parallel>]]
 [spec { ... }]
 {
     <body>
@@ -2093,7 +2093,7 @@ fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
 
 ### B.3 签名子句排列顺序（规范约定）
 
-解析器接受 `where`、`uses`、`cost`、`spec` 子句按任意顺序出现。语法标准不把子句顺序视为语义的一部分；为了保证文档、格式化输出与代码评审的一致性，推荐的规范顺序为：`where` → `uses` → `cost` → `spec`。
+解析器接受 `where`、`uses`、`cost`、`spec` 子句按任意顺序出现。语法标准不把子句顺序视为语义的一部分；为了保证文档、格式化输出与代码评审的一致性，推荐的规范顺序为：`where` → `uses` → `cost` → `spec`。当前规范中 `cost` 只接受固定顺序向量 `cost [compute, alloc, io, parallel]`；旧的 `cost <= expr` 以及 `log/max/min` 风格的标量表面语法留待后续版本讨论。
 
 ```spore
 -- Canonical order
@@ -2101,7 +2101,7 @@ where T: Serialize
 where T: Eq
 where U: Display
 uses [Compute]
-cost ≤ 500
+cost [500, 0, 0, 0]
 spec {
     example "round-trip" => encode(value) |> decode == value
 }

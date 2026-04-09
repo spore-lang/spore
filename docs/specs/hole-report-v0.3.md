@@ -322,7 +322,7 @@ v0.2 的 `bindings` 列表是扁平结构——Agent 看到 `customer`、`amount
 ```spore
 fn charge_customer(customer: Customer, amount: Money) -> ChargeResult ! [PaymentFailed]
     uses [PaymentGateway]
-    cost ≤ 2000
+    cost [2000, 0, 0, 0]
 {
     let validated_card = validate_card(customer.card)  -- 引用 customer
     let order = create_order(customer, amount)          -- 引用 customer, amount
@@ -492,7 +492,7 @@ v0.2 的 `errors_to_handle: ["PaymentFailed", "GatewayTimeout"]` 是扁平列表
 ```spore
 fn process_payment(card: Card, amount: Money) -> Receipt ! [PaymentFailed, GatewayTimeout, InvalidCard]
     uses [PaymentGateway]
-    cost ≤ 3000
+    cost [3000, 0, 0, 0]
 {
     let valid = validate_card(card)
     ?charge_and_receipt
@@ -889,7 +889,7 @@ fn consume_events(stdin) -> ():
 -- src/orders.spore
 fn process_order(order: Order) -> Receipt ! [ValidationError, PaymentFailed, OutOfStock]
     uses [Inventory, PaymentGateway, EmailService]
-    cost ≤ 10000
+    cost [10000, 0, 0, 0]
 {
     let valid = ?validate_input
     let reserved = ?reserve_stock
@@ -902,7 +902,7 @@ fn process_order(order: Order) -> Receipt ! [ValidationError, PaymentFailed, Out
 -- src/auth.spore
 fn check_auth(token: Token) -> User ! [Unauthorized]
     uses [AuthService]
-    cost ≤ 500
+    cost [500, 0, 0, 0]
 {
     ?check_auth
 }

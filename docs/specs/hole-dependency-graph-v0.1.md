@@ -145,7 +145,7 @@ function trace_type_source(tv: TypeVar) -> Source:
 ```spore
 fn process_order(order: RawOrder) -> Receipt ! [ValidationError, PaymentError]
     uses [PaymentGateway, Inventory]
-    cost ≤ 5000
+    cost [5000, 0, 0, 0]
 {
     let validated = ?validate_order              // h1
     let stock_ok  = ?check_inventory             // h2
@@ -572,7 +572,7 @@ Hole Dependency Graph (6 holes, 5 edges):
 ```spore
 fn handle_order(raw: RawOrder) -> FinalStatus ! [ValidationErr, PaymentErr, NotifyErr]
     uses [PaymentGateway, Inventory, EmailService]
-    cost ≤ 10000
+    cost [10000, 0, 0, 0]
 {
     let valid   = ?validate_input                          // h1
     let authed  = ?check_auth                              // h2

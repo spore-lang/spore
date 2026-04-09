@@ -447,7 +447,7 @@ fn fibonacci(n: I32) -> I32 {
 uses []
 -- 自动推断: pure, deterministic
 -- total: 需要终止性证明（结构递归，n 递减 → 可证明）
-cost ≤ O(2^n)
+cost [O(2^n), 0, 0, 0]
 ```
 
 ### 示例 2：IO 函数 (uses [FileRead])
@@ -466,8 +466,7 @@ uses [FileRead]
 uses [FileRead]
 -- 自动推断: ¬pure, deterministic（FileRead 不破坏确定性）
 -- total: 是（无递归）
-cost ≤ 200
-  io = 1  -- 一次文件读取
+cost [200, 0, 1, 0]
 ```
 
 ### 示例 3：能力别名 (capability alias)

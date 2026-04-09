@@ -103,7 +103,7 @@ import billing.tax as tax
 
 pub fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
     uses [PaymentGateway, AuditLog]
-    cost ≤ 3000
+    cost [3000, 0, 0, 0]
 {
     let tax_result = tax.calculate(order.items, order.region)
     let line_items = build_line_items(order.items, tax_result)
@@ -111,14 +111,14 @@ pub fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
 }
 
 fn build_line_items(items: Vec[Item], tax_result: TaxResult) -> Vec[LineItem]
-    cost ≤ 500
+    cost [500, 0, 0, 0]
 {
     items |> map(fn(item) -> to_line_item(item, tax_result))
 }
 
 fn finalize(customer: Customer, items: Vec[LineItem]) -> Invoice ! [ValidationError]
     uses [AuditLog]
-    cost ≤ 1000
+    cost [1000, 0, 0, 0]
 {
     let invoice = Invoice.new(customer, items)
     audit_log.record("invoice_created", invoice.id)
@@ -512,7 +512,7 @@ The `sig` hash `a3f7c2` (truncated for display; full hash is 32 hex characters) 
 
 ```
 fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
-    cost ≤ 3000
+    cost [3000, 0, 0, 0]
     uses [PaymentGateway, AuditLog]
 ```
 
@@ -1072,7 +1072,7 @@ $ sporec check src/api/handler.spore
 
 #### Module-Level Cost Budgets
 
-Spore does not enforce module-level cost budgets. Cost is a per-function property declared via `cost ≤ N`. However, the `spore` tool can report aggregate cost information per module:
+Spore does not enforce module-level cost budgets. Cost is a per-function property declared via `cost [compute, alloc, io, parallel]`. However, the `spore` tool can report aggregate cost information per module:
 
 ```
 $ spore cost-report billing.invoice
@@ -1080,8 +1080,8 @@ $ spore cost-report billing.invoice
 Module: billing.invoice
 
   Function costs:
-    generate_invoice    cost ≤ 3000  (measured: 2800)
-    void_invoice        cost ≤ 500   (measured: 320)
+    generate_invoice    cost [3000, 0, 0, 0]  (measured: [2800, 40, 2, 0])
+    void_invoice        cost [500, 0, 0, 0]   (measured: [320, 12, 1, 0])
 
   Module aggregate:
     max single-call cost: 3000 ops (generate_invoice)
@@ -1093,7 +1093,7 @@ Module: billing.invoice
 When a function calls an imported function, the callee's declared cost bound is used for cost estimation:
 
 ```spore
--- billing.tax.calculate has: cost ≤ 800
+-- billing.tax.calculate has: cost [800, 0, 0, 0]
 -- billing.invoice.generate_invoice calls calculate:
 --   cost contribution = 800 (from calculate's declared bound)
 ```

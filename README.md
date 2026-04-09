@@ -82,12 +82,14 @@ that propagation rule.
 The parser accepts `where`, `uses`, `cost`, and `spec` clauses in any order.
 Documentation examples use the canonical order: `where`, `uses`, `cost`, `spec`,
 and stable `where` syntax is the single-bound form `where T: Trait` (repeat
-clauses as needed).
+clauses as needed). Active cost syntax is the fixed-order vector
+`cost [compute, alloc, io, parallel]`; old scalar `cost <= expr` is gone, and
+`log`/`max`/`min`-style scalar surface syntax is deferred.
 
 ```spore
 fn fetch(url: Str) -> Str ! [NetError, Timeout]
     uses [NetRead]
-    cost ≤ 1000
+    cost [1, 0, 1, 0]
 {
     ?todo
 }
@@ -98,7 +100,7 @@ fn fetch(url: Str) -> Str ! [NetError, Timeout]
 ```spore
 fn fetch_all(urls: List[Str]) -> List[Str] ! [NetError, Timeout]
     uses [NetRead, Spawn]
-    cost ≤ urls.len * per_fetch_cost
+    cost [O(urls.len), O(urls.len), urls.len, urls.len]
 {
     parallel_scope {
         urls |> map(|url| spawn { fetch(url) })

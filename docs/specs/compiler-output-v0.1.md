@@ -182,7 +182,7 @@ error[K0101]: cost budget exceeded
    |
    = note: `summarize` budget is 5000 op, already used 1200 op
    = note: remaining budget: 3800 op, shortfall: 4400 op
-help: filter `records` before scanning, or increase budget to `cost ≤ 10000`
+help: filter `records` before scanning, or increase budget to `cost [10000, 0, 0, 0]`
 ```
 
 #### Hole Diagnostic (H0101)
@@ -306,7 +306,7 @@ error[K0101]: cost budget exceeded
    |
    = note: `summarize` budget is 5000 op, already used 1200 op
    = note: remaining budget: 3800 op, shortfall: 4400 op
-help: filter `records` before scanning, or increase budget to `cost ≤ 10000`
+help: filter `records` before scanning, or increase budget to `cost [10000, 0, 0, 0]`
 
   inference chain:
     full_table_scan.cost : 8200 op        (from signature, sig@f7b2c3)
@@ -601,7 +601,7 @@ Streaming mode is preferred for large projects and CI/CD pipelines where early f
         "file": "src/analytics.spore",
         "range": { "start": { "line": 48, "col": 1 }, "end": { "line": 48, "col": 15 } }
       },
-      "message": "`summarize` declares `cost ≤ 5000`"
+      "message": "`summarize` declares `cost [5000, 0, 0, 0]`"
     }
   ],
   "inference_chain": [
@@ -852,11 +852,11 @@ Cost errors arise when the compiler's abstract interpretation finds that a funct
 
 | Code | Name | Description |
 |------|------|-------------|
-| `K0101` | budget-exceeded | Concrete cost exceeds declared `cost ≤ K` |
+| `K0101` | budget-exceeded | Concrete cost exceeds declared `cost [compute, alloc, io, parallel]` |
 | `K0102` | symbolic-budget-exceeded | Symbolic cost exceeds declared bound for some input sizes |
 | `K0201` | unbounded-call | Calling an `unbounded` function without `with_cost_limit` |
 | `K0202` | unbounded-recursion | Recursive function without structural termination proof |
-| `K0301` | cost-declaration-missing | Function with cost-sensitive callees but no `cost ≤ K` declaration |
+| `K0301` | cost-declaration-missing | Function with cost-sensitive callees but no `cost [compute, alloc, io, parallel]` declaration |
 
 #### K0201 — unbounded-call
 
@@ -865,9 +865,9 @@ error[K0201]: calling `unbounded` function without cost limit
   --> src/math.spore:20:5
    |
 20 |     fibonacci(n)
-   |     ^^^^^^^^^^^^ `fibonacci` has `cost: unbounded`
+   |     ^^^^^^^^^^^^ `fibonacci` is marked `unbounded`
    |
-   = note: `compute` declares `cost ≤ 10000` but `fibonacci` has no static bound
+   = note: `compute` declares `cost [10000, 0, 0, 0]` but `fibonacci` has no static bound
 help: wrap in `with_cost_limit(K) { fibonacci(n) }` and handle `CostExceeded`
 ```
 
@@ -880,7 +880,7 @@ error[K0102]: symbolic cost may exceed budget
 15 |     fn sort_all(items: List<I32>) -> List<I32>
    |        ^^^^^^^^ cost is `N × log(N) × 3 + N` where N = len(items)
    |
-   = note: declared `cost ≤ 5000`, but N is unbounded
+   = note: declared `cost [5000, 0, 0, 0]`, but N is unbounded
    = note: for N = 1000, cost = 29,933 op > 5000 op
 help: add a size constraint: `items: List<I32, max: 100>` or increase budget
 ```
@@ -1138,7 +1138,7 @@ Cost diagnostics (K0xxx) are emitted when the abstract interpretation engine (se
 - **K0101** (budget exceeded): emitted during pass [4] of the compilation flow (see cost-model §7.1). The diagnostic includes cost breakdown in the `inference_chain`.
 - **K0102** (symbolic budget exceeded): emitted when symbolic expressions cannot be proven within bounds. The diagnostic includes the symbolic expression and a concrete counterexample.
 - **K0201** (unbounded call): emitted during callee resolution when an `unbounded` function is called without `with_cost_limit`.
-- **Cost context** in every diagnostic: the `context.cost_used` and `context.cost_budget` fields are populated for all diagnostics inside functions with `cost ≤ K` declarations, not just cost errors.
+- **Cost context** in every diagnostic: the `context.cost_used` and `context.cost_budget` fields are populated for all diagnostics inside functions with `cost [compute, alloc, io, parallel]` declarations, not just cost errors.
 
 ### 7.3 Capability System Integration
 
