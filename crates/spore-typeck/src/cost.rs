@@ -583,14 +583,6 @@ fn ast_cost_to_cost_expr(ce: &ast::CostExpr) -> CostExpr {
         ast::CostExpr::Literal(n) => CostExpr::Const(*n),
         ast::CostExpr::Var(v) => CostExpr::Var(v.clone()),
         ast::CostExpr::Linear(v) => CostExpr::Linear(v.clone()),
-        ast::CostExpr::Add(a, b) => CostExpr::Add(
-            Box::new(ast_cost_to_cost_expr(a)),
-            Box::new(ast_cost_to_cost_expr(b)),
-        ),
-        ast::CostExpr::Mul(a, b) => CostExpr::Mul(
-            Box::new(ast_cost_to_cost_expr(a)),
-            Box::new(ast_cost_to_cost_expr(b)),
-        ),
     }
 }
 
@@ -1111,18 +1103,9 @@ mod tests {
 
     #[test]
     fn ast_cost_conversion() {
-        let ast_ce = ast::CostExpr::Add(
-            Box::new(ast::CostExpr::Var("n".into())),
-            Box::new(ast::CostExpr::Literal(5)),
-        );
+        let ast_ce = ast::CostExpr::Linear("n".into());
         let ce = ast_cost_to_cost_expr(&ast_ce);
-        assert_eq!(
-            ce,
-            CostExpr::Add(
-                Box::new(CostExpr::Var("n".into())),
-                Box::new(CostExpr::Const(5)),
-            )
-        );
+        assert_eq!(ce, CostExpr::Linear("n".into()));
     }
 
     // -----------------------------------------------------------------------

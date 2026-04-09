@@ -855,7 +855,5 @@ pub fn format_cost_expr(cost: &CostExpr) -> String {
         CostExpr::Literal(n) => n.to_string(),
         CostExpr::Var(v) => v.clone(),
         CostExpr::Linear(v) => format!("O({v})"),
-        CostExpr::Mul(a, b) => format!("{} * {}", format_cost_expr(a), format_cost_expr(b)),
-        CostExpr::Add(a, b) => format!("{} + {}", format_cost_expr(a), format_cost_expr(b)),
     }
 }

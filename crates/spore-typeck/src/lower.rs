@@ -524,16 +524,6 @@ impl Lowering {
                 let def_id = self.resolve_name(name);
                 HirExpr::Var(name.clone(), def_id)
             }
-            ast::CostExpr::Mul(lhs, rhs) => HirExpr::BinOp(
-                Box::new(self.lower_cost_expr(lhs)),
-                HirBinOp::Mul,
-                Box::new(self.lower_cost_expr(rhs)),
-            ),
-            ast::CostExpr::Add(lhs, rhs) => HirExpr::BinOp(
-                Box::new(self.lower_cost_expr(lhs)),
-                HirBinOp::Add,
-                Box::new(self.lower_cost_expr(rhs)),
-            ),
         }
     }
 }

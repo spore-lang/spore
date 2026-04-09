@@ -221,6 +221,29 @@ fn test_scalar_cost_syntax_is_rejected() {
 }
 
 #[test]
+fn test_composed_cost_slot_syntax_is_rejected() {
+    let errs = parse("fn f(n: Int) -> Int cost [n + 1, 0, 0, 0] { n }")
+        .expect_err("composed cost slot syntax should be rejected");
+    assert!(
+        errs.iter().any(|e| e.message.contains(
+            "cost slot expressions only support integer literals, parameter variables, or linear `O(n)`"
+        )),
+        "unexpected errors: {errs:?}"
+    );
+}
+
+#[test]
+fn test_parenthesized_cost_slot_syntax_is_rejected() {
+    let errs = parse("fn f(n: Int) -> Int cost [(n), 0, 0, 0] { n }")
+        .expect_err("parenthesized cost slot syntax should be rejected");
+    assert!(
+        errs.iter()
+            .any(|e| e.message.contains("expected cost expression, found LParen")),
+        "unexpected errors: {errs:?}"
+    );
+}
+
+#[test]
 fn test_throw_signature_clause_is_rejected() {
     let errs =
         spore_parser::parse("fn read(path: Str) -> Str throw [IoError] { \"x\" }").unwrap_err();

@@ -630,16 +630,6 @@ impl Formatter {
                 self.write(v);
                 self.write(")");
             }
-            CostExpr::Mul(a, b) => {
-                self.fmt_cost_expr(a);
-                self.write(" * ");
-                self.fmt_cost_expr(b);
-            }
-            CostExpr::Add(a, b) => {
-                self.fmt_cost_expr(a);
-                self.write(" + ");
-                self.fmt_cost_expr(b);
-            }
         }
     }
 

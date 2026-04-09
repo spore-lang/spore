@@ -544,26 +544,14 @@ impl Parser {
     }
 
     fn parse_cost_expr(&mut self) -> Result<CostExpr, ParseError> {
-        let left = self.parse_cost_atom()?;
-        self.parse_cost_expr_rest(left)
-    }
-
-    fn parse_cost_expr_rest(&mut self, left: CostExpr) -> Result<CostExpr, ParseError> {
-        match self.peek() {
-            Token::Plus => {
-                self.advance();
-                let right = self.parse_cost_atom()?;
-                let node = CostExpr::Add(Box::new(left), Box::new(right));
-                self.parse_cost_expr_rest(node)
-            }
-            Token::Star => {
-                self.advance();
-                let right = self.parse_cost_atom()?;
-                let node = CostExpr::Mul(Box::new(left), Box::new(right));
-                self.parse_cost_expr_rest(node)
-            }
-            _ => Ok(left),
+        let expr = self.parse_cost_atom()?;
+        if matches!(self.peek(), Token::Plus | Token::Star | Token::LParen) {
+            return Err(self.error(
+                "cost slot expressions only support integer literals, parameter variables, or linear `O(n)`; composed expressions are deferred"
+                    .into(),
+            ));
         }
+        Ok(expr)
     }
 
     fn parse_cost_atom(&mut self) -> Result<CostExpr, ParseError> {
@@ -587,12 +575,6 @@ impl Parser {
                 }
                 self.advance();
                 Ok(CostExpr::Var(s))
-            }
-            Token::LParen => {
-                self.advance();
-                let inner = self.parse_cost_expr()?;
-                self.expect(&Token::RParen)?;
-                Ok(inner)
             }
             _ => Err(self.error(format!("expected cost expression, found {:?}", self.peek()))),
         }

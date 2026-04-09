@@ -182,12 +182,12 @@ pub struct TypeConstraint {
 
 #[derive(Debug, Clone)]
 pub enum CostExpr {
+    /// Integer constant.
     Literal(u64),
+    /// Parameter variable.
     Var(String),
     /// Big-O linear notation: `O(n)`.
     Linear(String),
-    Mul(Box<CostExpr>, Box<CostExpr>),
-    Add(Box<CostExpr>, Box<CostExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
