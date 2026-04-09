@@ -16,6 +16,26 @@ Codebase Manager: `spore`（有状态）
 - Snapshot 系统：.spore-lock + --permit
 - 错误分级：v0–v4
 
+## 语法规范决策记录
+
+以下决策已最终确定，所有文档和实现必须遵守：
+
+| # | 决策 | 说明 |
+|---|------|------|
+| D1 | `struct` 用于积类型 | 不使用 `type = {}`，parser 仅支持 `struct` |
+| D2 | `capability` 废弃 → `trait` | formatter 自动重写；parser 发出诊断 |
+| D3 | SEP spec-clause 分支优先合入 | 实现先于文档 |
+| D4 | `perform` 为规范 effect 调用语法 | parser 和 AST 已支持 |
+| D5 | `throw` = `return Err()` 语法糖 | 暂定，SEP-0001 开放问题 #4 |
+| D6 | `when` 用于 refinement types | 避免 `if` 表达式歧义 |
+| D7 | 删除 `module` 关键字 | 文件路径推导 |
+| D8 | `[T]` 用于泛型 | 避免 `<>` 解析歧义 |
+| D9 | `Str` 为规范类型名 | 与 `Int`、`Bool`、`Float` 一致 |
+| D10 | `when self > 0` refinement 谓词 | 隐式 self 绑定，非 lambda |
+| D11 | `! E1 \| E2` 错误集语法 | 管道符，无方括号，fn-def 和 type-expr 通用 |
+| D12 | 禁止选择性/通配符导入 | SEP-0008 规则 |
+| D13 | Range `a..b` 已知实现差距 | token 已词法化，无 parser 路径 |
+
 ## 已确定的设计
 
 ### 函数签名语法（混合式 v0.3）
@@ -156,8 +176,7 @@ fn name(params) -> ReturnType ! Errors
 - [type-system-v0.1.md](specs/type-system-v0.1.md) — 类型系统设计
 - [effect-algebra-v0.1.md](specs/effect-algebra-v0.1.md) — 效果代数设计
 - [cost-analysis-v0.1.md](specs/cost-analysis-v0.1.md) — 代价分析综合规范（整合原 cost-model / cost-decidability / recursion-analysis）
-- [hole-report-v0.3.md](specs/hole-report-v0.3.md) — Hole 报告规范（正式版）
-- [hole-dependency-graph-v0.1.md](specs/hole-dependency-graph-v0.1.md) — Hole 依赖图
+- [hole-report-v0.4.md](specs/hole-report-v0.4.md) — Hole 报告规范（正式版，含依赖图形式化规范）
 - [compiler-output-v0.1.md](specs/compiler-output-v0.1.md) — 编译器输出格式设计
 - [incremental-compilation-v0.1.md](specs/incremental-compilation-v0.1.md) — 增量编译与 Watch 模式
 - [module-system-v0.1.md](specs/module-system-v0.1.md) — 模块系统设计（含双 hash）

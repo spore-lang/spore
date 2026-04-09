@@ -1095,7 +1095,7 @@ $ sporec --fix --unsafe-fix src/billing.spore
 
 ### 7.1 Hole System Integration
 
-Hole diagnostics (H0xxx) bridge the compiler output and the Hole system (see *hole-report-v0.3*). The relationship:
+Hole diagnostics (H0xxx) bridge the compiler output and the Hole system (see *hole-report-v0.4*). The relationship:
 
 - **`sporec` compilation** emits `H0101` (hole-report) as `note` severity for each unfilled expression hole in a function body.
 - **`sporec --query-hole <hole-id>`** returns a full `HoleReport` for a fillable expression hole — this is a *superset* of the H0101 diagnostic, including full candidate ranking, binding types, and cost budget. For named holes, the hole id matches the source name; for anonymous `?`, the compiler provides a stable id in diagnostics. The HoleReport follows the same JSON schema as `--json` diagnostics but with additional fields.

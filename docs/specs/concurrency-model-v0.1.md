@@ -1031,7 +1031,7 @@ parallel_scope {
 }
 
 -- 带 lane 限制
-parallel_scope(lanes: <N>) {
+parallel_scope(lanes: [N]) {
     <body>
 }
 
