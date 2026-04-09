@@ -67,7 +67,7 @@ pub fn run_project(entry: &Module, imports: &[(String, Module)]) -> Result<Value
 fn test_values_for_type(ty: &TypeExpr) -> Vec<Value> {
     match ty {
         TypeExpr::Named(name) => match name.as_str() {
-            "Int" => vec![
+            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => vec![
                 Value::Int(0),
                 Value::Int(1),
                 Value::Int(-1),
@@ -75,8 +75,8 @@ fn test_values_for_type(ty: &TypeExpr) -> Vec<Value> {
                 Value::Int(100),
             ],
             "Bool" => vec![Value::Bool(true), Value::Bool(false)],
-            "String" => vec![Value::Str(String::new()), Value::Str("hello".into())],
-            "Float" => vec![Value::Float(0.0), Value::Float(1.0), Value::Float(-1.0)],
+            "Str" => vec![Value::Str(String::new()), Value::Str("hello".into())],
+            "F32" | "F64" => vec![Value::Float(0.0), Value::Float(1.0), Value::Float(-1.0)],
             _ => vec![],
         },
         _ => vec![],

@@ -5,10 +5,9 @@ pub use crate::lexer::Span;
 /// A Spore module (one .spore file = one module).
 #[derive(Debug, Clone)]
 pub struct Module {
+    /// Module name metadata (derived from file path by compiler/tooling).
     pub name: String,
     pub items: Vec<Item>,
-    /// `module name uses [Cap1, Cap2]` at module level.
-    pub uses_clause: Option<UsesClause>,
 }
 
 /// Top-level items in a module.
@@ -62,7 +61,7 @@ pub struct ConstDef {
 /// Clauses are separate syntactic constructs:
 /// - `where T: Bound`  — generic type constraints
 /// - `uses [Memory]`    — resource dependencies
-/// - `cost ≤ O(n)`      — cost upper-bound
+/// - `cost [1, 0, 0, 0]` — cost upper-bound vector
 #[derive(Debug, Clone)]
 pub struct FnDef {
     pub name: String,
@@ -74,7 +73,7 @@ pub struct FnDef {
     pub errors: Vec<TypeExpr>,
     /// Generic type constraints: `where T: Display, U: Clone`
     pub where_clause: Option<WhereClause>,
-    /// Cost upper-bound: `cost ≤ O(n log n)`
+    /// Cost upper-bound: `cost [compute, alloc, io, parallel]`
     pub cost_clause: Option<CostClause>,
     /// Behavioral contract: `spec { example ... property ... }`
     pub spec_clause: Option<SpecClause>,
@@ -82,6 +81,8 @@ pub struct FnDef {
     pub uses_clause: Option<UsesClause>,
     /// `@unbounded` annotation — skip cost analysis.
     pub is_unbounded: bool,
+    /// `@allows[...]` annotation — default allow-list for holes in this function.
+    pub hole_allows: Option<Vec<String>>,
     /// `foreign fn` — implemented by host platform, no body.
     pub is_foreign: bool,
     /// None means this is a hole (?name)
@@ -105,7 +106,7 @@ pub enum Visibility {
 
 /// Generic type constraints introduced by `where`.
 ///
-/// Example: `where T: Display, U: Clone + Debug`
+/// Example: `where T: Display, U: Clone`
 ///
 /// This only covers type-parameter bounds. Effects, cost, and resources
 /// are expressed with their own dedicated clauses (`with`, `cost`, `uses`).
@@ -116,10 +117,13 @@ pub struct WhereClause {
 
 /// Cost upper-bound introduced by `cost`.
 ///
-/// Example: `cost ≤ O(n log n)` or `cost ≤ 100`
+/// Example: `cost [1, O(n), 2, 3]`
 #[derive(Debug, Clone)]
 pub struct CostClause {
-    pub bound: CostExpr,
+    pub compute: CostExpr,
+    pub alloc: CostExpr,
+    pub io: CostExpr,
+    pub parallel: CostExpr,
 }
 
 /// Resource dependencies introduced by `uses`.
@@ -178,18 +182,22 @@ pub struct TypeConstraint {
 
 #[derive(Debug, Clone)]
 pub enum CostExpr {
+    /// Integer constant.
     Literal(u64),
+    /// Parameter variable.
     Var(String),
-    Mul(Box<CostExpr>, Box<CostExpr>),
-    Add(Box<CostExpr>, Box<CostExpr>),
+    /// Big-O linear notation: `O(n)`.
+    Linear(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     Named(String),
+    /// Type hole in signatures, e.g. `-> ?` or `x: ?`.
+    Hole(Option<String>),
     Generic(String, Vec<TypeExpr>),
     Tuple(Vec<TypeExpr>),
-    /// Function type with optional error set: `fn(Int) -> Int ! ParseError | IoError`
+    /// Function type with optional error set: `(I32) -> I32 ! ParseError | IoError`
     Function(Vec<TypeExpr>, Box<TypeExpr>, Vec<TypeExpr>),
     /// Refinement type using `when`: `{ x: Int when x > 0 }`
     ///
@@ -218,10 +226,15 @@ pub enum Expr {
     Match(Box<Expr>, Vec<MatchArm>),
     Block(Vec<Stmt>, Option<Box<Expr>>),
     Try(Box<Expr>),
-    Hole(String, Option<Box<TypeExpr>>, Option<Vec<String>>),
+    Hole(Option<String>, Option<Box<TypeExpr>>, Option<Vec<String>>),
     StructLit(String, Vec<(String, Expr)>),
     Spawn(Box<Expr>),
     Await(Box<Expr>),
+    /// `Channel.new[T](buffer: N)`
+    ChannelNew {
+        elem_type: TypeExpr,
+        buffer: Box<Expr>,
+    },
     Return(Option<Box<Expr>>),
     Throw(Box<Expr>),
     List(Vec<Expr>),
@@ -263,10 +276,15 @@ pub struct EffectArm {
 
 /// A single arm of a `select` expression.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SelectArm {
-    pub binding: String,
-    pub source: Expr,
-    pub body: Expr,
+pub enum SelectArm {
+    /// `<binding> from <source> => <body>`
+    Recv {
+        binding: String,
+        source: Expr,
+        body: Expr,
+    },
+    /// `timeout(<duration>) => <body>`
+    Timeout { duration: Expr, body: Expr },
 }
 
 #[derive(Debug, Clone, PartialEq)]

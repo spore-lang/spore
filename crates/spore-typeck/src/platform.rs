@@ -59,7 +59,7 @@ impl Platform {
             capabilities,
             entry_point: "main".into(),
             entry_params: vec![],
-            entry_return: "Int".into(),
+            entry_return: "I32".into(),
             config: PlatformConfig {
                 max_concurrency: None,
                 async_support: true,
@@ -86,7 +86,7 @@ impl Platform {
             capabilities,
             entry_point: "main".into(),
             entry_params: vec![],
-            entry_return: "Unit".into(),
+            entry_return: "()".into(),
             config: PlatformConfig {
                 max_concurrency: Some(1),
                 async_support: true,
@@ -102,7 +102,7 @@ impl Platform {
             capabilities: CapabilitySet::new(),
             entry_point: "main".into(),
             entry_params: vec![],
-            entry_return: "Unit".into(),
+            entry_return: "()".into(),
             config: PlatformConfig {
                 max_concurrency: Some(1),
                 async_support: false,
@@ -268,10 +268,10 @@ mod tests {
     #[test]
     fn entry_point_validation() {
         let p = Platform::cli();
-        let warnings = p.validate_entry_point("main", 0, "Int");
+        let warnings = p.validate_entry_point("main", 0, "I32");
         assert!(warnings.is_empty());
 
-        let warnings = p.validate_entry_point("main", 0, "String");
+        let warnings = p.validate_entry_point("main", 0, "Str");
         assert!(
             warnings
                 .iter()

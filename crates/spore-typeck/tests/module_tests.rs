@@ -39,7 +39,7 @@ fn import_resolution_finds_exported_function() {
 
     let src = r#"
 import Math as Math
-fn f() -> Float { sqrt(3.14) }
+ fn f() -> F64 { sqrt(3.14) }
 "#;
 
     check_with_registry(src, registry).unwrap_or_else(|errs| {
@@ -60,8 +60,8 @@ fn import_resolution_finds_multiple_functions() {
 
     let src = r#"
 import Math as Math
-fn f() -> Float { sqrt(3.14) }
-fn g() -> Int { abs(42) }
+ fn f() -> F64 { sqrt(3.14) }
+ fn g() -> I32 { abs(42) }
 "#;
 
     check_with_registry(src, registry).unwrap_or_else(|errs| {
@@ -128,10 +128,10 @@ fn f() { internal_fn() }
 #[test]
 fn multi_file_cross_module_function_call() {
     // Simulate module A: parse and extract its interface
-    let src_a = "pub fn add(a: Int, b: Int) -> Int { a + b }";
+    let src_a = "pub fn add(a: I32, b: I32) -> I32 { a + b }";
     let ast_a = parse(src_a).unwrap();
     let mut iface_a = build_module_interface(&ast_a);
-    // Override path to a named module (parser gives empty name w/o module decl)
+    // Override path to a named module (module path comes from file layout).
     iface_a.path = vec!["ModA".into()];
 
     let mut registry = ModuleRegistry::new();
@@ -140,7 +140,7 @@ fn multi_file_cross_module_function_call() {
     // Module B imports from ModA
     let src_b = r#"
 import ModA
-fn f() -> Int { add(1, 2) }
+fn f() -> I32 { add(1, 2) }
 "#;
 
     check_with_registry(src_b, registry).unwrap_or_else(|errs| {
@@ -168,7 +168,7 @@ fn multi_file_type_checking_with_manual_registry() {
 
     let src = r#"
 import Utils as U
-fn f() -> Int { double(21) }
+fn f() -> I32 { double(21) }
 "#;
 
     check_with_registry(src, registry).unwrap_or_else(|errs| {
@@ -190,7 +190,7 @@ fn missing_module_error() {
 
     let src = r#"
 import NonExistent as NE
-fn f() -> Int { 42 }
+fn f() -> I32 { 42 }
 "#;
 
     let errs = check_with_registry(src, registry).unwrap_err();
@@ -206,7 +206,7 @@ fn missing_module_error_message_contains_name() {
 
     let src = r#"
 import Foo.Bar as FB
-fn f() -> Int { 42 }
+fn f() -> I32 { 42 }
 "#;
 
     let errs = check_with_registry(src, registry).unwrap_err();
@@ -227,8 +227,8 @@ fn f() -> Int { 42 }
 #[test]
 fn build_module_interface_extracts_pub_functions() {
     let src = r#"
-pub fn exported() -> Int { 42 }
-fn private_helper() -> Int { 1 }
+pub fn exported() -> I32 { 42 }
+fn private_helper() -> I32 { 1 }
 "#;
     let ast = parse(src).unwrap();
     let iface = build_module_interface(&ast);
@@ -298,7 +298,7 @@ fn imported_struct_preserves_field_types() {
     // A module that imports Shapes and uses Point
     let src = r#"
 import Shapes
-pub fn origin() -> Int {
+pub fn origin() -> I32 {
     let p = Point { x: 1, y: 2.0 }
     p.x
 }
@@ -363,7 +363,7 @@ fn ambiguous_import_same_name_different_modules() {
     let src = r#"
 import ModA as A
 import ModB as B
-fn f() -> Int { compute(1) }
+fn f() -> I32 { compute(1) }
 "#;
 
     let errs = check_with_registry(src, registry).unwrap_err();

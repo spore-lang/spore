@@ -81,10 +81,20 @@ fn test_fn_with_uses() {
 
 #[test]
 fn test_fn_with_cost() {
-    let m = parse_ok("fn sort(xs: List) -> List cost ≤ n * n { xs }");
+    let m = parse_ok("fn sort(xs: List) -> List cost [O(n), 0, 0, 0] { xs }");
     match &m.items[0] {
         spore_parser::ast::Item::Function(f) => {
-            assert!(f.cost_clause.is_some());
+            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
+            assert!(matches!(cost.compute, spore_parser::ast::CostExpr::Linear(ref v) if v == "n"));
+            assert!(matches!(
+                cost.alloc,
+                spore_parser::ast::CostExpr::Literal(0)
+            ));
+            assert!(matches!(cost.io, spore_parser::ast::CostExpr::Literal(0)));
+            assert!(matches!(
+                cost.parallel,
+                spore_parser::ast::CostExpr::Literal(0)
+            ));
         }
         _ => panic!("expected function"),
     }
@@ -102,6 +112,19 @@ fn test_fn_with_where() {
         }
         _ => panic!("expected function"),
     }
+}
+
+#[test]
+fn test_fn_where_multi_bound_is_rejected() {
+    let err = parse("fn show(x: T) -> String where T: Display + Debug { \"\" }")
+        .expect_err("multi-bound where clause should be rejected");
+    assert!(
+        err.iter().any(|e| {
+            e.message
+                .contains("multiple trait bounds are not supported yet")
+        }),
+        "unexpected parse errors: {err:?}"
+    );
 }
 
 #[test]
@@ -165,7 +188,7 @@ fn test_fn_clauses_parse_in_any_order() {
     let m = parse_ok(
         r#"
         fn show[T](x: T) -> T
-        cost ≤ 5
+        cost [5, 0, 0, 0]
         spec {
             example "identity": true
         }
@@ -180,6 +203,74 @@ fn test_fn_clauses_parse_in_any_order() {
             assert!(f.uses_clause.is_some());
             assert!(f.cost_clause.is_some());
             assert!(f.spec_clause.is_some());
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_scalar_cost_syntax_is_rejected() {
+    let errs = parse("fn f(x: Int) -> Int cost <= 5 { x }")
+        .expect_err("scalar cost syntax should be rejected");
+    assert!(
+        errs.iter().any(|e| e
+            .message
+            .contains("scalar `cost <= expr` syntax was removed")),
+        "unexpected errors: {errs:?}"
+    );
+}
+
+#[test]
+fn test_composed_cost_slot_syntax_is_rejected() {
+    let errs = parse("fn f(n: Int) -> Int cost [n + 1, 0, 0, 0] { n }")
+        .expect_err("composed cost slot syntax should be rejected");
+    assert!(
+        errs.iter().any(|e| e.message.contains(
+            "cost slot expressions only support integer literals, parameter variables, or linear `O(n)`"
+        )),
+        "unexpected errors: {errs:?}"
+    );
+}
+
+#[test]
+fn test_parenthesized_cost_slot_syntax_is_rejected() {
+    let errs = parse("fn f(n: Int) -> Int cost [(n), 0, 0, 0] { n }")
+        .expect_err("parenthesized cost slot syntax should be rejected");
+    assert!(
+        errs.iter()
+            .any(|e| e.message.contains("expected cost expression, found LParen")),
+        "unexpected errors: {errs:?}"
+    );
+}
+
+#[test]
+fn test_throw_signature_clause_is_rejected() {
+    let errs =
+        spore_parser::parse("fn read(path: Str) -> Str throw [IoError] { \"x\" }").unwrap_err();
+    assert!(!errs.is_empty());
+}
+
+#[test]
+fn test_width_primitive_and_unit_syntax() {
+    let m = parse_ok("fn f(x: I32, y: F64, s: Str) -> () { return }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert!(matches!(
+                f.return_type.as_ref(),
+                Some(spore_parser::ast::TypeExpr::Tuple(ts)) if ts.is_empty()
+            ));
+            assert!(matches!(
+                &f.params[0].ty,
+                spore_parser::ast::TypeExpr::Named(n) if n == "I32"
+            ));
+            assert!(matches!(
+                &f.params[1].ty,
+                spore_parser::ast::TypeExpr::Named(n) if n == "F64"
+            ));
+            assert!(matches!(
+                &f.params[2].ty,
+                spore_parser::ast::TypeExpr::Named(n) if n == "Str"
+            ));
         }
         _ => panic!("expected function"),
     }
@@ -417,11 +508,61 @@ fn test_hole() {
             let body = f.body.as_ref().unwrap();
             match body {
                 spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    spore_parser::ast::Expr::Hole(name, _, _) => assert_eq!(name, "todo"),
+                    spore_parser::ast::Expr::Hole(Some(name), _, _) => assert_eq!(name, "todo"),
                     _ => panic!("expected hole, got {:?}", tail),
                 },
                 _ => panic!("expected block"),
             }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_unnamed_hole() {
+    let m = parse_ok("fn f() -> Int { ? }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            match body {
+                spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
+                    spore_parser::ast::Expr::Hole(None, None, None) => {}
+                    _ => panic!("expected unnamed hole, got {:?}", tail),
+                },
+                _ => panic!("expected block"),
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_signature_type_holes() {
+    let m = parse_ok("fn mystery(x: ?) -> ? { x }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert!(matches!(
+                f.params[0].ty,
+                spore_parser::ast::TypeExpr::Hole(None)
+            ));
+            assert!(matches!(
+                f.return_type.as_ref(),
+                Some(spore_parser::ast::TypeExpr::Hole(None))
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_allows_annotation_on_function() {
+    let m = parse_ok("@allows[validate, sanitize]\nfn f() -> Int { ? }");
+    match &m.items[0] {
+        spore_parser::ast::Item::Function(f) => {
+            assert_eq!(
+                f.hole_allows.as_ref().unwrap(),
+                &vec!["validate".to_string(), "sanitize".to_string()]
+            );
         }
         _ => panic!("expected function"),
     }
@@ -689,7 +830,7 @@ fn test_pub_const_item() {
 
 // ── Return / Throw / List / Char / String prefix tests ──────────────────────
 
-use spore_parser::ast::{Expr, FStringPart, TStringPart};
+use spore_parser::ast::{Expr, FStringPart, SelectArm, TStringPart, TypeExpr};
 
 fn get_fn_body(src: &str) -> Expr {
     let m = parse_ok(src);
@@ -833,36 +974,103 @@ fn test_select_expr() {
     match tail {
         Expr::Select(arms) => {
             assert_eq!(arms.len(), 2);
-            assert_eq!(arms[0].binding, "val");
-            assert_eq!(arms[1].binding, "msg");
+            assert!(matches!(
+                &arms[0],
+                SelectArm::Recv { binding, .. } if binding == "val"
+            ));
+            assert!(matches!(
+                &arms[1],
+                SelectArm::Recv { binding, .. } if binding == "msg"
+            ));
         }
         other => panic!("expected Select, got {:?}", other),
     }
 }
 
-// ── Item 3: module uses clause ──────────────────────────────────────────
-
 #[test]
-fn test_module_uses_clause() {
-    let src = r#"module mymod uses [NetRead, FileSystem]
-        fn foo() -> Int { 42 }
-    "#;
-    let m = parse_ok(src);
-    assert_eq!(m.name, "mymod");
-    let uses = m.uses_clause.as_ref().unwrap();
-    assert_eq!(uses.resources, vec!["NetRead", "FileSystem"]);
-    assert_eq!(m.items.len(), 1);
+fn test_select_expr_with_timeout_arm() {
+    let src = r#"fn f(rx1: Chan) -> Int {
+        select {
+            val from rx1 => val,
+            timeout(5) => 0
+        }
+    }"#;
+    let tail = get_tail(src);
+    match tail {
+        Expr::Select(arms) => {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(
+                &arms[1],
+                SelectArm::Timeout {
+                    duration: Expr::IntLit(5),
+                    body: Expr::IntLit(0)
+                }
+            ));
+        }
+        other => panic!("expected Select with timeout, got {:?}", other),
+    }
 }
 
 #[test]
-fn test_module_without_uses() {
-    let m = parse_ok("fn foo() -> Int { 42 }");
-    assert!(m.uses_clause.is_none());
+fn test_task_await_postfix_sugar() {
+    let tail = get_tail("fn f() -> Int { let t = spawn 41; t.await }");
+    match tail {
+        Expr::Await(inner) => assert!(matches!(*inner, Expr::Var(ref name) if name == "t")),
+        other => panic!("expected Await from postfix sugar, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_prefix_await_is_rejected() {
+    let errs =
+        parse("fn f() -> Int { let t = spawn 41; await t }").expect_err("expected parse error");
+    assert!(
+        errs.iter()
+            .any(|e| e.to_string().contains("expected expression, found Await")),
+        "expected prefix await parse rejection, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_channel_new_sugar() {
+    let tail = get_tail("fn f() { Channel.new[Int](buffer: 8) }");
+    match tail {
+        Expr::ChannelNew { elem_type, buffer } => {
+            assert!(matches!(elem_type, TypeExpr::Named(ref n) if n == "Int"));
+            assert!(matches!(*buffer, Expr::IntLit(8)));
+        }
+        other => panic!("expected ChannelNew sugar, got {:?}", other),
+    }
+}
+
+// ── Item 3: module declarations are rejected ───────────────────────────
+
+#[test]
+fn test_module_header_is_rejected() {
+    let errs = parse("module mymod\nfn foo() -> Int { 42 }").expect_err("expected parse error");
+    assert!(
+        errs.iter().any(|e| e
+            .to_string()
+            .contains("module declarations are not supported")),
+        "expected module declaration rejection, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_module_header_with_uses_is_rejected() {
+    let errs = parse("module mymod uses [NetRead]\nfn foo() -> Int { 42 }")
+        .expect_err("expected parse error");
+    assert!(
+        errs.iter().any(|e| e
+            .to_string()
+            .contains("module declarations are not supported")),
+        "expected module declaration rejection, got: {errs:?}"
+    );
 }
 
 // ── Item 4: alias declaration ───────────────────────────────────────────
 
-use spore_parser::ast::{AliasDef, Item, TypeExpr, Visibility};
+use spore_parser::ast::{AliasDef, Item, Visibility};
 
 #[test]
 fn test_alias_def() {

@@ -105,30 +105,38 @@ fn prelude_type_mapping(type_params: &[String]) -> HashMap<String, Ty> {
 fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
     match te {
         TypeExpr::Named(name) => match name.as_str() {
-            "Int" => Ty::Int,
-            "Float" => Ty::Float,
+            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => Ty::Int,
+            "F32" | "F64" => Ty::Float,
             "Bool" => Ty::Bool,
-            "String" => Ty::Str,
+            "Str" => Ty::Str,
             "Char" => Ty::Char,
-            "()" => Ty::Unit,
             "Never" => Ty::Never,
             _ => mapping
                 .get(name)
                 .cloned()
                 .unwrap_or_else(|| Ty::Named(name.clone())),
         },
+        TypeExpr::Hole(name) => name
+            .as_ref()
+            .map_or_else(|| Ty::Named("_".into()), |n| Ty::Named(n.clone())),
         TypeExpr::Generic(name, args) => Ty::App(
             name.clone(),
             args.iter()
                 .map(|arg| resolve_prelude_type(arg, mapping))
                 .collect(),
         ),
-        TypeExpr::Tuple(types) => Ty::Tuple(
-            types
-                .iter()
-                .map(|ty| resolve_prelude_type(ty, mapping))
-                .collect(),
-        ),
+        TypeExpr::Tuple(types) => {
+            if types.is_empty() {
+                Ty::Unit
+            } else {
+                Ty::Tuple(
+                    types
+                        .iter()
+                        .map(|ty| resolve_prelude_type(ty, mapping))
+                        .collect(),
+                )
+            }
+        }
         TypeExpr::Function(params, ret, error_exprs) => {
             let errors: ErrorSet = error_exprs
                 .iter()
@@ -164,12 +172,7 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
 fn build_prelude_interface() -> ModuleInterface {
     let module = parse(include_str!("../../../stdlib/prelude.sp"))
         .expect("embedded stdlib/prelude.sp must parse");
-    let path = if module.name.is_empty() {
-        vec!["Std".into(), "Prelude".into()]
-    } else {
-        module.name.split('.').map(|s| s.to_string()).collect()
-    };
-    let mut iface = ModuleInterface::new(path);
+    let mut iface = ModuleInterface::new(vec!["Std".into(), "Prelude".into()]);
 
     for item in &module.items {
         match item {

@@ -1065,17 +1065,17 @@ allow = [\"Compute\"]
     let (filename, content) = match project_type {
         "package" => (
             "lib.sp",
-            "/// Add two integers.\npub fn add(a: Int, b: Int) -> Int cost <= 1 {\n    a + b\n}\n"
+            "/// Add two integers.\npub fn add(a: I32, b: I32) -> I32 cost [1, 0, 0, 0] {\n    a + b\n}\n"
                 .to_string(),
         ),
         "platform" => (
             "host.sp",
-            "/// Platform entry point.\n/// The platform provides effect handlers for the application.\npub fn main_for_host(app_main: () -> Unit) -> Unit {\n    app_main();\n    return\n}\n"
+            "/// Platform entry point.\n/// The platform provides effect handlers for the application.\npub fn main_for_host(app_main: () -> ()) -> () {\n    app_main();\n    return\n}\n"
                 .to_string(),
         ),
         _ => (
             "main.sp",
-            format!("fn main() -> Unit {{\n    println(\"Hello from {name}!\");\n    return\n}}\n"),
+            format!("fn main() -> () {{\n    println(\"Hello from {name}!\");\n    return\n}}\n"),
         ),
     };
     std::fs::write(dir.join("src").join(filename), content)?;
@@ -1165,10 +1165,10 @@ mod tests {
         fs::write(
             &file,
             r#"
-            fn add(a: Int, b: Int) -> Int
+            fn add(a: I32, b: I32) -> I32
             spec {
                 example "basic": add(2, 3) == 5
-                property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+                property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
             }
             {
                 a + b
@@ -1188,7 +1188,7 @@ mod tests {
         fs::write(
             &file,
             r#"
-            fn add(a: Int, b: Int) -> Int
+            fn add(a: I32, b: I32) -> I32
             spec {
                 example "bad": 42
             }
@@ -1222,7 +1222,7 @@ mod tests {
         create_project(&project_dir, "proj", "application").unwrap();
         let nested_dir = project_dir.join("src/lib");
         fs::create_dir_all(&nested_dir).unwrap();
-        fs::write(nested_dir.join("util.sp"), "pub fn x() -> Int { 1 }\n").unwrap();
+        fs::write(nested_dir.join("util.sp"), "pub fn x() -> I32 { 1 }\n").unwrap();
 
         let target =
             find_project_target(project_dir.join("src/lib/util.sp").to_str().unwrap()).unwrap();
@@ -1235,7 +1235,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("proj");
         create_project(&project_dir, "proj", "application").unwrap();
-        fs::write(project_dir.join("notes.sp"), "fn scratch() -> Int { 1 }\n").unwrap();
+        fs::write(project_dir.join("notes.sp"), "fn scratch() -> I32 { 1 }\n").unwrap();
 
         assert!(find_project_target(project_dir.join("notes.sp").to_str().unwrap()).is_none());
     }
@@ -1301,7 +1301,7 @@ mod tests {
         .unwrap();
         fs::write(
             project_dir.join("src/main.sp"),
-            "fn main() -> Unit { return }\n",
+            "fn main() -> () { return }\n",
         )
         .unwrap();
 

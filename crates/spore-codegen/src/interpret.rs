@@ -45,13 +45,13 @@ fn require_arg<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a Valu
 fn require_int(args: &[Value], idx: usize, name: &str) -> Result<i64> {
     require_arg(args, idx, name)?
         .as_int()
-        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be Int")))
+        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be I32")))
 }
 
 fn require_str<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a str> {
     require_arg(args, idx, name)?
         .as_str()
-        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be String")))
+        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be Str")))
 }
 
 fn require_list<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a Vec<Value>> {
@@ -342,10 +342,11 @@ impl Interpreter {
                     let func = &self.functions[name];
                     Ok(Value::Closure(Closure {
                         params: func.params.iter().map(|p| p.name.clone()).collect(),
-                        body: func
-                            .body
-                            .clone()
-                            .unwrap_or(Expr::Hole(name.clone(), None, None)),
+                        body: func.body.clone().unwrap_or(Expr::Hole(
+                            Some(name.clone()),
+                            None,
+                            None,
+                        )),
                         env: BTreeMap::new(),
                     }))
                 } else {
@@ -554,7 +555,8 @@ impl Interpreter {
             }
 
             Expr::Hole(name, _, _) => {
-                Err(RuntimeError::new(format!("hit unfilled hole `?{name}`")))
+                let label = name.as_deref().unwrap_or("_");
+                Err(RuntimeError::new(format!("hit unfilled hole `?{label}`")))
             }
 
             Expr::Spawn(expr) => {
@@ -565,6 +567,13 @@ impl Interpreter {
             Expr::Await(expr) => {
                 // For PoC, just evaluate synchronously
                 self.eval(expr, env)
+            }
+
+            Expr::ChannelNew { buffer, .. } => {
+                let _ = self.eval(buffer, env)?;
+                Err(RuntimeError::new(
+                    "Channel.new runtime support is not implemented in interpreter yet",
+                ))
             }
 
             Expr::Return(expr) => {
@@ -598,12 +607,21 @@ impl Interpreter {
             Expr::Select(arms) => {
                 // PoC: evaluate first arm synchronously
                 if let Some(arm) = arms.first() {
-                    let source_val = self.eval(&arm.source, env)?;
-                    env.push();
-                    env.define(arm.binding.clone(), source_val);
-                    let result = self.eval(&arm.body, env)?;
-                    env.pop();
-                    Ok(result)
+                    match arm {
+                        SelectArm::Recv {
+                            binding,
+                            source,
+                            body,
+                        } => {
+                            let source_val = self.eval(source, env)?;
+                            env.push();
+                            env.define(binding.clone(), source_val);
+                            let result = self.eval(body, env)?;
+                            env.pop();
+                            Ok(result)
+                        }
+                        SelectArm::Timeout { body, .. } => self.eval(body, env),
+                    }
                 } else {
                     Ok(Value::Unit)
                 }

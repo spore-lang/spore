@@ -3,21 +3,21 @@
 // ends_with, split, replace, string_length, char_at, substring)
 // are runtime builtins — do NOT redefine them here.
 
-fn is_empty(s: String) -> Bool cost <= 2
+fn is_empty(s: Str) -> Bool cost [2, 0, 0, 0]
 spec {
     example "empty": is_empty("") == true
     example "nonempty": is_empty("hi") == false
 }
 { string_length(s) == 0 }
 
-fn is_not_empty(s: String) -> Bool cost <= 2
+fn is_not_empty(s: Str) -> Bool cost [2, 0, 0, 0]
 spec {
     example "empty": is_not_empty("") == false
     example "nonempty": is_not_empty("hi") == true
 }
 { string_length(s) > 0 }
 
-fn is_blank(s: String) -> Bool cost <= 3
+fn is_blank(s: Str) -> Bool cost [3, 0, 0, 0]
 spec {
     example "empty": is_blank("") == true
     example "spaces": is_blank("   ") == true
@@ -25,13 +25,13 @@ spec {
 }
 { string_length(trim(s)) == 0 }
 
-fn char_at_safe(s: String, i: Int) -> Option[String] cost <= 2 {
+fn char_at_safe(s: Str, i: I32) -> Option[Str] cost [2, 0, 0, 0] {
     if i < 0 { None }
     else { if i >= string_length(s) { None } else { char_at(s, i) } }
 }
 
 @unbounded
-fn repeat_string(s: String, n: Int) -> String
+fn repeat_string(s: Str, n: I32) -> Str
 spec {
     example "basic": repeat_string("ab", 3) == "ababab"
     example "zero": repeat_string("x", 0) == ""
@@ -43,7 +43,7 @@ spec {
 }
 
 @unbounded
-fn pad_left(s: String, width: Int, fill: String) -> String
+fn pad_left(s: Str, width: I32, fill: Str) -> Str
 spec {
     example "pad": pad_left("hi", 5, " ") == "   hi"
     example "no_pad": pad_left("hello", 3, " ") == "hello"
@@ -54,7 +54,7 @@ spec {
 }
 
 @unbounded
-fn pad_right(s: String, width: Int, fill: String) -> String
+fn pad_right(s: Str, width: I32, fill: Str) -> Str
 spec {
     example "pad": pad_right("hi", 5, " ") == "hi   "
     example "no_pad": pad_right("hello", 3, " ") == "hello"

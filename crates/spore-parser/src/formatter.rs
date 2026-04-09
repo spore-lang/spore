@@ -54,17 +54,6 @@ impl Formatter {
     // ── Module ──────────────────────────────────────────────────────────
 
     fn fmt_module(&mut self, module: &Module) {
-        if !module.name.is_empty() {
-            self.write("module ");
-            self.write(&module.name);
-            if let Some(uses) = &module.uses_clause {
-                self.write(" ");
-                self.fmt_uses_clause(uses);
-            }
-            self.newline();
-            self.newline();
-        }
-
         for (i, item) in module.items.iter().enumerate() {
             if i > 0 {
                 self.newline();
@@ -109,6 +98,12 @@ impl Formatter {
         self.write_indent();
         if f.is_unbounded {
             self.write("@unbounded\n");
+            self.write_indent();
+        }
+        if let Some(allows) = &f.hole_allows {
+            self.write("@allows[");
+            self.write(&allows.join(", "));
+            self.write("]\n");
             self.write_indent();
         }
         self.fmt_visibility(&f.visibility);
@@ -167,8 +162,15 @@ impl Formatter {
 
         // Cost clause
         if let Some(cc) = &f.cost_clause {
-            self.write(" cost <= ");
-            self.fmt_cost_expr(&cc.bound);
+            self.write(" cost [");
+            self.fmt_cost_expr(&cc.compute);
+            self.write(", ");
+            self.fmt_cost_expr(&cc.alloc);
+            self.write(", ");
+            self.fmt_cost_expr(&cc.io);
+            self.write(", ");
+            self.fmt_cost_expr(&cc.parallel);
+            self.write("]");
         }
 
         // Spec clause
@@ -623,15 +625,10 @@ impl Formatter {
         match ce {
             CostExpr::Literal(n) => self.write(&n.to_string()),
             CostExpr::Var(v) => self.write(v),
-            CostExpr::Mul(a, b) => {
-                self.fmt_cost_expr(a);
-                self.write(" * ");
-                self.fmt_cost_expr(b);
-            }
-            CostExpr::Add(a, b) => {
-                self.fmt_cost_expr(a);
-                self.write(" + ");
-                self.fmt_cost_expr(b);
+            CostExpr::Linear(v) => {
+                self.write("O(");
+                self.write(v);
+                self.write(")");
             }
         }
     }
@@ -647,6 +644,12 @@ impl Formatter {
     fn fmt_type_expr(&mut self, ty: &TypeExpr) {
         match ty {
             TypeExpr::Named(n) => self.write(n),
+            TypeExpr::Hole(name) => {
+                self.write("?");
+                if let Some(name) = name {
+                    self.write(name);
+                }
+            }
             TypeExpr::Generic(name, args) => {
                 self.write(name);
                 self.write("[");
@@ -824,7 +827,9 @@ impl Formatter {
             }
             Expr::Hole(name, ty, _ctx) => {
                 self.write("?");
-                self.write(name);
+                if let Some(name) = name {
+                    self.write(name);
+                }
                 if let Some(t) = ty {
                     self.write(": ");
                     self.fmt_type_expr(t);
@@ -848,8 +853,15 @@ impl Formatter {
                 self.fmt_expr(expr);
             }
             Expr::Await(expr) => {
-                self.write("await ");
                 self.fmt_expr(expr);
+                self.write(".await");
+            }
+            Expr::ChannelNew { elem_type, buffer } => {
+                self.write("Channel.new[");
+                self.fmt_type_expr(elem_type);
+                self.write("](buffer: ");
+                self.fmt_expr(buffer);
+                self.write(")");
             }
             Expr::Return(expr) => {
                 self.write("return");
@@ -916,11 +928,25 @@ impl Formatter {
                 self.indent += 1;
                 for arm in arms {
                     self.write_indent();
-                    self.write(&arm.binding);
-                    self.write(" from ");
-                    self.fmt_expr(&arm.source);
-                    self.write(" => ");
-                    self.fmt_expr(&arm.body);
+                    match arm {
+                        SelectArm::Recv {
+                            binding,
+                            source,
+                            body,
+                        } => {
+                            self.write(binding);
+                            self.write(" from ");
+                            self.fmt_expr(source);
+                            self.write(" => ");
+                            self.fmt_expr(body);
+                        }
+                        SelectArm::Timeout { duration, body } => {
+                            self.write("timeout(");
+                            self.fmt_expr(duration);
+                            self.write(") => ");
+                            self.fmt_expr(body);
+                        }
+                    }
                     self.write(",");
                     self.newline();
                 }
@@ -1231,8 +1257,14 @@ mod tests {
     }
 
     #[test]
-    fn test_module_header_without_uses_roundtrips() {
-        let src = concat!("module mymod\n", "\n", "fn foo() -> Int { 42 }\n",);
+    fn test_hole_syntax_roundtrip() {
+        let src = "fn f(x: ?) -> ? { ? }\n";
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_allows_annotation_roundtrip() {
+        let src = "@allows[validate, sanitize]\nfn f() -> Int { ?todo }\n";
         assert_eq!(roundtrip(src), src);
     }
 
@@ -1251,7 +1283,7 @@ mod tests {
     #[test]
     fn test_spec_clause_normalizes_clause_order_and_preserves_item_order() {
         let src = concat!(
-            "fn show[T](x: T) -> T cost <= 5 spec {\n",
+            "fn show[T](x: T) -> T cost [5, 0, 0, 0] spec {\n",
             "    property \"roundtrip\": |x: T| true\n",
             "    example \"block\" {\n",
             "        let y = x\n",
@@ -1260,7 +1292,7 @@ mod tests {
             "} uses [Console] where T: Display { x }\n",
         );
         let expected = concat!(
-            "fn show[T](x: T) -> T where T: Display uses [Console] cost <= 5\n",
+            "fn show[T](x: T) -> T where T: Display uses [Console] cost [5, 0, 0, 0]\n",
             "spec {\n",
             "    property \"roundtrip\": |x: T| true\n",
             "    example \"block\" {\n",

@@ -44,8 +44,12 @@ pub struct Checker {
     current_module_name: String,
     /// Declared return type of the current function (for hole inference).
     expected_return_type: Option<Ty>,
+    /// `@allows[...]` default allow-list in scope for hole suggestions.
+    current_hole_allows: Option<Vec<String>>,
     /// Next type variable ID for fresh type variables.
     next_var_id: u32,
+    /// Next synthetic name ID for unnamed holes (`?`).
+    next_unnamed_hole_id: u32,
     /// Substitution map: type variable ID → resolved type.
     substitution: HashMap<u32, Ty>,
     /// Capability hierarchy for expanding parent caps (e.g. IO → 4 leaves).
@@ -65,7 +69,9 @@ impl Checker {
             current_function: String::new(),
             current_module_name: String::new(),
             expected_return_type: None,
+            current_hole_allows: None,
             next_var_id: 0,
+            next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
             hierarchy: default_hierarchy(),
         }
@@ -84,7 +90,9 @@ impl Checker {
             current_function: String::new(),
             current_module_name: String::new(),
             expected_return_type: None,
+            current_hole_allows: None,
             next_var_id: 0,
+            next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
             hierarchy: default_hierarchy(),
         }
@@ -147,8 +155,10 @@ impl Checker {
             .resolve_import(&path_segments, &all_names)
         {
             Ok(resolved) => {
-                self.module_registry
-                    .record_dependency(&self.current_module_name, path);
+                if !self.current_module_name.is_empty() {
+                    self.module_registry
+                        .record_dependency(&self.current_module_name, path);
+                }
                 self.import_resolved_symbols(&module, &resolved, alias);
             }
             Err(ModuleError::PrivateSymbol { symbol, module: m }) => {
@@ -279,7 +289,7 @@ impl Checker {
                 self.registry
                     .functions
                     .insert(f.name.clone(), (param_tys, ret_ty, caps));
-                // Register error set (! [E1, E2])
+                // Register error set (! E1 | E2)
                 if !f.errors.is_empty() {
                     let error_set: ErrorSet = f
                         .errors
@@ -304,6 +314,17 @@ impl Checker {
                     self.registry
                         .fn_type_params
                         .insert(f.name.clone(), type_params);
+                }
+                if let Some(wc) = &f.where_clause
+                    && !wc.constraints.is_empty()
+                {
+                    self.registry.fn_where_bounds.insert(
+                        f.name.clone(),
+                        wc.constraints
+                            .iter()
+                            .map(|c| (c.type_var.clone(), c.bound.clone()))
+                            .collect(),
+                    );
                 }
             }
             Item::StructDef(s) => {
@@ -673,7 +694,7 @@ impl Checker {
                 .unwrap_or_default(),
         );
 
-        // Set current function's error set (! [E1, E2])
+        // Set current function's error set (! E1 | E2)
         let prev_errors = std::mem::replace(
             &mut self.current_errors,
             f.errors
@@ -697,6 +718,8 @@ impl Checker {
             .unwrap_or(Ty::Unit);
         let prev_expected = self.expected_return_type.take();
         self.expected_return_type = Some(declared_ret.clone());
+        let prev_hole_allows = self.current_hole_allows.take();
+        self.current_hole_allows = f.hole_allows.clone();
 
         self.env.push_scope();
 
@@ -725,6 +748,7 @@ impl Checker {
         self.current_errors = prev_errors;
         self.current_function = prev_function;
         self.expected_return_type = prev_expected;
+        self.current_hole_allows = prev_hole_allows;
     }
 
     /// Type-check a `spec { ... }` clause attached to a function.
@@ -1037,44 +1061,25 @@ impl Checker {
                 }
             }
 
-            Expr::Try(expr) => {
-                // Extract the callee name for error-set lookup when inner is a call
-                let callee_name = match expr.as_ref() {
-                    Expr::Call(callee, _) => {
-                        if let Expr::Var(name) = callee.as_ref() {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                };
+            Expr::Try(expr) => self.check_expr(expr),
 
-                let inner_ty = self.check_expr(expr);
-
-                // Check error propagation: callee's error set ⊆ caller's error set
-                if let Some(name) = callee_name
-                    && let Some(callee_errors) = self.registry.fn_errors.get(&name).cloned()
-                {
-                    self.check_error_propagation(&callee_errors);
-                }
-
-                inner_ty
-            }
-
-            Expr::Hole(name, ty_hint, _allows) => {
+            Expr::Hole(name, ty_hint, allows) => {
+                let hole_name = name
+                    .clone()
+                    .unwrap_or_else(|| self.fresh_unnamed_hole_name());
                 let ty = if let Some(te) = ty_hint {
                     self.resolve_type(te)
                 } else if let Some(ref ret) = self.expected_return_type {
                     ret.clone()
                 } else {
-                    Ty::Hole(name.clone())
+                    Ty::Hole(hole_name.clone())
                 };
 
                 // Collect hole info for the report (v0.3)
                 let bindings = self.env.all_bindings();
                 let expected = ty.clone();
-                let suggestions = self.find_suggestions(&expected);
+                let effective_allows = allows.clone().or_else(|| self.current_hole_allows.clone());
+                let suggestions = self.find_suggestions(&expected, effective_allows.as_deref());
 
                 // Build scored candidates from simple suggestions
                 let candidates: Vec<crate::hole::CandidateScore> = suggestions
@@ -1093,7 +1098,7 @@ impl Checker {
                 let errors_to_handle: Vec<String> = self.current_errors.iter().cloned().collect();
 
                 self.hole_report.holes.push(HoleInfo {
-                    name: name.clone(),
+                    name: hole_name,
                     location: None,
                     expected_type: expected,
                     type_inferred_from: None,
@@ -1136,6 +1141,16 @@ impl Checker {
                 }
             }
 
+            Expr::ChannelNew { elem_type, buffer } => {
+                let buffer_ty = self.check_expr(buffer);
+                self.unify(&Ty::Int, &buffer_ty, "Channel.new buffer");
+                let elem_ty = self.resolve_type(elem_type);
+                Ty::Tuple(vec![
+                    Ty::App("Sender".into(), vec![elem_ty.clone()]),
+                    Ty::App("Receiver".into(), vec![elem_ty]),
+                ])
+            }
+
             Expr::Return(expr) => {
                 if let Some(inner) = expr {
                     let ret_val_ty = self.check_expr(inner);
@@ -1148,6 +1163,7 @@ impl Checker {
 
             Expr::Throw(expr) => {
                 let _ = self.check_expr(expr);
+                self.check_throw_coverage(expr);
                 Ty::Never
             }
 
@@ -1182,13 +1198,27 @@ impl Checker {
             Expr::Select(arms) => {
                 let mut result_ty: Option<Ty> = None;
                 for arm in arms {
-                    let _source_ty = self.check_expr(&arm.source);
-                    self.env.push_scope();
-                    // Bind the received value — type is unknown for now
-                    let binding_ty = self.fresh_var();
-                    self.env.define(arm.binding.clone(), binding_ty);
-                    let arm_ty = self.check_expr(&arm.body);
-                    self.env.pop_scope();
+                    let arm_ty = match arm {
+                        SelectArm::Recv {
+                            binding,
+                            source,
+                            body,
+                        } => {
+                            let _source_ty = self.check_expr(source);
+                            self.env.push_scope();
+                            // Bind the received value — type is unknown for now
+                            let binding_ty = self.fresh_var();
+                            self.env.define(binding.clone(), binding_ty);
+                            let arm_ty = self.check_expr(body);
+                            self.env.pop_scope();
+                            arm_ty
+                        }
+                        SelectArm::Timeout { duration, body } => {
+                            let duration_ty = self.check_expr(duration);
+                            self.unify(&Ty::Int, &duration_ty, "select timeout");
+                            self.check_expr(body)
+                        }
+                    };
                     if let Some(ref expected) = result_ty {
                         self.unify(expected, &arm_ty, "select arms");
                     } else {
@@ -1407,8 +1437,14 @@ impl Checker {
                 self.registry.functions.get(name).cloned()
         {
             // Instantiate generic functions with fresh type variables
+            let mut type_mapping = HashMap::new();
             let (param_tys, ret_ty) = match self.registry.fn_type_params.get(name).cloned() {
-                Some(ref tp) if !tp.is_empty() => self.instantiate_sig(tp, &param_tys, &ret_ty),
+                Some(ref tp) if !tp.is_empty() => {
+                    let (inst_params, inst_ret, mapping) =
+                        self.instantiate_sig(tp, &param_tys, &ret_ty);
+                    type_mapping = mapping;
+                    (inst_params, inst_ret)
+                }
                 _ => (param_tys, ret_ty),
             };
 
@@ -1431,7 +1467,11 @@ impl Checker {
                     &format!("argument {} of `{name}`", i + 1),
                 );
             }
+            self.check_where_bounds(name, &type_mapping);
             self.check_cap_propagation(&callee_caps);
+            if let Some(callee_errors) = self.registry.fn_errors.get(name).cloned() {
+                self.check_error_propagation(&callee_errors);
+            }
             return self.apply_subst(&ret_ty);
         }
 
@@ -1547,7 +1587,8 @@ impl Checker {
         if type_params.is_empty() {
             Some((param_tys, ret_ty))
         } else {
-            Some(self.instantiate_sig(&type_params, &param_tys, &ret_ty))
+            let (params, ret, _) = self.instantiate_sig(&type_params, &param_tys, &ret_ty);
+            Some((params, ret))
         }
     }
 
@@ -1605,15 +1646,14 @@ impl Checker {
 
     // ── Type resolution ─────────────────────────────────────────────
 
-    pub fn resolve_type(&self, te: &TypeExpr) -> Ty {
+    pub fn resolve_type(&mut self, te: &TypeExpr) -> Ty {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
-                "Int" => Ty::Int,
-                "Float" => Ty::Float,
+                "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => Ty::Int,
+                "F32" | "F64" => Ty::Float,
                 "Bool" => Ty::Bool,
-                "String" => Ty::Str,
+                "Str" => Ty::Str,
                 "Char" => Ty::Char,
-                "()" => Ty::Unit,
                 "Never" => Ty::Never,
                 _ => {
                     // Check type aliases (supports refined aliases like `alias Port = Int when ...`)
@@ -1624,12 +1664,17 @@ impl Checker {
                     }
                 }
             },
+            TypeExpr::Hole(_) => self.fresh_var(),
             TypeExpr::Generic(name, args) => {
                 let resolved: Vec<Ty> = args.iter().map(|a| self.resolve_type(a)).collect();
                 Ty::App(name.clone(), resolved)
             }
             TypeExpr::Tuple(types) => {
-                Ty::Tuple(types.iter().map(|t| self.resolve_type(t)).collect())
+                if types.is_empty() {
+                    Ty::Unit
+                } else {
+                    Ty::Tuple(types.iter().map(|t| self.resolve_type(t)).collect())
+                }
             }
             TypeExpr::Function(params, ret, error_exprs) => {
                 let ptys: Vec<Ty> = params.iter().map(|p| self.resolve_type(p)).collect();
@@ -1716,7 +1761,7 @@ impl Checker {
         type_params: &[String],
         param_tys: &[Ty],
         ret_ty: &Ty,
-    ) -> (Vec<Ty>, Ty) {
+    ) -> (Vec<Ty>, Ty, HashMap<String, Ty>) {
         let mapping: HashMap<String, Ty> = type_params
             .iter()
             .map(|name| (name.clone(), self.fresh_var()))
@@ -1726,7 +1771,76 @@ impl Checker {
             .map(|t| self.instantiate_ty(t, &mapping))
             .collect();
         let new_ret = self.instantiate_ty(ret_ty, &mapping);
-        (new_params, new_ret)
+        (new_params, new_ret, mapping)
+    }
+
+    fn check_where_bounds(&mut self, fn_name: &str, type_mapping: &HashMap<String, Ty>) {
+        let Some(constraints) = self.registry.fn_where_bounds.get(fn_name).cloned() else {
+            return;
+        };
+        for (type_var, bound) in constraints {
+            if !self.registry.capabilities.contains_key(&bound) {
+                self.err(
+                    ErrorCode::E0403,
+                    format!("unknown trait bound `{bound}` in where clause of `{fn_name}`"),
+                );
+                continue;
+            }
+            let Some(instantiated) = type_mapping.get(&type_var) else {
+                continue;
+            };
+            let resolved = self.apply_subst(instantiated);
+            if self.has_unresolved_type_var(&resolved) {
+                self.err(
+                    ErrorCode::E0404,
+                    format!(
+                        "cannot infer type parameter `{type_var}` for where bound `{type_var}: {bound}` in `{fn_name}`"
+                    ),
+                );
+                continue;
+            }
+            if !self.satisfies_trait_bound(&bound, &resolved) {
+                self.err(
+                    ErrorCode::E0403,
+                    format!(
+                        "type `{resolved}` does not satisfy where bound `{type_var}: {bound}` in `{fn_name}`"
+                    ),
+                );
+            }
+        }
+    }
+
+    fn has_unresolved_type_var(&self, ty: &Ty) -> bool {
+        let mut found = false;
+        ty.visit(&mut |t| {
+            if matches!(t, Ty::Var(_)) {
+                found = true;
+            }
+        });
+        found
+    }
+
+    fn satisfies_trait_bound(&self, bound: &str, ty: &Ty) -> bool {
+        self.bound_target_names(ty).into_iter().any(|target| {
+            self.registry
+                .impls
+                .contains_key(&(bound.to_string(), target))
+        })
+    }
+
+    fn bound_target_names(&self, ty: &Ty) -> Vec<String> {
+        match ty {
+            Ty::Refined(base, _, _) => self.bound_target_names(base),
+            Ty::Named(name) | Ty::App(name, _) => vec![name.clone()],
+            Ty::Int => vec!["I32".into()],
+            Ty::Float => vec!["F64".into()],
+            Ty::Bool => vec!["Bool".into()],
+            Ty::Str => vec!["Str".into()],
+            Ty::Char => vec!["Char".into()],
+            Ty::Unit => vec!["Unit".into()],
+            Ty::Never => vec!["Never".into()],
+            _ => vec![],
+        }
     }
 
     // ── Set propagation checks ─────────────────────────────────────
@@ -1756,6 +1870,48 @@ impl Checker {
                     missing.join(", ")
                 ),
             );
+        }
+    }
+
+    fn check_throw_coverage(&mut self, thrown_expr: &Expr) {
+        if self.current_errors.is_empty() {
+            self.err(
+                ErrorCode::E0012,
+                format!(
+                    "`throw` in `{}` requires declaring an error set with `! E`",
+                    self.current_function
+                ),
+            );
+            return;
+        }
+
+        let Some(thrown_name) = self.infer_thrown_error_name(thrown_expr) else {
+            return;
+        };
+        if !self.current_errors.contains(&thrown_name) {
+            self.err(
+                ErrorCode::E0012,
+                format!(
+                    "thrown error `{thrown_name}` is not declared in `{}` error set",
+                    self.current_function
+                ),
+            );
+        }
+    }
+
+    fn infer_thrown_error_name(&self, expr: &Expr) -> Option<String> {
+        fn looks_like_error_name(name: &str) -> bool {
+            name.chars().next().is_some_and(char::is_uppercase)
+        }
+
+        match expr {
+            Expr::Var(name) if looks_like_error_name(name) => Some(name.clone()),
+            Expr::Call(callee, _) => match callee.as_ref() {
+                Expr::Var(name) if looks_like_error_name(name) => Some(name.clone()),
+                _ => None,
+            },
+            Expr::StructLit(name, _) if looks_like_error_name(name) => Some(name.clone()),
+            _ => None,
         }
     }
 
@@ -2198,7 +2354,7 @@ impl Checker {
     }
 
     /// Find registered functions whose return type matches the expected type.
-    fn find_suggestions(&self, expected: &Ty) -> Vec<String> {
+    fn find_suggestions(&self, expected: &Ty, allow_list: Option<&[String]>) -> Vec<String> {
         if expected.is_error() || matches!(expected, Ty::Hole(_)) {
             return Vec::new();
         }
@@ -2206,11 +2362,21 @@ impl Checker {
             .registry
             .functions
             .iter()
-            .filter(|(name, (_, ret_ty, _))| ret_ty == expected && *name != &self.current_function)
+            .filter(|(name, (_, ret_ty, _))| {
+                ret_ty == expected
+                    && *name != &self.current_function
+                    && allow_list.is_none_or(|allowed| allowed.iter().any(|a| a == *name))
+            })
             .map(|(name, _)| name.clone())
             .collect();
         suggestions.sort();
         suggestions
+    }
+
+    fn fresh_unnamed_hole_name(&mut self) -> String {
+        let id = self.next_unnamed_hole_id;
+        self.next_unnamed_hole_id += 1;
+        format!("_hole{id}")
     }
 
     /// Build a dependency graph between holes based on shared type variables.

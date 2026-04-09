@@ -150,10 +150,10 @@ impl Value {
 
     pub fn type_name(&self) -> &str {
         match self {
-            Value::Int(_) => "Int",
-            Value::Float(_) => "Float",
+            Value::Int(_) => "I32",
+            Value::Float(_) => "F64",
             Value::Bool(_) => "Bool",
-            Value::Str(_) => "String",
+            Value::Str(_) => "Str",
             Value::Char(_) => "Char",
             Value::Unit => "Unit",
             Value::List(_) => "List",

@@ -2,12 +2,12 @@
 //!
 //! 1. **Automatic**: Detect structural recursion (one arg decreases by constant
 //!    per recursive call) → cost is O(n).
-//! 2. **Semi-auto**: Read `cost ≤ expr` clauses from function definitions.
+//! 2. **Semi-auto**: Read `cost [compute, alloc, io, parallel]` clauses.
 //! 3. **Escape**: `@unbounded` annotation skips cost checking.
 
 use std::collections::HashMap;
 
-use spore_parser::ast::{self, BinOp, Expr, FnDef, Item, Module, Stmt};
+use spore_parser::ast::{self, BinOp, Expr, FnDef, Item, Module, SelectArm, Stmt};
 
 /// Cost expression — a symbolic representation of computational cost.
 ///
@@ -53,7 +53,7 @@ pub enum CostResult {
     Constant(u64),
     /// Structural recursion on parameter `name` — cost is O(n).
     Structural(String),
-    /// User declared via `cost ≤ expr` and accepted.
+    /// User declared via `cost [compute, alloc, io, parallel]`; stores compute part.
     Declared(CostExpr),
     /// `@unbounded` annotation — cost checking skipped.
     Unbounded,
@@ -121,7 +121,7 @@ pub struct CostAnalyzer {
     cost_vectors: HashMap<String, CostVector>,
     /// Functions whose body cost exceeds their declared budget.
     /// Each entry: (fn_name, declared_bound, actual_cost).
-    violations: Vec<(String, CostExpr, CostExpr)>,
+    violations: Vec<(String, CostVector, CostVector)>,
 }
 
 impl Default for CostAnalyzer {
@@ -149,7 +149,7 @@ impl CostAnalyzer {
     }
 
     /// Budget violations found during analysis.
-    pub fn violations(&self) -> &[(String, CostExpr, CostExpr)] {
+    pub fn violations(&self) -> &[(String, CostVector, CostVector)] {
         &self.violations
     }
 
@@ -193,7 +193,7 @@ impl CostAnalyzer {
         let declared = fn_def
             .cost_clause
             .as_ref()
-            .map(|cc| ast_cost_to_cost_expr(&cc.bound));
+            .map(|cc| ast_cost_to_cost_expr(&cc.compute));
 
         let body = match &fn_def.body {
             Some(b) => b,
@@ -397,6 +397,7 @@ impl CostAnalyzer {
             Expr::Await(inner) | Expr::Try(inner) | Expr::Throw(inner) => {
                 self.analyze_expr_cost(inner)
             }
+            Expr::ChannelNew { buffer, .. } => self.analyze_expr_cost(buffer),
 
             Expr::Return(inner) => inner
                 .as_ref()
@@ -445,9 +446,14 @@ impl CostAnalyzer {
             Expr::Select(arms) => {
                 let mut max_arm = CostVector::zero();
                 for arm in arms {
-                    let arm_cost = self
-                        .analyze_expr_cost(&arm.source)
-                        .seq(&self.analyze_expr_cost(&arm.body));
+                    let arm_cost = match arm {
+                        SelectArm::Recv { source, body, .. } => self
+                            .analyze_expr_cost(source)
+                            .seq(&self.analyze_expr_cost(body)),
+                        SelectArm::Timeout { duration, body } => self
+                            .analyze_expr_cost(duration)
+                            .seq(&self.analyze_expr_cost(body)),
+                    };
                     max_arm = max_arm.max(&arm_cost);
                 }
                 max_arm
@@ -560,51 +566,20 @@ impl CostAnalyzer {
                 continue;
             };
             let fn_name = &fn_def.name;
-            let declared = ast_cost_to_cost_expr(&cost_clause.bound);
-
-            // Compute actual body cost (re-analyze without the declared shortcut)
-            let actual = self.compute_body_cost(fn_def);
-
-            if exceeds_budget(&actual, &declared) {
+            let declared = ast_cost_clause_to_cost_vector(cost_clause);
+            let actual = self.compute_body_cost_vector(fn_def);
+            if exceeds_budget_vector(&actual, &declared) {
                 self.violations.push((fn_name.clone(), declared, actual));
             }
         }
     }
 
-    /// Compute the actual body cost for budget comparison, including callee costs.
-    fn compute_body_cost(&self, fn_def: &FnDef) -> CostExpr {
-        let fn_name = &fn_def.name;
+    /// Compute the actual 4D body cost for budget comparison.
+    fn compute_body_cost_vector(&self, fn_def: &FnDef) -> CostVector {
         let Some(body) = &fn_def.body else {
-            return CostExpr::Const(1);
+            return CostVector::constant(1, 0, 0, 0);
         };
-
-        let params: Vec<String> = fn_def.params.iter().map(|p| p.name.clone()).collect();
-        let mut calls = Vec::new();
-        collect_recursive_calls(fn_name, body, &mut calls);
-
-        let base = if calls.is_empty() {
-            CostExpr::Const(1)
-        } else if let Some(param) = detect_structural_recursion(fn_name, &params, &calls) {
-            CostExpr::Linear(param)
-        } else {
-            CostExpr::Unbounded
-        };
-
-        // Add callee costs
-        let callee_names = collect_callee_names(fn_name, body);
-        let mut total = base;
-        for callee in &callee_names {
-            let callee_cost = match self.results.get(callee) {
-                Some(CostResult::Constant(k)) => CostExpr::Const(*k),
-                Some(CostResult::Declared(expr)) => expr.clone(),
-                Some(CostResult::Structural(p)) => CostExpr::Linear(p.clone()),
-                Some(CostResult::Unbounded) => CostExpr::Unbounded,
-                Some(CostResult::Unknown(_)) => CostExpr::Unbounded,
-                None => CostExpr::Const(0),
-            };
-            total = add_cost(&total, &callee_cost);
-        }
-        total
+        self.analyze_expr_cost(body)
     }
 }
 
@@ -613,14 +588,16 @@ fn ast_cost_to_cost_expr(ce: &ast::CostExpr) -> CostExpr {
     match ce {
         ast::CostExpr::Literal(n) => CostExpr::Const(*n),
         ast::CostExpr::Var(v) => CostExpr::Var(v.clone()),
-        ast::CostExpr::Add(a, b) => CostExpr::Add(
-            Box::new(ast_cost_to_cost_expr(a)),
-            Box::new(ast_cost_to_cost_expr(b)),
-        ),
-        ast::CostExpr::Mul(a, b) => CostExpr::Mul(
-            Box::new(ast_cost_to_cost_expr(a)),
-            Box::new(ast_cost_to_cost_expr(b)),
-        ),
+        ast::CostExpr::Linear(v) => CostExpr::Linear(v.clone()),
+    }
+}
+
+fn ast_cost_clause_to_cost_vector(clause: &ast::CostClause) -> CostVector {
+    CostVector {
+        compute: ast_cost_to_cost_expr(&clause.compute),
+        alloc: ast_cost_to_cost_expr(&clause.alloc),
+        io: ast_cost_to_cost_expr(&clause.io),
+        parallel: ast_cost_to_cost_expr(&clause.parallel),
     }
 }
 
@@ -711,6 +688,9 @@ where
         | Expr::Throw(inner) => {
             walk_expr(inner, on_call);
         }
+        Expr::ChannelNew { buffer, .. } => {
+            walk_expr(buffer, on_call);
+        }
         Expr::If(cond, then_br, else_br) => {
             walk_expr(cond, on_call);
             walk_expr(then_br, on_call);
@@ -750,8 +730,16 @@ where
         }
         Expr::Select(arms) => {
             for arm in arms {
-                walk_expr(&arm.source, on_call);
-                walk_expr(&arm.body, on_call);
+                match arm {
+                    SelectArm::Recv { source, body, .. } => {
+                        walk_expr(source, on_call);
+                        walk_expr(body, on_call);
+                    }
+                    SelectArm::Timeout { duration, body } => {
+                        walk_expr(duration, on_call);
+                        walk_expr(body, on_call);
+                    }
+                }
             }
         }
         Expr::Return(inner) => {
@@ -873,6 +861,13 @@ fn exceeds_budget(actual: &CostExpr, budget: &CostExpr) -> bool {
         // If budget is also symbolic, we can't decide — don't flag
         _ => false,
     }
+}
+
+fn exceeds_budget_vector(actual: &CostVector, budget: &CostVector) -> bool {
+    exceeds_budget(&actual.compute, &budget.compute)
+        || exceeds_budget(&actual.alloc, &budget.alloc)
+        || exceeds_budget(&actual.io, &budget.io)
+        || exceeds_budget(&actual.parallel, &budget.parallel)
 }
 
 // ---------------------------------------------------------------------------
@@ -1125,18 +1120,9 @@ mod tests {
 
     #[test]
     fn ast_cost_conversion() {
-        let ast_ce = ast::CostExpr::Add(
-            Box::new(ast::CostExpr::Var("n".into())),
-            Box::new(ast::CostExpr::Literal(5)),
-        );
+        let ast_ce = ast::CostExpr::Linear("n".into());
         let ce = ast_cost_to_cost_expr(&ast_ce);
-        assert_eq!(
-            ce,
-            CostExpr::Add(
-                Box::new(CostExpr::Var("n".into())),
-                Box::new(CostExpr::Const(5)),
-            )
-        );
+        assert_eq!(ce, CostExpr::Linear("n".into()));
     }
 
     // -----------------------------------------------------------------------

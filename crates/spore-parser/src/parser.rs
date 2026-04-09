@@ -194,28 +194,20 @@ impl Parser {
     // ── Top-level: Module ───────────────────────────────────────────
 
     pub fn parse_module(&mut self) -> Result<Module, ParseError> {
-        // Check for optional `module name uses [...]` declaration
-        let (mod_name, uses_clause) = if self.at(&Token::Mod) {
-            self.advance();
-            let name = self.expect_ident()?;
-            let uses = if self.at(&Token::Uses) {
-                Some(self.parse_uses_clause()?)
-            } else {
-                None
-            };
-            (name, uses)
-        } else {
-            (String::new(), None)
-        };
+        if self.at(&Token::Mod) {
+            return Err(self.error(
+                "module declarations are not supported; module names are derived from file paths"
+                    .to_string(),
+            ));
+        }
 
         let mut items = Vec::new();
         while !self.at_eof() {
             items.push(self.parse_item()?);
         }
         Ok(Module {
-            name: mod_name,
+            name: String::new(),
             items,
-            uses_clause,
         })
     }
 
@@ -244,18 +236,35 @@ impl Parser {
 
     fn parse_annotated_item(&mut self) -> Result<Item, ParseError> {
         let start = self.peek_span().start;
-        self.expect(&Token::At)?;
-        let annotation = self.expect_ident()?;
-        match annotation.as_str() {
-            "unbounded" => {
-                let mut fn_def = self.parse_fn_def()?;
-                fn_def.is_unbounded = true;
-                // Extend span to include the annotation
-                fn_def.span = fn_def.span.map(|s| Span::new(start, s.end));
-                Ok(Item::Function(fn_def))
+        let mut is_unbounded = false;
+        let mut hole_allows = None;
+
+        while self.at(&Token::At) {
+            self.expect(&Token::At)?;
+            let annotation = self.expect_ident()?;
+            match annotation.as_str() {
+                "unbounded" => {
+                    is_unbounded = true;
+                }
+                "allows" => {
+                    if hole_allows.is_some() {
+                        return Err(self.error("duplicate `@allows[...]` annotation".into()));
+                    }
+                    self.expect(&Token::LBracket)?;
+                    let allows = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+                    self.expect(&Token::RBracket)?;
+                    hole_allows = Some(allows);
+                }
+                _ => return Err(self.error(format!("unknown annotation `@{annotation}`"))),
             }
-            _ => Err(self.error(format!("unknown annotation `@{annotation}`"))),
         }
+
+        let mut fn_def = self.parse_fn_def()?;
+        fn_def.is_unbounded = is_unbounded;
+        fn_def.hole_allows = hole_allows;
+        // Extend span to include annotations
+        fn_def.span = fn_def.span.map(|s| Span::new(start, s.end));
+        Ok(Item::Function(fn_def))
     }
 
     fn parse_fn_or_const_or_alias_item(&mut self) -> Result<Item, ParseError> {
@@ -372,12 +381,14 @@ impl Parser {
             None
         };
 
-        // optional errors clause: `! [E1, E2]` or `throw [E1, E2]`
-        let errors = if self.at(&Token::Bang) || self.at(&Token::Throw) {
+        // optional errors clause: `! E1 | E2`
+        let errors = if self.at(&Token::Bang) {
             self.advance();
-            self.expect(&Token::LBracket)?;
-            let errs = self.parse_comma_sep(|p| p.parse_type_expr(), &Token::RBracket)?;
-            self.expect(&Token::RBracket)?;
+            let mut errs = vec![self.parse_type_expr()?];
+            while self.at(&Token::Pipe) {
+                self.advance();
+                errs.push(self.parse_type_expr()?);
+            }
             errs
         } else {
             vec![]
@@ -442,6 +453,7 @@ impl Parser {
             spec_clause,
             uses_clause,
             is_unbounded: false,
+            hole_allows: None,
             is_foreign,
             body,
             span: Some(Span::new(start, end)),
@@ -489,6 +501,12 @@ impl Parser {
             let type_var = self.expect_ident()?;
             self.expect(&Token::Colon)?;
             let bound = self.expect_ident()?;
+            if self.at(&Token::Plus) {
+                return Err(self.error(
+                    "multiple trait bounds are not supported yet; use a single bound like `T: Trait`"
+                        .into(),
+                ));
+            }
             constraints.push(TypeConstraint { type_var, bound });
             if !self.at(&Token::Comma) {
                 break;
@@ -504,37 +522,38 @@ impl Parser {
 
     fn parse_cost_clause(&mut self) -> Result<CostClause, ParseError> {
         self.expect(&Token::Cost)?;
-        // expect `≤` or `<=`
         if self.at(&Token::Le2) || self.at(&Token::LtEq) {
-            self.advance();
-        } else {
-            return Err(self.error("expected `≤` or `<=` after `cost`".into()));
+            return Err(self.error(
+                "scalar `cost <= expr` syntax was removed; use `cost [compute, alloc, io, parallel]`"
+                    .into(),
+            ));
         }
-        let bound = self.parse_cost_expr()?;
-        Ok(CostClause { bound })
+        self.expect(&Token::LBracket)?;
+        let compute = self.parse_cost_expr()?;
+        self.expect(&Token::Comma)?;
+        let alloc = self.parse_cost_expr()?;
+        self.expect(&Token::Comma)?;
+        let io = self.parse_cost_expr()?;
+        self.expect(&Token::Comma)?;
+        let parallel = self.parse_cost_expr()?;
+        self.expect(&Token::RBracket)?;
+        Ok(CostClause {
+            compute,
+            alloc,
+            io,
+            parallel,
+        })
     }
 
     fn parse_cost_expr(&mut self) -> Result<CostExpr, ParseError> {
-        let left = self.parse_cost_atom()?;
-        self.parse_cost_expr_rest(left)
-    }
-
-    fn parse_cost_expr_rest(&mut self, left: CostExpr) -> Result<CostExpr, ParseError> {
-        match self.peek() {
-            Token::Plus => {
-                self.advance();
-                let right = self.parse_cost_atom()?;
-                let node = CostExpr::Add(Box::new(left), Box::new(right));
-                self.parse_cost_expr_rest(node)
-            }
-            Token::Star => {
-                self.advance();
-                let right = self.parse_cost_atom()?;
-                let node = CostExpr::Mul(Box::new(left), Box::new(right));
-                self.parse_cost_expr_rest(node)
-            }
-            _ => Ok(left),
+        let expr = self.parse_cost_atom()?;
+        if matches!(self.peek(), Token::Plus | Token::Star | Token::LParen) {
+            return Err(self.error(
+                "cost slot expressions only support integer literals, parameter variables, or linear `O(n)`; composed expressions are deferred"
+                    .into(),
+            ));
         }
+        Ok(expr)
     }
 
     fn parse_cost_atom(&mut self) -> Result<CostExpr, ParseError> {
@@ -544,14 +563,20 @@ impl Parser {
                 Ok(CostExpr::Literal(n as u64))
             }
             Token::Ident(s) => {
+                if s == "O"
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.node),
+                        Some(Token::LParen)
+                    )
+                {
+                    self.advance(); // O
+                    self.expect(&Token::LParen)?;
+                    let var = self.expect_ident()?;
+                    self.expect(&Token::RParen)?;
+                    return Ok(CostExpr::Linear(var));
+                }
                 self.advance();
                 Ok(CostExpr::Var(s))
-            }
-            Token::LParen => {
-                self.advance();
-                let inner = self.parse_cost_expr()?;
-                self.expect(&Token::RParen)?;
-                Ok(inner)
             }
             _ => Err(self.error(format!("expected cost expression, found {:?}", self.peek()))),
         }
@@ -681,6 +706,15 @@ impl Parser {
             Token::Self_ => {
                 self.advance();
                 Ok(TypeExpr::Named("Self".into()))
+            }
+            Token::Question => {
+                self.advance();
+                let name = if matches!(self.peek(), Token::Ident(_)) {
+                    Some(self.expect_ident()?)
+                } else {
+                    None
+                };
+                Ok(TypeExpr::Hole(name))
             }
             Token::Ident(name) => {
                 self.advance();
@@ -1103,7 +1137,23 @@ impl Parser {
                     }
                     Token::Dot => {
                         self.advance();
-                        let field = self.expect_ident()?;
+                        let field = if self.at(&Token::Await) {
+                            self.advance();
+                            "await".to_string()
+                        } else {
+                            self.expect_ident()?
+                        };
+                        if field == "await" && !self.at(&Token::LParen) {
+                            lhs = Expr::Await(Box::new(lhs));
+                            continue;
+                        }
+                        if field == "new"
+                            && matches!(&lhs, Expr::Var(name) if name == "Channel")
+                            && self.at(&Token::LBracket)
+                        {
+                            lhs = self.parse_channel_new_expr()?;
+                            continue;
+                        }
                         // Check for method call: `obj.method(args)`
                         if self.at(&Token::LParen) {
                             self.advance();
@@ -1240,13 +1290,6 @@ impl Parser {
                 Ok(Expr::Spawn(Box::new(expr)))
             }
 
-            // Await expression
-            Token::Await => {
-                self.advance();
-                let expr = self.parse_expr()?;
-                Ok(Expr::Await(Box::new(expr)))
-            }
-
             // Return expression
             Token::Return => {
                 self.advance();
@@ -1284,10 +1327,14 @@ impl Parser {
                 Ok(Expr::CharLit(c))
             }
 
-            // Hole: `?name` or `?name: Type` or `?name @allows [Cap1, Cap2]`
+            // Hole: `?`, `?name`, `?: Type`, `?name: Type`, optional `@allows [...]`
             Token::Question => {
                 self.advance();
-                let name = self.expect_ident()?;
+                let name = if matches!(self.peek(), Token::Ident(_)) {
+                    Some(self.expect_ident()?)
+                } else {
+                    None
+                };
                 let ty = if self.at(&Token::Colon) {
                     self.advance();
                     Some(Box::new(self.parse_type_expr()?))
@@ -1567,22 +1614,54 @@ impl Parser {
         let mut arms = Vec::new();
         while !self.at(&Token::RBrace) && !self.at_eof() {
             let binding = self.expect_ident()?;
-            // expect `from` keyword
-            self.expect(&Token::From)?;
-            let source = self.parse_expr()?;
-            self.expect(&Token::FatArrow)?;
-            let body = self.parse_expr()?;
-            arms.push(SelectArm {
-                binding,
-                source,
-                body,
-            });
+            if binding == "timeout" {
+                self.expect(&Token::LParen)?;
+                let duration = self.parse_expr()?;
+                self.expect(&Token::RParen)?;
+                self.expect(&Token::FatArrow)?;
+                let body = self.parse_expr()?;
+                arms.push(SelectArm::Timeout { duration, body });
+            } else {
+                // expect `from` keyword
+                self.expect(&Token::From)?;
+                let source = self.parse_expr()?;
+                self.expect(&Token::FatArrow)?;
+                let body = self.parse_expr()?;
+                arms.push(SelectArm::Recv {
+                    binding,
+                    source,
+                    body,
+                });
+            }
             if self.at(&Token::Comma) {
                 self.advance();
             }
         }
         self.expect(&Token::RBrace)?;
         Ok(Expr::Select(arms))
+    }
+
+    fn parse_channel_new_expr(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&Token::LBracket)?;
+        let elem_type = self.parse_type_expr()?;
+        self.expect(&Token::RBracket)?;
+        self.expect(&Token::LParen)?;
+        let label = self.expect_ident()?;
+        if label != "buffer" {
+            return Err(self.error(format!(
+                "expected named argument `buffer` in Channel.new, found `{label}`"
+            )));
+        }
+        self.expect(&Token::Colon)?;
+        let buffer = self.parse_expr()?;
+        if self.at(&Token::Comma) {
+            self.advance();
+        }
+        self.expect(&Token::RParen)?;
+        Ok(Expr::ChannelNew {
+            elem_type,
+            buffer: Box::new(buffer),
+        })
     }
 
     // ── Perform expression ──────────────────────────────────────────

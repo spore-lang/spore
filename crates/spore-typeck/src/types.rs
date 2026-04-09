@@ -200,10 +200,10 @@ impl Eq for Ty {}
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Ty::Int => write!(f, "Int"),
-            Ty::Float => write!(f, "Float"),
+            Ty::Int => write!(f, "I32"),
+            Ty::Float => write!(f, "F64"),
             Ty::Bool => write!(f, "Bool"),
-            Ty::Str => write!(f, "String"),
+            Ty::Str => write!(f, "Str"),
             Ty::Char => write!(f, "Char"),
             Ty::Unit => write!(f, "()"),
             Ty::Never => write!(f, "Never"),

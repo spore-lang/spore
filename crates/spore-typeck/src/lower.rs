@@ -167,7 +167,7 @@ impl Lowering {
             cost_bound: f
                 .cost_clause
                 .as_ref()
-                .map(|cc| Box::new(self.lower_cost_expr(&cc.bound))),
+                .map(|cc| Box::new(self.lower_cost_expr(&cc.compute))),
         }
     }
 
@@ -227,15 +227,19 @@ impl Lowering {
     fn lower_type_expr(&self, te: &ast::TypeExpr) -> HirTypeRef {
         match te {
             ast::TypeExpr::Named(name) => match name.as_str() {
-                "Int" => HirTypeRef::Primitive(PrimitiveTy::Int),
-                "Float" => HirTypeRef::Primitive(PrimitiveTy::Float),
+                "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => {
+                    HirTypeRef::Primitive(PrimitiveTy::Int)
+                }
+                "F32" | "F64" => HirTypeRef::Primitive(PrimitiveTy::Float),
                 "Bool" => HirTypeRef::Primitive(PrimitiveTy::Bool),
-                "String" => HirTypeRef::Primitive(PrimitiveTy::Str),
+                "Str" => HirTypeRef::Primitive(PrimitiveTy::Str),
                 "Char" => HirTypeRef::Primitive(PrimitiveTy::Char),
                 "Never" => HirTypeRef::Primitive(PrimitiveTy::Never),
-                "()" => HirTypeRef::Primitive(PrimitiveTy::Unit),
                 _ => HirTypeRef::Named(name.clone(), self.resolve_name(name)),
             },
+            ast::TypeExpr::Hole(name) => {
+                HirTypeRef::Named(name.clone().unwrap_or_else(|| "_".to_string()), UNRESOLVED)
+            }
             ast::TypeExpr::Generic(name, args) => HirTypeRef::Generic(
                 name.clone(),
                 args.iter().map(|a| self.lower_type_expr(a)).collect(),
@@ -244,10 +248,16 @@ impl Lowering {
                 params.iter().map(|p| self.lower_type_expr(p)).collect(),
                 Box::new(self.lower_type_expr(ret)),
             ),
-            ast::TypeExpr::Tuple(ts) => HirTypeRef::Generic(
-                "Tuple".to_string(),
-                ts.iter().map(|t| self.lower_type_expr(t)).collect(),
-            ),
+            ast::TypeExpr::Tuple(ts) => {
+                if ts.is_empty() {
+                    HirTypeRef::Primitive(PrimitiveTy::Unit)
+                } else {
+                    HirTypeRef::Generic(
+                        "Tuple".to_string(),
+                        ts.iter().map(|t| self.lower_type_expr(t)).collect(),
+                    )
+                }
+            }
             ast::TypeExpr::Refinement(base, _, _) => self.lower_type_expr(base),
             ast::TypeExpr::Record(fields) => HirTypeRef::Record(
                 fields
@@ -344,6 +354,13 @@ impl Lowering {
             ast::Expr::Try(inner) => HirExpr::Try(Box::new(self.lower_expr(inner))),
             ast::Expr::Spawn(inner) => HirExpr::Spawn(Box::new(self.lower_expr(inner))),
             ast::Expr::Await(inner) => HirExpr::Await(Box::new(self.lower_expr(inner))),
+            ast::Expr::ChannelNew { buffer, .. } => HirExpr::Call(
+                Box::new(HirExpr::FieldAccess(
+                    Box::new(HirExpr::Var("Channel".to_string(), UNRESOLVED)),
+                    "new".to_string(),
+                )),
+                vec![self.lower_expr(buffer)],
+            ),
 
             ast::Expr::Return(inner) => {
                 HirExpr::Return(inner.as_ref().map(|e| Box::new(self.lower_expr(e))))
@@ -354,7 +371,9 @@ impl Lowering {
             }
             ast::Expr::CharLit(c) => HirExpr::CharLit(*c),
 
-            ast::Expr::Hole(name, _ty_hint, _) => HirExpr::Hole(name.clone()),
+            ast::Expr::Hole(name, _ty_hint, _) => {
+                HirExpr::Hole(name.clone().unwrap_or_else(|| "_".to_string()))
+            }
 
             ast::Expr::ParallelScope { body, .. } => {
                 // PoC: lower to just the body expression
@@ -363,7 +382,10 @@ impl Lowering {
             ast::Expr::Select(arms) => {
                 // PoC: lower to a block containing the first arm's body, or unit
                 if let Some(first) = arms.first() {
-                    self.lower_expr(&first.body)
+                    match first {
+                        ast::SelectArm::Recv { body, .. }
+                        | ast::SelectArm::Timeout { body, .. } => self.lower_expr(body),
+                    }
                 } else {
                     HirExpr::StrLit(String::new()) // empty select → unit-like
                 }
@@ -508,16 +530,10 @@ impl Lowering {
                 let def_id = self.resolve_name(name);
                 HirExpr::Var(name.clone(), def_id)
             }
-            ast::CostExpr::Mul(lhs, rhs) => HirExpr::BinOp(
-                Box::new(self.lower_cost_expr(lhs)),
-                HirBinOp::Mul,
-                Box::new(self.lower_cost_expr(rhs)),
-            ),
-            ast::CostExpr::Add(lhs, rhs) => HirExpr::BinOp(
-                Box::new(self.lower_cost_expr(lhs)),
-                HirBinOp::Add,
-                Box::new(self.lower_cost_expr(rhs)),
-            ),
+            ast::CostExpr::Linear(name) => {
+                let def_id = self.resolve_name(name);
+                HirExpr::Var(name.clone(), def_id)
+            }
         }
     }
 }

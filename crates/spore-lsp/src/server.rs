@@ -658,8 +658,11 @@ pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
                 // Cost annotation
                 if let Some(ref cost) = f.cost_clause {
                     parts.push(format!(
-                        "\n**Cost:** `cost ≤ {}`",
-                        format_cost_expr(&cost.bound)
+                        "\n**Cost:** `cost [{}, {}, {}, {}]`",
+                        format_cost_expr(&cost.compute),
+                        format_cost_expr(&cost.alloc),
+                        format_cost_expr(&cost.io),
+                        format_cost_expr(&cost.parallel)
                     ));
                 }
 
@@ -804,7 +807,13 @@ pub fn format_fn_signature(f: &FnDef) -> String {
 fn format_fn_full(f: &FnDef) -> String {
     let mut sig = format_fn_signature(f);
     if let Some(ref cost) = f.cost_clause {
-        sig.push_str(&format!("\n  cost ≤ {}", format_cost_expr(&cost.bound)));
+        sig.push_str(&format!(
+            "\n  cost [{}, {}, {}, {}]",
+            format_cost_expr(&cost.compute),
+            format_cost_expr(&cost.alloc),
+            format_cost_expr(&cost.io),
+            format_cost_expr(&cost.parallel)
+        ));
     }
     if let Some(ref uses) = f.uses_clause {
         sig.push_str(&format!("\n  uses [{}]", uses.resources.join(", ")));
@@ -815,6 +824,7 @@ fn format_fn_full(f: &FnDef) -> String {
 pub fn format_type_expr(ty: &TypeExpr) -> String {
     match ty {
         TypeExpr::Named(n) => n.clone(),
+        TypeExpr::Hole(name) => format!("?{}", name.clone().unwrap_or_default()),
         TypeExpr::Generic(n, args) => {
             let a: Vec<String> = args.iter().map(format_type_expr).collect();
             format!("{}[{}]", n, a.join(", "))
@@ -825,7 +835,7 @@ pub fn format_type_expr(ty: &TypeExpr) -> String {
         }
         TypeExpr::Function(params, ret, _errors) => {
             let p: Vec<String> = params.iter().map(format_type_expr).collect();
-            format!("fn({}) -> {}", p.join(", "), format_type_expr(ret))
+            format!("({}) -> {}", p.join(", "), format_type_expr(ret))
         }
         TypeExpr::Refinement(base, binding, _pred) => {
             format!("{{ {}: {} when ... }}", binding, format_type_expr(base))
@@ -844,7 +854,6 @@ pub fn format_cost_expr(cost: &CostExpr) -> String {
     match cost {
         CostExpr::Literal(n) => n.to_string(),
         CostExpr::Var(v) => v.clone(),
-        CostExpr::Mul(a, b) => format!("{} * {}", format_cost_expr(a), format_cost_expr(b)),
-        CostExpr::Add(a, b) => format!("{} + {}", format_cost_expr(a), format_cost_expr(b)),
+        CostExpr::Linear(v) => format!("O({v})"),
     }
 }

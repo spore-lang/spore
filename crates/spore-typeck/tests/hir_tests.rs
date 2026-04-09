@@ -11,8 +11,8 @@ fn lower_src(src: &str) -> spore_typeck::hir::HirModule {
 fn pipe_desugared_to_call() {
     let hir = lower_src(
         r#"
-        fn double(x: Int) -> Int { x + x }
-        fn main() -> Int { 5 |> double }
+        fn double(x: I32) -> I32 { x + x }
+        fn main() -> I32 { 5 |> double }
     "#,
     );
 
@@ -50,8 +50,8 @@ fn pipe_desugared_to_call() {
 fn names_resolved() {
     let hir = lower_src(
         r#"
-        fn foo() -> Int { 42 }
-        fn bar() -> Int { foo() }
+        fn foo() -> I32 { 42 }
+        fn bar() -> I32 { foo() }
     "#,
     );
 
@@ -90,7 +90,7 @@ fn names_resolved() {
 fn struct_lowering() {
     let hir = lower_src(
         r#"
-        struct Point { x: Int, y: Int }
+        struct Point { x: I32, y: I32 }
     "#,
     );
 
@@ -108,8 +108,8 @@ fn struct_lowering() {
 fn block_with_let_lowering() {
     let hir = lower_src(
         r#"
-        fn example() -> Int {
-            let x: Int = 10
+        fn example() -> I32 {
+            let x: I32 = 10
             x
         }
     "#,
@@ -146,7 +146,7 @@ fn imports_are_skipped() {
     let hir = lower_src(
         r#"
         import std.io as io
-        fn main() -> Int { 0 }
+        fn main() -> I32 { 0 }
     "#,
     );
     // Import should be filtered out; only the function remains.

@@ -1,50 +1,50 @@
-fn add(a: Int, b: Int) -> Int
+fn add(a: I32, b: I32) -> I32
 spec {
     example "identity": add(0, 42) == 42
     example "basic": add(20, 22) == 42
-    property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+    property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
 }
 { a + b }
 
-fn negate(x: Int) -> Int
+fn negate(x: I32) -> I32
 spec {
     example "zero": negate(0) == 0
     example "positive": negate(5) == 0 - 5
-    property "double_negate": |x: Int| negate(negate(x)) == x
+    property "double_negate": |x: I32| negate(negate(x)) == x
 }
 { 0 - x }
 
 struct Point {
-    x: Int,
-    y: Int,
+    x: I32,
+    y: I32,
 }
 
-fn distance_squared(p: Point) -> Int
+fn distance_squared(p: Point) -> I32
 spec {
     example "origin": distance_squared(Point { x: 0, y: 0 }) == 0
     example "unit": distance_squared(Point { x: 3, y: 4 }) == 25
 }
 { p.x * p.x + p.y * p.y }
 
-fn translate(p: Point, dx: Int, dy: Int) -> Point { Point { x: p.x + dx, y: p.y + dy } }
+fn translate(p: Point, dx: I32, dy: I32) -> Point { Point { x: p.x + dx, y: p.y + dy } }
 
-fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
+fn apply(f: (I32) -> I32, x: I32) -> I32 { f(x) }
 
-fn double(x: Int) -> Int
+fn double(x: I32) -> I32
 spec {
     example "zero": double(0) == 0
     example "five": double(5) == 10
 }
 { x * 2 }
 
-fn compose(f: (Int) -> Int, g: (Int) -> Int) -> (Int) -> Int { |x: Int| f(g(x)) }
+fn compose(f: (I32) -> I32, g: (I32) -> I32) -> (I32) -> I32 { |x: I32| f(g(x)) }
 
 type Shape {
-    Circle(Int),
-    Rect(Int, Int),
+    Circle(I32),
+    Rect(I32, I32),
 }
 
-fn area(s: Shape) -> Int
+fn area(s: Shape) -> I32
 spec {
     example "circle": area(Circle(5)) == 75
     example "rect": area(Rect(3, 4)) == 12
@@ -54,7 +54,7 @@ spec {
     Rect(w, h) => w * h,
 } }
 
-fn factorial(n: Int) -> Int
+fn factorial(n: I32) -> I32
 spec {
     example "base": factorial(0) == 1
     example "five": factorial(5) == 120
@@ -64,7 +64,7 @@ spec {
     _ => n * factorial(n - 1),
 } }
 
-fn fibonacci(n: Int) -> Int
+fn fibonacci(n: I32) -> I32
 spec {
     example "base0": fibonacci(0) == 0
     example "base1": fibonacci(1) == 1
@@ -76,7 +76,7 @@ spec {
     _ => fibonacci(n - 1) + fibonacci(n - 2),
 } }
 
-fn is_even(n: Int) -> Bool
+fn is_even(n: I32) -> Bool
 spec {
     example "zero": is_even(0) == true
     example "one": is_even(1) == false
@@ -92,17 +92,17 @@ spec {
 }
 { a && b }
 
-fn greet(name: String) -> String
+fn greet(name: Str) -> Str
 spec {
     example "world": greet("world") == "Hello, world!"
 }
 { "Hello, " + name + "!" }
 
-fn main() -> Int {
+fn main() -> I32 {
     let sum = add(20, 22)
     let p = Point { x: 3, y: 4 }
     let d = distance_squared(p)
-    let tripled = apply(|x: Int| x * 3, 14)
+    let tripled = apply(|x: I32| x * 3, 14)
     let piped = 10 |> double
     let c = Circle(5)
     let a = area(c)
