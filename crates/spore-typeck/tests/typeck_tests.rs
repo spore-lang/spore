@@ -346,6 +346,18 @@ fn test_unnamed_hole_gets_synthetic_name_in_report() {
 }
 
 #[test]
+fn test_synthetic_hole_type_display_omits_internal_name() {
+    let ty = Ty::Hole("_hole7".to_string());
+    assert_eq!(ty.to_string(), "?");
+}
+
+#[test]
+fn test_user_named_hole_display_keeps_name() {
+    let ty = Ty::Hole("_hole_manual".to_string());
+    assert_eq!(ty.to_string(), "?_hole_manual");
+}
+
+#[test]
 fn test_hole_report_with_bindings() {
     let module = parse("fn f(x: I32) -> I32 { let y = 42; ?impl_ }").unwrap();
     let result = type_check(&module).unwrap();

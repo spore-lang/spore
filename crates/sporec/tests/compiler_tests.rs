@@ -91,6 +91,42 @@ fn check_verbose_uses_cost_vector_syntax() {
 }
 
 #[test]
+fn check_verbose_hides_synthetic_hole_names() {
+    let output = check_verbose(
+        r#"
+        fn f() -> Int {
+            ?
+        }
+    "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("?: expected Int"),
+        "verbose output should render unnamed holes as `?`, got: {output}"
+    );
+    assert!(
+        !output.contains("_hole"),
+        "verbose output should not leak synthetic hole ids, got: {output}"
+    );
+}
+
+#[test]
+fn check_verbose_keeps_user_named_hole_names() {
+    let output = check_verbose(
+        r#"
+        fn f() -> Int {
+            ?_hole_manual
+        }
+    "#,
+    )
+    .unwrap();
+    assert!(
+        output.contains("?_hole_manual: expected Int"),
+        "verbose output should keep user-authored hole names, got: {output}"
+    );
+}
+
+#[test]
 fn check_verbose_returns_error_on_invalid() {
     let result = check_verbose(r#"fn f() -> I32 { "oops" }"#);
     assert!(result.is_err(), "type error should produce Err");
