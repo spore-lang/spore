@@ -5,6 +5,7 @@ use spore_parser::ast::{ImportDecl, Item, Span};
 use spore_parser::formatter::format_module;
 use spore_parser::parse;
 use spore_typeck::CheckResult;
+use spore_typeck::is_synthetic_hole_name;
 use spore_typeck::module::{ModuleLoader, ModuleRegistry};
 use spore_typeck::{type_check, type_check_with_registry};
 
@@ -364,7 +365,12 @@ fn format_verbose_result(result: &CheckResult) -> String {
         result.hole_report.holes.len()
     ));
     for h in &result.hole_report.holes {
-        out.push_str(&format!("    ?{}: expected {}\n", h.name, h.expected_type));
+        let label = if is_synthetic_hole_name(&h.name) {
+            "?".to_string()
+        } else {
+            format!("?{}", h.name)
+        };
+        out.push_str(&format!("    {label}: expected {}\n", h.expected_type));
     }
 
     // Cost analysis

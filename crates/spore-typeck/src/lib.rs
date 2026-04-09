@@ -26,6 +26,13 @@ use hole::HoleReport;
 use module::ModuleRegistry;
 use spore_parser::ast::Module;
 
+pub fn is_synthetic_hole_name(name: &str) -> bool {
+    matches!(
+        name.strip_prefix("_hole"),
+        Some(suffix) if !suffix.is_empty() && suffix.chars().all(|c| c.is_ascii_digit())
+    )
+}
+
 fn parse_embedded_prelude() -> Module {
     let source = include_str!("../../../stdlib/prelude.sp");
     spore_parser::parse(source).expect("embedded stdlib/prelude.sp must parse")

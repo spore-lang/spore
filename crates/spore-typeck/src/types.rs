@@ -3,6 +3,8 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
+use crate::is_synthetic_hole_name;
+
 /// A set of capabilities (effects) required by a function.
 pub type CapSet = BTreeSet<String>;
 
@@ -258,7 +260,13 @@ impl fmt::Display for Ty {
                 write!(f, " }}")
             }
             Ty::Var(id) => write!(f, "?T{id}"),
-            Ty::Hole(name) => write!(f, "?{name}"),
+            Ty::Hole(name) => {
+                if is_synthetic_hole_name(name) {
+                    write!(f, "?")
+                } else {
+                    write!(f, "?{name}")
+                }
+            }
             Ty::Refined(base, _var, _pred) => write!(f, "{base} when <predicate>"),
             Ty::Error => write!(f, "<error>"),
         }

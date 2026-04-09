@@ -825,7 +825,7 @@ impl Formatter {
                 self.write("try ");
                 self.fmt_expr(expr);
             }
-            Expr::Hole(name, ty, _ctx) => {
+            Expr::Hole(name, ty, allows) => {
                 self.write("?");
                 if let Some(name) = name {
                     self.write(name);
@@ -833,6 +833,16 @@ impl Formatter {
                 if let Some(t) = ty {
                     self.write(": ");
                     self.fmt_type_expr(t);
+                }
+                if let Some(allows) = allows {
+                    self.write(" @allows[");
+                    for (i, name) in allows.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.write(name);
+                    }
+                    self.write("]");
                 }
             }
             Expr::StructLit(name, fields) => {
@@ -1265,6 +1275,12 @@ mod tests {
     #[test]
     fn test_allows_annotation_roundtrip() {
         let src = "@allows[validate, sanitize]\nfn f() -> Int { ?todo }\n";
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_hole_level_allows_roundtrip() {
+        let src = "fn f() -> Int { ?todo @allows[validate, sanitize] }\n";
         assert_eq!(roundtrip(src), src);
     }
 

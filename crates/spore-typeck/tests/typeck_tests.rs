@@ -281,6 +281,18 @@ fn test_signature_holes_typecheck() {
     check_ok("fn identity(x: ?) -> ? { x }");
 }
 
+#[test]
+fn test_named_signature_holes_share_constraints() {
+    let errs = check_err(
+        "fn identity(x: ?t) -> ?t { x }
+         fn bad() -> I32 { identity(true) + 1 }",
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("cannot apply `Add` to type `Bool`"))
+    );
+}
+
 // ── Multiple functions ───────────────────────────────────────────────────
 
 #[test]
@@ -334,6 +346,18 @@ fn test_unnamed_hole_gets_synthetic_name_in_report() {
 }
 
 #[test]
+fn test_synthetic_hole_type_display_omits_internal_name() {
+    let ty = Ty::Hole("_hole7".to_string());
+    assert_eq!(ty.to_string(), "?");
+}
+
+#[test]
+fn test_user_named_hole_display_keeps_name() {
+    let ty = Ty::Hole("_hole_manual".to_string());
+    assert_eq!(ty.to_string(), "?_hole_manual");
+}
+
+#[test]
 fn test_hole_report_with_bindings() {
     let module = parse("fn f(x: I32) -> I32 { let y = 42; ?impl_ }").unwrap();
     let result = type_check(&module).unwrap();
@@ -367,6 +391,35 @@ fn test_hole_report_suggestions_respect_allows_annotation() {
     let hole = &result.hole_report.holes[0];
     assert!(hole.candidates.iter().any(|c| c.name == "double"));
     assert!(!hole.candidates.iter().any(|c| c.name == "triple"));
+}
+
+#[test]
+fn test_hole_report_allows_can_refine_signature_hole() {
+    let module = parse(
+        "fn produce() -> I32 { 1 }
+         fn chooser() -> ?r { ?todo @allows[produce] }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    assert_eq!(hole.expected_type, Ty::Int);
+    assert_eq!(
+        hole.type_inferred_from.as_deref(),
+        Some("`@allows[...]` candidates")
+    );
+}
+
+#[test]
+fn test_signature_hole_inference_propagates_to_later_body_hole() {
+    let module = parse(
+        "fn caller() -> I32 { later(1) }
+         fn later(x: ?) -> ? { ?impl_ }",
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    assert_eq!(hole.function, "later");
+    assert_eq!(hole.expected_type, Ty::Int);
 }
 
 #[test]
