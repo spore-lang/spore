@@ -1438,6 +1438,8 @@ fn example() {
 }
 ```
 
+> **Tooling note**: 面向 Agent / IDE 的协议使用稳定 `hole id` 标识**函数体里的 expression hole**。命名 hole 直接复用源码中的名字；匿名 `?` 由编译器分配稳定 id。函数签名中的 `?` 仅用于类型推断，不单独进入 HoleReport / `--query-hole` 填充协议。
+
 ---
 
 ## 11. 语法糖与便利功能 (Syntactic Sugar)

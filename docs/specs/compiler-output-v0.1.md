@@ -1097,8 +1097,8 @@ $ sporec --fix --unsafe-fix src/billing.spore
 
 Hole diagnostics (H0xxx) bridge the compiler output and the Hole system (see *hole-report-v0.3*). The relationship:
 
-- **`sporec` compilation** emits `H0101` (hole-report) as `note` severity for each unfilled hole.
-- **`sporec --query-hole <name>`** returns a full `HoleReport` — this is a *superset* of the H0101 diagnostic, including full candidate ranking, binding types, and cost budget. The HoleReport follows the same JSON schema as `--json` diagnostics but with additional fields.
+- **`sporec` compilation** emits `H0101` (hole-report) as `note` severity for each unfilled expression hole in a function body.
+- **`sporec --query-hole <hole-id>`** returns a full `HoleReport` for a fillable expression hole — this is a *superset* of the H0101 diagnostic, including full candidate ranking, binding types, and cost budget. For named holes, the hole id matches the source name; for anonymous `?`, the compiler provides a stable id in diagnostics. The HoleReport follows the same JSON schema as `--json` diagnostics but with additional fields.
 - **Partial functions** (`H0201`) are compiled successfully — they produce diagnostics but not errors. The function is usable in simulation mode.
 
 A HoleReport JSON object extends the diagnostic schema:
@@ -1176,7 +1176,7 @@ Agents should consume `sporec --json` output. The structured format enables prog
 1. `diagnostics[]` — iterate over all diagnostics
 2. `severity` — filter by error (must fix) vs. warning (should fix) vs. note (informational)
 3. `code` — categorize by prefix (E/W/C/K/H/M) for specialized handling
-4. `context.hole` — if non-null, this diagnostic is hole-related; use `--query-hole` for full report
+4. `context.hole` — if non-null, this diagnostic is hole-related; it carries the stable hole id to pass to `--query-hole`
 5. `suggested_fix.edits` — if `applicability == "safe"`, apply directly; if `"unsafe"`, apply with caution
 
 ### 8.2 Choosing Between Modes
@@ -1200,9 +1200,12 @@ $ sporec --json src/tax.spore > diagnostics.json
 
 # For each hole diagnostic, get full report
 $ sporec --query-hole tax_logic --json > hole_report.json
+
+# For anonymous holes, pass through the stable id from `context.hole`
+$ sporec --query-hole <context.hole> --json > anonymous_hole_report.json
 ```
 
-Both files share the same `Diagnostic` schema, enabling unified processing.
+Both files share the same `Diagnostic` schema, enabling unified processing. For anonymous holes, substitute the compiler-provided `context.hole` id instead of a source-level name. Signature holes in function types participate in type inference, but do not produce standalone HoleReport / `--query-hole` entries.
 
 ### 8.4 Example Agent Workflow
 
