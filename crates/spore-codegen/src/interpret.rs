@@ -5,11 +5,12 @@
 //! Will be replaced by Cranelift codegen in the prototype phase.
 
 use std::collections::BTreeMap;
+use std::{cell::RefCell, rc::Rc};
 
 use spore_parser::ast::*;
 
 use crate::effect_handler::EffectHandler;
-use crate::value::{Closure, Value};
+use crate::value::{ChannelEndpoint, ChannelState, Closure, Value};
 
 /// Runtime error during evaluation.
 #[derive(Debug, Clone)]
@@ -560,20 +561,38 @@ impl Interpreter {
             }
 
             Expr::Spawn(expr) => {
-                // For PoC, just evaluate synchronously
-                self.eval(expr, env)
+                let result = self.eval(expr, env)?;
+                Ok(Value::Task(Box::new(result)))
             }
 
             Expr::Await(expr) => {
-                // For PoC, just evaluate synchronously
-                self.eval(expr, env)
+                let task_val = self.eval(expr, env)?;
+                match task_val {
+                    Value::Task(result) => Ok(*result),
+                    other => Err(RuntimeError::new(format!(
+                        "await expects Task, got {}",
+                        other.type_name()
+                    ))),
+                }
             }
 
             Expr::ChannelNew { buffer, .. } => {
-                let _ = self.eval(buffer, env)?;
-                Err(RuntimeError::new(
-                    "Channel.new runtime support is not implemented in interpreter yet",
-                ))
+                let buffer_val = self.eval(buffer, env)?;
+                let raw_size = buffer_val
+                    .as_int()
+                    .ok_or_else(|| RuntimeError::new("Channel.new buffer must be Int"))?;
+                if raw_size < 0 {
+                    return Err(RuntimeError::new(format!(
+                        "Channel.new buffer must be >= 0, got {raw_size}"
+                    )));
+                }
+                let state = Rc::new(RefCell::new(ChannelState::new(raw_size as usize)));
+                Ok(Value::List(vec![
+                    Value::Sender(ChannelEndpoint {
+                        state: Rc::clone(&state),
+                    }),
+                    Value::Receiver(ChannelEndpoint { state }),
+                ]))
             }
 
             Expr::Return(expr) => {
@@ -605,8 +624,8 @@ impl Interpreter {
             }
 
             Expr::Select(arms) => {
-                // PoC: evaluate first arm synchronously
-                if let Some(arm) = arms.first() {
+                let mut timeout_arm: Option<(&Expr, &Expr)> = None;
+                for arm in arms {
                     match arm {
                         SelectArm::Recv {
                             binding,
@@ -614,14 +633,28 @@ impl Interpreter {
                             body,
                         } => {
                             let source_val = self.eval(source, env)?;
-                            env.push();
-                            env.define(binding.clone(), source_val);
-                            let result = self.eval(body, env)?;
-                            env.pop();
-                            Ok(result)
+                            if let Value::Receiver(endpoint) = source_val {
+                                if let Some(msg) = endpoint.state.borrow_mut().queue.pop_front() {
+                                    env.push();
+                                    env.define(binding.clone(), msg);
+                                    let result = self.eval(body, env)?;
+                                    env.pop();
+                                    return Ok(result);
+                                }
+                            } else {
+                                return Err(RuntimeError::new(
+                                    "select recv arm expects a Receiver source",
+                                ));
+                            }
                         }
-                        SelectArm::Timeout { body, .. } => self.eval(body, env),
+                        SelectArm::Timeout { duration, body } => {
+                            timeout_arm = Some((duration, body));
+                        }
                     }
+                }
+                if let Some((duration, body)) = timeout_arm {
+                    let _ = self.eval(duration, env)?;
+                    self.eval(body, env)
                 } else {
                     Ok(Value::Unit)
                 }
@@ -816,6 +849,59 @@ impl Interpreter {
 
     fn try_call_builtin(&mut self, name: &str, args: &[Value]) -> Result<Option<Value>> {
         match name {
+            // ── Concurrency builtins ────────────────────────────────
+            "send" => {
+                let sender = require_arg(args, 0, "send")?;
+                let value = require_arg(args, 1, "send")?;
+                match sender {
+                    Value::Sender(endpoint) => {
+                        let mut state = endpoint.state.borrow_mut();
+                        if state.closed {
+                            return Err(RuntimeError::new("send: channel is closed"));
+                        }
+                        if state.buffer > 0 && state.queue.len() >= state.buffer {
+                            return Err(RuntimeError::new("send: channel buffer is full"));
+                        }
+                        state.queue.push_back(value.clone());
+                        Ok(Some(Value::Unit))
+                    }
+                    other => Err(RuntimeError::new(format!(
+                        "send: expected Sender, got {}",
+                        other.type_name()
+                    ))),
+                }
+            }
+            "recv" => {
+                let receiver = require_arg(args, 0, "recv")?;
+                match receiver {
+                    Value::Receiver(endpoint) => {
+                        let mut state = endpoint.state.borrow_mut();
+                        if let Some(value) = state.queue.pop_front() {
+                            Ok(Some(value))
+                        } else {
+                            Err(RuntimeError::new("recv: channel is empty"))
+                        }
+                    }
+                    other => Err(RuntimeError::new(format!(
+                        "recv: expected Receiver, got {}",
+                        other.type_name()
+                    ))),
+                }
+            }
+            "close" => {
+                let endpoint = require_arg(args, 0, "close")?;
+                match endpoint {
+                    Value::Sender(ch) | Value::Receiver(ch) => {
+                        ch.state.borrow_mut().closed = true;
+                        Ok(Some(Value::Unit))
+                    }
+                    other => Err(RuntimeError::new(format!(
+                        "close: expected Sender or Receiver, got {}",
+                        other.type_name()
+                    ))),
+                }
+            }
+
             // ── List builtins ──────────────────────────────────────
             "len" => {
                 let val = require_arg(args, 0, "len")?;

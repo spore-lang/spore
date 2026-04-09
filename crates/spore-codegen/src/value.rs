@@ -1,7 +1,9 @@
 //! Runtime values for the Spore interpreter.
 
-use std::collections::BTreeMap;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
+use std::rc::Rc;
 
 /// A runtime value in the Spore interpreter.
 #[derive(Debug, Clone)]
@@ -24,6 +26,12 @@ pub enum Value {
     Enum(String, Vec<Value>),
     /// Map (for future use)
     Map(BTreeMap<String, Value>),
+    /// Spawned task handle.
+    Task(Box<Value>),
+    /// Channel sender endpoint.
+    Sender(ChannelEndpoint),
+    /// Channel receiver endpoint.
+    Receiver(ChannelEndpoint),
 }
 
 /// A captured closure.
@@ -32,6 +40,30 @@ pub struct Closure {
     pub params: Vec<String>,
     pub body: spore_parser::ast::Expr,
     pub env: BTreeMap<String, Value>,
+}
+
+/// Shared endpoint into a channel state.
+#[derive(Debug, Clone)]
+pub struct ChannelEndpoint {
+    pub state: Rc<RefCell<ChannelState>>,
+}
+
+/// In-memory channel state for interpreter runtime.
+#[derive(Debug, Clone)]
+pub struct ChannelState {
+    pub buffer: usize,
+    pub queue: VecDeque<Value>,
+    pub closed: bool,
+}
+
+impl ChannelState {
+    pub fn new(buffer: usize) -> Self {
+        Self {
+            buffer,
+            queue: VecDeque::new(),
+            closed: false,
+        }
+    }
 }
 
 impl PartialEq for Value {
@@ -47,6 +79,9 @@ impl PartialEq for Value {
             (Value::Enum(n1, f1), Value::Enum(n2, f2)) => n1 == n2 && f1 == f2,
             (Value::Struct(n1, f1), Value::Struct(n2, f2)) => n1 == n2 && f1 == f2,
             (Value::Map(a), Value::Map(b)) => a == b,
+            (Value::Task(x), Value::Task(y)) => x == y,
+            (Value::Sender(a), Value::Sender(b)) => Rc::ptr_eq(&a.state, &b.state),
+            (Value::Receiver(a), Value::Receiver(b)) => Rc::ptr_eq(&a.state, &b.state),
             // Closures and builtins are not structurally comparable
             _ => false,
         }
@@ -108,6 +143,9 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
+            Value::Task(_) => write!(f, "<task>"),
+            Value::Sender(_) => write!(f, "<sender>"),
+            Value::Receiver(_) => write!(f, "<receiver>"),
         }
     }
 }
@@ -162,6 +200,9 @@ impl Value {
             Value::Closure(_) => "Closure",
             Value::Builtin(_) => "Builtin",
             Value::Map(_) => "Map",
+            Value::Task(_) => "Task",
+            Value::Sender(_) => "Sender",
+            Value::Receiver(_) => "Receiver",
         }
     }
 }

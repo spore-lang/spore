@@ -1171,3 +1171,63 @@ fn test_fn_with_empty_spec() {
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(0));
 }
+
+#[test]
+fn test_task_await_executes_spawned_expression() {
+    let src = r#"
+        fn main() -> Int {
+            let t = spawn { 40 + 2 }
+            t.await
+        }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_channel_new_send_then_select_recv_arm() {
+    let src = r#"
+        fn main() -> Int {
+            let pair = Channel.new[Int](buffer: 1)
+            match head(pair) {
+                Some(tx) => match tail(pair) {
+                    Some(rest) => match head(rest) {
+                        Some(rx) => {
+                            tx.send(42)
+                            select {
+                                value from rx => value,
+                                timeout(5) => 0
+                            }
+                        },
+                        None => -3
+                    },
+                    None => -2
+                },
+                None => -1
+            }
+        }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_select_timeout_arm_runs_when_no_message_ready() {
+    let src = r#"
+        fn main() -> Int {
+            let pair = Channel.new[Int](buffer: 1)
+            match tail(pair) {
+                Some(rest) => match head(rest) {
+                    Some(rx) => select {
+                        value from rx => value,
+                        timeout(5) => 7
+                    },
+                    None => -2
+                },
+                None => -1
+            }
+        }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(7));
+}
