@@ -691,7 +691,7 @@ spec {
 }
 ```
 
-说明：稳定语法只支持单一约束 `where T: Trait`。若同一函数需要多个约束，请重复书写多行 `where`；逗号分组、`+` 组合和 `where { ... }` 形式都不在 v0.1 范围内。`cost` 子句固定写成 `cost [compute, alloc, io, parallel]`，四个位置依次表示计算、分配、IO 与并行宽度。
+说明：稳定语法只支持单一约束 `where T: Trait`。若同一函数需要多个约束，请重复书写多行 `where`；逗号分组、`+` 组合和 `where { ... }` 形式都不在 v0.1 范围内。`cost` 子句固定写成 `cost [compute, alloc, io, parallel]`，四个位置依次表示计算、分配、IO 与并行宽度。当前每个槽位只接受最小表达式子集：整数常量、参数变量或线性 `O(n)`；`log`/`max`/`min`、成员访问（如 `urls.len`）以及更丰富的代数组合都留待后续版本。
 
 ### 5.2 简单函数 (Simple functions)
 
@@ -775,6 +775,8 @@ uses [StateRead, StateWrite]
 
 ### 5.5 带成本约束的函数 (Functions with cost constraints)
 
+当前文档中的 `cost` 示例只展示三类允许的槽位写法：整数常量、参数变量、线性 `O(n)`。
+
 ```spore
 /// O(1) 常数时间操作 (O(1) constant time)
 fn array_get[T](arr: Array[T, N], index: U64) -> Option[T]
@@ -784,8 +786,8 @@ cost [10, 1, 0, 0]
 }
 
 /// O(n) 线性时间操作 (O(n) linear time)
-fn sum_list(list: List[I32]) -> I32
-cost [O(list.len()), 0, 0, 0]
+fn sum_list(list: List[I32], n: I32) -> I32
+cost [O(n), 0, 0, 0]
 {
     list.fold(0, |acc, x| acc + x)
 }
@@ -821,9 +823,6 @@ uses [Network, Database, FileRead, db_pool, cache, logger]
 ```spore
 /// 计算两个数的最大公约数 (Calculate GCD of two numbers)
 ///
-/// 使用欧几里得算法，时间复杂度 O(log n)
-/// (Uses Euclidean algorithm, time complexity O(log n))
-///
 /// # 参数 (Parameters)
 /// - `a`: 第一个整数 (First integer)
 /// - `b`: 第二个整数 (Second integer)
@@ -836,7 +835,6 @@ uses [Network, Database, FileRead, db_pool, cache, logger]
 /// let result = gcd(48, 18);  // result == 6
 /// ```
 fn gcd(a: I32, b: I32) -> I32
-cost [O(log n), 0, 0, 0]
 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
@@ -1721,7 +1719,6 @@ type EvalError =
 
 /// 求值器 (Evaluator)
 fn eval(expr: Expr, env: Env) -> I32 ! [EvalError]
-cost [expr_size(expr) * 10, 0, 0, 0]
 {
     match expr {
         Literal(n) => n,
@@ -1989,6 +1986,9 @@ ImportDecl    = "import" ModulePath [ "as" Ident ]
 AliasDecl     = "alias" Ident "=" QualifiedItem
 Function      = "fn" Ident [ TypeParams ] "(" [ Params ] ")" [ "->" Type ]
                 [ "!" "[" Types "]" ] [ WhereClause ] [ UsesClause ] [ CostClause ] [ SpecClause ] Block
+CostClause    = "cost" "[" CostSlot "," CostSlot "," CostSlot "," CostSlot "]"
+CostSlot      = IntLiteral | ParamVar | "O" "(" ParamVar ")"
+ParamVar      = Ident   -- must name a function parameter
 Struct        = "struct" Ident [ TypeParams ] StructBody [ "deriving" "[" Capabilities "]" ]
 Type          = "type" Ident [ TypeParams ] "=" TypeDef
 Capability    = "capability" Ident [ TypeParams ] "{" { CapabilityItem } "}"
@@ -2009,7 +2009,7 @@ SpecClause    = "spec" "{" { SpecItem } "}"
 Type          = Ident | Type "[" Types "]" | "(" [ Types ] ")" "->" Type [ "!" "[" Types "]" ]
 ```
 
-> 注：以上 `Function` 产生式按文档推荐顺序书写签名子句；解析器实际接受 `where`、`uses`、`cost`、`spec` 按任意顺序出现并进行规范化。`Module` 产生式在本批次保持原样，模块块语法仍待后续批次统一。
+> 注：以上 `Function` 产生式按文档推荐顺序书写签名子句；解析器实际接受 `where`、`uses`、`cost`、`spec` 按任意顺序出现并进行规范化。当前 `CostSlot` 仅覆盖整数常量、参数变量与线性 `O(n)` 记法；`urls.len`、`expr_size(expr) * 10`、`O(log n)`、`max`/`min` 等更丰富形式仍待后续版本统一。`Module` 产生式在本批次保持原样，模块块语法仍待后续批次统一。
 
 ### 14.5 设计决策总结 (Design decisions summary)
 
@@ -2091,9 +2091,11 @@ fn <name>[<generics>](<params>) -> <ReturnType> [! [<ErrorTypes>]]
 }
 ```
 
+其中 `<compute>` / `<alloc>` / `<io>` / `<parallel>` 当前都只接受三类写法：整数常量、参数变量、线性 `O(n)`。
+
 ### B.3 签名子句排列顺序（规范约定）
 
-解析器接受 `where`、`uses`、`cost`、`spec` 子句按任意顺序出现。语法标准不把子句顺序视为语义的一部分；为了保证文档、格式化输出与代码评审的一致性，推荐的规范顺序为：`where` → `uses` → `cost` → `spec`。当前规范中 `cost` 只接受固定顺序向量 `cost [compute, alloc, io, parallel]`；旧的 `cost <= expr` 以及 `log/max/min` 风格的标量表面语法留待后续版本讨论。
+解析器接受 `where`、`uses`、`cost`、`spec` 子句按任意顺序出现。语法标准不把子句顺序视为语义的一部分；为了保证文档、格式化输出与代码评审的一致性，推荐的规范顺序为：`where` → `uses` → `cost` → `spec`。当前规范中 `cost` 只接受固定顺序向量 `cost [compute, alloc, io, parallel]`，并且每个槽位只接受整数常量、参数变量或线性 `O(n)`；旧的 `cost <= expr`、`log/max/min` 风格的标量表面语法，以及更丰富的代数/组合项都留待后续版本讨论。
 
 ```spore
 -- Canonical order
@@ -2151,7 +2153,7 @@ fn add(a: I32, b: I32) -> I32 {
 
 编译器推断输出：
 ```
-  cost = 1
+  cost [1, 0, 0, 0]
   uses []
   -- 编译器自动推断: pure, deterministic, total (基于 uses [])
 ```
@@ -2166,7 +2168,7 @@ fn parse_int(input: Str) -> I32 ! [InvalidFormat] {
 
 编译器推断输出：
 ```
-  cost = 12
+  cost [12, 0, 0, 0]
   uses [Compute]
   -- 编译器自动推断: deterministic (基于 uses [Compute])
 ```

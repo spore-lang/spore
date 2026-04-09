@@ -83,8 +83,10 @@ The parser accepts `where`, `uses`, `cost`, and `spec` clauses in any order.
 Documentation examples use the canonical order: `where`, `uses`, `cost`, `spec`,
 and stable `where` syntax is the single-bound form `where T: Trait` (repeat
 clauses as needed). Active cost syntax is the fixed-order vector
-`cost [compute, alloc, io, parallel]`; old scalar `cost <= expr` is gone, and
-`log`/`max`/`min`-style scalar surface syntax is deferred.
+`cost [compute, alloc, io, parallel]`; each slot currently uses the minimal
+subset only: integer constants, parameter variables, or linear `O(n)` terms.
+Old scalar `cost <= expr`, `log`/`max`/`min`, and richer algebraic terms are
+deferred.
 
 ```spore
 fn fetch(url: Str) -> Str ! [NetError, Timeout]
@@ -98,9 +100,9 @@ fn fetch(url: Str) -> Str ! [NetError, Timeout]
 ### Parallel Fetch (Design Intent — not yet runnable)
 
 ```spore
-fn fetch_all(urls: List[Str]) -> List[Str] ! [NetError, Timeout]
+fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! [NetError, Timeout]
     uses [NetRead, Spawn]
-    cost [O(urls.len), O(urls.len), urls.len, urls.len]
+    cost [O(n), O(n), n, n]
 {
     parallel_scope {
         urls |> map(|url| spawn { fetch(url) })
@@ -111,6 +113,8 @@ fn fetch_all(urls: List[Str]) -> List[Str] ! [NetError, Timeout]
 
 > This illustrates the target syntax for structured concurrency with capability
 > propagation. The parser accepts it but the interpreter cannot execute it yet.
+> Until richer cost-slot terms land, examples use explicit parameters such as
+> `n` instead of projections like `urls.len`.
 
 ### Capabilities and Implementations
 
