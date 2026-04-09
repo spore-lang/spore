@@ -1231,3 +1231,94 @@ fn test_select_timeout_arm_runs_when_no_message_ready() {
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(7));
 }
+
+#[test]
+fn test_parallel_scope_drains_spawned_tasks_on_exit() {
+    let src = r#"
+        fn main() -> Int {
+            let pair = Channel.new[Int](buffer: 1)
+            match head(pair) {
+                Some(tx) => match tail(pair) {
+                    Some(rest) => match head(rest) {
+                        Some(rx) => {
+                            parallel_scope {
+                                let _task = spawn { tx.send(42) }
+                                0
+                            }
+                            select {
+                                value from rx => value,
+                                timeout(5) => -1
+                            }
+                        },
+                        None => -3
+                    },
+                    None => -2
+                },
+                None => -1
+            }
+        }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_parallel_scope_cancels_pending_tasks_when_body_errors() {
+    let src = r#"
+        fn main() -> Int {
+            parallel_scope {
+                let _task = spawn { throw 99 }
+                throw 1
+            }
+        }
+    "#;
+    let err = run_main_err(src);
+    assert!(err.contains("throw: 1"), "unexpected error: {err}");
+}
+
+#[test]
+fn test_select_rotates_across_ready_recv_arms() {
+    let src = r#"
+        fn main() -> Int {
+            let pair1 = Channel.new[Int](buffer: 2)
+            let pair2 = Channel.new[Int](buffer: 2)
+            match head(pair1) {
+                Some(tx1) => match tail(pair1) {
+                    Some(rest1) => match head(rest1) {
+                        Some(rx1) => match head(pair2) {
+                            Some(tx2) => match tail(pair2) {
+                                Some(rest2) => match head(rest2) {
+                                    Some(rx2) => {
+                                        tx1.send(10)
+                                        tx1.send(11)
+                                        tx2.send(20)
+                                        tx2.send(21)
+                                        let a = select {
+                                            v from rx1 => v,
+                                            v from rx2 => v,
+                                            timeout(1) => 0
+                                        }
+                                        let b = select {
+                                            v from rx1 => v,
+                                            v from rx2 => v,
+                                            timeout(1) => 0
+                                        }
+                                        a + b
+                                    },
+                                    None => -6
+                                },
+                                None => -5
+                            },
+                            None => -4
+                        },
+                        None => -3
+                    },
+                    None => -2
+                },
+                None => -1
+            }
+        }
+    "#;
+    let v = run_main(src);
+    assert_eq!(v.as_int(), Some(30));
+}

@@ -10,7 +10,7 @@ use std::{cell::RefCell, rc::Rc};
 use spore_parser::ast::*;
 
 use crate::effect_handler::EffectHandler;
-use crate::value::{ChannelEndpoint, ChannelState, Closure, Value};
+use crate::value::{ChannelEndpoint, ChannelState, Closure, TaskHandle, TaskState, Value};
 
 /// Runtime error during evaluation.
 #[derive(Debug, Clone)]
@@ -99,6 +99,10 @@ pub struct Interpreter {
     effect_handlers: Vec<Box<dyn EffectHandler>>,
     /// Stack of handler frames installed by `handle ... with { ... }`.
     handler_stack: Vec<Vec<EffectArm>>,
+    /// Active task scopes for `parallel_scope`.
+    task_scopes: Vec<Vec<TaskHandle>>,
+    /// Rotation cursor used to avoid fixed-priority `select` behavior.
+    select_cursor: usize,
 }
 
 /// A local variable environment (stack of scopes).
@@ -158,6 +162,45 @@ impl Interpreter {
             type_defs: BTreeMap::new(),
             effect_handlers: Vec::new(),
             handler_stack: Vec::new(),
+            task_scopes: Vec::new(),
+            select_cursor: 0,
+        }
+    }
+
+    fn register_spawned_task(&mut self, task: &TaskHandle) {
+        if let Some(scope) = self.task_scopes.last_mut() {
+            scope.push(task.clone());
+        }
+    }
+
+    fn run_task(&mut self, task: &TaskHandle) -> Result<Value> {
+        let pending = {
+            let state = task.state.borrow();
+            match &*state {
+                TaskState::Completed(value) => return Ok(value.clone()),
+                TaskState::Failed(message) => return Err(RuntimeError::new(message.clone())),
+                TaskState::Cancelled => return Err(RuntimeError::new("await: task was cancelled")),
+                TaskState::Pending { expr, env } => (expr.clone(), env.clone()),
+            }
+        };
+        let (expr, captured_env) = pending;
+        let mut task_env = Env::from_map(captured_env);
+        match self.eval(&expr, &mut task_env) {
+            Ok(value) => {
+                *task.state.borrow_mut() = TaskState::Completed(value.clone());
+                Ok(value)
+            }
+            Err(err) => {
+                *task.state.borrow_mut() = TaskState::Failed(err.message.clone());
+                Err(err)
+            }
+        }
+    }
+
+    fn cancel_task_if_pending(task: &TaskHandle) {
+        let mut state = task.state.borrow_mut();
+        if matches!(*state, TaskState::Pending { .. }) {
+            *state = TaskState::Cancelled;
         }
     }
 
@@ -561,14 +604,20 @@ impl Interpreter {
             }
 
             Expr::Spawn(expr) => {
-                let result = self.eval(expr, env)?;
-                Ok(Value::Task(Box::new(result)))
+                let task = TaskHandle {
+                    state: Rc::new(RefCell::new(TaskState::Pending {
+                        expr: (**expr).clone(),
+                        env: env.snapshot(),
+                    })),
+                };
+                self.register_spawned_task(&task);
+                Ok(Value::Task(task))
             }
 
             Expr::Await(expr) => {
                 let task_val = self.eval(expr, env)?;
                 match task_val {
-                    Value::Task(result) => Ok(*result),
+                    Value::Task(task) => self.run_task(&task),
                     other => Err(RuntimeError::new(format!(
                         "await expects Task, got {}",
                         other.type_name()
@@ -618,13 +667,42 @@ impl Interpreter {
 
             Expr::CharLit(c) => Ok(Value::Char(*c)),
 
-            Expr::ParallelScope { body, .. } => {
-                // PoC: synchronous execution
-                self.eval(body, env)
+            Expr::ParallelScope { lanes, body } => {
+                if let Some(lanes_expr) = lanes {
+                    let lanes_value = self.eval(lanes_expr, env)?;
+                    let lanes_int = lanes_value
+                        .as_int()
+                        .ok_or_else(|| RuntimeError::new("parallel_scope lanes must be Int"))?;
+                    if lanes_int <= 0 {
+                        return Err(RuntimeError::new(format!(
+                            "parallel_scope lanes must be > 0, got {lanes_int}"
+                        )));
+                    }
+                }
+
+                self.task_scopes.push(Vec::new());
+                let body_result = self.eval(body, env);
+                let scoped_tasks = self.task_scopes.pop().unwrap_or_default();
+
+                match body_result {
+                    Ok(value) => {
+                        for task in scoped_tasks {
+                            self.run_task(&task)?;
+                        }
+                        Ok(value)
+                    }
+                    Err(err) => {
+                        for task in scoped_tasks {
+                            Self::cancel_task_if_pending(&task);
+                        }
+                        Err(err)
+                    }
+                }
             }
 
             Expr::Select(arms) => {
                 let mut timeout_arm: Option<(&Expr, &Expr)> = None;
+                let mut recv_arms: Vec<(String, ChannelEndpoint, &Expr)> = Vec::new();
                 for arm in arms {
                     match arm {
                         SelectArm::Recv {
@@ -633,18 +711,15 @@ impl Interpreter {
                             body,
                         } => {
                             let source_val = self.eval(source, env)?;
-                            if let Value::Receiver(endpoint) = source_val {
-                                if let Some(msg) = endpoint.state.borrow_mut().queue.pop_front() {
-                                    env.push();
-                                    env.define(binding.clone(), msg);
-                                    let result = self.eval(body, env)?;
-                                    env.pop();
-                                    return Ok(result);
+                            match source_val {
+                                Value::Receiver(endpoint) => {
+                                    recv_arms.push((binding.clone(), endpoint, body));
                                 }
-                            } else {
-                                return Err(RuntimeError::new(
-                                    "select recv arm expects a Receiver source",
-                                ));
+                                _ => {
+                                    return Err(RuntimeError::new(
+                                        "select recv arm expects a Receiver source",
+                                    ));
+                                }
                             }
                         }
                         SelectArm::Timeout { duration, body } => {
@@ -652,8 +727,33 @@ impl Interpreter {
                         }
                     }
                 }
+
+                if !recv_arms.is_empty() {
+                    let start = self.select_cursor % recv_arms.len();
+                    for offset in 0..recv_arms.len() {
+                        let idx = (start + offset) % recv_arms.len();
+                        let (binding, endpoint, body) = &recv_arms[idx];
+                        if let Some(msg) = endpoint.state.borrow_mut().queue.pop_front() {
+                            self.select_cursor = idx + 1;
+                            env.push();
+                            env.define(binding.clone(), msg);
+                            let result = self.eval(body, env);
+                            env.pop();
+                            return result;
+                        }
+                    }
+                }
+
                 if let Some((duration, body)) = timeout_arm {
-                    let _ = self.eval(duration, env)?;
+                    let duration_value = self.eval(duration, env)?;
+                    let duration_int = duration_value
+                        .as_int()
+                        .ok_or_else(|| RuntimeError::new("select timeout expects Int duration"))?;
+                    if duration_int < 0 {
+                        return Err(RuntimeError::new(format!(
+                            "select timeout must be >= 0, got {duration_int}"
+                        )));
+                    }
                     self.eval(body, env)
                 } else {
                     Ok(Value::Unit)
