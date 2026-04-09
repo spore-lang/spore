@@ -42,6 +42,8 @@ pub struct ConcurrencyAnalyzer {
     next_task_id: u32,
     /// Function → task scope
     scopes: HashMap<String, TaskScope>,
+    /// Function → nesting depth of `parallel_scope`.
+    parallel_scope_depth: HashMap<String, usize>,
     /// Warnings about concurrency issues
     pub warnings: Vec<ConcurrencyWarning>,
 }
@@ -78,6 +80,7 @@ impl ConcurrencyAnalyzer {
                 structured: true,
             },
         );
+        self.parallel_scope_depth.insert(name.to_string(), 0);
     }
 
     /// Record a spawn expression in the current function.
@@ -110,6 +113,33 @@ impl ConcurrencyAnalyzer {
     /// Record an await expression.
     pub fn record_await(&mut self, _function: &str, _task_id: Option<u32>) {
         // Track that a task was awaited in this scope
+    }
+
+    /// Enter a lexical `parallel_scope` for a function.
+    pub fn enter_parallel_scope(&mut self, function: &str) {
+        let depth = self
+            .parallel_scope_depth
+            .entry(function.to_string())
+            .or_insert(0);
+        *depth += 1;
+    }
+
+    /// Leave a lexical `parallel_scope` for a function.
+    pub fn leave_parallel_scope(&mut self, function: &str) {
+        let depth = self
+            .parallel_scope_depth
+            .entry(function.to_string())
+            .or_insert(0);
+        if *depth > 0 {
+            *depth -= 1;
+        }
+    }
+
+    /// Whether the function is currently inside a `parallel_scope`.
+    pub fn in_parallel_scope(&self, function: &str) -> bool {
+        self.parallel_scope_depth
+            .get(function)
+            .is_some_and(|depth| *depth > 0)
     }
 
     /// Finish analyzing a function and produce warnings.
@@ -192,6 +222,17 @@ mod tests {
         let scope = analyzer.scope("worker").unwrap();
         assert_eq!(scope.children.len(), 1);
         assert!(scope.structured);
+    }
+
+    #[test]
+    fn tracks_parallel_scope_depth() {
+        let mut analyzer = ConcurrencyAnalyzer::new();
+        analyzer.enter_function("worker");
+        assert!(!analyzer.in_parallel_scope("worker"));
+        analyzer.enter_parallel_scope("worker");
+        assert!(analyzer.in_parallel_scope("worker"));
+        analyzer.leave_parallel_scope("worker");
+        assert!(!analyzer.in_parallel_scope("worker"));
     }
 
     #[test]

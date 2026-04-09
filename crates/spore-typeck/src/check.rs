@@ -12,6 +12,7 @@ use crate::module::{ImportedSymbol, ModuleError, ModuleRegistry};
 use std::collections::{HashMap, HashSet};
 
 use crate::capability::{CapabilityHierarchy, default_hierarchy};
+use crate::concurrency::ConcurrencyAnalyzer;
 use crate::types::{CapSet, ErrorSet, Ty};
 
 use std::collections::BTreeSet;
@@ -54,6 +55,8 @@ pub struct Checker {
     substitution: HashMap<u32, Ty>,
     /// Capability hierarchy for expanding parent caps (e.g. IO → 4 leaves).
     hierarchy: CapabilityHierarchy,
+    /// Structured concurrency analyzer (parallel scopes + spawn sites).
+    concurrency: ConcurrencyAnalyzer,
 }
 
 impl Checker {
@@ -74,6 +77,7 @@ impl Checker {
             next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
             hierarchy: default_hierarchy(),
+            concurrency: ConcurrencyAnalyzer::new(),
         }
     }
 
@@ -95,6 +99,7 @@ impl Checker {
             next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
             hierarchy: default_hierarchy(),
+            concurrency: ConcurrencyAnalyzer::new(),
         }
     }
 
@@ -681,6 +686,7 @@ impl Checker {
     }
 
     fn check_fn(&mut self, f: &FnDef) {
+        self.concurrency.enter_function(&f.name);
         // Set current function's capability set (with hierarchy expansion)
         let prev_caps = std::mem::replace(
             &mut self.current_caps,
@@ -749,6 +755,7 @@ impl Checker {
         self.current_function = prev_function;
         self.expected_return_type = prev_expected;
         self.current_hole_allows = prev_hole_allows;
+        self.concurrency.leave_function(&f.name);
     }
 
     /// Type-check a `spec { ... }` clause attached to a function.
@@ -1119,7 +1126,24 @@ impl Checker {
             }
 
             Expr::Spawn(expr) => {
+                if !self.current_caps.contains("Spawn") {
+                    self.err(
+                        ErrorCode::C0001,
+                        "spawn requires capability `Spawn`; add `uses [Spawn]`".to_string(),
+                    );
+                }
+                if !self.concurrency.in_parallel_scope(&self.current_function) {
+                    self.err(
+                        ErrorCode::C0103,
+                        "spawn is only allowed inside `parallel_scope { ... }`".to_string(),
+                    );
+                }
                 let inner = self.check_expr(expr);
+                self.concurrency.record_spawn(
+                    &self.current_function,
+                    &inner.to_string(),
+                    self.current_caps.iter().cloned().collect(),
+                );
                 Ty::App("Task".into(), vec![inner])
             }
 
@@ -1191,8 +1215,32 @@ impl Checker {
                             format!("parallel_scope lanes must be Int, got `{lanes_ty}`"),
                         );
                     }
+                    if let Expr::IntLit(n) = lanes_expr.as_ref()
+                        && *n <= 0
+                    {
+                        self.err(
+                            ErrorCode::E0002,
+                            format!("parallel_scope lanes must be positive, got `{n}`"),
+                        );
+                    }
+                    if let Expr::IntLit(n) = lanes_expr.as_ref() {
+                        let spawn_sites = Self::count_spawns(body);
+                        if spawn_sites > *n as usize {
+                            self.err(
+                                ErrorCode::C0103,
+                                format!(
+                                    "parallel_scope(lanes: {n}) has {spawn_sites} spawn site(s) in body"
+                                ),
+                            );
+                        }
+                    }
                 }
-                self.check_expr(body)
+                self.concurrency
+                    .enter_parallel_scope(&self.current_function);
+                let body_ty = self.check_expr(body);
+                self.concurrency
+                    .leave_parallel_scope(&self.current_function);
+                body_ty
             }
 
             Expr::Select(arms) => {
@@ -1204,10 +1252,24 @@ impl Checker {
                             source,
                             body,
                         } => {
-                            let _source_ty = self.check_expr(source);
+                            let source_raw_ty = self.check_expr(source);
+                            let source_ty = self.apply_subst(&source_raw_ty);
                             self.env.push_scope();
-                            // Bind the received value — type is unknown for now
-                            let binding_ty = self.fresh_var();
+                            let binding_ty = match source_ty {
+                                Ty::App(ref name, ref args)
+                                    if name == "Receiver" && args.len() == 1 =>
+                                {
+                                    args[0].clone()
+                                }
+                                Ty::Error => Ty::Error,
+                                other => {
+                                    self.err(
+                                        ErrorCode::E0001,
+                                        format!("select source must be Receiver[T], got `{other}`"),
+                                    );
+                                    Ty::Error
+                                }
+                            };
                             self.env.define(binding.clone(), binding_ty);
                             let arm_ty = self.check_expr(body);
                             self.env.pop_scope();
@@ -1425,6 +1487,98 @@ impl Checker {
                 }
                 Ty::Int
             }
+        }
+    }
+
+    fn count_spawns(expr: &Expr) -> usize {
+        match expr {
+            Expr::Spawn(inner) => 1 + Self::count_spawns(inner),
+            Expr::Call(callee, args) => {
+                Self::count_spawns(callee) + args.iter().map(Self::count_spawns).sum::<usize>()
+            }
+            Expr::Lambda(_, body)
+            | Expr::Await(body)
+            | Expr::Try(body)
+            | Expr::Return(Some(body))
+            | Expr::Throw(body)
+            | Expr::UnaryOp(_, body) => Self::count_spawns(body),
+            Expr::BinOp(lhs, _, rhs) | Expr::Pipe(lhs, rhs) => {
+                Self::count_spawns(lhs) + Self::count_spawns(rhs)
+            }
+            Expr::FieldAccess(base, _) => Self::count_spawns(base),
+            Expr::If(cond, then_branch, else_branch) => {
+                Self::count_spawns(cond)
+                    + Self::count_spawns(then_branch)
+                    + else_branch
+                        .as_ref()
+                        .map_or(0, |else_expr| Self::count_spawns(else_expr))
+            }
+            Expr::Match(scrutinee, arms) => {
+                Self::count_spawns(scrutinee)
+                    + arms
+                        .iter()
+                        .map(|arm| {
+                            arm.guard.as_ref().map_or(0, Self::count_spawns)
+                                + Self::count_spawns(&arm.body)
+                        })
+                        .sum::<usize>()
+            }
+            Expr::Block(stmts, tail) => {
+                let stmt_spawns: usize = stmts
+                    .iter()
+                    .map(|stmt| match stmt {
+                        Stmt::Let(_, _, value) => Self::count_spawns(value),
+                        Stmt::Expr(e) => Self::count_spawns(e),
+                    })
+                    .sum();
+                stmt_spawns + tail.as_ref().map_or(0, |e| Self::count_spawns(e))
+            }
+            Expr::Hole(_, _, _)
+            | Expr::IntLit(_)
+            | Expr::FloatLit(_)
+            | Expr::StrLit(_)
+            | Expr::BoolLit(_)
+            | Expr::Var(_)
+            | Expr::CharLit(_)
+            | Expr::Placeholder => 0,
+            Expr::StructLit(_, fields) => fields.iter().map(|(_, e)| Self::count_spawns(e)).sum(),
+            Expr::List(elems) => elems.iter().map(Self::count_spawns).sum(),
+            Expr::TString(parts) => parts
+                .iter()
+                .map(|part| match part {
+                    TStringPart::Literal(_) => 0,
+                    TStringPart::Expr(e) => Self::count_spawns(e),
+                })
+                .sum(),
+            Expr::FString(parts) => parts
+                .iter()
+                .map(|part| match part {
+                    FStringPart::Literal(_) => 0,
+                    FStringPart::Expr(e) => Self::count_spawns(e),
+                })
+                .sum(),
+            Expr::ParallelScope { body, .. } => Self::count_spawns(body),
+            Expr::Select(arms) => arms
+                .iter()
+                .map(|arm| match arm {
+                    SelectArm::Recv { source, body, .. } => {
+                        Self::count_spawns(source) + Self::count_spawns(body)
+                    }
+                    SelectArm::Timeout { duration, body } => {
+                        Self::count_spawns(duration) + Self::count_spawns(body)
+                    }
+                })
+                .sum(),
+            Expr::Handle { body, handlers } => {
+                Self::count_spawns(body)
+                    + handlers
+                        .iter()
+                        .map(|arm| Self::count_spawns(&arm.body))
+                        .sum::<usize>()
+            }
+            Expr::Perform { args, .. } => args.iter().map(|arg| Self::count_spawns(arg)).sum(),
+            Expr::ChannelNew { buffer, .. } => Self::count_spawns(buffer),
+            Expr::Return(None) => 0,
         }
     }
 

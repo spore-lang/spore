@@ -1451,12 +1451,67 @@ fn spawn_wraps_in_task() {
     check_ok(
         r#"
         fn work() -> I32 { 42 }
+        fn run() -> I32 uses [Spawn] {
+            parallel_scope {
+                let t = spawn work();
+                t.await
+            }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn spawn_requires_spawn_capability() {
+    let errs = check_err(
+        r#"
+        fn work() -> I32 { 42 }
         fn run() -> I32 {
+            parallel_scope {
+                let t = spawn work();
+                t.await
+            }
+        }
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("spawn requires capability `Spawn`"))
+    );
+}
+
+#[test]
+fn spawn_requires_parallel_scope() {
+    let errs = check_err(
+        r#"
+        fn work() -> I32 { 42 }
+        fn run() -> I32 uses [Spawn] {
             let t = spawn work();
             t.await
         }
     "#,
     );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("spawn is only allowed inside `parallel_scope"))
+    );
+}
+
+#[test]
+fn parallel_scope_lanes_positive_and_enforced_locally() {
+    let errs = check_err(
+        r#"
+        fn work() -> I32 { 42 }
+        fn run() -> I32 uses [Spawn] {
+            parallel_scope(lanes: 1) {
+                let a = spawn work();
+                let b = spawn work();
+                a.await + b.await
+            }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("has 2 spawn site(s)")));
 }
 
 #[test]
@@ -1495,6 +1550,23 @@ fn select_timeout_requires_int_duration() {
     "#,
     );
     assert!(errs.iter().any(|e| e.contains("select timeout")));
+}
+
+#[test]
+fn select_recv_source_must_be_receiver() {
+    let errs = check_err(
+        r#"
+        fn f(tx: Sender[I32]) -> I32 {
+            select {
+                value from tx => value
+            }
+        }
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("select source must be Receiver[T]"))
+    );
 }
 
 // ── SEP-0006 diagnostic code scheme tests ────────────────────────────
