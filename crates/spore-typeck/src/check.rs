@@ -1625,10 +1625,10 @@ impl Checker {
     pub fn resolve_type(&mut self, te: &TypeExpr) -> Ty {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
-                "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "Int" => Ty::Int,
-                "F32" | "F64" | "Float" => Ty::Float,
+                "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => Ty::Int,
+                "F32" | "F64" => Ty::Float,
                 "Bool" => Ty::Bool,
-                "Str" | "String" => Ty::Str,
+                "Str" => Ty::Str,
                 "Char" => Ty::Char,
                 "Never" => Ty::Never,
                 _ => {
@@ -1808,10 +1808,10 @@ impl Checker {
         match ty {
             Ty::Refined(base, _, _) => self.bound_target_names(base),
             Ty::Named(name) | Ty::App(name, _) => vec![name.clone()],
-            Ty::Int => vec!["Int".into()],
-            Ty::Float => vec!["Float".into()],
+            Ty::Int => vec!["I32".into()],
+            Ty::Float => vec!["F64".into()],
             Ty::Bool => vec!["Bool".into()],
-            Ty::Str => vec!["String".into(), "Str".into()],
+            Ty::Str => vec!["Str".into()],
             Ty::Char => vec!["Char".into()],
             Ty::Unit => vec!["Unit".into()],
             Ty::Never => vec!["Never".into()],

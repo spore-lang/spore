@@ -105,10 +105,10 @@ fn prelude_type_mapping(type_params: &[String]) -> HashMap<String, Ty> {
 fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
     match te {
         TypeExpr::Named(name) => match name.as_str() {
-            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "Int" => Ty::Int,
-            "F32" | "F64" | "Float" => Ty::Float,
+            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => Ty::Int,
+            "F32" | "F64" => Ty::Float,
             "Bool" => Ty::Bool,
-            "Str" | "String" => Ty::Str,
+            "Str" => Ty::Str,
             "Char" => Ty::Char,
             "Never" => Ty::Never,
             _ => mapping

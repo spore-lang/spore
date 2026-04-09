@@ -45,13 +45,13 @@ fn require_arg<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a Valu
 fn require_int(args: &[Value], idx: usize, name: &str) -> Result<i64> {
     require_arg(args, idx, name)?
         .as_int()
-        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be Int")))
+        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be I32")))
 }
 
 fn require_str<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a str> {
     require_arg(args, idx, name)?
         .as_str()
-        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be String")))
+        .ok_or_else(|| RuntimeError::new(format!("{name}: argument {idx} must be Str")))
 }
 
 fn require_list<'a>(args: &'a [Value], idx: usize, name: &str) -> Result<&'a Vec<Value>> {
