@@ -1288,13 +1288,6 @@ impl Parser {
                 Ok(Expr::Spawn(Box::new(expr)))
             }
 
-            // Await expression
-            Token::Await => {
-                self.advance();
-                let expr = self.parse_expr()?;
-                Ok(Expr::Await(Box::new(expr)))
-            }
-
             // Return expression
             Token::Return => {
                 self.advance();

@@ -1021,6 +1021,17 @@ fn test_task_await_postfix_sugar() {
 }
 
 #[test]
+fn test_prefix_await_is_rejected() {
+    let errs =
+        parse("fn f() -> Int { let t = spawn 41; await t }").expect_err("expected parse error");
+    assert!(
+        errs.iter()
+            .any(|e| e.to_string().contains("expected expression, found Await")),
+        "expected prefix await parse rejection, got: {errs:?}"
+    );
+}
+
+#[test]
 fn test_channel_new_sugar() {
     let tail = get_tail("fn f() { Channel.new[Int](buffer: 8) }");
     match tail {

@@ -1460,24 +1460,11 @@ fn spawn_wraps_in_task() {
 }
 
 #[test]
-fn prefix_await_remains_compatible() {
-    check_ok(
-        r#"
-        fn work() -> I32 { 42 }
-        fn run() -> I32 {
-            let t = spawn work();
-            await t
-        }
-    "#,
-    );
-}
-
-#[test]
 fn await_non_task_is_error() {
     let errs = check_err(
         r#"
         fn run() -> I32 {
-            await 42
+            42.await
         }
     "#,
     );
