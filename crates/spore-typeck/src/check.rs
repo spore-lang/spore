@@ -274,12 +274,16 @@ impl Checker {
     fn register_item(&mut self, item: &Item) {
         match item {
             Item::Function(f) => {
-                let param_tys: Vec<Ty> =
-                    f.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                let mut signature_holes = HashMap::new();
+                let param_tys: Vec<Ty> = f
+                    .params
+                    .iter()
+                    .map(|p| self.resolve_signature_type(&p.ty, &mut signature_holes))
+                    .collect();
                 let ret_ty = f
                     .return_type
                     .as_ref()
-                    .map(|t| self.resolve_type(t))
+                    .map(|t| self.resolve_signature_type(t, &mut signature_holes))
                     .unwrap_or(Ty::Unit);
                 let caps: CapSet = f
                     .uses_clause
@@ -717,11 +721,20 @@ impl Checker {
 
         // Track current function name and return type for hole reporting
         let prev_function = std::mem::replace(&mut self.current_function, f.name.clone());
-        let declared_ret = f
-            .return_type
-            .as_ref()
-            .map(|t| self.resolve_type(t))
-            .unwrap_or(Ty::Unit);
+        let (declared_param_tys, declared_ret) = self
+            .registry
+            .functions
+            .get(&f.name)
+            .map(|(params, ret, _)| (params.clone(), ret.clone()))
+            .unwrap_or_else(|| {
+                (
+                    f.params.iter().map(|p| self.resolve_type(&p.ty)).collect(),
+                    f.return_type
+                        .as_ref()
+                        .map(|t| self.resolve_type(t))
+                        .unwrap_or(Ty::Unit),
+                )
+            });
         let prev_expected = self.expected_return_type.take();
         self.expected_return_type = Some(declared_ret.clone());
         let prev_hole_allows = self.current_hole_allows.take();
@@ -730,8 +743,7 @@ impl Checker {
         self.env.push_scope();
 
         // Bind parameters
-        for param in &f.params {
-            let ty = self.resolve_type(&param.ty);
+        for (param, ty) in f.params.iter().zip(declared_param_tys.into_iter()) {
             self.env.define(param.name.clone(), ty);
         }
 
@@ -1074,18 +1086,44 @@ impl Checker {
                 let hole_name = name
                     .clone()
                     .unwrap_or_else(|| self.fresh_unnamed_hole_name());
-                let ty = if let Some(te) = ty_hint {
-                    self.resolve_type(te)
-                } else if let Some(ref ret) = self.expected_return_type {
-                    ret.clone()
+                let effective_allows = allows.clone().or_else(|| self.current_hole_allows.clone());
+                let inferred_from_allows = effective_allows
+                    .as_deref()
+                    .and_then(|allowed| self.infer_hole_type_from_allows(allowed));
+                let return_expected = self
+                    .expected_return_type
+                    .as_ref()
+                    .map(|ret| self.apply_subst(ret));
+                let (ty, type_inferred_from) = if let Some(te) = ty_hint {
+                    (
+                        self.resolve_type(te),
+                        Some("hole type annotation".to_string()),
+                    )
+                } else if let Some(ret) = return_expected {
+                    if matches!(ret, Ty::Var(_) | Ty::Hole(_)) {
+                        if let Some(inferred) = inferred_from_allows {
+                            (inferred, Some("`@allows[...]` candidates".to_string()))
+                        } else {
+                            (
+                                ret,
+                                Some(format!("return type of `{}`", self.current_function)),
+                            )
+                        }
+                    } else {
+                        (
+                            ret,
+                            Some(format!("return type of `{}`", self.current_function)),
+                        )
+                    }
+                } else if let Some(inferred) = inferred_from_allows {
+                    (inferred, Some("`@allows[...]` candidates".to_string()))
                 } else {
-                    Ty::Hole(hole_name.clone())
+                    (Ty::Hole(hole_name.clone()), None)
                 };
 
                 // Collect hole info for the report (v0.3)
                 let bindings = self.env.all_bindings();
-                let expected = ty.clone();
-                let effective_allows = allows.clone().or_else(|| self.current_hole_allows.clone());
+                let expected = self.apply_subst(&ty);
                 let suggestions = self.find_suggestions(&expected, effective_allows.as_deref());
 
                 // Build scored candidates from simple suggestions
@@ -1108,7 +1146,7 @@ impl Checker {
                     name: hole_name,
                     location: None,
                     expected_type: expected,
-                    type_inferred_from: None,
+                    type_inferred_from,
                     function: self.current_function.clone(),
                     enclosing_signature: None,
                     bindings,
@@ -1800,6 +1838,78 @@ impl Checker {
 
     // ── Type resolution ─────────────────────────────────────────────
 
+    fn resolve_signature_type(
+        &mut self,
+        te: &TypeExpr,
+        signature_holes: &mut HashMap<String, Ty>,
+    ) -> Ty {
+        match te {
+            TypeExpr::Hole(Some(name)) => signature_holes
+                .entry(name.clone())
+                .or_insert_with(|| self.fresh_var())
+                .clone(),
+            TypeExpr::Hole(None) => self.fresh_var(),
+            TypeExpr::Generic(name, args) => {
+                let resolved = args
+                    .iter()
+                    .map(|a| self.resolve_signature_type(a, signature_holes))
+                    .collect();
+                Ty::App(name.clone(), resolved)
+            }
+            TypeExpr::Tuple(types) => {
+                if types.is_empty() {
+                    Ty::Unit
+                } else {
+                    Ty::Tuple(
+                        types
+                            .iter()
+                            .map(|t| self.resolve_signature_type(t, signature_holes))
+                            .collect(),
+                    )
+                }
+            }
+            TypeExpr::Function(params, ret, error_exprs) => {
+                let ptys = params
+                    .iter()
+                    .map(|p| self.resolve_signature_type(p, signature_holes))
+                    .collect();
+                let errors: ErrorSet = error_exprs
+                    .iter()
+                    .filter_map(|te| {
+                        if let TypeExpr::Named(n) = te {
+                            Some(n.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                Ty::Fn(
+                    ptys,
+                    Box::new(self.resolve_signature_type(ret, signature_holes)),
+                    CapSet::new(),
+                    errors,
+                )
+            }
+            TypeExpr::Refinement(base, var_name, pred_expr) => Ty::Refined(
+                Box::new(self.resolve_signature_type(base, signature_holes)),
+                var_name.clone(),
+                pred_expr.clone(),
+            ),
+            TypeExpr::Record(fields) => Ty::Record(
+                fields
+                    .iter()
+                    .map(|(name, te)| {
+                        (
+                            name.clone(),
+                            self.resolve_signature_type(te, signature_holes),
+                        )
+                    })
+                    .collect(),
+            ),
+            _ => self.resolve_type(te),
+        }
+    }
+
     pub fn resolve_type(&mut self, te: &TypeExpr) -> Ty {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
@@ -1861,6 +1971,40 @@ impl Checker {
                 Ty::Record(resolved)
             }
         }
+    }
+
+    fn infer_hole_type_from_allows(&self, allow_list: &[String]) -> Option<Ty> {
+        let mut inferred: Option<Ty> = None;
+
+        for allowed_name in allow_list {
+            let candidate = if let Some(ty) = self.env.lookup(allowed_name) {
+                if let Ty::Fn(_, ret, _, _) = ty {
+                    Some(ret.as_ref().clone())
+                } else {
+                    None
+                }
+            } else {
+                self.registry
+                    .functions
+                    .get(allowed_name)
+                    .map(|(_, ret_ty, _)| ret_ty.clone())
+            };
+
+            let Some(candidate_ty) = candidate.map(|t| self.apply_subst(&t)) else {
+                continue;
+            };
+            if candidate_ty.is_error() || matches!(candidate_ty, Ty::Hole(_)) {
+                continue;
+            }
+
+            match &inferred {
+                Some(existing) if existing != &candidate_ty => return None,
+                Some(_) => {}
+                None => inferred = Some(candidate_ty),
+            }
+        }
+
+        inferred
     }
 
     // ── Type variable infrastructure ────────────────────────────────
