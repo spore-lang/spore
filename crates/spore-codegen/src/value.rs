@@ -27,7 +27,7 @@ pub enum Value {
     /// Map (for future use)
     Map(BTreeMap<String, Value>),
     /// Spawned task handle.
-    Task(Box<Value>),
+    Task(TaskHandle),
     /// Channel sender endpoint.
     Sender(ChannelEndpoint),
     /// Channel receiver endpoint.
@@ -56,6 +56,23 @@ pub struct ChannelState {
     pub closed: bool,
 }
 
+/// Shared state for a spawned task.
+#[derive(Debug, Clone)]
+pub struct TaskHandle {
+    pub state: Rc<RefCell<TaskState>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TaskState {
+    Pending {
+        expr: spore_parser::ast::Expr,
+        env: BTreeMap<String, Value>,
+    },
+    Completed(Value),
+    Failed(String),
+    Cancelled,
+}
+
 impl ChannelState {
     pub fn new(buffer: usize) -> Self {
         Self {
@@ -79,7 +96,7 @@ impl PartialEq for Value {
             (Value::Enum(n1, f1), Value::Enum(n2, f2)) => n1 == n2 && f1 == f2,
             (Value::Struct(n1, f1), Value::Struct(n2, f2)) => n1 == n2 && f1 == f2,
             (Value::Map(a), Value::Map(b)) => a == b,
-            (Value::Task(x), Value::Task(y)) => x == y,
+            (Value::Task(a), Value::Task(b)) => Rc::ptr_eq(&a.state, &b.state),
             (Value::Sender(a), Value::Sender(b)) => Rc::ptr_eq(&a.state, &b.state),
             (Value::Receiver(a), Value::Receiver(b)) => Rc::ptr_eq(&a.state, &b.state),
             // Closures and builtins are not structurally comparable
