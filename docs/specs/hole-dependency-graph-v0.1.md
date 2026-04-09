@@ -143,7 +143,7 @@ function trace_type_source(tv: TypeVar) -> Source:
 给定以下代码：
 
 ```spore
-fn process_order(order: RawOrder) -> Receipt ! [ValidationError, PaymentError]
+fn process_order(order: RawOrder) -> Receipt ! ValidationError | PaymentError
     uses [PaymentGateway, Inventory]
     cost [5000, 0, 0, 0]
 {
@@ -184,7 +184,7 @@ fn process_order(order: RawOrder) -> Receipt ! [ValidationError, PaymentError]
 ```pseudocode
 // NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
 
-function compute_fill_order(G: Graph) -> Result<List<Set<Hole>>, CycleError>:
+function compute_fill_order(G: Graph) -> Result[List[Set[Hole]], CycleError]:
     // 第一步：环检测
     if has_cycle(G):
         cycle_path = find_cycle(G)
@@ -222,7 +222,7 @@ function compute_fill_order(G: Graph) -> Result<List<Set<Hole>>, CycleError>:
 ```pseudocode
 // NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
 
-function rank_within_layer(layer: Set<Hole>, G: Graph) -> List<Hole>:
+function rank_within_layer(layer: Set[Hole], G: Graph) -> List[Hole]:
     scores = layer |> map(fn(h) { (h, count_transitive_dependents(h, G)) })
     scores |> sort_descending_by(fn((_, s)) { s }) |> map(fn((h, _)) { h })
 ```
@@ -268,7 +268,7 @@ parallelism(G) = max { |Lₖ| : k = 0, 1, ..., depth(G) }
 ```pseudocode
 // NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
 
-function assign_agents(ready: Set<Hole>, agents: List<Agent>) -> Assignment:
+function assign_agents(ready: Set[Hole], agents: List[Agent]) -> Assignment:
     ranked = rank_within_layer(ready, G)
 
     ranked |> enumerate() |> fold({}, fn(assignment, (i, hole)) {
@@ -331,7 +331,7 @@ function try_fill(agent: Agent, hole: Hole) -> FillResult:
 ```pseudocode
 // NOTE: This is algorithm pseudocode; Spore itself has no loop constructs.
 
-function detect_cycle(G: Graph) -> Option<List<Hole>>:
+function detect_cycle(G: Graph) -> Option[List[Hole]]:
     color = V |> fold({}, fn(m, h) { m.insert(h, WHITE) })
     parent = {}
 
@@ -570,7 +570,7 @@ Hole Dependency Graph (6 holes, 5 edges):
 一个订单处理系统包含 6 个 hole：
 
 ```spore
-fn handle_order(raw: RawOrder) -> FinalStatus ! [ValidationErr, PaymentErr, NotifyErr]
+fn handle_order(raw: RawOrder) -> FinalStatus ! ValidationErr | PaymentErr | NotifyErr
     uses [PaymentGateway, Inventory, EmailService]
     cost [10000, 0, 0, 0]
 {
@@ -684,7 +684,7 @@ FinalStatus.completed(receipt, ledger)
 ```
 $ sporec check src/order_pipeline.spore
 
-[ok] handle_order : (RawOrder) -> FinalStatus ! [ValidationErr, PaymentErr, NotifyErr]
+[ok] handle_order : (RawOrder) -> FinalStatus ! ValidationErr | PaymentErr | NotifyErr
   cost: 7340 (within budget of 10000)
   all holes filled ✓
 

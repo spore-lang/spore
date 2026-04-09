@@ -353,7 +353,7 @@ sig_hash = BLAKE3(canonicalize(
 // 公开接口
 pub fn add(a: I32, b: I32) -> I32
 pub fn sub(a: I32, b: I32) -> I32
-pub type Vector = { x: F64, y: F64 }
+pub struct Vector { x: F64, y: F64 }
 
 // 私有实现
 fn internal_helper() { ... }
@@ -364,7 +364,7 @@ fn internal_helper() { ... }
 module: math
 pub fn add(a: I32, b: I32) -> I32
 pub fn sub(a: I32, b: I32) -> I32
-pub type Vector = { x: F64, y: F64 }
+pub struct Vector { x: F64, y: F64 }
 ```
 
 **规范化规则**:
@@ -560,11 +560,11 @@ Spore 存储后端可插拔,实现以下 trait:
 
 ```spore
 pub trait StorageBackend {
-    fn fetch_sig(hash: Hash) -> Result<Signature>
-    fn fetch_impl(hash: Hash) -> Result<Module>
+    fn fetch_sig(hash: Hash) -> Result[Signature]
+    fn fetch_impl(hash: Hash) -> Result[Module]
     fn store_sig(sig: Signature) -> Hash
     fn store_impl(module: Module) -> Hash
-    fn list_cached() -> Vec<Hash>
+    fn list_cached() -> Vec[Hash]
     fn gc() -> Result<()>  // 垃圾回收
 }
 ```
@@ -1690,7 +1690,7 @@ spore add https://github.com/spore-std/http --alias std-http
 spore add https://github.com/spore-std/json --sig-only
 
 # 3. 编写代码
-cat > src/main.spore <<EOF
+cat > src/main.spore <[EOF
 import http from "std-http"
 import json from "json"
 
@@ -1790,7 +1790,7 @@ git tag v1.0.0
 git push origin main --tags
 
 # 4. 在 README.md 中记录
-cat >> README.md <<EOF
+cat ]> README.md <<EOF
 ## Installation
 
 \`\`\`toml

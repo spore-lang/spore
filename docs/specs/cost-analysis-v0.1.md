@@ -178,7 +178,7 @@ cost(sum_list) = N × 2 + 5    -- 其中 N = len(items)
 为了让代价系统在编译时可验证，引入大小约束类型：
 
 ```
-fn process_batch(items: List[Order, max: 500]) -> BatchResult ! [TooLarge]
+fn process_batch(items: List[Order, max: 500]) -> BatchResult ! TooLarge
     cost [25000, 0, 0, 0]
     uses [Compute]
 {
@@ -235,7 +235,7 @@ WARNING [unbounded-cost] fibonacci 的代价无法静态确定。
 
 `unbounded` 函数**不能被已声明 `cost [compute, alloc, io, parallel]` 的函数调用**，除非包裹在运行时代价限制器中：
 ```
-fn safe_fib(n: I32) -> I32 ! [CostExceeded]
+fn safe_fib(n: I32) -> I32 ! CostExceeded
     cost [10000, 0, 0, 0]
     uses [Compute]
 {
@@ -340,7 +340,7 @@ $ sporec --query-cost sort
 部分定义的函数也参与代价分析：
 
 ```
-fn process(data: Data) -> Result ! [ProcessError]
+fn process(data: Data) -> Result ! ProcessError
     cost [1000, 0, 0, 0]
     uses [Compute]
 {
@@ -401,7 +401,7 @@ fn process(data: Data) -> Result ! [ProcessError]
 
 3. **外部函数（FFI）**：外部函数**必须**在绑定时声明代价。语法如下：
    ```
-   extern fn openssl_encrypt(data: Bytes, key: Key) -> Bytes ! [CryptoError]
+   extern fn openssl_encrypt(data: Bytes, key: Key) -> Bytes ! CryptoError
        cost [500, 0, 0, 0]
        uses [Compute]
    ```
@@ -743,7 +743,7 @@ T(n, k) = O(1) × [O(n² log n) + O(n⁴ × k)]
 
 ### 6.2 小输入的处理
 
-对于 n̄ < N₀ 的"小输入"，编译器采用 **枚举验证**：
+对于 n̄ [ N₀ 的"小输入"，编译器采用 **枚举验证**：
 
 ```
 for each n̄ ∈ {1, ..., N₀-1}ᵏ:
@@ -839,7 +839,7 @@ scalar_cost(n̄) = C_compute(n̄) + α × C_alloc(n̄) + β × C_io(n̄) + γ ×
 编译器识别结构递归模式后，自动生成 CostExpr：
 
 ```
-fn tree_sum(tree: Tree<I32>) -> I32 {
+fn tree_sum(tree: Tree[I32]) -] I32 {
     match tree {
         Leaf(v) => v                                    -- cost: O(1)
         Node(left, v, right) => tree_sum(left) + v + tree_sum(right)
@@ -860,7 +860,7 @@ fn tree_sum(tree: Tree<I32>) -> I32 {
 开发者提供代价声明，编译器验证：
 
 ```
-fn merge_sort<T>(items: List<T, max: n>) -> List<T, max: n>
+fn merge_sort[T](items: List[T, max: n]) -> List[T, max: n]
     where T: Ord
     cost [O(n log n), O(n), 0, 0]
 {
@@ -944,7 +944,7 @@ NF(C) = {(1, ∅, ∅)},  NF(B) = {(100, ∅, ∅)}
 ### 示例 2：线性代价（系数比较）
 
 ```spore
-fn sum_list(items: List<I32, max: n>) -> I32
+fn sum_list(items: List[I32, max: n]) -> I32
     cost [n * 5 + 10, 0, 0, 0]
 {
     items |> fold(start: 0, step: fn(acc, x) -> acc + x)
@@ -967,7 +967,7 @@ NF(B) = {(5, [1], [0]), (10, [0], [0])}
 ### 示例 3：N log N 代价（支配性检查）
 
 ```spore
-fn merge_sort<T>(items: List<T, max: n>) -> List<T, max: n>
+fn merge_sort[T](items: List[T, max: n]) -> List[T, max: n]
     where T: Ord
     cost [O(n log n), O(n), 0, 0]
 {
@@ -1014,7 +1014,7 @@ NF(B) = {(1, [1,1,1], [0,0,0])}
 ### 示例 5：验证失败
 
 ```spore
-fn bad_search<T>(items: List<T, max: n>) -> Option<T>
+fn bad_search[T](items: List[T, max: n]) -> Option[T]
     cost [n, 0, 0, 0]
 {
     -- 实际实现了嵌套循环，推断代价: n * log(n)
@@ -1210,7 +1210,7 @@ fn factorial(n: I32) -> I32 {
 
 **列表尾部——求和：**
 ```spore
-fn sum(list: List<I32>) -> I32 {
+fn sum(list: List[I32]) -> I32 {
     match list {
         [] => 0,
         [head, ..tail] => head + sum(tail),
@@ -1227,7 +1227,7 @@ fn sum(list: List<I32>) -> I32 {
 
 **树遍历——单侧递归：**
 ```spore
-fn depth<T>(tree: Tree<T>) -> I32 {
+fn depth[T](tree: Tree[T]) -> I32 {
     match tree {
         Leaf(_) => 0,
         Node(left, _, right) => 1 + max(depth(left), depth(right)),
@@ -1339,7 +1339,7 @@ WARNING [unverified-cost-bound] gcd 的代价上界无法自动验证。
 
 **归并排序——声明式验证：**
 ```spore
-fn merge_sort<T>(list: List<T>) -> List<T>
+fn merge_sort[T](list: List[T]) -> List[T]
     where T: Ord
     decreases len(list)
     cost [O(n log n), O(n), 0, 0]
@@ -1414,7 +1414,7 @@ fn analyze(n: I32) -> I32
 }
 
 // ✓ 通过代价限制器包裹
-fn safe_analyze(n: I32) -> I32 ! [CostExceeded]
+fn safe_analyze(n: I32) -> I32 ! CostExceeded
     cost [1000, 0, 0, 0]
 {
     with_cost_limit(1000) {
@@ -1424,7 +1424,7 @@ fn safe_analyze(n: I32) -> I32 ! [CostExceeded]
 
 // ✓ 调用者也标记为 @unbounded
 @unbounded
-fn analyze_all(ns: List<I32>) -> List<I32> {
+fn analyze_all(ns: List[I32]) -> List[I32] {
     ns |> map(collatz)
 }
 ```
@@ -1477,7 +1477,7 @@ WARNING [unbounded-function] collatz 标记为 @unbounded。
 ### 5.3 嵌套高阶函数
 
 ```spore
-fn matrix_sum(matrix: List<List<I32>>) -> I32 {
+fn matrix_sum(matrix: List[List[I32]]) -> I32 {
     matrix |> map(fn(row) { row |> fold(0, fn(a, b) { a + b }) })
            |> fold(0, fn(a, b) { a + b })
 }
@@ -1556,7 +1556,7 @@ cost(is_even, n) = cost(is_odd, n) = n × cost_per_step
 当 Hole 出现在递归函数内部时，HoleReport 需要考虑递归带来的代价开销：
 
 ```spore
-fn process_tree<T>(tree: Tree<T>) -> Result<T>
+fn process_tree[T](tree: Tree[T]) -> Result[T]
     cost [500, 0, 0, 0]
 {
     match tree {
@@ -1575,10 +1575,10 @@ fn process_tree<T>(tree: Tree<T>) -> Result<T>
 ```json
 {
   "hole": "combine_results",
-  "expected_type": "Result<T>",
+  "expected_type": "Result[T]",
   "bindings": {
-    "l": "Result<T>",
-    "r": "Result<T>",
+    "l": "Result[T]",
+    "r": "Result[T]",
     "val": "T"
   },
   "recursion_context": {
@@ -1625,7 +1625,7 @@ fn factorial(n: I32) -> I32 {
 ### 示例 2: 树遍历 — 二叉结构递归
 
 ```spore
-fn tree_sum(tree: Tree<I32>) -> I32 {
+fn tree_sum(tree: Tree[I32]) -> I32 {
     match tree {
         Leaf(v) => v,
         Node(left, val, right) => tree_sum(left) + val + tree_sum(right),
@@ -1644,13 +1644,13 @@ fn tree_sum(tree: Tree<I32>) -> I32 {
 ### 示例 3: 二分查找 — 对数结构递归
 
 ```spore
-fn binary_search<T>(sorted: List<T>, target: T) -> Option<I32>
+fn binary_search[T](sorted: List[T], target: T) -> Option[I32]
     where T: Ord
 {
     search_helper(sorted, target, 0, len(sorted) - 1)
 }
 
-fn search_helper<T>(sorted: List<T>, target: T, low: I32, high: I32) -> Option<I32>
+fn search_helper[T](sorted: List[T], target: T, low: I32, high: I32) -> Option[I32]
     where T: Ord
 {
     match low > high {
@@ -1678,7 +1678,7 @@ fn search_helper<T>(sorted: List<T>, target: T, low: I32, high: I32) -> Option<I
 ### 示例 4: 归并排序 — 声明式验证
 
 ```spore
-fn merge_sort<T>(list: List<T>) -> List<T>
+fn merge_sort[T](list: List[T]) -> List[T]
     where T: Ord
     decreases len(list)
     cost [O(n log n), O(n), 0, 0]

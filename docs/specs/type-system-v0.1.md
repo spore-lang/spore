@@ -125,12 +125,12 @@ Structs are nominal product types with named fields. All fields must be named �
 positional fields, consistent with Spore's no-positional philosophy.
 
 ```spore
-type Point = {
+struct Point {
     x: F64,
     y: F64,
 }
 
-type Customer = {
+struct Customer {
     id: CustomerId,
     name: Str,
     email: Email,
@@ -221,12 +221,12 @@ greet(alice)   -- OK: alice has name: Str and age: I32 (extra fields ignored)
 Function types use the canonical `(A, B) -> R` form:
 
 ```spore
-type Predicate<T> = (T) -> Bool
+type Predicate[T] = (T) -> Bool
 
-type Transformer<A, B> = (A) -> B ! [TransformError]
+type Transformer[A, B] = (A) -> B ! TransformError
 
 -- Higher-order function accepting a function argument:
-fn apply_twice<T>(f: (T) -> T, value: T) -> T
+fn apply_twice[T](f: (T) -> T, value: T) -> T
 where T: Clone
 {
     f(f(value))
@@ -265,7 +265,7 @@ trait Display {
 }
 
 trait Serialize {
-    fn serialize(self) -> Bytes ! [SerializeError]
+    fn serialize(self) -> Bytes ! SerializeError
     cost serialize [100, 0, 0, 0]
 }
 ```
@@ -305,14 +305,14 @@ impl Display for Shape {
 Trait bounds constrain generic type parameters in `where` clauses. The stable surface form is single-bound-only: each clause is exactly `where T: Trait`, and additional bounds are written as additional `where` lines:
 
 ```spore
-fn sort<T>(list: List<T>) -> List<T>
+fn sort[T](list: List[T]) -> List[T]
 where T: Ord
 cost [500, 0, 0, 0]
 {
     -- implementation
 }
 
-fn serialize_all<T>(items: Vec<T>) -> Vec<Bytes> ! [SerializeError]
+fn serialize_all[T](items: Vec[T]) -> Vec[Bytes] ! SerializeError
 where T: Serialize
 where T: Display
 {
@@ -328,17 +328,17 @@ implicit execution context. The Platform implements capabilities.
 
 ```spore
 -- A capability is a trait on the execution context
-capability FileRead {
-    fn read_file(path: Path) -> Bytes ! [IoError]
+trait FileRead {
+    fn read_file(path: Path) -> Bytes ! IoError
     cost read_file [0, 0, 1, 0]
 }
 
-capability FileWrite {
-    fn write_file(path: Path, data: Bytes) -> () ! [IoError]
+trait FileWrite {
+    fn write_file(path: Path, data: Bytes) -> () ! IoError
     cost write_file [0, 0, 1, 0]
 }
 
-capability Clock {
+trait Clock {
     fn now() -> Timestamp
     cost now [1, 0, 0, 0]
 }
@@ -350,18 +350,18 @@ requires an execution context that provides the `FileRead` capability." The Plat
 
 ```spore
 -- These two are conceptually identical:
-fn read_config(path: Path) -> Config ! [IoError]
+fn read_config(path: Path) -> Config ! IoError
 
-fn read_config(path: Path) -> Config ! [IoError]
+fn read_config(path: Path) -> Config ! IoError
 ```
 
 **Composite capabilities**:
 
 ```spore
-capability DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
-capability Analytics = [Compute, StateRead]
+trait DatabaseAccess = [NetRead, NetWrite, StateRead, StateWrite]
+trait Analytics = [Compute, StateRead]
 
-fn generate_report(org_id: OrgId, period: DateRange) -> Report ! [ConnectionLost]
+fn generate_report(org_id: OrgId, period: DateRange) -> Report ! ConnectionLost
 uses [DatabaseAccess, Analytics]
 cost [12000, 0, 0, 0]
 {
@@ -376,13 +376,13 @@ Traits may declare associated types — types determined by the implementing typ
 ```spore
 trait Iterator {
     type Item
-    fn next(self) -> Option<Self.Item>
+    fn next(self) -> Option[Self.Item]
     cost next [10, 0, 0, 0]
 }
 
 impl Iterator for LineReader {
     type Item = Str
-    fn next(self) -> Option<Str> {
+    fn next(self) -> Option[Str] {
         self.read_line()
     }
 }
@@ -401,16 +401,16 @@ Associated types eliminate the need for extra type parameters on trait users:
 
 ```spore
 -- With associated types (clean):
-fn sum_all<C>(collection: C) -> I32
+fn sum_all[C](collection: C) -> I32
 where
     C: Collection
-    C.Item: Add<Output = I32>
+    C.Item: Add[Output = I32]
 {
     collection.iter() |> fold(0, fn(total, item) { total + item })
 }
 
 -- Without associated types (verbose, requires extra params):
--- fn sum_all<C, T, I>(collection: C) -> I32 where C: Collection<T, I>, ...
+-- fn sum_all[C, T, I](collection: C) -> I32 where C: Collection[T, I], ...
 ```
 
 ### 4.6 Generic Associated Types (GATs)
@@ -425,15 +425,15 @@ trait LendingIterator {
 }
 
 trait Container {
-    type Elem<T>
-    fn wrap<T>(value: T) -> Self.Elem<T>
-    fn unwrap<T>(wrapped: Self.Elem<T>) -> T
+    type Elem[T]
+    fn wrap[T](value: T) -> Self.Elem[T]
+    fn unwrap[T](wrapped: Self.Elem[T]) -> T
 }
 
 impl Container for OptionContainer {
-    type Elem<T> = Option<T>
-    fn wrap<T>(value: T) -> Option<T> { Some(value) }
-    fn unwrap<T>(wrapped: Option<T>) -> T {
+    type Elem[T] = Option[T]
+    fn wrap[T](value: T) -> Option[T] { Some(value) }
+    fn unwrap[T](wrapped: Option[T]) -> T {
         match wrapped {
             Some(v) => v,
             None    => panic("unwrap of None"),
@@ -502,7 +502,7 @@ Derivable traits can be auto-implemented by the compiler for structs and enums w
 fields all implement the trait:
 
 ```spore
-type Point = {
+struct Point {
     x: F64,
     y: F64,
 } deriving [Eq, Clone, Debug, Hash]
@@ -517,17 +517,17 @@ type Point = {
 Type parameters are declared in angle brackets and constrained in `where` clauses:
 
 ```spore
-fn identity<T>(value: T) -> T
+fn identity[T](value: T) -> T
 {
     value
 }
 
-fn map<A, B>(list: List<A>, f: (A) -> B) -> List<B>
+fn map[A, B](list: List[A], f: (A) -> B) -> List[B]
 {
     -- implementation
 }
 
-fn merge<T, U, V>(left: List<T>, right: List<U>, resolver: (T, U) -> V) -> List<V>
+fn merge[T, U, V](left: List[T], right: List[U], resolver: (T, U) -> V) -> List[V]
 where
     T: Eq + Hash
     U: Eq + Hash
@@ -544,19 +544,19 @@ Const generics allow value-level parameters in type position. This is central to
 bounded collections and cost-aware types.
 
 ```spore
-type Vec<T, max: I32> = {
-    data: Array<T>,
+struct Vec[T, max: I32] {
+    data: Array[T],
     len: I32,
 }
 
-fn take<T, N: I32>(list: List<T>, count: N) -> Vec<T, max: N>
+fn take[T, N: I32](list: List[T], count: N) -> Vec[T, max: N]
 where N <= list.max
 {
     -- implementation
 }
 
-type Matrix<T, rows: I32, cols: I32> = {
-    data: Array<Array<T>>,
+struct Matrix[T, rows: I32, cols: I32] {
+    data: Array[Array[T]],
 }
 ```
 
@@ -566,24 +566,24 @@ Const generic parameters support arithmetic in type-level expressions, enabling
 compile-time dimensional checking:
 
 ```spore
-fn concat<T, M: I32, N: I32>(
-    a: Vec<T, max: M>,
-    b: Vec<T, max: N>,
-) -> Vec<T, max: M + N>
+fn concat[T, M: I32, N: I32](
+    a: Vec[T, max: M],
+    b: Vec[T, max: N],
+) -> Vec[T, max: M + N]
 {
     -- implementation
 }
 
-fn transpose<T, R: I32, C: I32>(
-    matrix: Matrix<T, rows: R, cols: C>,
-) -> Matrix<T, rows: C, cols: R>
+fn transpose[T, R: I32, C: I32](
+    matrix: Matrix[T, rows: R, cols: C],
+) -> Matrix[T, rows: C, cols: R]
 {
     -- implementation
 }
 
-fn flatten<T, N: I32, M: I32>(
-    nested: Vec<Vec<T, max: M>, max: N>,
-) -> Vec<T, max: N * M>
+fn flatten[T, N: I32, M: I32](
+    nested: Vec[Vec[T, max: M], max: N],
+) -> Vec[T, max: N * M]
 {
     -- implementation
 }
@@ -599,14 +599,14 @@ Const generics interact naturally with the cost system. A function's cost may de
 on its const generic parameters:
 
 ```spore
-fn linear_search<T, N: I32>(items: Vec<T, max: N>, target: T) -> Option<I32>
+fn linear_search[T, N: I32](items: Vec[T, max: N], target: T) -> Option[I32]
 where T: Eq
 cost [N * 5, 0, 0, 0]
 {
     -- O(N) search, cost scales linearly
 }
 
-fn sort_bounded<T, N: I32>(items: Vec<T, max: N>) -> Vec<T, max: N>
+fn sort_bounded[T, N: I32](items: Vec[T, max: N]) -> Vec[T, max: N]
 where T: Ord
 cost [O(N^2), O(N), 0, 0]
 {
@@ -615,7 +615,7 @@ cost [O(N^2), O(N), 0, 0]
 ```
 
 This allows the compiler to verify cost bounds parametrically: calling
-`sort_bounded` on a `Vec<T, max: 100>` implies a declared budget such as `cost [O(N^2), O(N), 0, 0]`.
+`sort_bounded` on a `Vec[T, max: 100]` implies a declared budget such as `cost [O(N^2), O(N), 0, 0]`.
 
 ---
 
@@ -644,9 +644,9 @@ type Port = I32 if 1 <= self <= 65535
 
 type Percentage = F64 if 0.0 <= self <= 100.0
 
-type NonEmptyString = Str if self.len() > 0
+type NonEmptyString = Str when self.len() > 0
 
-type PositiveInt = I32 if self > 0
+type PositiveInt = I32 when self > 0
 
 type HttpStatusCode = I32 if 100 <= self <= 599
 ```
@@ -654,7 +654,7 @@ type HttpStatusCode = I32 if 100 <= self <= 599
 **Usage in signatures**:
 
 ```spore
-fn connect(host: Str, port: Port) -> Connection ! [ConnectionError]
+fn connect(host: Str, port: Port) -> Connection ! ConnectionError
 uses [NetRead, NetWrite]
 {
     -- `port` is guaranteed to be in [1, 65535]
@@ -690,9 +690,9 @@ propagate refinement information through control flow, narrowing types as values
 through conditionals and assertions.
 
 ```spore
-fn process_port(raw: I32) -> Port ! [InvalidPort] {
+fn process_port(raw: I32) -> Port ! InvalidPort {
     if raw < 1 || raw > 65535 {
-        raise InvalidPort { value: raw }
+        throw InvalidPort { value: raw }
     }
     -- Here the compiler knows: 1 <= raw <= 65535
     -- `raw` is automatically narrowed to `Port`
@@ -778,7 +778,7 @@ Error: Cannot verify refinement
 
    Hint: Add a runtime check:
      if user_input < 1 || user_input > 65535 {
-         raise InvalidPort { value: user_input }
+         throw InvalidPort { value: user_input }
      }
      connect(host: "example.com", port: user_input)
 ```
@@ -792,7 +792,7 @@ Error: Cannot verify refinement
 Spore requires **full, exhaustive pattern matching** on all enums. The compiler enforces
 that every possible variant is handled. This is non-negotiable for:
 
-- Closed error handling (`! [Err1, Err2]`)
+- Closed error handling (`! Err1 | Err2`)
 - Agent-generated code correctness
 - Preventing "forgot a case" bugs at compile time
 
@@ -937,7 +937,7 @@ Pattern matching integrates with Spore's row-typed error sets for exhaustive err
 handling:
 
 ```spore
-fn handle_result(result: Invoice ! [TaxError, ValidationError]) -> Str
+fn handle_result(result: Invoice ! TaxError | ValidationError) -> Str
 {
     match result {
         Ok(invoice) => "Invoice #" ++ show(invoice.id),
@@ -963,7 +963,7 @@ call boundaries and return expressions.
 |---|---|
 | Function parameter types | Gravity center — the signature IS the API |
 | Function return type | Agent reads signatures for synthesis; human reads for understanding |
-| Error sets (`! [...]`) | Error contract — must be visible |
+| Error sets (`! E1 \| E2`) | Error contract — must be visible |
 | Effect/capability sets | Security boundary — must be visible |
 | Cost bounds | Performance contract — must be visible |
 | Struct/type field types | Data definition — must be explicit |
@@ -983,22 +983,22 @@ call boundaries and return expressions.
 ### 8.3 Bidirectional Checking in Practice
 
 ```spore
-fn process_items<T>(items: Vec<T>) -> Vec<Str> ! [FormatError]
+fn process_items[T](items: Vec[T]) -> Vec[Str] ! FormatError
 where T: Display
 cost [1000, 0, 0, 0]
 {
-    -- Check mode (top-down): return type Vec<Str> ! [FormatError] pushes down
+    -- Check mode (top-down): return type Vec[Str] ! FormatError pushes down
     -- Synth mode (bottom-up): expression types bubble up
 
     let results = items.map(|item| {
-        -- item type inferred from Vec<T>.map signature → T
+        -- item type inferred from Vec[T].map signature → T
         -- T: Display, so .display() is available
         let formatted = item.display()   -- inferred: Str
         let trimmed = formatted.trim()   -- inferred: Str
-        trimmed                          -- synthesized: Str, checked against Vec<Str>
+        trimmed                          -- synthesized: Str, checked against Vec[Str]
     })
 
-    results   -- synthesized: Vec<Str>, checked against return type ✓
+    results   -- synthesized: Vec[Str], checked against return type ✓
 }
 ```
 
@@ -1107,7 +1107,7 @@ let stats = { count: 10, total: 95.5, median: 9.2 }
 summarize(data: stats)   -- OK: stats has count: I32 and total: F64
 
 -- Named types do NOT satisfy anonymous record types:
-type Stats = { count: I32, total: F64 }
+struct Stats { count: I32, total: F64 }
 let named_stats = Stats { count: 10, total: 95.5 }
 summarize(data: named_stats)   -- ERROR: Stats is nominal, not { count: I32, total: F64 }
 ```
@@ -1140,7 +1140,7 @@ Every capability is a trait, and `uses [Cap]` is a trait bound on the execution 
 4. Excess declared capability (declared but unused) → warning
 
 ```spore
-fn fetch_and_save(url: Url, path: Path) -> () ! [NetworkError, IoError]
+fn fetch_and_save(url: Url, path: Path) -> () ! NetworkError | IoError
 uses [NetRead, FileWrite]
 cost [5000, 0, 0, 0]
 {
@@ -1155,7 +1155,7 @@ cost [5000, 0, 0, 0]
 Cost bounds interact with the type system through const generics:
 
 ```spore
-fn batch_process<T, N: I32>(items: Vec<T, max: N>) -> Vec<T, max: N>
+fn batch_process[T, N: I32](items: Vec[T, max: N]) -> Vec[T, max: N]
 where T: Processable
 cost [N * 50, 0, 0, 0]
 {
@@ -1173,7 +1173,7 @@ to fill a specific hole. This provides fine-grained control over Agent behavior
 without affecting the type system's soundness.
 
 ```spore
-fn process_payment(amount: Money, card: Card) -> Receipt ! [PaymentFailed]
+fn process_payment(amount: Money, card: Card) -> Receipt ! PaymentFailed
 uses [PaymentGateway, AuditLog]
 cost [2000, 0, 0, 0]
 {
@@ -1197,7 +1197,7 @@ to many functions that type-check. `@allows` lets the human narrow the search sp
 to a trusted subset, expressing architectural intent.
 
 ```spore
-fn build_dashboard(org: Org) -> Dashboard ! [DataError]
+fn build_dashboard(org: Org) -> Dashboard ! DataError
 uses [Database, Cache, Analytics]
 cost [20000, 0, 0, 0]
 {
@@ -1234,7 +1234,7 @@ alias Money = types.Money
 alias TaxRegion = types.TaxRegion
 alias TaxRate = types.TaxRate
 
-fn compute_tax(amount: Money, region: TaxRegion) -> Money ! [TaxError]
+fn compute_tax(amount: Money, region: TaxRegion) -> Money ! TaxError
 cost [200, 0, 0, 0]
 {
     let rate = lookup_rate(region)
@@ -1269,24 +1269,24 @@ dependents. Changing body or `@allows` does not.
 
 ### 10.6 Error Types
 
-Spore's `! [Err1, Err2]` is a **closed, row-typed error union**. The checking rule is
+Spore's `! Err1 | Err2` is a **closed, row-typed error union**. The checking rule is
 intentionally minimal and explicit at function boundaries:
 
-1. `throw expr` is legal only when `expr`'s error type appears in the current function's declared `! [...]`.
-2. Calling a function with `! [E...]` is legal only when the caller either handles those errors locally or declares a compatible `! [...]` superset.
+1. `throw expr` is legal only when `expr`'s error type appears in the current function's declared `! E1 | E2`.
+2. Calling a function with `! E...` is legal only when the caller either handles those errors locally or declares a compatible error set superset.
 3. `?` is sugar for rule 2 — it forwards the callee's declared errors through the current function's checked signature; it does not create implicit exception flow.
 
 ```spore
-fn parse(input: Str) -> Ast ! [SyntaxError, EncodingError]
-fn validate(ast: Ast) -> ValidAst ! [TypeError, RangeError]
+fn parse(input: Str) -> Ast ! SyntaxError | EncodingError
+fn validate(ast: Ast) -> ValidAst ! TypeError | RangeError
 
-fn compile(input: Str) -> ValidAst ! [SyntaxError, EncodingError, TypeError, RangeError]
+fn compile(input: Str) -> ValidAst ! SyntaxError | EncodingError | TypeError | RangeError
 {
     let ast = parse(input)?
     validate(ast)?
 }
 
-fn fail_fast(message: Str) -> Never ! [ConfigError]
+fn fail_fast(message: Str) -> Never ! ConfigError
 {
     throw ConfigError { message: message }
 }
@@ -1295,14 +1295,14 @@ fn fail_fast(message: Str) -> Never ! [ConfigError]
 Each error type carries structured data:
 
 ```spore
-type SyntaxError = {
+struct SyntaxError {
     line: I32,
     column: I32,
     message: Str,
     snippet: Str,
 }
 
-type TypeError = {
+struct TypeError {
     expected: Str,
     found: Str,
     location: SourceLocation,
@@ -1323,7 +1323,7 @@ fn unreachable_branch() -> Never {
 }
 
 -- Never coerces to any type:
-fn safe_unwrap<T>(opt: Option<T>) -> T {
+fn safe_unwrap[T](opt: Option[T]) -> T {
     match opt {
         Some(v) => v,
         None    => panic("unwrap of None"),   -- panic returns Never, coerces to T
@@ -1335,7 +1335,7 @@ fn safe_unwrap<T>(opt: Option<T>) -> T {
 - `panic(...)` and `abort(...)` calls
 - Diverging expressions (non-terminating recursion)
 - Exhaustive match arms that provably never execute
-- Error-only functions that always raise
+- Error-only functions that always throw
 
 ### 11.2 Newtypes
 
@@ -1349,7 +1349,7 @@ type Meters = F64
 type Seconds = F64
 
 -- These are all distinct types:
-fn send_email(to: Email, subject: Str) -> () ! [DeliveryError]
+fn send_email(to: Email, subject: Str) -> () ! DeliveryError
 
 let uid: UserId = "user-123"
 let email: Email = "alice@example.com"
@@ -1362,7 +1362,7 @@ Newtypes may have refinements:
 
 ```spore
 type Port = I32 if 1 <= self <= 65535
-type NonEmptyString = Str if self.len() > 0
+type NonEmptyString = Str when self.len() > 0
 type Latitude = F64 if -90.0 <= self <= 90.0
 type Longitude = F64 if -180.0 <= self <= 180.0
 ```
@@ -1383,7 +1383,7 @@ type JsonValue =
     | JsonBool { value: Bool }
     | JsonNumber { value: F64 }
     | JsonString { value: Str }
-    | JsonArray { elements: List<JsonValue> }
+    | JsonArray { elements: List[JsonValue] }
     | JsonObject { fields: List<{ key: Str, value: JsonValue }> }
 ```
 
@@ -1392,14 +1392,14 @@ memory without indirection:
 
 ```spore
 -- ERROR: infinite-size type (struct directly contains itself)
-type Bad = {
+struct Bad {
     next: Bad,   -- Bad contains Bad with no indirection
 }
 
 -- OK: indirection via List breaks the cycle
-type Tree<T> = {
+struct Tree[T] {
     value: T,
-    children: List<Tree<T>>,   -- List provides indirection
+    children: List[Tree[T]],   -- List provides indirection
 }
 ```
 
@@ -1409,12 +1409,12 @@ Type aliases provide alternative names without creating new types. Unlike newtyp
 aliases are transparent — they are interchangeable with their definition:
 
 ```spore
-alias StringList = List<Str>
-alias Callback<T> = (T) -> ()
-alias Result<T> = T ! [GenericError]
+alias StringList = List[Str]
+alias Callback[T] = (T) -> ()
+alias Result[T] = T ! GenericError
 
-fn process(items: StringList) -> StringList   -- same as List<Str>
-fn on_click(handler: Callback<ClickEvent>) -> ()
+fn process(items: StringList) -> StringList   -- same as List[Str]
+fn on_click(handler: Callback[ClickEvent]) -> ()
 ```
 
 The `alias` keyword distinguishes aliases from newtypes (`type`):
@@ -1430,7 +1430,7 @@ The orphan rule prevents conflicting trait implementations:
 
 ```spore
 -- In module `shapes`:
-type Circle = { radius: F64 }
+struct Circle { radius: F64 }
 
 -- In module `rendering`:
 trait Drawable { fn draw(self, canvas: Canvas) -> () }
@@ -1530,7 +1530,7 @@ All enums are sealed (closed) because:
 1. **Exhaustiveness checking requires closure.** If a new variant could be added from
    another module, exhaustive matching is impossible.
 
-2. **Error sets depend on closure.** `! [Err1, Err2]` means exactly these two errors —
+2. **Error sets depend on closure.** `! Err1 | Err2` means exactly these two errors —
    not "these two plus whatever someone adds later."
 
 3. **Agent reasoning requires completeness.** When an Agent generates match arms, it
@@ -1549,7 +1549,7 @@ Unifying capabilities and traits provides:
 2. **Signature-clause separation.** Trait bounds use `where`, capabilities use `uses`, and
    the remaining signature metadata (`cost`, `spec`) stays in adjacent dedicated clauses.
 
-3. **Composability.** Composite capabilities (`capability DB = [Read, Write]`) work exactly
+3. **Composability.** Composite capabilities (`trait DB = [Read, Write]`) work exactly
    like trait supertypes.
 
 4. **Implementation reuse.** The compiler's trait resolver, coherence checker, and
@@ -1600,7 +1600,7 @@ How each type system feature interacts with Spore's other systems:
 |---|---|---|---|---|---|
 | **Generics** | Type bounds in `where`, capabilities via `uses` | Cost of generic calls | Type params flow into holes | Error sets are generic | Generic type destructuring |
 | **Traits** | Capabilities ARE traits | Trait methods have costs | Trait bounds constrain holes | Error traits compose | Trait-based dispatch |
-| **Enums** | ✗ (nominal only) | Construction has cost | Variant fields fill holes | Error enums in `! [...]` | Exhaustive matching |
+| **Enums** | ✗ (nominal only) | Construction has cost | Variant fields fill holes | Error enums in `! E1 \| E2` | Exhaustive matching |
 | **Refinements** | ✗ | `cost [N, 0, 0, 0]` can reference refined bounds | Refinement narrows hole type | Error set IS refinement | Guard clause integration |
 | **Const Generics** | ✗ | `cost [N * M, 0, 0, 0]` | Size bounds in holes | ✗ | ✗ |
 | **Inference** | Effects inferred in bodies | Costs inferred, checked | Hole types inferred | Error unions inferred | Exhaustiveness inferred |
@@ -1612,22 +1612,22 @@ A full example showing multiple type system features working together:
 
 ```spore
 -- types.spore
-type Money = F64 if self >= 0.0
+type Money = F64 when self >= 0.0
 
 type TaxRegion =
     | US { state: Str }
     | EU { country: Str }
     | Other { code: Str }
 
-type LineItem = {
+struct LineItem {
     name: Str,
-    quantity: I32 if self > 0,
+    quantity: I32 when self > 0,
     unit_price: Money,
 }
 
-type Invoice = {
+struct Invoice {
     customer: Customer,
-    items: Vec<LineItem>,
+    items: Vec[LineItem],
     subtotal: Money,
     tax: Money,
     total: Money,
@@ -1649,12 +1649,12 @@ alias Money = types.Money
 alias TaxRegion = types.TaxRegion
 alias TaxError = types.TaxError
 
-capability TaxTable {
-    fn lookup_rate(region: TaxRegion) -> F64 ! [TaxError]
+trait TaxTable {
+    fn lookup_rate(region: TaxRegion) -> F64 ! TaxError
     cost lookup_rate [50, 0, 0, 0]
 }
 
-fn compute_tax(amount: Money, region: TaxRegion) -> Money ! [TaxError]
+fn compute_tax(amount: Money, region: TaxRegion) -> Money ! TaxError
 uses [TaxTable]
 cost [200, 0, 0, 0]
 {
@@ -1676,15 +1676,15 @@ alias TaxRegion = types.TaxRegion
 alias TaxError = types.TaxError
 alias ValidationError = types.ValidationError
 
-fn validate_items(items: Vec<LineItem>) -> Vec<LineItem> ! [ValidationError]
+fn validate_items(items: Vec[LineItem]) -> Vec[LineItem] ! ValidationError
 cost [500, 0, 0, 0]
 {
     if items.is_empty() {
-        raise EmptyItems
+        throw EmptyItems
     }
     items |> each(fn(item) {
         if item.quantity <= 0 {
-            raise InvalidQuantity { item: item.name, quantity: item.quantity }
+            throw InvalidQuantity { item: item.name, quantity: item.quantity }
         }
     })
     items
@@ -1692,9 +1692,9 @@ cost [500, 0, 0, 0]
 
 fn generate_invoice(
     customer: Customer,
-    items: Vec<LineItem>,
+    items: Vec[LineItem],
     tax_region: TaxRegion,
-) -> Invoice ! [TaxError, ValidationError]
+) -> Invoice ! TaxError | ValidationError
 uses [TaxTable]
 cost [5000, 0, 0, 0]
 {

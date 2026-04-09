@@ -18,7 +18,7 @@ Before analyzing options, note what is already decided—these form hard constra
 | Abstract cost model `cost ≤ N` | Value-level information in types (proto-refinement) |
 | Typed holes `?name` | Type-directed synthesis is a first-class concern |
 | No positional parameters | Structural matching of argument records by name |
-| Closed enum errors `! [Err1, Err2]` | Row-typed error sets; must compose across call boundaries |
+| Closed enum errors `! Err1 | Err2` | Row-typed error sets; must compose across call boundaries |
 | `where`/`with`/`cost`/`uses` clauses | Structured signature clauses needed |
 | Bounded types `List<T, max: 500>` | Value-level type parameters already exist |
 
@@ -53,7 +53,7 @@ Before analyzing options, note what is already decided—these form hard constra
 **L4 (refinement types) is Spore's sweet spot—but only a *targeted subset*.** Spore already has:
 - `cost ≤ N` — this IS a refinement predicate on function types
 - `max: 500` — this IS a refinement on collection types
-- `! [Err1, Err2]` — closed error sets are row-typed refinements
+- `! Err1 | Err2` — closed error sets are row-typed refinements
 
 Rather than bolting on full Liquid Haskell-style refinement (which requires SMT solvers and creates inscrutible errors), Spore should support **lightweight, enumerated refinement predicates**:
 - Numeric bounds: `Int if 0 < self ≤ 100`
@@ -162,7 +162,7 @@ This means Spore's trait system and capability system should be **unified**:
 ```spore
 // A capability is a trait on the execution context
 capability FileRead {
-    fn read(path: Path) -> Bytes ! [IoError]
+    fn read(path: Path) -> Bytes ! IoError
     cost read ≤ 100  // capability methods have costs
 }
 
@@ -173,7 +173,7 @@ trait Printable {
 }
 
 // Constraints split across where, with, uses, and cost clauses
-fn process<T>(item: T) -> String ! [IoError]
+fn process<T>(item: T) -> String ! IoError
 where T: Printable
 with [FileRead]
 cost ≤ 200
@@ -263,7 +263,7 @@ fn area(shape: Shape) -> Float64 =
 
 Spore enums are closed by definition. You cannot add variants outside the defining module. This is essential for:
 - Exhaustiveness checking
-- Closed error sets (`! [Err1, Err2]`)
+- Closed error sets (`! Err1 | Err2`)
 - Agent reasoning (Agent needs to know ALL possible cases)
 
 **If extensibility is needed**, use traits instead of enums:
@@ -283,14 +283,14 @@ trait Serializable {
 
 ### 4.5 Error Type Interaction with ADTs
 
-Spore's `! [Err1, Err2]` is a **closed, row-typed error union**:
+Spore's `! Err1 | Err2` is a **closed, row-typed error union**:
 
 ```spore
-fn parse(input: String) -> Ast ! [SyntaxError, EncodingError]
-fn validate(ast: Ast) -> ValidAst ! [TypeError, RangeError]
+fn parse(input: String) -> Ast ! SyntaxError | EncodingError
+fn validate(ast: Ast) -> ValidAst ! TypeError | RangeError
 
 // Composition: error sets union automatically
-fn compile(input: String) -> ValidAst ! [SyntaxError, EncodingError, TypeError, RangeError] = {
+fn compile(input: String) -> ValidAst ! SyntaxError | EncodingError | TypeError | RangeError = {
     let ast = parse(input: input)?
     validate(ast: ast)?
 }
@@ -417,7 +417,7 @@ The capability system creates an interesting inference question: should effects 
 
 ```spore
 // The programmer declares the effect boundary:
-fn process(path: Path) -> Data ! [IoError]
+fn process(path: Path) -> Data ! IoError
 uses [FileRead]
 cost ≤ 500
 {
@@ -458,7 +458,7 @@ Spore's `?name` holes are the killer feature for Agent collaboration. Research f
 |---|---|---|
 | "What type goes here?" | Typed hole with inferred expected type | ✅ `?name : ExpectedType` |
 | "What effects can I use?" | Capability set from enclosing function | ✅ `uses [FileRead, ...]` |
-| "What errors can I throw?" | Error set from enclosing function | ✅ `! [Err1, Err2]` |
+| "What errors can I throw?" | Error set from enclosing function | ✅ `! Err1 | Err2` |
 | "What's in scope?" | Binding context with types | Standard |
 | "What cost budget remains?" | Cost bound minus already-spent cost | ✅ `cost ≤ remaining` |
 | "What satisfies this trait?" | Searchable impl database | Nominal traits ✅ |
@@ -470,7 +470,7 @@ The compiler should emit structured hole reports:
 ```json
 {
   "hole": "?parser",
-  "expected_type": "(input: String) -> Ast ! [SyntaxError]",
+  "expected_type": "(input: String) -> Ast ! SyntaxError",
   "available_capabilities": ["FileRead"],
   "cost_budget_remaining": 200,
   "bindings_in_scope": [
@@ -540,7 +540,7 @@ Error: Type mismatch
 | **Const/value generics** | `List<T, max: 500>` | Already committed; enables bounded types |
 | **Sealed enums (ADTs)** | Rust-style with named fields | Exhaustiveness, error types, Agent reasoning |
 | **Exhaustive pattern matching** | Nested, guards, or-patterns | Core language feature, non-negotiable |
-| **Row-typed error sets** | `! [Err1, Err2]` with auto-union | Already committed |
+| **Row-typed error sets** | `! Err1 | Err2` with auto-union | Already committed |
 | **Capability-as-trait** | `capability FileRead { ... }` | Unified abstraction |
 | **Bidirectional type inference** | Explicit signatures, inferred bodies | Gravity center principle |
 | **Lightweight refinements** | `cost ≤ N`, `max: N`, numeric bounds | Already committed via cost/bounded types |

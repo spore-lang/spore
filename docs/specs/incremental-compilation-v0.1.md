@@ -73,7 +73,7 @@ sig hash 变化时，沿依赖图向下游传播（topological order）。每层
 // NOTE: This is algorithm pseudocode; Spore itself has no loop constructs —
 //       use recursion + higher-order functions (each/fold/map/filter).
 
-fn compile_batch(modules: Set<ModuleId>, graph: DepGraph):
+fn compile_batch(modules: Set[ModuleId], graph: DepGraph):
     let levels = topological_levels(modules, graph)
     levels |> each(fn(level) {
         level |> parallel_each(fn(module_id) {

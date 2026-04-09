@@ -122,7 +122,7 @@ fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! [NetError, Timeout]
 ### Capabilities and Implementations
 
 ```spore
-capability Display[T] {
+trait Display[T] {
     fn show(self: T) -> Str
 }
 

@@ -233,14 +233,14 @@ Verbose blocks appear immediately after the `help:` line, indented with two extr
 
 ```
   inference chain:
-    <expr> : <Type>       (<source>)
-    <expr> : <Type>       (<source>)
-    <Type> ≠ <Type>       (<reason>)
+    <expr> : [Type]       (<source>)
+    <expr> : [Type]       (<source>)
+    [Type] ≠ [Type]       (<reason>)
 
   candidates considered:
-    <From> -> <To> via <path>     <status>
+    [From] -> [To] via <path>     <status>
 
-  capability context: [<Cap1>, <Cap2>, ...]
+  capability context: [[Cap1], [Cap2], ...]
   cost at this point: <used> / budget <total>
 ```
 
@@ -283,7 +283,7 @@ error[C0101]: undeclared capability
 help: add a `uses [NetRead]` clause to `fetch_data`
 
   inference chain:
-    http.get : Fn(Url) -> Response ! [NetworkError]   (from module http, sig@e4a1f9)
+    http.get : Fn(Url) -> Response ! NetworkError   (from module http, sig@e4a1f9)
     http.get.uses : [NetRead]                         (from signature)
     fetch_data.uses : []                              (declared)
     [NetRead] ⊄ []                                    (capability not available)
@@ -345,7 +345,7 @@ help: run `sporec --query-hole tax_logic` for full HoleReport
 
   candidates considered:
     tax_table.lookup(region, income) -> Money    ✓ (cost 50 op, within budget)
-    tax_table.calculate(income, region) -> Money ! [InvalidRegion]    ✓ (cost 200 op, error type compatible)
+    tax_table.calculate(income, region) -> Money ! InvalidRegion    ✓ (cost 200 op, error type compatible)
 
   capability context: [TaxTable]
   cost at this point: 100 / budget 500
@@ -393,7 +393,7 @@ A complete `--json` output is a JSON object containing an array of diagnostics a
 {
   "version": "0.1",
   "compiler": "sporec",
-  "diagnostics": [ <Diagnostic>, ... ],
+  "diagnostics": [ [Diagnostic], ... ],
   "summary": {
     "errors": 2,
     "warnings": 1,
@@ -877,12 +877,12 @@ help: wrap in `with_cost_limit(K) { fibonacci(n) }` and handle `CostExceeded`
 error[K0102]: symbolic cost may exceed budget
   --> src/sort.spore:15:5
    |
-15 |     fn sort_all(items: List<I32>) -> List<I32>
+15 |     fn sort_all(items: List[I32]) -> List[I32]
    |        ^^^^^^^^ cost is `N × log(N) × 3 + N` where N = len(items)
    |
    = note: declared `cost [5000, 0, 0, 0]`, but N is unbounded
    = note: for N = 1000, cost = 29,933 op > 5000 op
-help: add a size constraint: `items: List<I32, max: 100>` or increase budget
+help: add a size constraint: `items: List[I32, max: 100]` or increase budget
 ```
 
 ### 5.5 H0xxx — Hole Diagnostics
@@ -968,7 +968,7 @@ help: run `spore --permit` to accept the signature change, then update call site
 
 ### 5.7 sporec --explain Output
 
-`sporec --explain <CODE>` prints a detailed explanation of the error code, including common causes, examples, and fix strategies:
+`sporec --explain [CODE]` prints a detailed explanation of the error code, including common causes, examples, and fix strategies:
 
 ```
 $ sporec --explain E0301

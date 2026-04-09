@@ -101,7 +101,7 @@ Modules do **not** begin with a `module ...` declaration. The file path already 
 import billing.types as types
 import billing.tax as tax
 
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
+pub fn generate_invoice(order: Order) -> Invoice ! TaxError | ValidationError
     uses [PaymentGateway, AuditLog]
     cost [3000, 0, 0, 0]
 {
@@ -116,7 +116,7 @@ fn build_line_items(items: Vec[Item], tax_result: TaxResult) -> Vec[LineItem]
     items |> map(fn(item) -> to_line_item(item, tax_result))
 }
 
-fn finalize(customer: Customer, items: Vec[LineItem]) -> Invoice ! [ValidationError]
+fn finalize(customer: Customer, items: Vec[LineItem]) -> Invoice ! ValidationError
     uses [AuditLog]
     cost [1000, 0, 0, 0]
 {
@@ -206,14 +206,14 @@ Module names follow these constraints:
 -- src/billing/invoice.spore
 
 -- Public: any importer can call this
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError] {
+pub fn generate_invoice(order: Order) -> Invoice ! TaxError {
     let validated = validate(order)
     compute_totals(validated)
 }
 
 -- Package-internal: other modules in this package can call this,
 -- but external packages cannot
-pub(pkg) fn validate(order: Order) -> ValidatedOrder ! [ValidationError] {
+pub(pkg) fn validate(order: Order) -> ValidatedOrder ! ValidationError {
     ...
 }
 
@@ -402,7 +402,7 @@ Consumers import the shortcuts module:
 -- src/api/handler.spore
 import billing.shortcuts as bill
 
-fn handle_order(order: Order) -> Response ! [BillingError] {
+fn handle_order(order: Order) -> Response ! BillingError {
     let tax = bill.calculate_tax(order.items, order.region)
     let invoice: bill.Invoice = bill.generate(order)
     Response.ok(invoice)
@@ -511,7 +511,7 @@ billing.invoice.generate_invoice  sig=a3f7c2  impl=d8e1b4
 The `sig` hash `a3f7c2` (truncated for display; full hash is 32 hex characters) is computed from the **canonical signature**:
 
 ```
-fn generate_invoice(order: Order) -> Invoice ! [TaxError, ValidationError]
+fn generate_invoice(order: Order) -> Invoice ! TaxError | ValidationError
     cost [3000, 0, 0, 0]
     uses [PaymentGateway, AuditLog]
 ```
@@ -642,7 +642,7 @@ Module: billing.invoice
   interface hash: 4c8e2a (from 1 pub function, 0 pub(pkg) functions)
 
   pub generate_invoice  sig=a3f7c2  impl=d8e1b4
-    (Order) -> Invoice ! [TaxError, ValidationError]
+    (Order) -> Invoice ! TaxError | ValidationError
 ```
 
 For a partial module:
@@ -654,7 +654,7 @@ Module: billing.invoice (partial)
   interface hash: 4c8e2a (from 1 pub function, 0 pub(pkg) functions)
 
   pub generate_invoice  sig=a3f7c2  impl=None (partial — contains holes)
-    (Order) -> Invoice ! [TaxError, ValidationError]
+    (Order) -> Invoice ! TaxError | ValidationError
 ```
 
 When a hole is filled, `sig` and the interface hash remain unchanged. Only `impl` transitions from `None` to a concrete hash. Dependents are unaffected.
@@ -688,7 +688,7 @@ Importing a module does **not** grant its capabilities to the importer. Capabili
 -- src/api/handler.spore
 import billing.invoice as invoice
 
-pub fn handle_create_invoice(req: Request) -> Response ! [ApiError]
+pub fn handle_create_invoice(req: Request) -> Response ! ApiError
     uses [PaymentGateway, AuditLog]
 {
     let order = parse_order(req.body)
@@ -795,7 +795,7 @@ Random         = "platform.io.random"
 -- Only platform code can perform raw IO operations.
 
 -- Platform-provided capability: Stdout
-pub fn stdout_write(message: Str) -> () ! [IoError]
+pub fn stdout_write(message: Str) -> () ! IoError
     uses [RawSyscall]       -- only platforms have RawSyscall
 {
     -- This is the only place where raw system calls happen
@@ -803,7 +803,7 @@ pub fn stdout_write(message: Str) -> () ! [IoError]
 }
 
 -- Platform-provided capability: FileRead
-pub fn file_read(path: FilePath) -> Bytes ! [IoError, FileNotFound]
+pub fn file_read(path: FilePath) -> Bytes ! IoError | FileNotFound
     uses [RawSyscall]
 {
     let fd = syscall.open(path.to_string(), OpenMode.Read)
@@ -827,7 +827,7 @@ pub fn clock_now() -> Timestamp
 import billing.invoice as invoice
 import std.io as io
 
-pub fn main(args: Vec<Str>) -> () ! [AppError]
+pub fn main(args: Vec<Str>) -> () ! AppError
     uses [Stdout, FileRead, PaymentGateway, AuditLog]
 {
     let order = load_order(args.get(1))
@@ -835,7 +835,7 @@ pub fn main(args: Vec<Str>) -> () ! [AppError]
     io.println(created.to_string())
 }
 
-fn load_order(path: Str) -> Order ! [IoError, ParseError]
+fn load_order(path: Str) -> Order ! IoError | ParseError
     uses [FileRead]
 {
     let content = std.io.read_file(FilePath.new(path))
@@ -1035,7 +1035,7 @@ Holes by module:
 
   billing.invoice (partial)
     ?invoice_logic at line 12
-      type: Invoice ! [TaxError]
+      type: Invoice ! TaxError
       capabilities: [PaymentGateway, AuditLog]
       budget remaining: 2400 ops
 
@@ -1049,7 +1049,7 @@ A module that calls a partial function becomes **transitively partial**. The com
 -- src/api/handler.spore
 import billing.invoice
 
-pub fn handle(req: Request) -> Response ! [ApiError]
+pub fn handle(req: Request) -> Response ! ApiError
     uses [PaymentGateway, AuditLog]
 {
     -- generate_invoice is partial (contains holes)
@@ -1062,7 +1062,7 @@ pub fn handle(req: Request) -> Response ! [ApiError]
 ```
 $ sporec check src/api/handler.spore
 
-[partial] api.handler.handle : (Request) -> Response ! [ApiError]
+[partial] api.handler.handle : (Request) -> Response ! ApiError
   depends on partial: billing.invoice.generate_invoice
   ─── this function will become complete when billing.invoice.generate_invoice
       has all its holes filled
@@ -1145,7 +1145,7 @@ pub type ValidationError {
 }
 ```
 
-Error types follow the same visibility rules as all other types. A function's error list (`! [TaxError, ValidationError]`) must reference only error types that are visible from the function's module.
+Error types follow the same visibility rules as all other types. A function's error list (`! TaxError | ValidationError`) must reference only error types that are visible from the function's module.
 
 Cross-module error propagation:
 
@@ -1154,7 +1154,7 @@ Cross-module error propagation:
 import billing.invoice
 import billing.errors
 
-pub fn handle_create(req: Request) -> Response ! [billing.errors.BillingError, ParseError]
+pub fn handle_create(req: Request) -> Response ! billing.errors.BillingError | ParseError
     uses [PaymentGateway, AuditLog]
 {
     let order = parse_request(req)    -- may raise ParseError
@@ -1375,12 +1375,12 @@ Within a single module, functions can reference each other regardless of declara
 ```spore
 -- src/billing/invoice.spore
 
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError] {
+pub fn generate_invoice(order: Order) -> Invoice ! TaxError {
     let tax = calculate_local_tax(order)    -- defined below: OK
     build_invoice(order, tax)               -- defined below: OK
 }
 
-fn calculate_local_tax(order: Order) -> TaxResult ! [TaxError] {
+fn calculate_local_tax(order: Order) -> TaxResult ! TaxError {
     ...
 }
 
@@ -1429,7 +1429,7 @@ A module with holes can still be imported and its types used. Only function **ca
 
 ```spore
 -- src/billing/invoice.spore (has holes)
-pub fn generate_invoice(order: Order) -> Invoice ! [TaxError] {
+pub fn generate_invoice(order: Order) -> Invoice ! TaxError {
     ?invoice_logic
 }
 
@@ -1437,7 +1437,7 @@ pub fn generate_invoice(order: Order) -> Invoice ! [TaxError] {
 import billing.invoice
 
 -- This compiles fine. handler is transitively partial.
-pub fn handle(req: Request) -> Response ! [ApiError] {
+pub fn handle(req: Request) -> Response ! ApiError {
     let inv = billing.invoice.generate_invoice(parse_order(req))
     Response.ok(inv)
 }

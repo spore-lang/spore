@@ -61,7 +61,7 @@ HoleReport v0.2（见 `archive/hole-system-v0.2.md` §3.2）为每个 Hole 提�
   },
 
   "type": {                                                   // [v0.2]
-    "expected": "ChargeResult ! [PaymentFailed, GatewayTimeout]",
+    "expected": "ChargeResult ! PaymentFailed | GatewayTimeout",
     "inferred_from": "return position of fn charge_customer"
   },
 
@@ -118,7 +118,7 @@ HoleReport v0.2（见 `archive/hole-system-v0.2.md` §3.2）为每个 Hole 提�
   "candidates": [                                             // [v0.2] + [v0.3] 扩展 A
     {
       "function": "gateway_charge",
-      "signature": "(Card, Money) -> ChargeResult ! [PaymentFailed, GatewayTimeout]",
+      "signature": "(Card, Money) -> ChargeResult ! PaymentFailed | GatewayTimeout",
       "requires_capabilities": ["PaymentGateway"],
       "estimated_cost": 800,
       "scores": {                                             // [v0.3] 替代 match_quality
@@ -128,11 +128,11 @@ HoleReport v0.2（见 `archive/hole-system-v0.2.md` §3.2）为每个 Hole 提�
         "error_coverage": 0.90
       },
       "overall": 0.91,
-      "adjustments": ["需要类型转换: Option<Card> → Card"]
+      "adjustments": ["需要类型转换: Option[Card] → Card"]
     },
     {
       "function": "retry_charge",
-      "signature": "(Card, Money, RetryPolicy) -> ChargeResult ! [PaymentFailed, GatewayTimeout]",
+      "signature": "(Card, Money, RetryPolicy) -> ChargeResult ! PaymentFailed | GatewayTimeout",
       "requires_capabilities": ["PaymentGateway"],
       "estimated_cost": 1500,
       "scores": {
@@ -157,7 +157,7 @@ HoleReport v0.2（见 `archive/hole-system-v0.2.md` §3.2）为每个 Hole 提�
 
   "enclosing_function": {                                     // [v0.2]
     "name": "charge_customer",
-    "signature": "(Customer, Money) -> ChargeResult ! [PaymentFailed, GatewayTimeout]",
+    "signature": "(Customer, Money) -> ChargeResult ! PaymentFailed | GatewayTimeout",
     "effects": ["deterministic"],
     "full_cost_budget": 2000
   }
@@ -273,7 +273,7 @@ overall = w₁ × type_match + w₂ × cost_fit + w₃ × capability_fit + w₄ 
 
 `adjustments` 是人类可读的注释数组，由编译器生成，描述候选函数与 Hole 之间需要的适配操作：
 
-- 类型转换提示：`"需要类型转换: Option<Card> → Card"`
+- 类型转换提示：`"需要类型转换: Option[Card] → Card"`
 - 缺少参数提示：`"需要额外参数: RetryPolicy"`
 - 成本警告：`"成本接近预算上限"`
 - 能力缺失警告：`"缺少能力: NetworkAccess"`
@@ -323,7 +323,7 @@ v0.2 的 `bindings` 列表是扁平结构——Agent 看到 `customer`、`amount
 **示例**：
 
 ```spore
-fn charge_customer(customer: Customer, amount: Money) -> ChargeResult ! [PaymentFailed]
+fn charge_customer(customer: Customer, amount: Money) -> ChargeResult ! PaymentFailed
     uses [PaymentGateway]
     cost [2000, 0, 0, 0]
 {
@@ -449,7 +449,7 @@ v0.2 的 `errors_to_handle: ["PaymentFailed", "GatewayTimeout"]` 是扁平列表
 "error_clusters": [
   {
     "source": "<function_name>",
-    "errors": ["<Error1>", "<Error2>"],
+    "errors": ["[Error1]", "[Error2]"],
     "handling_suggestion": "<human-readable suggestion>"
   }
 ]
@@ -493,7 +493,7 @@ v0.2 的 `errors_to_handle: ["PaymentFailed", "GatewayTimeout"]` 是扁平列表
 ### 6.5 示例
 
 ```spore
-fn process_payment(card: Card, amount: Money) -> Receipt ! [PaymentFailed, GatewayTimeout, InvalidCard]
+fn process_payment(card: Card, amount: Money) -> Receipt ! PaymentFailed | GatewayTimeout | InvalidCard
     uses [PaymentGateway]
     cost [3000, 0, 0, 0]
 {
@@ -743,7 +743,7 @@ Hole 依赖图必须是 DAG。如果检测到环，编译器报告编译错误�
     "errors": [
       {
         "code": "E0301",
-        "message": "type mismatch: expected Vec<ValidItem>, found Vec<RawItem>",
+        "message": "type mismatch: expected Vec[ValidItem], found Vec[RawItem]",
         "location": {
           "file": "src/orders.spore",
           "line": 18,
@@ -755,7 +755,7 @@ Hole 依赖图必须是 DAG。如果检测到环，编译器报告编译错误�
     "root_cause": "type_mismatch",
     "fix_hints": [
       "尝试使用 Money.from_int() 进行类型转换",
-      "候选函数 validate_items 的返回类型为 Vec<RawItem>，而非期望的 Vec<ValidItem>"
+      "候选函数 validate_items 的返回类型为 Vec[RawItem]，而非期望的 Vec[ValidItem]"
     ]
   }
 }
@@ -890,7 +890,7 @@ fn consume_events(stdin) -> ():
 
 ```spore
 -- src/orders.spore
-fn process_order(order: Order) -> Receipt ! [ValidationError, PaymentFailed, OutOfStock]
+fn process_order(order: Order) -> Receipt ! ValidationError | PaymentFailed | OutOfStock
     uses [Inventory, PaymentGateway, EmailService]
     cost [10000, 0, 0, 0]
 {
@@ -903,7 +903,7 @@ fn process_order(order: Order) -> Receipt ! [ValidationError, PaymentFailed, Out
 }
 
 -- src/auth.spore
-fn check_auth(token: Token) -> User ! [Unauthorized]
+fn check_auth(token: Token) -> User ! Unauthorized
     uses [AuthService]
     cost [500, 0, 0, 0]
 {
@@ -958,7 +958,7 @@ Agent-1 获取 `?validate_input` 的 HoleReport：
     "dependencies": []
   },
   "type": {
-    "expected": "ValidOrder ! [ValidationError]",
+    "expected": "ValidOrder ! ValidationError",
     "inferred_from": "used as argument to reserve_stock and process_payment"
   },
   "bindings": [
@@ -984,7 +984,7 @@ Agent-1 获取 `?validate_input` 的 HoleReport：
   "candidates": [
     {
       "function": "validate_order",
-      "signature": "(Order) -> ValidOrder ! [ValidationError]",
+      "signature": "(Order) -> ValidOrder ! ValidationError",
       "requires_capabilities": [],
       "estimated_cost": 200,
       "scores": {
@@ -1006,7 +1006,7 @@ Agent-1 获取 `?validate_input` 的 HoleReport：
   "dependent_holes": ["reserve_stock", "process_payment"],
   "enclosing_function": {
     "name": "process_order",
-    "signature": "(Order) -> Receipt ! [ValidationError, PaymentFailed, OutOfStock]",
+    "signature": "(Order) -> Receipt ! ValidationError | PaymentFailed | OutOfStock",
     "effects": ["deterministic"],
     "full_cost_budget": 10000
   }
