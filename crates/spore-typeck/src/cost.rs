@@ -960,7 +960,7 @@ impl std::fmt::Display for CostVector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "CostVector {{ compute: {}, alloc: {}, io: {}, parallel: {} }}",
+            "cost [{}, {}, {}, {}]",
             self.compute, self.alloc, self.io, self.parallel
         )
     }
@@ -1187,10 +1187,7 @@ mod tests {
     fn cost_vector_display() {
         let c = CostVector::constant(5, 3, 1, 0);
         let s = c.to_string();
-        assert!(s.contains("compute"));
-        assert!(s.contains("alloc"));
-        assert!(s.contains("io"));
-        assert!(s.contains("parallel"));
+        assert_eq!(s, "cost [5, 3, 1, 0]");
     }
 
     #[test]
@@ -1202,7 +1199,7 @@ mod tests {
             parallel: CostExpr::Const(0),
         };
         let s = c.to_string();
-        assert!(s.contains('∞'));
+        assert_eq!(s, "cost [∞, 0, 1, 0]");
     }
 
     #[test]

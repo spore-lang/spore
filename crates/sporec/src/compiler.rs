@@ -371,10 +371,7 @@ fn format_verbose_result(result: &CheckResult) -> String {
     if !result.cost_vectors.is_empty() {
         out.push_str("\n── Cost Analysis ──\n");
         for (fn_name, cv) in &result.cost_vectors {
-            out.push_str(&format!(
-                "  {fn_name}: compute={}, alloc={}, io={}, parallel={}\n",
-                cv.compute, cv.alloc, cv.io, cv.parallel
-            ));
+            out.push_str(&format!("  {fn_name}: {cv}\n"));
         }
     }
 

@@ -78,6 +78,19 @@ fn check_verbose_reports_holes() {
 }
 
 #[test]
+fn check_verbose_uses_cost_vector_syntax() {
+    let output = check_verbose("fn f(x: I32) -> I32 cost [2, 0, 0, 0] { x + x }").unwrap();
+    assert!(
+        output.contains("cost ["),
+        "verbose output should use vector syntax, got: {output}"
+    );
+    assert!(
+        !output.contains("compute="),
+        "verbose output should avoid scalar-style fields, got: {output}"
+    );
+}
+
+#[test]
 fn check_verbose_returns_error_on_invalid() {
     let result = check_verbose(r#"fn f() -> I32 { "oops" }"#);
     assert!(result.is_err(), "type error should produce Err");
@@ -369,6 +382,14 @@ fn cost_violation_emits_warning_not_error() {
     assert!(
         output.warnings.iter().any(|w| w.contains("K0101")),
         "expected K0101 warning, got warnings: {:?}",
+        output.warnings
+    );
+    assert!(
+        output
+            .warnings
+            .iter()
+            .any(|w| w.contains("actual cost [") && w.contains("declared cost [")),
+        "expected vector-native warning text, got warnings: {:?}",
         output.warnings
     );
 }
