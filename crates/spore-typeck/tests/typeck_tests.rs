@@ -1450,8 +1450,21 @@ fn impl_correct_signature_ok() {
 fn spawn_wraps_in_task() {
     check_ok(
         r#"
-        fn work() -> Int { 42 }
-        fn run() -> Int {
+        fn work() -> I32 { 42 }
+        fn run() -> I32 {
+            let t = spawn work();
+            t.await
+        }
+    "#,
+    );
+}
+
+#[test]
+fn prefix_await_remains_compatible() {
+    check_ok(
+        r#"
+        fn work() -> I32 { 42 }
+        fn run() -> I32 {
             let t = spawn work();
             await t
         }
@@ -1463,12 +1476,38 @@ fn spawn_wraps_in_task() {
 fn await_non_task_is_error() {
     let errs = check_err(
         r#"
-        fn run() -> Int {
+        fn run() -> I32 {
             await 42
         }
     "#,
     );
     assert!(errs.iter().any(|e| e.contains("await expects Task[T]")));
+}
+
+#[test]
+fn channel_new_typed_sender_receiver_pair() {
+    check_ok(
+        r#"
+        fn build() -> (Sender[I32], Receiver[I32]) {
+            Channel.new[I32](buffer: 16)
+        }
+    "#,
+    );
+}
+
+#[test]
+fn select_timeout_requires_int_duration() {
+    let errs = check_err(
+        r#"
+        fn f(rx: Receiver[I32]) -> I32 {
+            select {
+                value from rx => value,
+                timeout("slow") => 0
+            }
+        }
+    "#,
+    );
+    assert!(errs.iter().any(|e| e.contains("select timeout")));
 }
 
 // ── SEP-0006 diagnostic code scheme tests ────────────────────────────

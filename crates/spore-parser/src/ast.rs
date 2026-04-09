@@ -230,6 +230,11 @@ pub enum Expr {
     StructLit(String, Vec<(String, Expr)>),
     Spawn(Box<Expr>),
     Await(Box<Expr>),
+    /// `Channel.new[T](buffer: N)`
+    ChannelNew {
+        elem_type: TypeExpr,
+        buffer: Box<Expr>,
+    },
     Return(Option<Box<Expr>>),
     Throw(Box<Expr>),
     List(Vec<Expr>),
@@ -271,10 +276,15 @@ pub struct EffectArm {
 
 /// A single arm of a `select` expression.
 #[derive(Debug, Clone, PartialEq)]
-pub struct SelectArm {
-    pub binding: String,
-    pub source: Expr,
-    pub body: Expr,
+pub enum SelectArm {
+    /// `<binding> from <source> => <body>`
+    Recv {
+        binding: String,
+        source: Expr,
+        body: Expr,
+    },
+    /// `timeout(<duration>) => <body>`
+    Timeout { duration: Expr, body: Expr },
 }
 
 #[derive(Debug, Clone, PartialEq)]

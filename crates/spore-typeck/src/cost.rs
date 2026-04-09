@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use spore_parser::ast::{self, BinOp, Expr, FnDef, Item, Module, Stmt};
+use spore_parser::ast::{self, BinOp, Expr, FnDef, Item, Module, SelectArm, Stmt};
 
 /// Cost expression — a symbolic representation of computational cost.
 ///
@@ -397,6 +397,7 @@ impl CostAnalyzer {
             Expr::Await(inner) | Expr::Try(inner) | Expr::Throw(inner) => {
                 self.analyze_expr_cost(inner)
             }
+            Expr::ChannelNew { buffer, .. } => self.analyze_expr_cost(buffer),
 
             Expr::Return(inner) => inner
                 .as_ref()
@@ -445,9 +446,14 @@ impl CostAnalyzer {
             Expr::Select(arms) => {
                 let mut max_arm = CostVector::zero();
                 for arm in arms {
-                    let arm_cost = self
-                        .analyze_expr_cost(&arm.source)
-                        .seq(&self.analyze_expr_cost(&arm.body));
+                    let arm_cost = match arm {
+                        SelectArm::Recv { source, body, .. } => self
+                            .analyze_expr_cost(source)
+                            .seq(&self.analyze_expr_cost(body)),
+                        SelectArm::Timeout { duration, body } => self
+                            .analyze_expr_cost(duration)
+                            .seq(&self.analyze_expr_cost(body)),
+                    };
                     max_arm = max_arm.max(&arm_cost);
                 }
                 max_arm
@@ -682,6 +688,9 @@ where
         | Expr::Throw(inner) => {
             walk_expr(inner, on_call);
         }
+        Expr::ChannelNew { buffer, .. } => {
+            walk_expr(buffer, on_call);
+        }
         Expr::If(cond, then_br, else_br) => {
             walk_expr(cond, on_call);
             walk_expr(then_br, on_call);
@@ -721,8 +730,16 @@ where
         }
         Expr::Select(arms) => {
             for arm in arms {
-                walk_expr(&arm.source, on_call);
-                walk_expr(&arm.body, on_call);
+                match arm {
+                    SelectArm::Recv { source, body, .. } => {
+                        walk_expr(source, on_call);
+                        walk_expr(body, on_call);
+                    }
+                    SelectArm::Timeout { duration, body } => {
+                        walk_expr(duration, on_call);
+                        walk_expr(body, on_call);
+                    }
+                }
             }
         }
         Expr::Return(inner) => {

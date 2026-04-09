@@ -569,6 +569,13 @@ impl Interpreter {
                 self.eval(expr, env)
             }
 
+            Expr::ChannelNew { buffer, .. } => {
+                let _ = self.eval(buffer, env)?;
+                Err(RuntimeError::new(
+                    "Channel.new runtime support is not implemented in interpreter yet",
+                ))
+            }
+
             Expr::Return(expr) => {
                 if let Some(inner) = expr {
                     self.eval(inner, env)
@@ -600,12 +607,21 @@ impl Interpreter {
             Expr::Select(arms) => {
                 // PoC: evaluate first arm synchronously
                 if let Some(arm) = arms.first() {
-                    let source_val = self.eval(&arm.source, env)?;
-                    env.push();
-                    env.define(arm.binding.clone(), source_val);
-                    let result = self.eval(&arm.body, env)?;
-                    env.pop();
-                    Ok(result)
+                    match arm {
+                        SelectArm::Recv {
+                            binding,
+                            source,
+                            body,
+                        } => {
+                            let source_val = self.eval(source, env)?;
+                            env.push();
+                            env.define(binding.clone(), source_val);
+                            let result = self.eval(body, env)?;
+                            env.pop();
+                            Ok(result)
+                        }
+                        SelectArm::Timeout { body, .. } => self.eval(body, env),
+                    }
                 } else {
                     Ok(Value::Unit)
                 }

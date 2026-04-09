@@ -1135,7 +1135,23 @@ impl Parser {
                     }
                     Token::Dot => {
                         self.advance();
-                        let field = self.expect_ident()?;
+                        let field = if self.at(&Token::Await) {
+                            self.advance();
+                            "await".to_string()
+                        } else {
+                            self.expect_ident()?
+                        };
+                        if field == "await" && !self.at(&Token::LParen) {
+                            lhs = Expr::Await(Box::new(lhs));
+                            continue;
+                        }
+                        if field == "new"
+                            && matches!(&lhs, Expr::Var(name) if name == "Channel")
+                            && self.at(&Token::LBracket)
+                        {
+                            lhs = self.parse_channel_new_expr()?;
+                            continue;
+                        }
                         // Check for method call: `obj.method(args)`
                         if self.at(&Token::LParen) {
                             self.advance();
@@ -1603,22 +1619,54 @@ impl Parser {
         let mut arms = Vec::new();
         while !self.at(&Token::RBrace) && !self.at_eof() {
             let binding = self.expect_ident()?;
-            // expect `from` keyword
-            self.expect(&Token::From)?;
-            let source = self.parse_expr()?;
-            self.expect(&Token::FatArrow)?;
-            let body = self.parse_expr()?;
-            arms.push(SelectArm {
-                binding,
-                source,
-                body,
-            });
+            if binding == "timeout" {
+                self.expect(&Token::LParen)?;
+                let duration = self.parse_expr()?;
+                self.expect(&Token::RParen)?;
+                self.expect(&Token::FatArrow)?;
+                let body = self.parse_expr()?;
+                arms.push(SelectArm::Timeout { duration, body });
+            } else {
+                // expect `from` keyword
+                self.expect(&Token::From)?;
+                let source = self.parse_expr()?;
+                self.expect(&Token::FatArrow)?;
+                let body = self.parse_expr()?;
+                arms.push(SelectArm::Recv {
+                    binding,
+                    source,
+                    body,
+                });
+            }
             if self.at(&Token::Comma) {
                 self.advance();
             }
         }
         self.expect(&Token::RBrace)?;
         Ok(Expr::Select(arms))
+    }
+
+    fn parse_channel_new_expr(&mut self) -> Result<Expr, ParseError> {
+        self.expect(&Token::LBracket)?;
+        let elem_type = self.parse_type_expr()?;
+        self.expect(&Token::RBracket)?;
+        self.expect(&Token::LParen)?;
+        let label = self.expect_ident()?;
+        if label != "buffer" {
+            return Err(self.error(format!(
+                "expected named argument `buffer` in Channel.new, found `{label}`"
+            )));
+        }
+        self.expect(&Token::Colon)?;
+        let buffer = self.parse_expr()?;
+        if self.at(&Token::Comma) {
+            self.advance();
+        }
+        self.expect(&Token::RParen)?;
+        Ok(Expr::ChannelNew {
+            elem_type,
+            buffer: Box::new(buffer),
+        })
     }
 
     // ── Perform expression ──────────────────────────────────────────

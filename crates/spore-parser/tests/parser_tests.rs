@@ -830,7 +830,7 @@ fn test_pub_const_item() {
 
 // ── Return / Throw / List / Char / String prefix tests ──────────────────────
 
-use spore_parser::ast::{Expr, FStringPart, TStringPart};
+use spore_parser::ast::{Expr, FStringPart, SelectArm, TStringPart, TypeExpr};
 
 fn get_fn_body(src: &str) -> Expr {
     let m = parse_ok(src);
@@ -974,10 +974,61 @@ fn test_select_expr() {
     match tail {
         Expr::Select(arms) => {
             assert_eq!(arms.len(), 2);
-            assert_eq!(arms[0].binding, "val");
-            assert_eq!(arms[1].binding, "msg");
+            assert!(matches!(
+                &arms[0],
+                SelectArm::Recv { binding, .. } if binding == "val"
+            ));
+            assert!(matches!(
+                &arms[1],
+                SelectArm::Recv { binding, .. } if binding == "msg"
+            ));
         }
         other => panic!("expected Select, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_select_expr_with_timeout_arm() {
+    let src = r#"fn f(rx1: Chan) -> Int {
+        select {
+            val from rx1 => val,
+            timeout(5) => 0
+        }
+    }"#;
+    let tail = get_tail(src);
+    match tail {
+        Expr::Select(arms) => {
+            assert_eq!(arms.len(), 2);
+            assert!(matches!(
+                &arms[1],
+                SelectArm::Timeout {
+                    duration: Expr::IntLit(5),
+                    body: Expr::IntLit(0)
+                }
+            ));
+        }
+        other => panic!("expected Select with timeout, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_task_await_postfix_sugar() {
+    let tail = get_tail("fn f() -> Int { let t = spawn 41; t.await }");
+    match tail {
+        Expr::Await(inner) => assert!(matches!(*inner, Expr::Var(ref name) if name == "t")),
+        other => panic!("expected Await from postfix sugar, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_channel_new_sugar() {
+    let tail = get_tail("fn f() { Channel.new[Int](buffer: 8) }");
+    match tail {
+        Expr::ChannelNew { elem_type, buffer } => {
+            assert!(matches!(elem_type, TypeExpr::Named(ref n) if n == "Int"));
+            assert!(matches!(*buffer, Expr::IntLit(8)));
+        }
+        other => panic!("expected ChannelNew sugar, got {:?}", other),
     }
 }
 
@@ -1008,7 +1059,7 @@ fn test_module_header_with_uses_is_rejected() {
 
 // ── Item 4: alias declaration ───────────────────────────────────────────
 
-use spore_parser::ast::{AliasDef, Item, TypeExpr, Visibility};
+use spore_parser::ast::{AliasDef, Item, Visibility};
 
 #[test]
 fn test_alias_def() {

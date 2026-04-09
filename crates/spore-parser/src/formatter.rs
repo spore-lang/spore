@@ -853,8 +853,15 @@ impl Formatter {
                 self.fmt_expr(expr);
             }
             Expr::Await(expr) => {
-                self.write("await ");
                 self.fmt_expr(expr);
+                self.write(".await");
+            }
+            Expr::ChannelNew { elem_type, buffer } => {
+                self.write("Channel.new[");
+                self.fmt_type_expr(elem_type);
+                self.write("](buffer: ");
+                self.fmt_expr(buffer);
+                self.write(")");
             }
             Expr::Return(expr) => {
                 self.write("return");
@@ -921,11 +928,25 @@ impl Formatter {
                 self.indent += 1;
                 for arm in arms {
                     self.write_indent();
-                    self.write(&arm.binding);
-                    self.write(" from ");
-                    self.fmt_expr(&arm.source);
-                    self.write(" => ");
-                    self.fmt_expr(&arm.body);
+                    match arm {
+                        SelectArm::Recv {
+                            binding,
+                            source,
+                            body,
+                        } => {
+                            self.write(binding);
+                            self.write(" from ");
+                            self.fmt_expr(source);
+                            self.write(" => ");
+                            self.fmt_expr(body);
+                        }
+                        SelectArm::Timeout { duration, body } => {
+                            self.write("timeout(");
+                            self.fmt_expr(duration);
+                            self.write(") => ");
+                            self.fmt_expr(body);
+                        }
+                    }
                     self.write(",");
                     self.newline();
                 }

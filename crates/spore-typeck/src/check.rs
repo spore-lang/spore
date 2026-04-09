@@ -1141,6 +1141,16 @@ impl Checker {
                 }
             }
 
+            Expr::ChannelNew { elem_type, buffer } => {
+                let buffer_ty = self.check_expr(buffer);
+                self.unify(&Ty::Int, &buffer_ty, "Channel.new buffer");
+                let elem_ty = self.resolve_type(elem_type);
+                Ty::Tuple(vec![
+                    Ty::App("Sender".into(), vec![elem_ty.clone()]),
+                    Ty::App("Receiver".into(), vec![elem_ty]),
+                ])
+            }
+
             Expr::Return(expr) => {
                 if let Some(inner) = expr {
                     let ret_val_ty = self.check_expr(inner);
@@ -1188,13 +1198,27 @@ impl Checker {
             Expr::Select(arms) => {
                 let mut result_ty: Option<Ty> = None;
                 for arm in arms {
-                    let _source_ty = self.check_expr(&arm.source);
-                    self.env.push_scope();
-                    // Bind the received value — type is unknown for now
-                    let binding_ty = self.fresh_var();
-                    self.env.define(arm.binding.clone(), binding_ty);
-                    let arm_ty = self.check_expr(&arm.body);
-                    self.env.pop_scope();
+                    let arm_ty = match arm {
+                        SelectArm::Recv {
+                            binding,
+                            source,
+                            body,
+                        } => {
+                            let _source_ty = self.check_expr(source);
+                            self.env.push_scope();
+                            // Bind the received value — type is unknown for now
+                            let binding_ty = self.fresh_var();
+                            self.env.define(binding.clone(), binding_ty);
+                            let arm_ty = self.check_expr(body);
+                            self.env.pop_scope();
+                            arm_ty
+                        }
+                        SelectArm::Timeout { duration, body } => {
+                            let duration_ty = self.check_expr(duration);
+                            self.unify(&Ty::Int, &duration_ty, "select timeout");
+                            self.check_expr(body)
+                        }
+                    };
                     if let Some(ref expected) = result_ty {
                         self.unify(expected, &arm_ty, "select arms");
                     } else {

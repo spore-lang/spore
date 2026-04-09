@@ -354,6 +354,13 @@ impl Lowering {
             ast::Expr::Try(inner) => HirExpr::Try(Box::new(self.lower_expr(inner))),
             ast::Expr::Spawn(inner) => HirExpr::Spawn(Box::new(self.lower_expr(inner))),
             ast::Expr::Await(inner) => HirExpr::Await(Box::new(self.lower_expr(inner))),
+            ast::Expr::ChannelNew { buffer, .. } => HirExpr::Call(
+                Box::new(HirExpr::FieldAccess(
+                    Box::new(HirExpr::Var("Channel".to_string(), UNRESOLVED)),
+                    "new".to_string(),
+                )),
+                vec![self.lower_expr(buffer)],
+            ),
 
             ast::Expr::Return(inner) => {
                 HirExpr::Return(inner.as_ref().map(|e| Box::new(self.lower_expr(e))))
@@ -375,7 +382,10 @@ impl Lowering {
             ast::Expr::Select(arms) => {
                 // PoC: lower to a block containing the first arm's body, or unit
                 if let Some(first) = arms.first() {
-                    self.lower_expr(&first.body)
+                    match first {
+                        ast::SelectArm::Recv { body, .. }
+                        | ast::SelectArm::Timeout { body, .. } => self.lower_expr(body),
+                    }
                 } else {
                     HirExpr::StrLit(String::new()) // empty select → unit-like
                 }
