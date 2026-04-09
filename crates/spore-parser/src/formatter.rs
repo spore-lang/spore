@@ -1195,6 +1195,12 @@ mod tests {
     }
 
     #[test]
+    fn test_function_with_errors_roundtrips() {
+        let src = "fn risky(path: Str) -> Str ! IoError | ParseError { path }\n";
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
     fn test_struct_def() {
         let src = "struct Point { x: Int, y: Int }\n";
         let out = roundtrip(src);
@@ -1293,6 +1299,12 @@ mod tests {
     #[test]
     fn test_foreign_fn_with_uses_roundtrips() {
         let src = "foreign fn read_file(path: String) -> String uses [FileRead]\n";
+        assert_eq!(roundtrip(src), src);
+    }
+
+    #[test]
+    fn test_foreign_fn_with_errors_roundtrips() {
+        let src = "foreign fn process_run(cmd: Str, args: List[Str]) -> Str ! IoError | ExecError uses [Spawn]\n";
         assert_eq!(roundtrip(src), src);
     }
 

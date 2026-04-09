@@ -170,6 +170,32 @@ just package-cli        # build a wheel into dist/
 just package-cli-sdist  # build a source distribution into dist/
 ```
 
+## Development
+
+### Local hooks
+
+```bash
+just pre-commit-install  # install pre-commit + commit-msg hooks via prek
+just pre-commit          # run the configured hooks on all files
+```
+
+In this repository, the local Spore hooks intentionally focus on the canonical demo surface (`demo.sp` today). The reusable published hooks below are for arbitrary `.sp` files in downstream repos.
+
+### Reusable hooks
+
+With the root `pyproject.toml` in place, the repository can also expose reusable pre-commit hooks for `.sp` files:
+
+```yaml
+repos:
+  - repo: https://github.com/spore-lang/spore
+    rev: <tag-or-sha>
+    hooks:
+      - id: spore-format
+      - id: spore-check
+```
+
+Until a dedicated thin mirror repo exists, installing these hooks from the source repo still builds Spore from source, so consumers need a working Rust toolchain.
+
 ## Documentation
 
 ### Specifications

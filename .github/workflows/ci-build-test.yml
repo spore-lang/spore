@@ -46,6 +46,11 @@ jobs:
       - name: Run doc tests
         run: cargo test --doc --all-features
 
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Validate published hook manifest
+        run: uvx prek validate-manifest .pre-commit-hooks.yaml
+
       - name: Smoke-test demo via spore test
         run: cargo run --release --bin spore -- test demo.sp
 
