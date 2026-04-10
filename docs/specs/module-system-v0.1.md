@@ -232,7 +232,7 @@ fn compute_totals(order: ValidatedOrder) -> Invoice {
 pub type Invoice {
     id: InvoiceId,
     customer: Customer,
-    line_items: Vec<LineItem>,
+    line_items: Vec[LineItem],
     total: Money,
 }
 
@@ -1131,7 +1131,7 @@ A module can contain only type definitions and no functions. This is a common pa
 pub type Invoice {
     id: InvoiceId,
     customer: Customer,
-    line_items: Vec<LineItem>,
+    line_items: Vec[LineItem],
     total: Money,
     status: InvoiceStatus,
 }

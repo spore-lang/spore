@@ -683,7 +683,7 @@ where TypeParam2: Constraint2
 uses [resource1, resource2]
 cost [compute, alloc, io, parallel]
 spec {
-    example "baseline" => function_name(sample1, sample2) == expected
+    example "baseline": function_name(sample1, sample2) == expected
 }
 {
     // 函数体 (Function body)
@@ -1972,11 +1972,11 @@ Channel[T]    // 并发通道 (Concurrent channel)
 ### 14.4 语法 EBNF 概要 (EBNF grammar sketch)
 
 ```ebnf
-Program       = { ImportDecl | AliasDecl | Function | Struct | Type | Capability }
+Program       = { ImportDecl | AliasDecl | Function | Struct | Type | Trait }
 ImportDecl    = "import" ModulePath [ "as" Ident ]
 AliasDecl     = "alias" Ident "=" QualifiedItem
 Function      = "fn" Ident [ TypeParams ] "(" [ Params ] ")" [ "->" Type ]
-                [ "!" "[" Types "]" ] [ WhereClause ] [ UsesClause ] [ CostClause ] [ SpecClause ] Block
+                [ "!" TypeExpr { "|" TypeExpr } ] [ WhereClause ] [ UsesClause ] [ CostClause ] [ SpecClause ] Block
 CostClause    = "cost" "[" CostSlot "," CostSlot "," CostSlot "," CostSlot "]"
 CostSlot      = IntLiteral | ParamVar | "O" "(" ParamVar ")"
 ParamVar      = Ident   -- must name a function parameter
@@ -1997,7 +1997,7 @@ Pattern       = Literal | Ident | Constructor | Struct | List | "_" | Pattern "|
 Constructor   = Ident "(" [ Pattern { "," Pattern } ] ")"
 SpecClause    = "spec" "{" { SpecItem } "}"
 
-Type          = Ident | Type "[" Types "]" | "(" [ Types ] ")" "->" Type [ "!" "[" Types "]" ]
+Type          = Ident | Type "[" Types "]" | "(" [ Types ] ")" "->" Type [ "!" TypeExpr { "|" TypeExpr } ]
 ```
 
 > 注：以上 `Function` 产生式按文档推荐顺序书写签名子句；解析器实际接受 `where`、`uses`、`cost`、`spec` 按任意顺序出现并进行规范化。当前 `CostSlot` 仅覆盖整数常量、参数变量与线性 `O(n)` 记法；`urls.len`、`expr_size(expr) * 10`、`O(log n)`、`max`/`min` 等更丰富形式仍待后续版本统一。
@@ -2096,7 +2096,7 @@ where U: Display
 uses [Compute]
 cost [500, 0, 0, 0]
 spec {
-    example "round-trip" => encode(value) |> decode == value
+    example "round-trip": encode(value) |> decode == value
 }
 ```
 

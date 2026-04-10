@@ -35,6 +35,13 @@ Codebase Manager: `spore`（有状态）
 | D11 | `! E1 \| E2` 错误集语法 | 管道符，无方括号，fn-def 和 type-expr 通用 |
 | D12 | 禁止选择性/通配符导入 | SEP-0008 规则 |
 | D13 | Range `a..b` 已知实现差距 | token 已词法化，无 parser 路径 |
+| N1 | `cost [c, a, i, p]` 向量形式 | 已实现；避免非 ASCII `≤`；SEP map 形式留待未来 |
+| N2 | `type Name { Variant(T) }` 用于枚举 | 花括号界定，位置参数字段，按 parser 实现 |
+| N3 | v0.1 无 tuple structs | parser 仅支持 `struct Name { field: Type }` |
+| N4 | `where` 子句不支持 `+` 多重约束 | 每个参数单一约束；`where T: Bound, U: Bound` |
+| N5 | Spec 子句使用 `:` 分隔符 | `example "name": expr`，非 `=>` |
+| N6 | `Int`/`Float` = `I64`/`F64` 别名 | 尺寸类型是具体类型；抽象名是便利别名 |
+| N7 | `struct` = 积类型，`type` = 和类型 | 按 D1；`type` 关键字仅用于 enum/ADT |
 
 ## 已确定的设计
 
@@ -45,7 +52,7 @@ fn name(params) -> ReturnType ! Errors
     uses [Capabilities]
     cost [compute, alloc, io, parallel]
     spec {
-        example "..." => ...
+        example "...": ...
     }
 { body }
 ```

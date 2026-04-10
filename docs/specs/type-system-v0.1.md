@@ -420,8 +420,8 @@ like lending iterators and self-referential collections.
 
 ```spore
 trait LendingIterator {
-    type Item<'a>
-    fn next<'a>(self: &'a mut Self) -> Option<Self.Item<'a>>
+    type Item
+    fn next(self) -> Option[Self.Item]
 }
 
 trait Container {
@@ -529,14 +529,17 @@ fn map[A, B](list: List[A], f: (A) -> B) -> List[B]
 
 fn merge[T, U, V](left: List[T], right: List[U], resolver: (T, U) -> V) -> List[V]
 where
-    T: Eq + Hash
-    U: Eq + Hash
+    T: Eq
+    U: Eq
     V: Serialize
 cost [800, 0, 0, 0]
 {
     -- implementation
 }
 ```
+
+> **Note (N4):** v0.1 does not support multi-bound with `+` (e.g., `T: Eq + Hash`).
+> Each type parameter gets a single bound. Use separate `where` lines for each constraint.
 
 ### 5.2 Const Generics
 
@@ -637,18 +640,18 @@ Refinements are organized into two levels:
 ### 6.1 L0 — Decidable Predicates
 
 L0 refinements are predicates that the compiler can fully evaluate at compile time.
-They use the `if` clause on type aliases with `self` referring to the value.
+They use the `when` clause on type aliases with `self` referring to the value.
 
 ```spore
-type Port = I32 if 1 <= self <= 65535
+type Port = I32 when 1 <= self <= 65535
 
-type Percentage = F64 if 0.0 <= self <= 100.0
+type Percentage = F64 when 0.0 <= self <= 100.0
 
 type NonEmptyString = Str when self.len() > 0
 
 type PositiveInt = I32 when self > 0
 
-type HttpStatusCode = I32 if 100 <= self <= 599
+type HttpStatusCode = I32 when 100 <= self <= 599
 ```
 
 **Usage in signatures**:
@@ -1361,10 +1364,10 @@ send_email(to: uid, subject: "Hello")      -- ERROR: expected Email, got UserId
 Newtypes may have refinements:
 
 ```spore
-type Port = I32 if 1 <= self <= 65535
+type Port = I32 when 1 <= self <= 65535
 type NonEmptyString = Str when self.len() > 0
-type Latitude = F64 if -90.0 <= self <= 90.0
-type Longitude = F64 if -180.0 <= self <= 180.0
+type Latitude = F64 when -90.0 <= self <= 90.0
+type Longitude = F64 when -180.0 <= self <= 180.0
 ```
 
 ### 11.3 Recursive Types
@@ -1575,7 +1578,7 @@ Unifying capabilities and traits provides:
 
 ### Why FuncCall/Module Removed
 
-The original `FuncCall<f>` and `Module<m>` capabilities were removed because:
+The original `FuncCall[f]` and `Module[m]` capabilities were removed because:
 
 1. **Too granular.** Tracking every function call as a capability makes signatures
    unreadable and snapshot hashes unstable.
