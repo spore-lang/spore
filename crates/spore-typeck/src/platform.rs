@@ -1,7 +1,8 @@
-//! Platform system — capability grants and entry point validation.
+//! Platform system — capability grants and startup contract validation.
 //!
 //! Platforms define the runtime environment for Spore programs.
-//! They grant capabilities and define the entry point signature.
+//! They grant capabilities and define the startup contract for the selected
+//! entry module.
 
 use std::collections::HashMap;
 
@@ -14,11 +15,11 @@ pub struct Platform {
     pub name: String,
     /// Capabilities this platform provides.
     pub capabilities: CapabilitySet,
-    /// Required entry point function name.
+    /// Required startup function name inside the selected entry module.
     pub entry_point: String,
-    /// Expected signature of the entry point.
+    /// Expected parameter types for the startup function.
     pub entry_params: Vec<String>,
-    /// Expected return type of the entry point.
+    /// Expected return type of the startup function.
     pub entry_return: String,
     /// Platform-specific configuration.
     pub config: PlatformConfig,
@@ -126,7 +127,7 @@ impl Platform {
         }
     }
 
-    /// Validate entry point signature.
+    /// Validate the startup function against the platform startup contract.
     pub fn validate_entry_point(
         &self,
         fn_name: &str,
@@ -139,7 +140,7 @@ impl Platform {
             warnings.push(PlatformWarning {
                 kind: PlatformWarningKind::MissingEntryPoint,
                 message: format!(
-                    "platform `{}` expects entry point `{}`, but it was not found",
+                    "platform `{}` expects startup function `{}`, but it was not found",
                     self.name, self.entry_point
                 ),
             });
@@ -149,7 +150,7 @@ impl Platform {
             warnings.push(PlatformWarning {
                 kind: PlatformWarningKind::WrongEntrySignature,
                 message: format!(
-                    "entry point `{}` should take {} parameters, takes {}",
+                    "startup function `{}` should take {} parameters, takes {}",
                     self.entry_point,
                     self.entry_params.len(),
                     param_count
@@ -161,7 +162,7 @@ impl Platform {
             warnings.push(PlatformWarning {
                 kind: PlatformWarningKind::WrongEntrySignature,
                 message: format!(
-                    "entry point `{}` should return `{}`, returns `{}`",
+                    "startup function `{}` should return `{}`, returns `{}`",
                     self.entry_point, self.entry_return, return_type
                 ),
             });
