@@ -162,7 +162,7 @@ spore (stateful codebase manager — handles IO)
 
 **Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, and cost analysis. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, and try-operator support.
 
-See [docs/](docs/) for comprehensive specifications.
+See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. Topic-level normative proposals live in the sibling `spore-evolution/seps/` repo.
 
 ## Packaging
 
@@ -201,25 +201,25 @@ Until a dedicated thin mirror repo exists, installing these hooks from the sourc
 
 ## Documentation
 
-### Specifications
+### Canonical design docs
 | Document | Description |
 |----------|-------------|
-| [Syntax Spec](docs/specs/syntax-spec-v0.1.md) | Complete syntax reference |
-| [Signature Details](docs/specs/syntax-spec-v0.1.md#appendix-b-signature-details) | Function signature design |
-| [Type System](docs/specs/type-system-v0.1.md) | Type system specification |
-| [Module System](docs/specs/module-system-v0.1.md) | File-derived modules and dual hash addressing |
-| [Effect Algebra](docs/specs/effect-algebra-v0.1.md) | Capability set algebra and composition |
-| [Cost Analysis](docs/specs/cost-analysis-v0.1.md) | Cost model and static analysis |
-| [Compiler Output](docs/specs/compiler-output-v0.1.md) | Diagnostic format (text / verbose / JSON) |
-| [Hole Report v0.3](docs/specs/hole-report-v0.3.md) | Active hole protocol and report format |
-| [Hole Dependency Graph](docs/specs/hole-dependency-graph-v0.1.md) | Hole DAG and parallel fill ordering |
-| [Concurrency](docs/specs/concurrency-model-v0.1.md) | Structured concurrency model |
-| [Package Management](docs/specs/package-management-v0.1.md) | Content-addressed packages |
-| [Platform System](docs/specs/platform-system-v0.1.md) | IO through effect handlers |
-| [Incremental Compilation](docs/specs/incremental-compilation-v0.1.md) | Watch mode and incremental builds |
+| [docs/DESIGN.md](docs/DESIGN.md) | Primary in-repo design document, syntax authority, and durable design summary |
+| [docs/specs/README.md](docs/specs/README.md) | Redirect for the retired per-topic spec drafts |
+| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts |
 
-### Design Overview
-See [docs/DESIGN.md](docs/DESIGN.md) for the master design document with all confirmed decisions.
+### SEP mapping
+Detailed topic proposals now live in the sibling `spore-evolution/seps/` repo:
+
+- `SEP-0001-core-syntax.md`
+- `SEP-0002-type-system.md`
+- `SEP-0003-effect-capability-system.md`
+- `SEP-0004-cost-analysis.md`
+- `SEP-0005-hole-system.md`
+- `SEP-0006-compiler-architecture.md`
+- `SEP-0007-concurrency-model.md`
+- `SEP-0008-module-package-system.md`
+- `SEP-0009-standard-library.md`
 
 ## License
 
