@@ -230,12 +230,13 @@ fn name(params) -> ReturnType ! Errors
 - 其余全部第三方（JSON/HTTP/正则/时间等）
 
 ### Platform 系统（v0.1）
-- 语言级概念，在 `spore.toml` 的 Platform 配置中声明（支持单 Platform 与多 Platform）
+- 语言级概念，在 `spore.toml` 中声明；一个项目只绑定一个 Platform
 - 提供所有 IO effect handler（应用代码完全纯净）
 - Effect handler 风格（与并发模型统一）
 - 不内置官方 Platform，全部第三方
-- 支持多 Platform（优先级指定，编译器检查无冲突）
-- Platform 契约: capability 集合 + handler 实现 + 入口点类型
+- 命名 `entry` 选择项目的可执行目标，并解析到对应的 `entry module`
+- Platform 契约: capability 集合 + handler 实现 + `startup contract`
+- `entry module` 中提供满足 `startup contract` 的 `startup function`（当前通常是 `main`）
 - 实现语言: 原生代码（Rust/C/编译后的 Spore）
 - 测试: 换 mock Platform（确定性 handler）
 
@@ -279,8 +280,9 @@ fn name(params) -> ReturnType ! Errors
 - **依赖粒度**：继续支持 `sig`-only 依赖与 `sig+impl` 完整依赖。前者服务接口耦合和增量检查，后者服务实际构建与发布；两者都建立在双 hash 身份模型上。
 - **缓存与分发**：默认保持 Git-first、内容寻址、全局去重缓存；`.spore-store` 作为本地缓存与后端抽象入口，可兼容 local path、registry、IPFS 等来源，但仓库内主叙述仍以 Git / 本地路径为第一优先级。
 - **清理与维护工作流**：依赖增删改仍围绕 `spore add` / `spore update` / `spore remove` / `spore gc` 展开；GC 的语义是“以锁文件可达集为根清理未引用哈希”，而不是按版本号或发布时间做启发式删除。
-- **Platform 契约**：Platform 仍是普通包形态的语言级概念，在 manifest 中声明，并以三件事构成契约：处理哪些 capability、提供哪些 handler、要求什么 entry-point 类型。应用代码不直接持有 IO 实现。
-- **多 Platform**：允许组合多个 Platform，但前提是不引入 handler 路由歧义；编译器必须能证明“每个 effect 恰有一个最终 handler”。priority 只是路由规则，不是逃避冲突检查的手段。
+- **Platform 契约**：Platform 仍是普通包形态的语言级概念，在 manifest 中声明，并以三件事构成契约：处理哪些 capability、提供哪些 handler、以及要求 `entry module` 中的 `startup function` 满足怎样的 `startup contract`。应用代码不直接持有 IO 实现。
+- **项目 entry vs Platform startup contract**：`entry` 是项目层选择的执行目标，解析到某个源文件 / 模块；Platform 不拥有这个模块，但会对该模块中的 `startup function` 施加契约校验。这样可以把“选哪个模块运行”和“该模块里函数签名必须长什么样”明确拆开。
+- **单 Platform / 项目**：一个 manifest-backed 项目只绑定一个 Platform。之所以先收缩到这一模型，是为了避免 handler 路由、priority 规则、测试替身和诊断语义同时膨胀；多个可执行目标先通过命名 `entry` 建模，而不是通过同一项目同时绑定多个 Platform 建模。跨 Platform 组合保留为未来专题设计，而不是 v0.1 承诺面。
 - **测试与替身**：mock / test / record-replay Platform 是 durable 设计结论，不是附带示例。Spore 的“应用代码保持纯净、IO 由 Platform 承担”必须直接转化为可重复测试、确定性重放和平台替换能力。
 
 ### 编译器 Pipeline 架构（v0.1）

@@ -102,7 +102,7 @@ A Spore project follows a conventional layout managed by `spore.toml`:
 my-app/
 ├── spore.toml          # project manifest
 ├── src/
-│   ├── main.sp         # entry point (application)
+│   ├── main.sp         # default entry module (application)
 │   └── billing/
 │       ├── invoice.sp  # module: billing.invoice
 │       └── types.sp    # module: billing.types
@@ -117,6 +117,10 @@ import billing.types
 ```
 
 The compiler resolves modules from the `src/` directory and detects circular dependencies at compile time.
+
+At the project layer, an `entry` selects a source path/module. The selected
+`entry module` then provides a `startup function` that must satisfy the
+configured Platform's `startup contract`.
 
 ## CLI reference
 
