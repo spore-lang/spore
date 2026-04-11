@@ -60,6 +60,20 @@ jobs:
       - name: Smoke-test stdlib specs
         run: cargo run --release --bin spore -- test stdlib/math.sp stdlib/string.sp stdlib/collections.sp stdlib/char.sp stdlib/set.sp stdlib/dict.sp
 
+      - name: Smoke-test sporec CLI
+        run: |
+          cargo run --release --bin sporec -- explain E0001
+          cargo run --release --bin sporec -- compile examples/demo.sp
+          cat > /tmp/sporec-hole-smoke.sp <<'EOF'
+          fn main() -> I32 {
+              ?todo
+          }
+          EOF
+          cargo run --release --bin sporec -- holes --json /tmp/sporec-hole-smoke.sp > /tmp/sporec-holes.json
+          grep -q '"holes"' /tmp/sporec-holes.json
+          cargo run --release --bin sporec -- query-hole --json /tmp/sporec-hole-smoke.sp '?todo' > /tmp/sporec-hole.json
+          grep -q '"name"' /tmp/sporec-hole.json
+
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
