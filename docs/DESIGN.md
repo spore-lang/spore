@@ -176,32 +176,48 @@ fn name(params) -> ReturnType ! Errors
 - `where` 关键字仅保留用于单一泛型约束（`where T: Constraint`）；多重 / 分组形式暂不纳入 v0.1
 - 基本类型（文档规范写法）: I32/I64/U32/U64/F32/F64/Bool/Char/Str/() + List[T]/Map[K,V]/Set[T]
 
-## 设计文档索引
+## 文档治理与规范映射
 
-### 规格文档 (docs/specs/)
-- [syntax-spec-v0.1.md](specs/syntax-spec-v0.1.md) — 语法规格（含签名语法详解，原 signature-syntax-v0.2 已合入附录 B）
-- [type-system-v0.1.md](specs/type-system-v0.1.md) — 类型系统设计
-- [effect-algebra-v0.1.md](specs/effect-algebra-v0.1.md) — 效果代数设计
-- [cost-analysis-v0.1.md](specs/cost-analysis-v0.1.md) — 代价分析综合规范（整合原 cost-model / cost-decidability / recursion-analysis）
-- [hole-report-v0.4.md](specs/hole-report-v0.4.md) — Hole 报告规范（正式版，含依赖图形式化规范）
-- [compiler-output-v0.1.md](specs/compiler-output-v0.1.md) — 编译器输出格式设计
-- [incremental-compilation-v0.1.md](specs/incremental-compilation-v0.1.md) — 增量编译与 Watch 模式
-- [module-system-v0.1.md](specs/module-system-v0.1.md) — 模块系统设计（含双 hash）
-- [package-management-v0.1.md](specs/package-management-v0.1.md) — 包管理系统设计
-- [platform-system-v0.1.md](specs/platform-system-v0.1.md) — Platform 系统设计
-- [concurrency-model-v0.1.md](specs/concurrency-model-v0.1.md) — 并发模型设计
+`docs/DESIGN.md` 现在是仓库内唯一的主设计文档：
+- **表面语法统一决策**、跨主题约束、实现栈结论统一维护在此文件。
+- **规范级长文** 迁移为 SEP 体系；当前 SEP 文本位于 sibling repo `../../spore-evolution/seps/`。
+- 旧 `docs/specs/` 与 `docs/research/` 草案不再独立维护，目录仅保留最小重定向说明，避免设计漂移。
 
-### 调研文档 (docs/research/)
-- [module-system-research.md](research/module-system-research.md) — 10 语言模块系统调研
-- [type-research-dependent.md](research/type-research-dependent.md) — 依赖类型调研（7 语言）
-- [type-research-practical.md](research/type-research-practical.md) — 实用类型系统调研（7 语言）
-- [pkg-management-research.md](research/pkg-management-research.md) — 10 语言包管理调研
-- [hot-reload-research.md](research/hot-reload-research.md) — 12 系统热重载调研
-- [syntax-research.md](research/syntax-research.md) — 10 语言语法设计调研
-- [impl-stack-research.md](research/impl-stack-research.md) — 10 语言编译器实现栈调研
-- [codegen-comparison.md](research/codegen-comparison.md) — LLVM vs Cranelift 深度对比
+### 主题摘要与 SEP 对照
 
-> 已被当前 specs 吸收且不再作为现行参考的旧调研/旧草案，直接从仓库移除，不保留 archive 副本。
+| 主题 | 本文保留的 durable 摘要 | 相关 SEP / 外部规范 |
+|---|---|---|
+| 核心语法与签名 | expression-based 语言；签名子句推荐顺序 `where → uses → cost → spec`；`struct`/`type`/`trait`/`perform`/`when`/`[T]`/`Str` 等统一决策以本文 D1–D13、N1–N7 为当前权威。若任何 SEP 草案仍保留旧表面写法，以本文为准，待后续回写。 | `SEP-0001-core-syntax.md` |
+| 类型系统 | nominal 为主、局部推断、显式签名、sealed enum、关联类型/GAT、const generics、L0/L1 细化类型；v0.1 不引入 HKT 或完整 dependent types。 | `SEP-0002-type-system.md` |
+| 能力 / effect 语义 | 语义层保持 capability-set 检查、推断 purity/determinism、handler 由 Platform / runtime 承载；语法层继续采用本文统一后的 `uses [...]` 与 trait/capability 约定。 | `SEP-0003-effect-capability-system.md` |
+| 代价模型 | 保留四维 CostVector（compute/alloc/io/parallel）与静态验证目标；现行 surface syntax 固定为 `cost [c, a, i, p]`，复杂代数与更丰富表达式留待后续。 | `SEP-0004-cost-analysis.md` |
+| Hole 协作协议 | typed holes、依赖感知排序、JSON 报告、跨模块聚合、Open→Filling→Filled→Accepted 状态机；本文保留工作流摘要，完整协议见 SEP。 | `SEP-0005-hole-system.md` |
+| 编译器输出 / 架构 / watch | 诊断编码、默认/verbose/json 三模式、内容寻址缓存、增量编译、watch/LSP 后端、6 阶段 pipeline 的高层约束保留在本文；详细数据模型与协议交给 SEP。 | `SEP-0006-compiler-architecture.md` |
+| 并发模型 | 结构化并发、`Spawn` 能力、Channel 消息传递、取消传播、lane 作为 parallel cost 维度；本文保留用户心智模型，形式化语义见 SEP。 | `SEP-0007-concurrency-model.md` |
+| 模块 / 包 / Platform | 一文件一模块、双 hash、private-by-default、内容寻址依赖、Git-first 存储、Platform 提供 IO handler、无 wildcard import；本文的“无模块级 carrier / ceiling、仅项目与 Platform 边界检查”是当前统一口径。 | `SEP-0008-module-package-system.md` |
+| 标准库边界 | prelude + 少量核心集合容器 + `Ref[T]`；绝大多数功能走第三方包，IO 由 Platform 提供。 | `SEP-0009-standard-library.md` |
+
+### 跨语言调研沉淀（持久结论）
+
+以下内容来自原 `docs/research/`，仅保留仍然影响语言方向的结论：
+
+| 调研主题 | 沉淀结论 |
+|---|---|
+| 语法设计 | 采用 expression-based 核心、有限关键字、无自定义操作符、显式签名承载错误/能力/代价信息。 |
+| 实用类型系统 | 函数边界显式、函数体内推断；穷尽匹配与错误信息质量是语言可用性的核心投资。 |
+| 依赖类型光谱 | 选择 refinement + 抽象解释 + const generics 的 80/20 路线，而非 SMT / theorem proving / 全 dependent types。 |
+| 模块系统 | 路径导出模块名、private-by-default、避免独立 module language / functor，参数化优先通过 generics + traits 完成。 |
+| 包管理 | 内容寻址、锁文件 pin、哈希校验、去中心化或 Git-first 分发优于传统 semver-first registry。 |
+| 热重载 | v0.1 聚焦增量编译、watch、诊断与 hole 进度；不把“运行时状态保持式热重载”作为首要目标。 |
+| 实现技术栈 | Rust 在 ADT、增量编译、WASM、LSP、FFI、内容寻址与工具链成熟度上是最佳折中。 |
+| 代码生成 | 先用 Cranelift 获得纯 Rust 实现、快编译与 WASM 友好性；LLVM 保留为未来可选高性能后端。 |
+
+#### 语言方向与非目标（研究长文折叠）
+- **语法方向**：保留 expression-based、有限关键字、无自定义操作符、签名集中承载约束这四个总原则；具体表面语法由本文 D1–D13 / N1–N7 统一维护，完整语法论证与替代方案比较不再留在仓库内旧草案里。
+- **类型方向**：继续坚持“函数边界显式、函数体内推断”的工程化路线，把错误信息质量、穷尽匹配、签名可读性放在优先级前列；不把 HKT、全 dependent types、SMT 驱动证明或 theorem-proving 作为 v0.1 目标。
+- **模块方向**：文件系统就是模块声明；避免单独的 module language、functor、模块级 capability carrier/cap ceiling，把参数化能力留给 generics + traits + package / Platform 边界。
+- **运行时方向**：watch mode 的目标是“保存后快速反馈”，不是 Erlang/Smalltalk 式运行时热替换；v0.1 不承诺状态迁移、热升级、分布式热重载或动态装载协议。
+- **实现方向**：编译器继续以 Rust bootstrap 起步，优先保证可维护的 parser/typechecker/codegen/tooling 闭环；纯计算组件未来可逐步自举，但不以“尽快全量自举”压过当前语言设计收敛。
 
 ### 标准库（极简）
 - **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Char/Str/(), Option[T], Result[T,E], 基本操作符, |>, ?
@@ -214,7 +230,7 @@ fn name(params) -> ReturnType ! Errors
 - 其余全部第三方（JSON/HTTP/正则/时间等）
 
 ### Platform 系统（v0.1）
-- 语言级概念，spore.toml 中声明 `platform = "git:url"`
+- 语言级概念，在 `spore.toml` 的 Platform 配置中声明（支持单 Platform 与多 Platform）
 - 提供所有 IO effect handler（应用代码完全纯净）
 - Effect handler 风格（与并发模型统一）
 - 不内置官方 Platform，全部第三方
@@ -237,6 +253,35 @@ fn name(params) -> ReturnType ! Errors
 - **LSP 服务器**: tower-lsp
 - **内容寻址 Hash**: blake3
 - **无 Comptime**: 不支持图灵完备的编译期执行（Zig 风格），const generics + 细化类型 + 代价模型已覆盖 95% 场景；v1.1 按需可加轻量 `const fn`
+
+### 编译器输出与工具消费约定
+- 这是仓库内保留的**高层行为约束**；错误码枚举、JSON schema、字段级协议由 `SEP-0006-compiler-architecture.md` 继续持有。
+- 编译器输出同时服务 **人类开发者 / CI / LSP / Agent**。因此三种模式保持稳定分层：默认文本用于最小可执行反馈，`--verbose` 在同一诊断模型上增加推导链与上下文，`--json` 是机器消费的超集而不是另一套语义。
+- 默认文本输出始终包含：`severity + code`、源码定位、带下划线的源片段、上下文 note、以及至少一条 `help:` 修复建议；不再保留“只报错不指路”的极简模式。
+- 错误码分类继续固定为 `E/W/C/K/H/M` 六大族：类型、警告、能力、代价、hole、模块。`sporec --explain CODE` 是统一的长解释入口，避免把长篇错误说明散落在旧文档中。
+- Hole 诊断是 **note / partial-state signal**，不是单独导致退出失败的错误；只有真实类型/能力/代价/模块错误才使编译返回非零状态。这一点是后续 hole workflow、watch mode 与 CI 兼容性的基础。
+- `--json` / `watch --json` 继续承担工具协议角色：前者给出完整诊断对象，后者以事件流承载编译结果、hole 图更新与增量状态变化；LSP 与自动化工具都应从这一机器语义面消费，而非解析彩色文本。
+
+### 增量编译、Watch 与 Hole 协作
+- 完整协议已交给 `SEP-0005-hole-system.md` 与 `SEP-0006-compiler-architecture.md`；这里保留不应丢失的**工作流与架构约束**。
+- **双 hash 决策树** 是 watch / cache 设计核心：`impl hash` 不变则本模块直接跳过；`impl` 变但 `sig hash` 不变则只重编本模块；`sig hash` 改变时才沿依赖图向下游传播。
+- `sig hash` 只覆盖公开接口、能力要求与 cost annotation；私有实现、注释、内部 hole 状态不应触发下游级联。这样保证“改实现不改接口”仍是局部反馈。
+- `spore watch` 的触发语义是 **保存后编译**，不是对半编辑 buffer 做每击键分析；watch 输出面向终端与 LSP/Agent 共用，默认要能在失败后继续工作并保留最近一次可用依赖图。
+- Hole 协作保留单一主循环：`DISCOVER → ANALYZE → PROPOSE → VERIFY → ACCEPT/REJECT`。其中 `DISCOVER` 来自 `spore watch --json` 的 hole 图事件，`ANALYZE` 来自 `sporec --query-hole <id> --json`，`REJECT` 必须返回结构化 root cause 与 fix hints，而不是只给一段文本。
+- 填洞仍采用**单 hole 原子提交**的约束：一次只替换一个 hole、再交给增量编译验证。这样能把诊断、候选排序、依赖图更新和 agent 重试策略都锚定在可回滚的最小步上。
+- v0.1 watch 的目标是“增量编译 + 实时诊断 + hole 进度”，而不是运行时状态保持式 hot reload；因此旧热重载调研中的 Erlang/Smalltalk/Pharo 路线只作为参考，不进入当前承诺面。
+
+### 模块、包与 Platform 的工程约束
+- 细节规范归 `SEP-0008-module-package-system.md`；本文保留的是仓库内部最稳定的工程结论。
+- **模块布局**：`src/` 下路径直接决定模块名；推荐 `types.spore` 承载目录共享类型、`shortcuts.spore` 承载公开别名；测试模块位于 `test/`，可消费 `pub` 与 `pub(pkg)` API。模块段名继续采用 lowercase `snake_case`。
+- **可见性模型**：仅保留 private / `pub(pkg)` / `pub` 三层；Hole 候选搜索、诊断与导出 API 视图都必须尊重同一套可见性边界，不再另有旧文档中的模块例外规则。
+- **包管理心智模型**：`spore.toml` 负责声明依赖意图，`.spore-lock` 负责 pin 精确解析结果；哈希才是兼容性与复现的权威，human-readable version/tag 只作发现与沟通用途，不重新引入 semver-first 解析。
+- **依赖粒度**：继续支持 `sig`-only 依赖与 `sig+impl` 完整依赖。前者服务接口耦合和增量检查，后者服务实际构建与发布；两者都建立在双 hash 身份模型上。
+- **缓存与分发**：默认保持 Git-first、内容寻址、全局去重缓存；`.spore-store` 作为本地缓存与后端抽象入口，可兼容 local path、registry、IPFS 等来源，但仓库内主叙述仍以 Git / 本地路径为第一优先级。
+- **清理与维护工作流**：依赖增删改仍围绕 `spore add` / `spore update` / `spore remove` / `spore gc` 展开；GC 的语义是“以锁文件可达集为根清理未引用哈希”，而不是按版本号或发布时间做启发式删除。
+- **Platform 契约**：Platform 仍是普通包形态的语言级概念，在 manifest 中声明，并以三件事构成契约：处理哪些 capability、提供哪些 handler、要求什么 entry-point 类型。应用代码不直接持有 IO 实现。
+- **多 Platform**：允许组合多个 Platform，但前提是不引入 handler 路由歧义；编译器必须能证明“每个 effect 恰有一个最终 handler”。priority 只是路由规则，不是逃避冲突检查的手段。
+- **测试与替身**：mock / test / record-replay Platform 是 durable 设计结论，不是附带示例。Spore 的“应用代码保持纯净、IO 由 Platform 承担”必须直接转化为可重复测试、确定性重放和平台替换能力。
 
 ### 编译器 Pipeline 架构（v0.1）
 
@@ -287,8 +332,7 @@ salsa::tracked → lex(file) → parse(tokens) → resolve(ast) → type_check(h
 - **脱糖全在 Resolve 层**: `|>`/`?`/`f"..."` 均在进入 HIR 前脱糖，TypeCheck 不处理语法糖
 - **不支持 Comptime**: const generics + 细化类型 + 代价模型已足够；Elm/Roc/Gleam 均无 comptime
 
-## 下一步
-- [ ] 设计具体 IR 数据结构（AST with spans, HIR types, TypedHIR types）
-- [ ] 规划 Phase 1 实现范围和任务
-- [ ] 实现 Phase 1: Lexer → Parser → 基本类型检查 → hello-world codegen
-- [ ] 11 份规格文档一致性审计
+## 后续维护重点
+- [ ] 将仍与本文表面语法不一致的 SEP 草案回写统一（重点：syntax / effect / module-package）
+- [ ] 补齐已知实现差距：Range `a..b`、并发 runtime、 richer cost expressions
+- [ ] 在实现推进时保持本文、SEP 与 README 的交叉引用同步
