@@ -16,11 +16,11 @@ pub struct Platform {
     /// Capabilities this platform provides.
     pub capabilities: CapabilitySet,
     /// Required startup function name inside the selected entry module.
-    pub entry_point: String,
+    pub startup_function: String,
     /// Expected parameter types for the startup function.
-    pub entry_params: Vec<String>,
+    pub startup_params: Vec<String>,
     /// Expected return type of the startup function.
-    pub entry_return: String,
+    pub startup_return: String,
     /// Platform-specific configuration.
     pub config: PlatformConfig,
 }
@@ -58,9 +58,9 @@ impl Platform {
         Self {
             name: "cli".into(),
             capabilities,
-            entry_point: "main".into(),
-            entry_params: vec![],
-            entry_return: "I32".into(),
+            startup_function: "main".into(),
+            startup_params: vec![],
+            startup_return: "I32".into(),
             config: PlatformConfig {
                 max_concurrency: None,
                 async_support: true,
@@ -85,9 +85,9 @@ impl Platform {
         Self {
             name: "web".into(),
             capabilities,
-            entry_point: "main".into(),
-            entry_params: vec![],
-            entry_return: "()".into(),
+            startup_function: "main".into(),
+            startup_params: vec![],
+            startup_return: "()".into(),
             config: PlatformConfig {
                 max_concurrency: Some(1),
                 async_support: true,
@@ -101,9 +101,9 @@ impl Platform {
         Self {
             name: "embedded".into(),
             capabilities: CapabilitySet::new(),
-            entry_point: "main".into(),
-            entry_params: vec![],
-            entry_return: "()".into(),
+            startup_function: "main".into(),
+            startup_params: vec![],
+            startup_return: "()".into(),
             config: PlatformConfig {
                 max_concurrency: Some(1),
                 async_support: false,
@@ -128,42 +128,42 @@ impl Platform {
     }
 
     /// Validate the startup function against the platform startup contract.
-    pub fn validate_entry_point(
+    pub fn validate_startup_function(
         &self,
-        fn_name: &str,
+        startup_name: &str,
         param_count: usize,
         return_type: &str,
     ) -> Vec<PlatformWarning> {
         let mut warnings = Vec::new();
 
-        if fn_name != self.entry_point {
+        if startup_name != self.startup_function {
             warnings.push(PlatformWarning {
-                kind: PlatformWarningKind::MissingEntryPoint,
+                kind: PlatformWarningKind::MissingStartupFunction,
                 message: format!(
                     "platform `{}` expects startup function `{}`, but it was not found",
-                    self.name, self.entry_point
+                    self.name, self.startup_function
                 ),
             });
         }
 
-        if param_count != self.entry_params.len() {
+        if param_count != self.startup_params.len() {
             warnings.push(PlatformWarning {
-                kind: PlatformWarningKind::WrongEntrySignature,
+                kind: PlatformWarningKind::WrongStartupSignature,
                 message: format!(
                     "startup function `{}` should take {} parameters, takes {}",
-                    self.entry_point,
-                    self.entry_params.len(),
+                    self.startup_function,
+                    self.startup_params.len(),
                     param_count
                 ),
             });
         }
 
-        if return_type != self.entry_return {
+        if return_type != self.startup_return {
             warnings.push(PlatformWarning {
-                kind: PlatformWarningKind::WrongEntrySignature,
+                kind: PlatformWarningKind::WrongStartupSignature,
                 message: format!(
                     "startup function `{}` should return `{}`, returns `{}`",
-                    self.entry_point, self.entry_return, return_type
+                    self.startup_function, self.startup_return, return_type
                 ),
             });
         }
@@ -181,8 +181,8 @@ pub struct PlatformWarning {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlatformWarningKind {
-    MissingEntryPoint,
-    WrongEntrySignature,
+    MissingStartupFunction,
+    WrongStartupSignature,
     UnsupportedCapability,
 }
 
@@ -267,16 +267,16 @@ mod tests {
     }
 
     #[test]
-    fn entry_point_validation() {
+    fn startup_function_validation() {
         let p = Platform::cli();
-        let warnings = p.validate_entry_point("main", 0, "I32");
+        let warnings = p.validate_startup_function("main", 0, "I32");
         assert!(warnings.is_empty());
 
-        let warnings = p.validate_entry_point("main", 0, "Str");
+        let warnings = p.validate_startup_function("main", 0, "Str");
         assert!(
             warnings
                 .iter()
-                .any(|w| w.kind == PlatformWarningKind::WrongEntrySignature)
+                .any(|w| w.kind == PlatformWarningKind::WrongStartupSignature)
         );
     }
 

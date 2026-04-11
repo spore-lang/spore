@@ -143,7 +143,7 @@ pub fn compile_files(paths: &[&str]) -> Result<CompileOutput, String> {
     }
 }
 
-/// Intermediate state after parsing and resolving a project entry point.
+/// Intermediate state after parsing and resolving a project entry module.
 ///
 /// Shared setup for [`compile_project`] and [`run_project`].
 struct PreparedProject {
@@ -152,11 +152,11 @@ struct PreparedProject {
     loader: ModuleLoader,
 }
 
-/// Parse the entry file, build a module registry, and resolve imports.
+/// Parse the selected entry module file, build a module registry, and resolve imports.
 fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> {
     let mut loader = ModuleLoader::new(root.to_path_buf());
 
-    // Parse entry file
+    // Parse the selected entry module file.
     let entry_path = root.join("src").join(entry);
     let source = std::fs::read_to_string(&entry_path)
         .map_err(|e| format!("cannot read `{}`: {e}", entry_path.display()))?;
@@ -259,7 +259,7 @@ fn collect_prepared_project_results(
 /// Compile a Spore project rooted at `root`, starting from `entry`.
 ///
 /// 1. Creates a [`ModuleLoader`] from the project root
-/// 2. Parses the entry file at `{root}/src/{entry}`
+/// 2. Parses the entry module file at `{root}/src/{entry}`
 /// 3. Recursively resolves all imports from disk
 /// 4. Type-checks with a shared [`ModuleRegistry`]
 ///
@@ -279,7 +279,8 @@ pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String
     Ok(CompileOutput { warnings })
 }
 
-/// Run a Spore project by compiling and executing its entry file's `main`.
+/// Run a Spore project by compiling and executing its entry module's current
+/// default startup function (`main`).
 ///
 /// Like [`compile_project`], but also invokes the interpreter with
 /// cross-module function resolution.
@@ -307,7 +308,8 @@ pub fn holes(source: &str) -> Result<String, String> {
     Ok(result.hole_report.to_json())
 }
 
-/// Run a Spore program by executing its `main` function.
+/// Run a Spore program by executing its current default startup function
+/// (`main`).
 pub fn run(source: &str) -> Result<Value, String> {
     let ast = parse(source).map_err(join_errors)?;
     let _result = type_check(&ast).map_err(join_errors)?;
