@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use spore_codegen::value::Value;
 use spore_parser::ast::{ImportDecl, Item, Span};
@@ -102,25 +102,44 @@ pub fn compile_files(paths: &[&str]) -> Result<CompileOutput, String> {
     for path in paths {
         let source =
             std::fs::read_to_string(path).map_err(|e| format!("cannot read `{path}`: {e}"))?;
+        let canonical_path = std::fs::canonicalize(path)
+            .map_err(|e| format!("cannot canonicalize `{path}`: {e}"))?;
         let ast = parse(&source).map_err(|errs| {
             let msgs: Vec<String> = errs.into_iter().map(|e| e.to_string()).collect();
             format!("{path}: {}", msgs.join("\n"))
         })?;
-        modules.push((*path, ast));
+        modules.push(((*path).to_string(), canonical_path, ast));
     }
+
+    let common_root = common_parent_dir(
+        &modules
+            .iter()
+            .map(|(_, canonical_path, _)| canonical_path.clone())
+            .collect::<Vec<_>>(),
+    )?;
 
     // Phase 2: Build ModuleRegistry from all modules
     let mut registry = ModuleRegistry::new();
-    for (_path, ast) in &modules {
-        let iface = spore_typeck::build_module_interface(ast);
-        registry.register(iface);
-    }
+    let modules = modules
+        .into_iter()
+        .map(|(path, canonical_path, ast)| {
+            let module_name = module_name_for_path(&common_root, &canonical_path)?;
+            let mut iface = spore_typeck::build_module_interface(&ast);
+            iface.path = module_name
+                .split('.')
+                .map(|segment| segment.to_string())
+                .collect();
+            registry.register(iface);
+            Ok((path, module_name, ast))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
 
     // Phase 3: Type-check each module with the shared registry
     let mut all_errors = Vec::new();
     let mut all_warnings = Vec::new();
-    for (path, ast) in &modules {
-        match type_check_with_registry(ast, registry.clone()) {
+    for (path, module_name, ast) in &modules {
+        let ast = with_module_name(ast, module_name);
+        match type_check_with_registry(&ast, registry.clone()) {
             Ok(result) => {
                 for w in &result.warnings {
                     all_warnings.push(format!("{path}: {w}"));
@@ -141,6 +160,59 @@ pub fn compile_files(paths: &[&str]) -> Result<CompileOutput, String> {
     } else {
         Err(all_errors.join("\n"))
     }
+}
+
+fn common_parent_dir(paths: &[PathBuf]) -> Result<PathBuf, String> {
+    let first = paths
+        .first()
+        .ok_or_else(|| "compile_files requires at least one input file".to_string())?;
+    let mut common = first
+        .parent()
+        .ok_or_else(|| {
+            format!(
+                "cannot determine parent directory for `{}`",
+                first.display()
+            )
+        })?
+        .to_path_buf();
+
+    for path in paths.iter().skip(1) {
+        while !path.starts_with(&common) {
+            if !common.pop() {
+                return Err(format!(
+                    "cannot determine a common module root for `{}` and `{}`",
+                    first.display(),
+                    path.display()
+                ));
+            }
+        }
+    }
+
+    Ok(common)
+}
+
+fn module_name_for_path(common_root: &Path, path: &Path) -> Result<String, String> {
+    let relative = path.strip_prefix(common_root).map_err(|_| {
+        format!(
+            "`{}` is not under common module root `{}`",
+            path.display(),
+            common_root.display()
+        )
+    })?;
+    let mut components = relative
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    let Some(last) = components.last_mut() else {
+        return Err(format!(
+            "cannot derive module name from `{}`",
+            path.display()
+        ));
+    };
+    if let Some(stripped) = last.strip_suffix(".sp") {
+        *last = stripped.to_string();
+    }
+    Ok(components.join("."))
 }
 
 /// Intermediate state after parsing and resolving a project entry module.

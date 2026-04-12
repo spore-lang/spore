@@ -99,7 +99,7 @@ fn exec_compile(files: &[String], json_output: bool) -> ExitCode {
     let result = if files.len() == 1 {
         let source = match read_source(&files[0]) {
             Ok(source) => source,
-            Err(code) => return code,
+            Err(message) => return print_error(&message, json_output),
         };
         sporec::compile(&source)
     } else {
@@ -133,7 +133,7 @@ fn exec_compile(files: &[String], json_output: bool) -> ExitCode {
 fn exec_holes(file: &str, json_output: bool) -> ExitCode {
     let source = match read_source(file) {
         Ok(source) => source,
-        Err(code) => return code,
+        Err(message) => return print_error(&message, json_output),
     };
 
     if json_output {
@@ -169,7 +169,7 @@ fn exec_holes(file: &str, json_output: bool) -> ExitCode {
 fn exec_query_hole(file: &str, hole: &str, json_output: bool) -> ExitCode {
     let source = match read_source(file) {
         Ok(source) => source,
-        Err(code) => return code,
+        Err(message) => return print_error(&message, json_output),
     };
 
     let report = match load_hole_report(&source) {
@@ -236,11 +236,8 @@ fn exec_explain(code: &str, json_output: bool) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn read_source(path: &str) -> Result<String, ExitCode> {
-    fs::read_to_string(path).map_err(|error| {
-        eprintln!("error: cannot read `{path}`: {error}");
-        ExitCode::FAILURE
-    })
+fn read_source(path: &str) -> Result<String, String> {
+    fs::read_to_string(path).map_err(|error| format!("cannot read `{path}`: {error}"))
 }
 
 fn load_hole_report(source: &str) -> Result<HoleReport, String> {

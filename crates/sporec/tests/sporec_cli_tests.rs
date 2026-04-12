@@ -84,6 +84,35 @@ fn compile_fails_on_invalid_file() {
 }
 
 #[test]
+fn compile_multiple_files_resolves_imports() {
+    let temp = TempDir::new("compile-multi-imports");
+    let main = temp.write(
+        "main.sp",
+        r#"
+        import foo
+        fn main() -> I32 { foo() }
+        "#,
+    );
+    let foo = temp.write("foo.sp", "pub fn foo() -> I32 { 1 }\n");
+
+    let output = sporec_cmd()
+        .args(["compile", main.to_str().unwrap(), foo.to_str().unwrap()])
+        .output()
+        .expect("run sporec compile for multiple files");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("ok: no errors (2 files)"),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
 fn holes_json_contains_holes_key() {
     let temp = TempDir::new("holes-json");
     let file = temp.write(
@@ -111,6 +140,33 @@ fn holes_json_contains_holes_key() {
         stdout.contains("\"name\": \"todo\"") || stdout.contains("\"name\":\"todo\""),
         "stdout: {stdout}"
     );
+}
+
+#[test]
+fn json_commands_report_read_errors_as_json() {
+    for args in [
+        vec!["compile", "--json", "does-not-exist.sp"],
+        vec!["holes", "--json", "does-not-exist.sp"],
+        vec!["query-hole", "--json", "does-not-exist.sp", "?todo"],
+    ] {
+        let output = sporec_cmd()
+            .args(&args)
+            .output()
+            .expect("run sporec JSON command");
+
+        assert!(!output.status.success(), "args: {:?}", args);
+        assert!(
+            output.stderr.is_empty(),
+            "stderr should stay empty for JSON errors, got: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("\"status\":\"error\""), "stdout: {stdout}");
+        assert!(
+            stdout.contains("cannot read `does-not-exist.sp`"),
+            "stdout: {stdout}"
+        );
+    }
 }
 
 #[test]
