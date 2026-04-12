@@ -50,9 +50,12 @@ pub fn call(module: &Module, name: &str, args: Vec<Value>) -> Result<Value, Runt
 /// Execute a Spore project with cross-module imports.
 ///
 /// Loads imported modules first (making their public symbols available),
-/// then loads the entry module and calls its current default startup function
-/// (`main`).
-pub fn run_project(entry: &Module, imports: &[(String, Module)]) -> Result<Value, RuntimeError> {
+/// then loads the entry module and calls the resolved startup function.
+pub fn run_project(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+) -> Result<Value, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
     interp.load_prelude();
@@ -62,7 +65,7 @@ pub fn run_project(entry: &Module, imports: &[(String, Module)]) -> Result<Value
     }
 
     interp.load_module(entry);
-    interp.call_function("main", vec![])
+    interp.call_function(startup_function, vec![])
 }
 
 /// Generate test input values for a given type.

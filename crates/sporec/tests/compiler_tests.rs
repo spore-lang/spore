@@ -285,7 +285,7 @@ fn compile_project_rejects_type_error_in_imported_module() {
         "src/main.sp",
         r#"
         import utils
-        fn main() -> I32 { double(21) }
+        fn main() -> () { double(21); return }
         "#,
     );
     project.write(
@@ -314,7 +314,7 @@ fn run_project_rejects_type_error_in_imported_module_before_execution() {
         "src/main.sp",
         r#"
         import utils
-        fn main() -> I32 { double(21) }
+        fn main() -> () { double(21); return }
         "#,
     );
     project.write(
@@ -372,7 +372,7 @@ fn check_project_verbose_includes_imported_module_sections() {
         "src/main.sp",
         r#"
         import utils
-        fn main() -> I32 { double(21) }
+        fn main() -> () { double(21); return }
         "#,
     );
     project.write(
@@ -399,6 +399,162 @@ fn check_project_verbose_includes_imported_module_sections() {
     assert!(
         detail.matches("── Type Inference ──").count() >= 2,
         "expected per-module verbose sections, got: {detail}"
+    );
+}
+
+#[test]
+fn compile_project_rejects_declared_entry_without_required_startup() {
+    let project = TempProject::new("project-missing-startup");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        fn boot() -> () {
+            return
+        }
+        "#,
+    );
+
+    let err = compile_project(project.root(), "app.sp")
+        .expect_err("declared entry without main should fail startup validation");
+    assert!(
+        err.contains("required startup function `main`"),
+        "expected startup validation error, got: {err}"
+    );
+}
+
+#[test]
+fn compile_project_accepts_alias_equivalent_startup_signature() {
+    let project = TempProject::new("project-alias-startup");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        fn main() -> Unit {
+            return
+        }
+
+        alias Unit = ()
+        "#,
+    );
+
+    let output = compile_project(project.root(), "app.sp")
+        .expect("alias-equivalent startup signature should pass validation");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn compile_project_allows_non_entry_module_in_manifest_project() {
+    let project = TempProject::new("project-non-entry-check");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "main.sp"
+        "#,
+    );
+    project.write("src/main.sp", "fn main() -> () { return }\n");
+    project.write("src/lib/util.sp", "pub fn helper() -> I32 { 42 }\n");
+
+    let output = compile_project(project.root(), "lib/util.sp")
+        .expect("non-entry modules should still compile in project context");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn run_project_rejects_non_entry_module_in_manifest_project() {
+    let project = TempProject::new("project-non-entry-run");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "main.sp"
+        "#,
+    );
+    project.write("src/main.sp", "fn main() -> () { return }\n");
+    project.write("src/lib/util.sp", "pub fn helper() -> I32 { 42 }\n");
+
+    let err = run_project(project.root(), "lib/util.sp")
+        .expect_err("non-entry module should not become runnable");
+    assert!(
+        err.contains("not runnable"),
+        "expected non-runnable project module error, got: {err}"
+    );
+}
+
+#[test]
+fn run_project_rejects_non_runnable_legacy_package_entry() {
+    let project = TempProject::new("legacy-package-run");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "package"
+        "#,
+    );
+    project.write(
+        "src/lib.sp",
+        "pub fn add(a: I32, b: I32) -> I32 { a + b }\n",
+    );
+
+    let err = run_project(project.root(), "lib.sp")
+        .expect_err("legacy package entry should not be runnable");
+    assert!(
+        err.contains("not runnable"),
+        "expected non-runnable package error, got: {err}"
     );
 }
 

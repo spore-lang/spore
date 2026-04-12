@@ -301,89 +301,8 @@ fn find_project_root(path: &Path) -> Option<PathBuf> {
     }
 }
 
-fn default_entry_for_project_type(project_type: &str) -> Option<&'static str> {
-    match project_type {
-        "application" => Some("main.sp"),
-        "package" => Some("lib.sp"),
-        "platform" => Some("host.sp"),
-        _ => None,
-    }
-}
-
-fn manifest_project_type(root: &Path) -> Result<Option<String>, String> {
-    let manifest = root.join("spore.toml");
-    let content = std::fs::read_to_string(&manifest)
-        .map_err(|e| format!("cannot read `{}`: {e}", manifest.display()))?;
-
-    let mut in_package_section = false;
-    for raw_line in content.lines() {
-        let line = raw_line
-            .split_once('#')
-            .map_or(raw_line, |(before, _)| before)
-            .trim();
-
-        if line.is_empty() {
-            continue;
-        }
-
-        if line.starts_with('[') && line.ends_with(']') {
-            in_package_section = line == "[package]";
-            continue;
-        }
-
-        if in_package_section
-            && let Some((key, value)) = line.split_once('=')
-            && key.trim() == "type"
-        {
-            let value = value.trim().trim_matches('"').trim_matches('\'');
-            if !value.is_empty() {
-                return Ok(Some(value.to_string()));
-            }
-        }
-    }
-
-    Ok(None)
-}
-
 fn infer_project_entry(root: &Path) -> Result<String, String> {
-    let src_dir = root.join("src");
-    let manifest = root.join("spore.toml");
-
-    if let Some(project_type) = manifest_project_type(root)? {
-        if let Some(entry) = default_entry_for_project_type(&project_type) {
-            let entry_path = src_dir.join(entry);
-            if entry_path.is_file() {
-                return Ok(entry.to_string());
-            }
-            return Err(format!(
-                "project type `{project_type}` expects default entry path `{}`; create it or pass FILE explicitly",
-                entry_path.display()
-            ));
-        }
-
-        return Err(format!(
-            "unsupported project type `{project_type}` in `{}`; pass FILE explicitly",
-            manifest.display()
-        ));
-    }
-
-    let candidates: Vec<&str> = ["main.sp", "lib.sp", "host.sp"]
-        .into_iter()
-        .filter(|entry| src_dir.join(entry).is_file())
-        .collect();
-
-    match candidates.as_slice() {
-        [entry] => Ok((*entry).to_string()),
-        [] => Err(format!(
-            "could not infer a project default entry path from `{}`; add `[package].type` or pass FILE explicitly",
-            manifest.display()
-        )),
-        _ => Err(format!(
-            "could not infer a project default entry path for `{}`; found multiple defaults in src/ ({}) — pass FILE explicitly",
-            root.display(),
-            candidates.join(", ")
-        )),
-    }
+    sporec::resolve_default_project_target(root).map(|target| target.entry_path)
 }
 
 enum BuildTarget {
@@ -1046,19 +965,26 @@ fn is_valid_type(t: &str) -> bool {
 fn create_project(dir: &Path, name: &str, project_type: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(dir.join("src"))?;
 
-    let toml = format!(
+    let manifest_header = format!(
         "\
 [package]
 name = \"{name}\"
 version = \"0.1.0\"
 type = \"{project_type}\"
 spore-version = \">=0.1.0\"
-
-[capabilities]
-allow = [\"Compute\"]
-
-[dependencies]
 "
+    );
+    let project_config = match project_type {
+        "application" => {
+            "\n[project]\nplatform = \"cli\"\ndefault-entry = \"app\"\n\n[entries.app]\npath = \"main.sp\"\n".to_string()
+        }
+        "platform" => {
+            "\n[project]\nplatform = \"cli\"\ndefault-entry = \"host\"\n\n[entries.host]\npath = \"host.sp\"\n".to_string()
+        }
+        _ => String::new(),
+    };
+    let toml = format!(
+        "{manifest_header}{project_config}\n[capabilities]\nallow = [\"Compute\"]\n\n[dependencies]\n"
     );
     std::fs::write(dir.join("spore.toml"), toml)?;
 
@@ -1070,7 +996,7 @@ allow = [\"Compute\"]
         ),
         "platform" => (
             "host.sp",
-            "/// Platform startup adapter.\n/// This is where the platform sets up effect handlers before calling the application startup function.\npub fn main_for_host(app_main: () -> ()) -> () {\n    app_main();\n    return\n}\n"
+            "/// Platform host entry.\n/// This placeholder satisfies the current CLI startup contract while runtime host wiring is still evolving.\npub fn main() -> () {\n    return\n}\n"
                 .to_string(),
         ),
         _ => (
@@ -1098,6 +1024,9 @@ mod tests {
         let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
         assert!(toml.contains("name = \"my-app\""));
         assert!(toml.contains("type = \"application\""));
+        assert!(toml.contains("[project]"));
+        assert!(toml.contains("default-entry = \"app\""));
+        assert!(toml.contains("[entries.app]"));
     }
 
     #[test]
@@ -1108,6 +1037,7 @@ mod tests {
         assert!(project_dir.join("src/lib.sp").exists());
         let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
         assert!(toml.contains("type = \"package\""));
+        assert!(!toml.contains("[project]"));
     }
 
     #[test]
@@ -1118,6 +1048,11 @@ mod tests {
         assert!(project_dir.join("src/host.sp").exists());
         let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
         assert!(toml.contains("type = \"platform\""));
+        assert!(toml.contains("[project]"));
+        assert!(toml.contains("default-entry = \"host\""));
+        assert!(toml.contains("[entries.host]"));
+        let host = fs::read_to_string(project_dir.join("src/host.sp")).unwrap();
+        assert!(host.contains("pub fn main() -> ()"));
     }
 
     #[test]

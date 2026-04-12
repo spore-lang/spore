@@ -11,6 +11,12 @@ fn run_fn(src: &str, name: &str, args: Vec<Value>) -> Value {
     spore_codegen::call(&module, name, args).unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
+fn run_project_fn(src: &str, startup: &str) -> Value {
+    let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    spore_codegen::run_project(&module, &[], startup)
+        .unwrap_or_else(|e| panic!("runtime error: {e}"))
+}
+
 // ── Literals ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -110,6 +116,16 @@ fn test_call_with_args() {
         "fn add(a: Int, b: Int) -> Int { a + b }",
         "add",
         vec![Value::Int(20), Value::Int(22)],
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_project_run_uses_requested_startup_function() {
+    let v = run_project_fn(
+        "fn boot() -> Int { 42 }
+         fn main() -> Int { 0 }",
+        "boot",
     );
     assert_eq!(v.as_int(), Some(42));
 }

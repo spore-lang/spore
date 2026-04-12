@@ -114,6 +114,31 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
     let mut iface = ModuleInterface::new(path);
 
     let mut checker = Checker::new();
+    let aliases: Vec<_> = module
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Alias(alias_def) => Some(alias_def),
+            _ => None,
+        })
+        .collect();
+    for _ in 0..aliases.len() {
+        let mut changed = false;
+        for alias_def in &aliases {
+            let resolved = checker.resolve_type(&alias_def.target);
+            let previous = checker
+                .registry
+                .type_aliases
+                .insert(alias_def.name.clone(), resolved.clone());
+            if previous.as_ref() != Some(&resolved) {
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
     for item in &module.items {
         match item {
             Item::Function(f) => {

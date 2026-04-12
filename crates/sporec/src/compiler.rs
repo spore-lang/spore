@@ -1,12 +1,14 @@
 use std::path::{Path, PathBuf};
 
+use crate::project::{ResolvedProjectTarget, resolve_project_target_by_path};
 use spore_codegen::value::Value;
 use spore_parser::ast::{ImportDecl, Item, Span};
 use spore_parser::formatter::format_module;
 use spore_parser::parse;
 use spore_typeck::CheckResult;
 use spore_typeck::is_synthetic_hole_name;
-use spore_typeck::module::{ModuleLoader, ModuleRegistry};
+use spore_typeck::module::{ModuleInterface, ModuleLoader, ModuleRegistry};
+use spore_typeck::platform::PlatformRegistry;
 use spore_typeck::{type_check, type_check_with_registry};
 
 fn join_errors<E: std::fmt::Display>(errs: Vec<E>) -> String {
@@ -223,6 +225,7 @@ fn module_name_for_path(common_root: &Path, path: &Path) -> Result<String, Strin
 /// Shared setup for [`compile_project`] and [`run_project`].
 struct PreparedProject {
     ast: spore_parser::ast::Module,
+    entry_interface: ModuleInterface,
     registry: ModuleRegistry,
     loader: ModuleLoader,
 }
@@ -244,7 +247,7 @@ fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> 
     let mut registry = ModuleRegistry::new();
     let mut entry_iface = spore_typeck::build_module_interface(&ast);
     entry_iface.path = module_name.split('.').map(|s| s.to_string()).collect();
-    registry.register(entry_iface);
+    registry.register(entry_iface.clone());
 
     // Extract and resolve imports
     let imports: Vec<ImportDecl> = ast
@@ -264,6 +267,7 @@ fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> 
 
     Ok(PreparedProject {
         ast,
+        entry_interface: entry_iface,
         registry,
         loader,
     })
@@ -331,6 +335,27 @@ fn collect_prepared_project_results(
     }
 }
 
+fn validate_project_startup(
+    prep: &PreparedProject,
+    target: &ResolvedProjectTarget,
+) -> Result<(), String> {
+    let Some(platform_name) = target.platform_name.as_deref() else {
+        return Ok(());
+    };
+
+    let registry = PlatformRegistry::with_builtins();
+    let platform = registry.get(platform_name).ok_or_else(|| {
+        format!(
+            "unknown platform `{platform_name}` while validating entry path `{}`",
+            target.entry_path
+        )
+    })?;
+
+    platform
+        .validate_entry_startup(&prep.entry_interface)
+        .map_err(|err| err.message)
+}
+
 /// Compile a Spore project rooted at `root`, starting from `entry`.
 ///
 /// 1. Creates a [`ModuleLoader`] from the project root
@@ -340,8 +365,10 @@ fn collect_prepared_project_results(
 ///
 /// Single-file projects (no imports) work without a `ModuleLoader`.
 pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String> {
-    let prep = prepare_project(root, entry)?;
-    let results = collect_prepared_project_results(&prep, entry)?;
+    let target = resolve_project_target_by_path(root, entry)?;
+    let prep = prepare_project(root, &target.entry_path)?;
+    let results = collect_prepared_project_results(&prep, &target.entry_path)?;
+    validate_project_startup(&prep, &target)?;
     let warnings = results
         .into_iter()
         .flat_map(|(label, result)| {
@@ -354,16 +381,23 @@ pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String
     Ok(CompileOutput { warnings })
 }
 
-/// Run a Spore project by compiling and executing its entry module's current
-/// default startup function (`main`).
+/// Run a Spore project by compiling and executing its resolved startup function.
 ///
 /// Like [`compile_project`], but also invokes the interpreter with
 /// cross-module function resolution.
 pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
-    let prep = prepare_project(root, entry)?;
+    let target = resolve_project_target_by_path(root, entry)?;
+    let startup_function = target.startup_function.as_deref().ok_or_else(|| {
+        format!(
+            "entry path `{}` is not runnable: no platform startup contract is bound",
+            target.entry_path
+        )
+    })?;
+    let prep = prepare_project(root, &target.entry_path)?;
 
     // Type-check
-    let _results = collect_prepared_project_results(&prep, entry)?;
+    let _results = collect_prepared_project_results(&prep, &target.entry_path)?;
+    validate_project_startup(&prep, &target)?;
 
     // Collect imported module ASTs for the interpreter
     let mut imported_paths = prep.loader.loaded_modules();
@@ -373,7 +407,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
         .filter_map(|path| prep.loader.get_ast(&path).map(|ast| (path, ast.clone())))
         .collect();
 
-    spore_codegen::run_project(&prep.ast, &imported).map_err(|e| e.to_string())
+    spore_codegen::run_project(&prep.ast, &imported, startup_function).map_err(|e| e.to_string())
 }
 
 /// Analyze holes in Spore source and return a JSON report.
@@ -425,8 +459,10 @@ pub fn check_verbose(source: &str) -> Result<String, String> {
 
 /// Type-check a Spore project with verbose per-module output.
 pub fn check_project_verbose(root: &Path, entry: &str) -> Result<String, String> {
-    let prep = prepare_project(root, entry)?;
-    let results = collect_prepared_project_results(&prep, entry)?;
+    let target = resolve_project_target_by_path(root, entry)?;
+    let prep = prepare_project(root, &target.entry_path)?;
+    let results = collect_prepared_project_results(&prep, &target.entry_path)?;
+    validate_project_startup(&prep, &target)?;
     Ok(format_project_verbose_results(&results))
 }
 

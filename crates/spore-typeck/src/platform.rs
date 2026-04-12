@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use crate::capability::CapabilitySet;
+use crate::module::ModuleInterface;
 
 /// A platform definition.
 #[derive(Debug, Clone)]
@@ -60,7 +61,7 @@ impl Platform {
             capabilities,
             startup_function: "main".into(),
             startup_params: vec![],
-            startup_return: "I32".into(),
+            startup_return: "()".into(),
             config: PlatformConfig {
                 max_concurrency: None,
                 async_support: true,
@@ -170,6 +171,62 @@ impl Platform {
 
         warnings
     }
+
+    /// Validate the selected entry module against the platform startup contract.
+    pub fn validate_entry_startup(
+        &self,
+        entry_iface: &ModuleInterface,
+    ) -> Result<(), PlatformStartupError> {
+        let module_name = entry_iface.qualified_name();
+        let Some((params, ret_ty)) = entry_iface.functions.get(&self.startup_function) else {
+            return Err(PlatformStartupError {
+                kind: PlatformStartupErrorKind::MissingStartupFunction,
+                message: format!(
+                    "entry module `{module_name}` does not define required startup function `{}` for platform `{}`",
+                    self.startup_function, self.name
+                ),
+            });
+        };
+
+        let actual_params: Vec<String> = params.iter().map(ToString::to_string).collect();
+        if actual_params != self.startup_params {
+            return Err(PlatformStartupError {
+                kind: PlatformStartupErrorKind::WrongStartupSignature,
+                message: format!(
+                    "startup function `{}` in entry module `{module_name}` should take ({}) for platform `{}`, found ({})",
+                    self.startup_function,
+                    self.startup_params.join(", "),
+                    self.name,
+                    actual_params.join(", ")
+                ),
+            });
+        }
+
+        let actual_return = ret_ty.to_string();
+        if actual_return != self.startup_return {
+            return Err(PlatformStartupError {
+                kind: PlatformStartupErrorKind::WrongStartupSignature,
+                message: format!(
+                    "startup function `{}` in entry module `{module_name}` should return `{}` for platform `{}`, found `{}`",
+                    self.startup_function, self.startup_return, self.name, actual_return
+                ),
+            });
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlatformStartupError {
+    pub kind: PlatformStartupErrorKind,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlatformStartupErrorKind {
+    MissingStartupFunction,
+    WrongStartupSignature,
 }
 
 /// Platform-related warnings.
@@ -269,7 +326,7 @@ mod tests {
     #[test]
     fn startup_function_validation() {
         let p = Platform::cli();
-        let warnings = p.validate_startup_function("main", 0, "I32");
+        let warnings = p.validate_startup_function("main", 0, "()");
         assert!(warnings.is_empty());
 
         let warnings = p.validate_startup_function("main", 0, "Str");
@@ -278,6 +335,46 @@ mod tests {
                 .iter()
                 .any(|w| w.kind == PlatformWarningKind::WrongStartupSignature)
         );
+    }
+
+    #[test]
+    fn entry_startup_validation_rejects_missing_function() {
+        let platform = Platform::cli();
+        let entry = ModuleInterface::new(vec!["app".into()]);
+
+        let err = platform
+            .validate_entry_startup(&entry)
+            .expect_err("missing startup should fail");
+        assert_eq!(err.kind, PlatformStartupErrorKind::MissingStartupFunction);
+        assert!(err.message.contains("required startup function `main`"));
+    }
+
+    #[test]
+    fn entry_startup_validation_rejects_wrong_return_type() {
+        let platform = Platform::cli();
+        let mut entry = ModuleInterface::new(vec!["app".into()]);
+        entry
+            .functions
+            .insert("main".into(), (vec![], crate::types::Ty::Int));
+
+        let err = platform
+            .validate_entry_startup(&entry)
+            .expect_err("wrong return type should fail");
+        assert_eq!(err.kind, PlatformStartupErrorKind::WrongStartupSignature);
+        assert!(err.message.contains("should return `()`"));
+    }
+
+    #[test]
+    fn entry_startup_validation_accepts_matching_signature() {
+        let platform = Platform::cli();
+        let mut entry = ModuleInterface::new(vec!["app".into()]);
+        entry
+            .functions
+            .insert("main".into(), (vec![], crate::types::Ty::Unit));
+
+        platform
+            .validate_entry_startup(&entry)
+            .expect("matching startup signature should pass");
     }
 
     #[test]
