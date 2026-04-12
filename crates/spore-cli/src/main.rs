@@ -10,6 +10,7 @@ use owo_colors::OwoColorize;
 use serde_json::json;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+const EMPTY_DIAGNOSTICS: &[sporec_diagnostics::Diagnostic] = &[];
 
 // ---------------------------------------------------------------------------
 // CLI definition (bpaf)
@@ -274,16 +275,14 @@ fn fail_deny_warnings(
     json_output: bool,
 ) -> ExitCode {
     if json_output {
-        let mut payload = json!({
-            "status": "error",
-            "message": "warnings are denied",
-            "warnings": warnings,
-        });
+        let mut report = sporec_diagnostics::JsonReport::new()
+            .with_status(sporec_diagnostics::ReportStatus::Error)
+            .with_message("warnings are denied")
+            .with_warnings(warnings);
         if let Some(diagnostics) = warning_diagnostics {
-            payload["warning_diagnostics"] =
-                serde_json::to_value(diagnostics).expect("serialize warning diagnostics");
+            report = report.with_warning_diagnostics(diagnostics);
         }
-        sporec_diagnostics::print_json(&payload);
+        sporec_diagnostics::print_json(&report);
         ExitCode::FAILURE
     } else {
         fail_human("warnings are denied")
@@ -302,16 +301,21 @@ fn report_batch_check(
             let warning_messages = sporec_diagnostics::diagnostic_message_lines(&warnings);
             if json_output {
                 for (warning, message) in warnings.iter().zip(warning_messages.iter()) {
-                    sporec_diagnostics::print_json(&json!({
-                        "severity": "warning",
-                        "message": message,
-                        "diagnostic": warning,
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_severity(sporec_diagnostics::Severity::Warning)
+                            .with_message(message.as_str())
+                            .with_diagnostic(warning),
+                    );
                 }
                 if has_warnings && deny_warnings {
                     return fail_deny_warnings(&warning_messages, Some(&warnings), true);
                 }
-                sporec_diagnostics::print_json(&json!({"status": "ok", "errors": []}));
+                sporec_diagnostics::print_json(
+                    &sporec_diagnostics::JsonReport::new()
+                        .with_status(sporec_diagnostics::ReportStatus::Ok)
+                        .with_errors(EMPTY_DIAGNOSTICS),
+                );
             } else {
                 sporec_diagnostics::render_diagnostics_human_with_sources(&sources, &warnings);
                 if has_warnings && deny_warnings {
@@ -348,17 +352,22 @@ fn report_single_file_check(
             let warning_messages = sporec_diagnostics::diagnostic_message_lines(&warnings);
             if json_output {
                 for (warning, message) in warnings.iter().zip(warning_messages.iter()) {
-                    sporec_diagnostics::print_json(&json!({
-                        "severity": "warning",
-                        "message": message,
-                        "diagnostic": warning,
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_severity(sporec_diagnostics::Severity::Warning)
+                            .with_message(message.as_str())
+                            .with_diagnostic(warning),
+                    );
                 }
                 if has_warnings && deny_warnings {
                     return fail_deny_warnings(&warning_messages, Some(&warnings), true);
                 }
 
-                sporec_diagnostics::print_json(&json!({"status": "ok", "errors": []}));
+                sporec_diagnostics::print_json(
+                    &sporec_diagnostics::JsonReport::new()
+                        .with_status(sporec_diagnostics::ReportStatus::Ok)
+                        .with_errors(EMPTY_DIAGNOSTICS),
+                );
             } else {
                 sporec_diagnostics::render_diagnostics_human(&source, &warnings);
                 if has_warnings && deny_warnings {
@@ -652,11 +661,12 @@ fn exec_test(files: &[String], verbose: bool, json_output: bool, deny_warnings: 
                 let warning_messages = sporec_diagnostics::diagnostic_message_lines(&warnings);
                 if json_output {
                     for (warning, message) in warnings.iter().zip(warning_messages.iter()) {
-                        sporec_diagnostics::print_json(&json!({
-                            "severity": "warning",
-                            "message": message,
-                            "diagnostic": warning,
-                        }));
+                        sporec_diagnostics::print_json(
+                            &sporec_diagnostics::JsonReport::new()
+                                .with_severity(sporec_diagnostics::Severity::Warning)
+                                .with_message(message.as_str())
+                                .with_diagnostic(warning),
+                        );
                     }
                 } else {
                     sporec_diagnostics::render_diagnostics_human(&canonical_source, &warnings);
@@ -723,7 +733,11 @@ fn exec_test(files: &[String], verbose: bool, json_output: bool, deny_warnings: 
     // Summary
     if json_output {
         sporec_diagnostics::print_json(&json!({
-            "status": if total_failed == 0 { "ok" } else { "fail" },
+            "status": if total_failed == 0 {
+                sporec_diagnostics::ReportStatus::Ok
+            } else {
+                sporec_diagnostics::ReportStatus::Fail
+            },
             "passed": total_passed,
             "failed": total_failed,
         }));
@@ -922,11 +936,12 @@ fn exec_watch(file: &str, json_output: bool) -> ExitCode {
                     }
                     Err(e) => {
                         if json_output {
-                            sporec_diagnostics::print_json(&json!({
-                                "event": "error",
-                                "file": file,
-                                "message": e.to_string(),
-                            }));
+                            sporec_diagnostics::print_json(
+                                &sporec_diagnostics::JsonReport::new()
+                                    .with_event("error")
+                                    .with_file(file)
+                                    .with_message(e.to_string()),
+                            );
                         } else {
                             eprintln!("{}: reading `{file}`: {e}", "error".red().bold());
                         }
@@ -935,11 +950,12 @@ fn exec_watch(file: &str, json_output: bool) -> ExitCode {
             }
             Ok(Err(e)) => {
                 if json_output {
-                    sporec_diagnostics::print_json(&json!({
-                        "event": "error",
-                        "file": file,
-                        "message": format!("{e:?}"),
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_event("error")
+                            .with_file(file)
+                            .with_message(format!("{e:?}")),
+                    );
                 } else {
                     eprintln!("{}: watcher error: {e:?}", "error".red().bold());
                 }
@@ -958,23 +974,26 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
             sporec::CheckReport::Success { sources, warnings } => {
                 for warning in &warnings {
                     if json_output {
-                        sporec_diagnostics::print_json(&json!({
-                            "event": "warning",
-                            "file": path,
-                            "message": sporec_diagnostics::diagnostic_message_line(warning),
-                            "diagnostic": warning,
-                            "timestamp": ts,
-                        }));
+                        sporec_diagnostics::print_json(
+                            &sporec_diagnostics::JsonReport::new()
+                                .with_event("warning")
+                                .with_file(path)
+                                .with_severity(warning.severity)
+                                .with_message(sporec_diagnostics::diagnostic_message_line(warning))
+                                .with_diagnostic(warning)
+                                .with_timestamp(ts),
+                        );
                     }
                 }
                 if json_output {
-                    sporec_diagnostics::print_json(&json!({
-                        "event": "compile_result",
-                        "file": path,
-                        "status": "ok",
-                        "errors": [],
-                        "timestamp": ts,
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_event("compile_result")
+                            .with_file(path)
+                            .with_status(sporec_diagnostics::ReportStatus::Ok)
+                            .with_errors(EMPTY_DIAGNOSTICS)
+                            .with_timestamp(ts),
+                    );
                 } else {
                     if !warnings.is_empty() {
                         eprintln!("[{ts}] warnings for `{path}`:");
@@ -992,14 +1011,15 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
                 if json_output {
                     let message =
                         sporec_diagnostics::diagnostic_message_lines(&diagnostics).join("\n");
-                    sporec_diagnostics::print_json(&json!({
-                        "event": "compile_result",
-                        "file": path,
-                        "status": "error",
-                        "message": message,
-                        "diagnostics": diagnostics,
-                        "timestamp": ts,
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_event("compile_result")
+                            .with_file(path)
+                            .with_status(sporec_diagnostics::ReportStatus::Error)
+                            .with_message(message)
+                            .with_diagnostics(&diagnostics)
+                            .with_timestamp(ts),
+                    );
                 } else {
                     eprintln!("[{ts}] {} `{path}`:", "✗".red());
                     sporec_diagnostics::render_diagnostics_human_with_sources(
@@ -1010,13 +1030,14 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
             }
             sporec::CheckReport::Failure(sporec::CheckFailure::Message(message)) => {
                 if json_output {
-                    sporec_diagnostics::print_json(&json!({
-                        "event": "compile_result",
-                        "file": path,
-                        "status": "error",
-                        "message": message,
-                        "timestamp": ts,
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_event("compile_result")
+                            .with_file(path)
+                            .with_status(sporec_diagnostics::ReportStatus::Error)
+                            .with_message(message)
+                            .with_timestamp(ts),
+                    );
                 } else {
                     eprintln!("[{ts}] {} `{path}`:", "✗".red());
                     eprintln!("{message}");
@@ -1028,21 +1049,24 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
             sporec::SourceCheckReport::Success { source, warnings } => {
                 if json_output {
                     for warning in warnings {
-                        sporec_diagnostics::print_json(&json!({
-                            "event": "warning",
-                            "file": path,
-                            "message": sporec_diagnostics::diagnostic_message_line(&warning),
-                            "diagnostic": warning,
-                            "timestamp": ts,
-                        }));
+                        sporec_diagnostics::print_json(
+                            &sporec_diagnostics::JsonReport::new()
+                                .with_event("warning")
+                                .with_file(path)
+                                .with_severity(warning.severity)
+                                .with_message(sporec_diagnostics::diagnostic_message_line(&warning))
+                                .with_diagnostic(&warning)
+                                .with_timestamp(ts),
+                        );
                     }
-                    sporec_diagnostics::print_json(&json!({
-                        "event": "compile_result",
-                        "file": path,
-                        "status": "ok",
-                        "errors": [],
-                        "timestamp": ts,
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_event("compile_result")
+                            .with_file(path)
+                            .with_status(sporec_diagnostics::ReportStatus::Ok)
+                            .with_errors(EMPTY_DIAGNOSTICS)
+                            .with_timestamp(ts),
+                    );
                 } else {
                     if !warnings.is_empty() {
                         eprintln!("[{ts}] warnings for `{path}`:");
@@ -1058,14 +1082,15 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
                 if json_output {
                     let message =
                         sporec_diagnostics::diagnostic_message_lines(&diagnostics).join("\n");
-                    sporec_diagnostics::print_json(&json!({
-                        "event": "compile_result",
-                        "file": path,
-                        "status": "error",
-                        "message": message,
-                        "diagnostics": diagnostics,
-                        "timestamp": ts,
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_event("compile_result")
+                            .with_file(path)
+                            .with_status(sporec_diagnostics::ReportStatus::Error)
+                            .with_message(message)
+                            .with_diagnostics(&diagnostics)
+                            .with_timestamp(ts),
+                    );
                 } else {
                     eprintln!("[{ts}] {} `{path}`:", "✗".red());
                     sporec_diagnostics::render_diagnostics_human(&source, &diagnostics);
@@ -1073,13 +1098,14 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
             }
             sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Message(message)) => {
                 if json_output {
-                    sporec_diagnostics::print_json(&json!({
-                        "event": "compile_result",
-                        "file": path,
-                        "status": "error",
-                        "message": message,
-                        "timestamp": ts,
-                    }));
+                    sporec_diagnostics::print_json(
+                        &sporec_diagnostics::JsonReport::new()
+                            .with_event("compile_result")
+                            .with_file(path)
+                            .with_status(sporec_diagnostics::ReportStatus::Error)
+                            .with_message(message)
+                            .with_timestamp(ts),
+                    );
                 } else {
                     eprintln!("[{ts}] {} `{path}`:", "✗".red());
                     eprintln!("{message}");

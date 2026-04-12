@@ -1,7 +1,7 @@
 use serde_json::json;
 use spore_lsp::server::{
-    LspServer, build_diagnostics, build_hover_for_symbol, collect_document_symbols,
-    find_definition_in_source, word_at_position,
+    LspServer, build_diagnostics, build_diagnostics_for_document, build_hover_for_symbol,
+    collect_document_symbols, find_definition_in_source, word_at_position,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -72,8 +72,21 @@ fn test_build_diagnostics_invalid_source_has_errors() {
     assert!(d.get("range").is_some());
     assert!(d.get("severity").is_some());
     assert_eq!(d["severity"], json!(1));
+    assert_eq!(d["code"], json!("parse-error"));
     assert_eq!(d["source"], json!("spore"));
     assert!(d.get("message").is_some());
+}
+
+#[test]
+fn test_build_diagnostics_for_document_preserves_document_uri() {
+    let diags = build_diagnostics_for_document(
+        "file:///workspace/main.sp",
+        "fn main() -> I32 { \"oops\" }\n",
+    );
+
+    let d = &diags[0];
+    assert_eq!(d["code"], json!("E0001"));
+    assert_eq!(d["source"], json!("spore"));
 }
 
 // ── Completion tests ─────────────────────────────────────────────────
