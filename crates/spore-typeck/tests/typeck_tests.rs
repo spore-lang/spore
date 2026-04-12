@@ -112,6 +112,19 @@ fn test_string_concat() {
     check_ok("fn f() -> Str { \"a\" + \"b\" }");
 }
 
+#[test]
+fn test_generic_unit_variant_freshens_per_use() {
+    check_ok(
+        r#"
+        type Option[T] { Some(T), None }
+
+        fn choose(flag: Bool) -> Option[Str] {
+            if flag { None } else { Some("x") }
+        }
+        "#,
+    );
+}
+
 // ── Comparisons ──────────────────────────────────────────────────────────
 
 #[test]
@@ -236,6 +249,36 @@ fn test_struct_literal() {
     check_ok(
         "struct Point { x: F64, y: F64 }
          fn origin() -> Point { Point { x: 0.0, y: 0.0 } }",
+    );
+}
+
+#[test]
+fn test_generic_struct_literal_infers_type_arguments() {
+    check_ok(
+        r#"
+        struct Pair[A, B] { first: A, second: B }
+
+        fn make_pair[T, U](first: T, second: U) -> Pair[T, U] {
+            Pair { first: first, second: second }
+        }
+        "#,
+    );
+}
+
+#[test]
+fn test_generic_struct_field_access_preserves_type_arguments() {
+    check_ok(
+        r#"
+        struct Pair[A, B] { first: A, second: B }
+
+        fn first(pair: Pair[Str, I32]) -> Str { pair.first }
+
+        fn match_first(pair: Pair[Str, I32]) -> Str {
+            match pair {
+                Pair { first, second } => first,
+            }
+        }
+        "#,
     );
 }
 
@@ -1929,6 +1972,16 @@ fn builtin_tail_returns_option_list() {
 fn builtin_char_at_returns_option() {
     // Bug A7: char_at should return Option[String]
     check_ok(r#"fn f() -> Option[Str] { char_at("abc", 0) }"#);
+}
+
+#[test]
+fn builtin_char_to_int_type_checks() {
+    check_ok(r#"fn f() -> I32 { char_to_int("A") }"#);
+}
+
+#[test]
+fn builtin_int_to_char_type_checks() {
+    check_ok(r#"fn f() -> Str { int_to_char(65) }"#);
 }
 
 // ── Foreign fn type-checking (continued) ────────────────────────────────

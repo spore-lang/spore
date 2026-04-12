@@ -39,6 +39,8 @@ pub struct ModuleInterface {
     pub types: HashMap<String, Vec<(String, Vec<Ty>)>>,
     /// Exported structs: name → field names + types
     pub structs: HashMap<String, Vec<(String, Ty)>>,
+    /// Exported generic struct parameters: name → ordered type parameter names
+    pub struct_type_params: HashMap<String, Vec<String>>,
     /// Exported capabilities
     pub capabilities: HashSet<String>,
     /// Visibility of each symbol
@@ -198,7 +200,7 @@ fn build_prelude_interface() -> ModuleInterface {
                 iface.set_visibility(&f.name, SymbolVisibility::from(&f.visibility));
             }
             Item::StructDef(s) => {
-                let mapping = prelude_type_mapping(&s.type_params);
+                let mapping = HashMap::new();
                 let fields = s
                     .fields
                     .iter()
@@ -210,6 +212,11 @@ fn build_prelude_interface() -> ModuleInterface {
                     })
                     .collect();
                 iface.structs.insert(s.name.clone(), fields);
+                if !s.type_params.is_empty() {
+                    iface
+                        .struct_type_params
+                        .insert(s.name.clone(), s.type_params.clone());
+                }
                 iface.set_visibility(&s.name, SymbolVisibility::from(&s.visibility));
             }
             Item::TypeDef(t) => {
@@ -434,6 +441,12 @@ impl ModuleRegistry {
                 Ty::App("Option".into(), vec![Ty::Str]),
             ),
         );
+        prelude
+            .functions
+            .insert("char_to_int".into(), (vec![Ty::Str], Ty::Int));
+        prelude
+            .functions
+            .insert("int_to_char".into(), (vec![Ty::Int], Ty::Str));
         prelude.functions.insert(
             "substring".into(),
             (vec![Ty::Str, Ty::Int, Ty::Int], Ty::Str),

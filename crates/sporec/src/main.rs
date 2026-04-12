@@ -96,44 +96,106 @@ fn main() -> ExitCode {
 }
 
 fn exec_compile(files: &[String], json_output: bool) -> ExitCode {
-    let result = if files.len() == 1 {
-        let source = match read_source(&files[0]) {
+    if files.len() == 1 {
+        let file = &files[0];
+        let source = match read_source(file) {
             Ok(source) => source,
-            Err(message) => return print_error(&message, json_output),
+            Err(message) => {
+                return sporec_diagnostics::exit_with_message_error(&message, json_output);
+            }
         };
-        sporec::compile(&source)
-    } else {
-        let refs: Vec<&str> = files.iter().map(|file| file.as_str()).collect();
-        sporec::compile_files(&refs)
-    };
+
+        return match sporec::compile(&source) {
+            Ok(output) => {
+                let (warning_source, warning_diagnostics) =
+                    match sporec::check_source_file(file, &source) {
+                        sporec::SourceCheckReport::Success { source, warnings } => {
+                            (source, warnings)
+                        }
+                        sporec::SourceCheckReport::Failure(
+                            sporec::SourceCheckFailure::Diagnostics {
+                                source,
+                                diagnostics,
+                            },
+                        ) => {
+                            return sporec_diagnostics::exit_with_diagnostics_error(
+                                &source,
+                                &diagnostics,
+                                json_output,
+                            );
+                        }
+                        sporec::SourceCheckReport::Failure(
+                            sporec::SourceCheckFailure::Message(message),
+                        ) => {
+                            return sporec_diagnostics::exit_with_message_error(
+                                &message,
+                                json_output,
+                            );
+                        }
+                    };
+
+                if json_output {
+                    sporec_diagnostics::print_json(&json!({
+                        "status": "ok",
+                        "warnings": output.warnings,
+                        "warning_diagnostics": warning_diagnostics,
+                    }));
+                } else {
+                    sporec_diagnostics::render_diagnostics_human(
+                        &warning_source,
+                        &warning_diagnostics,
+                    );
+                    println!("ok: no errors");
+                }
+                ExitCode::SUCCESS
+            }
+            Err(message) => match sporec::check_source_file(file, &source) {
+                sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Diagnostics {
+                    source,
+                    diagnostics,
+                }) => sporec_diagnostics::exit_with_diagnostics_error(
+                    &source,
+                    &diagnostics,
+                    json_output,
+                ),
+                sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Message(
+                    fallback,
+                )) => sporec_diagnostics::exit_with_message_error(&fallback, json_output),
+                sporec::SourceCheckReport::Success { .. } => {
+                    sporec_diagnostics::exit_with_message_error(&message, json_output)
+                }
+            },
+        };
+    }
+
+    let refs: Vec<&str> = files.iter().map(|file| file.as_str()).collect();
+    let result = sporec::compile_files(&refs);
 
     match result {
         Ok(output) => {
             if json_output {
-                print_json(&json!({
+                sporec_diagnostics::print_json(&json!({
                     "status": "ok",
                     "warnings": output.warnings,
                 }));
             } else {
                 for warning in &output.warnings {
-                    eprintln!("warning: {warning}");
+                    sporec_diagnostics::emit_warning_message(warning, false);
                 }
-                if files.len() == 1 {
-                    println!("ok: no errors");
-                } else {
-                    println!("ok: no errors ({} files)", files.len());
-                }
+                println!("ok: no errors ({} files)", files.len());
             }
             ExitCode::SUCCESS
         }
-        Err(message) => print_error(&message, json_output),
+        Err(message) => sporec_diagnostics::exit_with_message_error(&message, json_output),
     }
 }
 
 fn exec_holes(file: &str, json_output: bool) -> ExitCode {
     let source = match read_source(file) {
         Ok(source) => source,
-        Err(message) => return print_error(&message, json_output),
+        Err(message) => {
+            return sporec_diagnostics::exit_with_message_error(&message, json_output);
+        }
     };
 
     if json_output {
@@ -142,7 +204,7 @@ fn exec_holes(file: &str, json_output: bool) -> ExitCode {
                 println!("{report}");
                 ExitCode::SUCCESS
             }
-            Err(message) => print_error(&message, true),
+            Err(message) => sporec_diagnostics::exit_with_message_error(&message, json_output),
         }
     } else {
         match load_hole_report(&source) {
@@ -161,7 +223,7 @@ fn exec_holes(file: &str, json_output: bool) -> ExitCode {
                 }
                 ExitCode::SUCCESS
             }
-            Err(message) => print_error(&message, false),
+            Err(message) => sporec_diagnostics::exit_with_message_error(&message, json_output),
         }
     }
 }
@@ -169,12 +231,16 @@ fn exec_holes(file: &str, json_output: bool) -> ExitCode {
 fn exec_query_hole(file: &str, hole: &str, json_output: bool) -> ExitCode {
     let source = match read_source(file) {
         Ok(source) => source,
-        Err(message) => return print_error(&message, json_output),
+        Err(message) => {
+            return sporec_diagnostics::exit_with_message_error(&message, json_output);
+        }
     };
 
     let report = match load_hole_report(&source) {
         Ok(report) => report,
-        Err(message) => return print_error(&message, json_output),
+        Err(message) => {
+            return sporec_diagnostics::exit_with_message_error(&message, json_output);
+        }
     };
 
     let needle = normalize_hole_name(hole);
@@ -187,13 +253,13 @@ fn exec_query_hole(file: &str, hole: &str, json_output: bool) -> ExitCode {
     match matches.as_slice() {
         [hole] => {
             if json_output {
-                print_json(&hole_to_json(hole));
+                sporec_diagnostics::print_json(&hole_to_json(hole));
             } else {
                 println!("{}", render_hole(hole));
             }
             ExitCode::SUCCESS
         }
-        [] => print_error(
+        [] => sporec_diagnostics::exit_with_message_error(
             &format!("hole `?{needle}` not found in `{file}`"),
             json_output,
         ),
@@ -203,7 +269,7 @@ fn exec_query_hole(file: &str, hole: &str, json_output: bool) -> ExitCode {
                 .map(|candidate| candidate.function.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
-            print_error(
+            sporec_diagnostics::exit_with_message_error(
                 &format!(
                     "hole `?{needle}` is ambiguous in `{file}`; matching functions: {locations}"
                 ),
@@ -216,14 +282,17 @@ fn exec_query_hole(file: &str, hole: &str, json_output: bool) -> ExitCode {
 fn exec_explain(code: &str, json_output: bool) -> ExitCode {
     let normalized = code.trim().to_ascii_uppercase();
     let Some(error_code) = lookup_error_code(&normalized) else {
-        return print_error(&format!("unknown diagnostic code `{code}`"), json_output);
+        return sporec_diagnostics::exit_with_message_error(
+            &format!("unknown diagnostic code `{code}`"),
+            json_output,
+        );
     };
 
     let explanation = error_code.explain();
     let severity = error_code.severity().to_string();
 
     if json_output {
-        print_json(&json!({
+        sporec_diagnostics::print_json(&json!({
             "code": error_code.to_string(),
             "severity": severity,
             "summary": explanation,
@@ -473,23 +542,4 @@ fn render_hole(hole: &HoleInfo) -> String {
     }
 
     lines.join("\n")
-}
-
-fn print_json(value: &Value) {
-    println!(
-        "{}",
-        serde_json::to_string(value).expect("serializing JSON output")
-    );
-}
-
-fn print_error(message: &str, json_output: bool) -> ExitCode {
-    if json_output {
-        print_json(&json!({
-            "status": "error",
-            "message": message,
-        }));
-    } else {
-        eprintln!("error: {message}");
-    }
-    ExitCode::FAILURE
 }

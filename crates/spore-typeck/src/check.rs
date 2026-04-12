@@ -259,6 +259,11 @@ impl Checker {
                     if let Some(fields) = module.structs.get(name) {
                         self.registry.structs.insert(name.clone(), fields.clone());
                     }
+                    if let Some(type_params) = module.struct_type_params.get(name) {
+                        self.registry
+                            .struct_type_params
+                            .insert(name.clone(), type_params.clone());
+                    }
                 }
                 ImportedSymbol::Capability => {
                     if module.capabilities.contains(name) {
@@ -343,6 +348,11 @@ impl Checker {
                     .map(|f| (f.name.clone(), self.resolve_type(&f.ty)))
                     .collect();
                 self.registry.structs.insert(s.name.clone(), fields);
+                if !s.type_params.is_empty() {
+                    self.registry
+                        .struct_type_params
+                        .insert(s.name.clone(), s.type_params.clone());
+                }
             }
             Item::TypeDef(t) => {
                 let variants: Vec<(String, Vec<Ty>)> = t
@@ -367,8 +377,19 @@ impl Checker {
 
                 for (vname, field_tys) in &variants {
                     if field_tys.is_empty() {
-                        // Zero-field variant: register as a value of the enum type.
-                        self.env.define(vname.clone(), ret_ty.clone());
+                        if t.type_params.is_empty() {
+                            // Non-generic zero-field variant: register as a value.
+                            self.env.define(vname.clone(), ret_ty.clone());
+                        } else {
+                            // Generic zero-field variant: treat it like a zero-arg constructor so
+                            // each use can freshen the type parameters independently.
+                            self.registry
+                                .functions
+                                .insert(vname.clone(), (Vec::new(), ret_ty.clone(), CapSet::new()));
+                            self.registry
+                                .fn_type_params
+                                .insert(vname.clone(), t.type_params.clone());
+                        }
                     } else {
                         // Variant with fields: register as a constructor function.
                         self.registry.functions.insert(
@@ -825,16 +846,25 @@ impl Checker {
             Expr::Var(name) => {
                 if let Some(ty) = self.env.lookup(name) {
                     ty.clone()
-                } else if let Some((_, _ret, _)) = self.registry.functions.get(name) {
-                    // bare function name as value — return its function type
-                    let (params, ret, caps) = self.registry.functions[name].clone();
-                    let errors = self
-                        .registry
-                        .fn_errors
-                        .get(name)
-                        .cloned()
-                        .unwrap_or_default();
-                    Ty::Fn(params, Box::new(ret), caps, errors)
+                } else if let Some((params, ret, caps)) = self.registry.functions.get(name).cloned()
+                {
+                    if params.is_empty() && self.find_unit_variant(name).is_some() {
+                        if let Some(type_params) = self.registry.fn_type_params.get(name).cloned() {
+                            let (_, ret, _) = self.instantiate_sig(&type_params, &[], &ret);
+                            ret
+                        } else {
+                            ret
+                        }
+                    } else {
+                        // bare function name as value — return its function type
+                        let errors = self
+                            .registry
+                            .fn_errors
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default();
+                        Ty::Fn(params, Box::new(ret), caps, errors)
+                    }
                 } else if let Some((params, ret)) = self.lookup_module_function(name) {
                     Ty::Fn(params, Box::new(ret), CapSet::new(), ErrorSet::new())
                 } else {
@@ -1010,7 +1040,8 @@ impl Checker {
                 let ty = self.check_expr(expr);
                 match &ty {
                     Ty::Named(name) | Ty::App(name, _) => {
-                        if let Some(fields) = self.registry.structs.get(name) {
+                        if let Some(fields) = self.registry.structs.get(name).cloned() {
+                            let (fields, _) = self.struct_fields_for_type(name, &fields, &ty);
                             if let Some((_, fty)) = fields.iter().find(|(n, _)| n == field) {
                                 fty.clone()
                             } else {
@@ -1038,6 +1069,7 @@ impl Checker {
 
             Expr::StructLit(name, fields) => {
                 if let Some(def_fields) = self.registry.structs.get(name).cloned() {
+                    let (def_fields, struct_ty) = self.instantiate_struct_fields(name, &def_fields);
                     // Check for duplicate fields in the literal
                     let mut seen = HashSet::new();
                     for (fname, _) in fields.iter() {
@@ -1073,7 +1105,7 @@ impl Checker {
                         }
                     }
 
-                    Ty::Named(name.clone())
+                    struct_ty
                 } else {
                     self.err(ErrorCode::E0005, format!("undefined struct `{name}`"));
                     Ty::Error
@@ -2052,6 +2084,72 @@ impl Checker {
         })
     }
 
+    fn instantiate_struct_fields(
+        &mut self,
+        name: &str,
+        field_defs: &[(String, Ty)],
+    ) -> (Vec<(String, Ty)>, Ty) {
+        match self.registry.struct_type_params.get(name).cloned() {
+            Some(type_params) if !type_params.is_empty() => {
+                let field_tys: Vec<Ty> = field_defs.iter().map(|(_, ty)| ty.clone()).collect();
+                let ret_ty = Ty::App(
+                    name.to_string(),
+                    type_params
+                        .iter()
+                        .map(|param| Ty::Named(param.clone()))
+                        .collect(),
+                );
+                let (inst_field_tys, inst_ret_ty, _) =
+                    self.instantiate_sig(&type_params, &field_tys, &ret_ty);
+                let inst_fields = field_defs
+                    .iter()
+                    .map(|(field_name, _)| field_name.clone())
+                    .zip(inst_field_tys)
+                    .collect();
+                (inst_fields, inst_ret_ty)
+            }
+            _ => (field_defs.to_vec(), Ty::Named(name.to_string())),
+        }
+    }
+
+    fn apply_struct_args(
+        &self,
+        name: &str,
+        field_defs: &[(String, Ty)],
+        args: &[Ty],
+    ) -> Option<Vec<(String, Ty)>> {
+        let type_params = self.registry.struct_type_params.get(name)?;
+        if type_params.len() != args.len() {
+            return None;
+        }
+        let mapping: HashMap<String, Ty> = type_params
+            .iter()
+            .cloned()
+            .zip(args.iter().cloned())
+            .collect();
+        Some(
+            field_defs
+                .iter()
+                .map(|(field_name, ty)| (field_name.clone(), self.instantiate_ty(ty, &mapping)))
+                .collect(),
+        )
+    }
+
+    fn struct_fields_for_type(
+        &mut self,
+        name: &str,
+        field_defs: &[(String, Ty)],
+        ty: &Ty,
+    ) -> (Vec<(String, Ty)>, Ty) {
+        if let Ty::App(actual_name, args) = ty
+            && actual_name == name
+            && let Some(fields) = self.apply_struct_args(name, field_defs, args)
+        {
+            return (fields, ty.clone());
+        }
+        self.instantiate_struct_fields(name, field_defs)
+    }
+
     /// Create fresh type variables for each type parameter and substitute
     /// them into the function signature.
     fn instantiate_sig(
@@ -2418,7 +2516,8 @@ impl Checker {
             Pattern::Struct(name, field_pats) => {
                 let def_fields = self.registry.structs.get(name).cloned();
                 if let Some(def_fields) = def_fields {
-                    let expected_ty = Ty::Named(name.clone());
+                    let (def_fields, expected_ty) =
+                        self.struct_fields_for_type(name, &def_fields, scrutinee_ty);
                     self.unify(
                         &expected_ty,
                         scrutinee_ty,

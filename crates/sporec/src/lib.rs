@@ -12,7 +12,10 @@ pub use compiler::{
     check_verbose, compile, compile_diagnostics as compile_legacy_diagnostics, compile_files,
     compile_project, format, hole_summary, holes, run, run_project, test_specs,
 };
-pub use diagnostics::{diagnostics_for_type_errors, source_file, type_error_to_diagnostic};
+pub use diagnostics::{
+    SourceCheckFailure, SourceCheckReport, check_source_file, diagnostics_for_type_errors,
+    source_file, type_error_to_diagnostic,
+};
 pub use project::{
     ProjectConfig, ProjectEntry, ProjectManifest, ResolvedProjectTarget, load_project_manifest,
     resolve_default_project_target, resolve_project_target_by_path,

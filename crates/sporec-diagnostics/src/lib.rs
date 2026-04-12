@@ -1,8 +1,10 @@
 use std::io;
 use std::ops::Range;
+use std::process::ExitCode;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use serde::Serialize;
+use serde_json::{Value, json};
 use thiserror::Error;
 use tracing::debug;
 
@@ -340,6 +342,73 @@ pub fn render_diagnostic<W: io::Write>(
         writer,
     )?;
     Ok(())
+}
+
+pub fn print_json(value: &Value) {
+    println!(
+        "{}",
+        serde_json::to_string(value).expect("serializing JSON output")
+    );
+}
+
+pub fn diagnostic_message_line(diagnostic: &Diagnostic) -> String {
+    format!("{}: {}", diagnostic.code, diagnostic.message)
+}
+
+pub fn diagnostic_message_lines(diagnostics: &[Diagnostic]) -> Vec<String> {
+    diagnostics.iter().map(diagnostic_message_line).collect()
+}
+
+pub fn emit_warning_message(message: &str, json_output: bool) {
+    if json_output {
+        print_json(&json!({
+            "severity": "warning",
+            "message": message,
+        }));
+    } else {
+        eprintln!("warning: {message}");
+    }
+}
+
+pub fn exit_with_message_error(message: &str, json_output: bool) -> ExitCode {
+    if json_output {
+        print_json(&json!({
+            "status": "error",
+            "message": message,
+        }));
+    } else {
+        eprintln!("error: {message}");
+    }
+    ExitCode::FAILURE
+}
+
+pub fn render_diagnostics_human(source: &SourceFile, diagnostics: &[Diagnostic]) {
+    for diagnostic in diagnostics {
+        let rendered = render_diagnostic_to_string(source, diagnostic)
+            .unwrap_or_else(|_| format!("{}: {}", diagnostic.code, diagnostic.message));
+        if rendered.ends_with('\n') {
+            eprint!("{rendered}");
+        } else {
+            eprintln!("{rendered}");
+        }
+    }
+}
+
+pub fn exit_with_diagnostics_error(
+    source: &SourceFile,
+    diagnostics: &[Diagnostic],
+    json_output: bool,
+) -> ExitCode {
+    if json_output {
+        print_json(&json!({
+            "status": "error",
+            "message": diagnostic_message_lines(diagnostics).join("\n"),
+            "diagnostics": diagnostics,
+        }));
+    } else {
+        render_diagnostics_human(source, diagnostics);
+    }
+    ExitCode::FAILURE
 }
 
 #[cfg(test)]

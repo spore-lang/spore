@@ -323,6 +323,33 @@ pub fn origin() -> I32 {
     assert!(result.is_ok(), "expected no type errors, got {result:?}");
 }
 
+#[test]
+fn imported_generic_struct_preserves_type_arguments() {
+    let src_shapes = r#"
+    pub struct Pair[A, B] { first: A, second: B }
+    "#;
+    let ast_shapes = parse(src_shapes).unwrap();
+    let mut iface = build_module_interface(&ast_shapes);
+    iface.path = vec!["Shapes".into()];
+
+    let mut registry = ModuleRegistry::new();
+    registry.register(iface);
+
+    let src = r#"
+import Shapes
+
+pub fn build_pair(x: I32) -> Pair[I32, Str] {
+    Pair { first: x, second: "ok" }
+}
+
+pub fn read_first(pair: Pair[I32, Str]) -> I32 {
+    pair.first
+}
+"#;
+    let result = check_with_registry(src, registry);
+    assert!(result.is_ok(), "expected no type errors, got {result:?}");
+}
+
 // ── Test: imported type variants preserve field types ────────────────
 
 #[test]
