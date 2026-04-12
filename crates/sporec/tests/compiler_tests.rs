@@ -43,6 +43,40 @@ impl Drop for TempProject {
     }
 }
 
+const APP_MANIFEST_WITH_BASIC_CLI: &str = r#"
+[package]
+name = "demo"
+type = "application"
+
+[project]
+platform = "basic-cli"
+default-entry = "app"
+
+[dependencies]
+basic-cli = { path = "../basic-cli" }
+
+[entries.app]
+path = "app.sp"
+"#;
+
+fn write_basic_cli_platform(project: &TempProject, contract_source: &str) {
+    project.write(
+        "../basic-cli/spore.toml",
+        r#"
+        [package]
+        name = "basic-cli"
+        type = "platform"
+
+        [platform]
+        contract-module = "platform_contract"
+        startup-contract = "main"
+        adapter-function = "main_for_host"
+        handles = ["Console", "FileRead", "FileWrite", "Env", "Spawn"]
+        "#,
+    );
+    project.write("../basic-cli/src/platform_contract.sp", contract_source);
+}
+
 // ── Verbose output tests ────────────────────────────────────────────
 
 #[test]
@@ -625,6 +659,113 @@ fn compile_project_accepts_alias_equivalent_startup_signature() {
         "expected no warnings, got: {:?}",
         output.warnings
     );
+}
+
+#[test]
+fn compile_project_accepts_platform_dependency_startup_contract() {
+    let project = TempProject::new("project-path-platform-ok");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform(
+        &project,
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        fn main() -> Unit {
+            return
+        }
+
+        alias Unit = ()
+        "#,
+    );
+
+    let output = compile_project(project.root(), "app.sp")
+        .expect("path dependency platform contract should validate startup");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn compile_project_rejects_missing_startup_against_platform_dependency_contract() {
+    let project = TempProject::new("project-path-platform-missing-startup");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform(
+        &project,
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        fn boot() -> () {
+            return
+        }
+        "#,
+    );
+
+    let err = compile_project(project.root(), "app.sp")
+        .expect_err("missing contract startup should fail validation");
+    assert!(
+        err.contains("required startup function `main`"),
+        "expected startup validation error, got: {err}"
+    );
+    assert!(
+        err.contains("basic-cli"),
+        "expected platform contract context in error, got: {err}"
+    );
+}
+
+#[test]
+fn check_project_returns_invalid_platform_contract_diagnostic_for_non_hole_startup() {
+    let project = TempProject::new("project-path-platform-invalid-contract");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform(
+        &project,
+        r#"
+        pub fn main() -> () {
+            return
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    project.write("src/app.sp", "fn main() -> () { return }\n");
+
+    match check_project(project.root(), "app.sp") {
+        CheckReport::Failure(CheckFailure::Diagnostics { diagnostics, .. }) => {
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == "invalid-platform-contract"),
+                "expected invalid platform contract diagnostic, got: {diagnostics:?}"
+            );
+        }
+        other => panic!("expected invalid platform contract diagnostic, got: {other:?}"),
+    }
 }
 
 #[test]
