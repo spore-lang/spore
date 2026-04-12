@@ -172,6 +172,7 @@ fn hole_summary_json_format() {
     )
     .unwrap();
     let json = summary.to_json();
+    let value = serde_json::to_value(&summary).expect("serialize hole summary");
     assert!(
         json.contains("\"event\":\"hole_graph_update\""),
         "JSON should contain hole_graph_update event, got: {json}"
@@ -188,6 +189,8 @@ fn hole_summary_json_format() {
         json.contains("\"blocked\":"),
         "JSON should contain blocked, got: {json}"
     );
+    assert_eq!(value["event"], "hole_graph_update");
+    assert!(value["holes_total"].as_u64().is_some());
 }
 
 // ── Error code migration sanity ─────────────────────────────────────
