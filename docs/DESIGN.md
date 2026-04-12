@@ -271,7 +271,8 @@ fn name(params) -> ReturnType ! Errors
 - **实现语言**: Rust（edition 2024, MSRV 1.90）
 - **自举策略**: Rust bootstrap → 部分自举（Parser/TypeChecker/CostAnalyzer 等纯计算部分用 Spore 重写）
 - **解析器**: 手写递归下降 + Pratt 运算符解析（调研 Rust/Zig/Roc/Unison/Elm/Gleam 全部手写）
-- **代码生成**: Cranelift（先）→ 后期可选加 LLVM
+- **当前执行 backend**: `sporec-codegen` 仍是 tree-walking interpreter（PoC）
+- **native backend roadmap**: Cranelift（先）→ 后期可选加 LLVM
   - Cranelift 优势: 10x 编译速度、纯 Rust、函数级粒度（契合内容寻址）、原生 WASM
   - 14% 输出性能差距可接受，新语言不需要和 C 竞争
 - **当前 CLI 框架**: bpaf 0.9
@@ -317,13 +318,16 @@ fn name(params) -> ReturnType ! Errors
 - **单 Platform / 项目**：一个 manifest-backed 项目只绑定一个 Platform。之所以先收缩到这一模型，是为了避免 handler 路由、priority 规则、测试替身和诊断语义同时膨胀；多个可执行目标先通过命名 `entry` 建模，而不是通过同一项目同时绑定多个 Platform 建模。跨 Platform 组合保留为未来专题设计，而不是 v0.1 承诺面。
 - **测试与替身**：mock / test / record-replay Platform 是 durable 设计结论，不是附带示例。Spore 的“应用代码保持纯净、IO 由 Platform 承担”必须直接转化为可重复测试、确定性重放和平台替换能力。
 
-### 编译器 Pipeline 架构（v0.1）
+### 编译器 Pipeline 架构（当前执行路径 + 目标 native pipeline）
+
+- 当前默认可运行路径仍是 parser / typechecker / module resolution 之后进入解释器。
+- 下图描述的是 **Cranelift skeleton 及其后续扩展落地后的目标 native pipeline**，不是当前默认执行实现。
 
 ```
 Source → [Lex] → Tokens → [Parse] → AST → [Resolve+Desugar] → HIR → [TypeCheck+CapCheck+CostCheck] → TypedHIR → [Codegen] → Cranelift IR → Native
 ```
 
-**3 层 IR + Cranelift IR 充当 LIR**（无独立 flat IR，无 MIR）
+**目标上保持 3 层 IR + Cranelift IR 充当 LIR**（无独立 flat IR，无 MIR）
 
 #### AST（Abstract Syntax Tree）
 - 原始语法树，与源码 1:1 对应
@@ -357,12 +361,34 @@ SourceFile { path, contents }
   → parse
   → resolve
   → type_check
-  → codegen
+  → execute_backend
 ```
 - 当前实现依赖自研 hash / 依赖图决策，而不是把 `salsa` 当成已落地前提
-- 文件内容变更 → 重新 lex/parse
-- sig hash 不变 → 下游模块跳过 resolve + type_check
-- impl hash 不变 → 跳过 codegen（Cranelift 缓存命中）
+- 当前 compile/run 路径仍偏 eager：文件内容变更后会重新 lex/parse/check，而不是已经把基于 `sig hash` / `impl hash` 的跳过规则完整接进主路径
+- 目标上的增量规则仍然是：`sig hash` 不变 → 下游模块跳过 resolve + type_check
+- 当前默认执行路径在这里进入解释器；进入 native backend 后，`impl hash` 不变才允许跳过 codegen（future Cranelift 缓存命中）
+
+#### Cranelift skeleton 里程碑（下一 backend slice）
+- 这是一条**里程碑定义**，不是“后端立刻全量替换解释器”的承诺。目标是先证明 native lowering 路径、最小 ABI 和回归比较方式成立，再逐步扩展到 richer runtime / data layout。
+- **最小可编译子集**
+  - 只覆盖 **单模块 / 单 entry** 的纯计算程序；不碰 package imports、project runtime、Platform adapter、`foreign fn`、`perform` / `handle`、并发、`Ref[T]`、spec runner。
+  - 只覆盖**单态（monomorphic）顶层函数**；不把 closure capture、运行时泛型实例化、task/channel 值放进第一阶段 backend。
+  - 表达式子集限定为：字面量、`let`、block、`if`、一元/二元算术与比较、布尔逻辑、具名函数直接调用、tail-expression 返回。
+  - 第一阶段跨 backend 边界只接受**固定大小标量值**；`Str`、`List`、`Struct`、`Enum`、`Map`、`Option`、`Result` 以及任何 HostValue 映射都继续留在解释器路径，等数据布局 / 跨边界语义冻结后再扩展。
+- **runtime hook 假设**
+  - `sporec-codegen` 继续保持“统一执行 crate”；Cranelift skeleton 先作为其内部 backend 选项存在，而不是立即拆出新的公开运行时产品面。
+  - `spore run`、manifest project runtime、package-backed Platform execution、spec 测试、watch 与 hole 相关执行路径在 skeleton 阶段继续默认走解释器；backend 先只服务内部 parity 测试与最小 native smoke。
+  - skeleton backend 遇到 effect / foreign / package runtime / unsupported aggregate 时必须**显式报错**，不做静默回退或半支持。
+  - 仍坚持“无独立 MIR”的方向：第一阶段可以从 checked IR/HIR 直接 lower 到极小的 backend-local function lowering，或直接 lower 到 Cranelift IR，但不要先为 backend 引入一层失控的新中间表示。
+- **interpreter vs backend 对照里程碑**
+  1. **M0 — scalar parity**：同一组纯函数 fixture 在解释器与 Cranelift skeleton 下得到相同结果 / 相同失败形状；覆盖整数 / 布尔 / unit、局部绑定、分支、直接调用。
+  2. **M1 — multi-function parity**：加入多函数调用链、递归或等价控制流 fixture，确认 lowering 后的调用约定与返回约定稳定。
+  3. **M2 — data-layout gate**：等 `HostValue` / ADT / `Option` / `Result` 边界冻结后，再引入结构体、枚举和更丰富返回值；这一步才允许讨论 backend ↔ host ABI。
+  4. **M3 — platform gate**：等 package-backed Platform host model 不再只特判 `basic-cli` 后，再讨论 `foreign fn` / effect lowering，而不是把这些问题挤进 skeleton 阶段。
+- **验收口径**
+  - skeleton backend 不是默认执行路径；
+  - 纯标量 fixture 的 parity 测试稳定通过；
+  - 当前 package / Platform / diagnostics / watch 工作流不因 backend 原型而被迫改协议。
 
 #### 设计决策记录
 - **不需要 MIR**: 无 borrow checker，无需 CFG 级别分析
