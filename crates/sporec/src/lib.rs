@@ -8,10 +8,10 @@ pub mod project;
 
 pub use compiler::{
     CheckFailure, CheckReport, CompileOutput, Diagnostic as CompilerDiagnostic,
-    DiagnosticSeverity as CompilerDiagnosticSeverity, HoleSummary, check_files, check_project,
+    DiagnosticSeverity as CompilerDiagnosticSeverity, check_files, check_project,
     check_project_verbose, check_verbose, compile,
     compile_diagnostics as compile_legacy_diagnostics, compile_files, compile_project, format,
-    hole_summary, holes, run, run_project, test_specs,
+    hole_summary, holes, holes_report, query_hole_report, run, run_project, test_specs,
 };
 pub use diagnostics::{
     SourceCheckFailure, SourceCheckReport, check_source_file, diagnostics_for_type_errors,
@@ -23,7 +23,10 @@ pub use project::{
 };
 pub use spore_codegen::{SpecKind, SpecResult};
 pub use sporec_diagnostics::{
-    Diagnostic, DiagnosticRange, JsonReport as DiagnosticJsonReport, LspDiagnostic,
+    Diagnostic, DiagnosticRange, HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson,
+    HoleCostBudgetJson, HoleDependencyEdgeJson, HoleDependencyGraphJson, HoleDependencyKind,
+    HoleErrorClusterJson, HoleInfoJson, HoleLocationJson, HoleReportJson, HoleSummary,
+    HoleTypeInferenceJson, JsonReport as DiagnosticJsonReport, LspDiagnostic,
     LspDiagnosticRelatedInformation, LspLocation, LspPosition, LspRange,
     Position as DiagnosticPosition, RelatedDiagnostic as DiagnosticRelated,
     RenderError as DiagnosticRenderError, ReportStatus as DiagnosticReportStatus,
