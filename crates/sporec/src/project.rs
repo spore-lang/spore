@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use spore_typeck::platform::PlatformRegistry;
@@ -54,6 +54,7 @@ pub struct ResolvedProjectTarget {
     pub platform_name: Option<String>,
     pub startup_function: Option<String>,
     pub platform_contract: Option<ResolvedPlatformContract>,
+    pub dependency_roots: Vec<PathBuf>,
 }
 
 pub fn load_project_manifest(root: &Path) -> Result<ProjectManifest, String> {
@@ -233,7 +234,7 @@ pub fn resolve_project_target_by_path(
                 .map(|path| path == normalized)
                 .unwrap_or(false)
         }) else {
-            return module_only_target(root, &normalized);
+            return module_only_target(root, &normalized, dependency_roots(root, &manifest));
         };
         return resolve_declared_entry(root, &manifest, entry_name);
     }
@@ -260,6 +261,7 @@ fn resolve_declared_entry(
     })?;
     let entry_path = normalize_entry_path(&entry.path)?;
     ensure_entry_exists(root, &entry_path)?;
+    let dependency_roots = dependency_roots(root, manifest);
 
     let (startup_function, platform_contract) =
         resolve_platform_binding(root, manifest, &project.platform)?;
@@ -270,6 +272,7 @@ fn resolve_declared_entry(
         platform_name: Some(project.platform.clone()),
         startup_function: Some(startup_function),
         platform_contract,
+        dependency_roots,
     })
 }
 
@@ -277,15 +280,16 @@ fn legacy_default_target(
     root: &Path,
     manifest: &ProjectManifest,
 ) -> Result<ResolvedProjectTarget, String> {
+    let dependency_roots = dependency_roots(root, manifest);
     match manifest.package_type.as_deref() {
-        Some("application") => legacy_named_target(root, "app", "main.sp", true),
-        Some("platform") => legacy_named_target(root, "host", "host.sp", true),
-        Some("package") => legacy_named_target(root, "lib", "lib.sp", false),
+        Some("application") => legacy_named_target(root, "app", "main.sp", true, dependency_roots),
+        Some("platform") => legacy_named_target(root, "host", "host.sp", true, dependency_roots),
+        Some("package") => legacy_named_target(root, "lib", "lib.sp", false, dependency_roots),
         Some(other) => Err(format!(
             "unsupported legacy `[package].type = \"{other}\"` in `{}`",
             root.join("spore.toml").display()
         )),
-        None => infer_single_default_target(root),
+        None => infer_single_default_target(root, dependency_roots),
     }
 }
 
@@ -295,16 +299,21 @@ fn legacy_target_for_path(
     entry_path: &str,
 ) -> Result<ResolvedProjectTarget, String> {
     ensure_entry_exists(root, entry_path)?;
+    let dependency_roots = dependency_roots(root, manifest);
 
     match manifest.package_type.as_deref() {
         Some("application") if entry_path == "main.sp" => {
-            legacy_named_target(root, "app", "main.sp", true)
+            legacy_named_target(root, "app", "main.sp", true, dependency_roots)
         }
         Some("platform") if entry_path == "host.sp" => {
-            legacy_named_target(root, "host", "host.sp", true)
+            legacy_named_target(root, "host", "host.sp", true, dependency_roots)
         }
-        None if entry_path == "main.sp" => legacy_named_target(root, "app", "main.sp", true),
-        None if entry_path == "host.sp" => legacy_named_target(root, "host", "host.sp", true),
+        None if entry_path == "main.sp" => {
+            legacy_named_target(root, "app", "main.sp", true, dependency_roots)
+        }
+        None if entry_path == "host.sp" => {
+            legacy_named_target(root, "host", "host.sp", true, dependency_roots)
+        }
         Some("package") | Some("application") | Some("platform") | None => {
             Ok(ResolvedProjectTarget {
                 entry_name: path_stem(entry_path),
@@ -312,6 +321,7 @@ fn legacy_target_for_path(
                 platform_name: None,
                 startup_function: None,
                 platform_contract: None,
+                dependency_roots,
             })
         }
         Some(other) => Err(format!(
@@ -321,7 +331,10 @@ fn legacy_target_for_path(
     }
 }
 
-fn infer_single_default_target(root: &Path) -> Result<ResolvedProjectTarget, String> {
+fn infer_single_default_target(
+    root: &Path,
+    dependency_roots: Vec<PathBuf>,
+) -> Result<ResolvedProjectTarget, String> {
     let mut candidates = Vec::new();
     for (entry_name, path, runnable) in [
         ("app", "main.sp", true),
@@ -334,7 +347,9 @@ fn infer_single_default_target(root: &Path) -> Result<ResolvedProjectTarget, Str
     }
 
     match candidates.as_slice() {
-        [(entry_name, path, runnable)] => legacy_named_target(root, entry_name, path, *runnable),
+        [(entry_name, path, runnable)] => {
+            legacy_named_target(root, entry_name, path, *runnable, dependency_roots)
+        }
         [] => Err(format!(
             "could not infer a project default entry path from `{}`; add `[project]` and `[entries]`, set legacy `[package].type`, or pass FILE explicitly",
             root.join("spore.toml").display()
@@ -356,6 +371,7 @@ fn legacy_named_target(
     entry_name: &str,
     entry_path: &str,
     runnable: bool,
+    dependency_roots: Vec<PathBuf>,
 ) -> Result<ResolvedProjectTarget, String> {
     ensure_entry_exists(root, entry_path)?;
     Ok(ResolvedProjectTarget {
@@ -364,10 +380,15 @@ fn legacy_named_target(
         platform_name: runnable.then(|| "cli".to_string()),
         startup_function: runnable.then(|| "main".to_string()),
         platform_contract: None,
+        dependency_roots,
     })
 }
 
-fn module_only_target(root: &Path, entry_path: &str) -> Result<ResolvedProjectTarget, String> {
+fn module_only_target(
+    root: &Path,
+    entry_path: &str,
+    dependency_roots: Vec<PathBuf>,
+) -> Result<ResolvedProjectTarget, String> {
     ensure_entry_exists(root, entry_path)?;
     Ok(ResolvedProjectTarget {
         entry_name: path_stem(entry_path),
@@ -375,6 +396,7 @@ fn module_only_target(root: &Path, entry_path: &str) -> Result<ResolvedProjectTa
         platform_name: None,
         startup_function: None,
         platform_contract: None,
+        dependency_roots,
     })
 }
 
@@ -483,6 +505,39 @@ fn resolve_dependency_root(root: &Path, dep_path: &str) -> PathBuf {
         dep_path.to_path_buf()
     } else {
         root.join(dep_path)
+    }
+}
+
+fn dependency_roots(root: &Path, manifest: &ProjectManifest) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let mut seen = HashSet::new();
+    collect_dependency_roots(root, manifest, &mut roots, &mut seen);
+    roots
+}
+
+fn collect_dependency_roots(
+    root: &Path,
+    manifest: &ProjectManifest,
+    roots: &mut Vec<PathBuf>,
+    seen: &mut HashSet<PathBuf>,
+) {
+    for dep_path in manifest
+        .dependencies
+        .values()
+        .filter_map(|dep| dep.path.as_deref())
+    {
+        let dep_root = resolve_dependency_root(root, dep_path);
+        if !dep_root.is_dir() {
+            continue;
+        }
+        let normalized_root = std::fs::canonicalize(&dep_root).unwrap_or_else(|_| dep_root.clone());
+        if !seen.insert(normalized_root.clone()) {
+            continue;
+        }
+        roots.push(normalized_root.clone());
+        if let Ok(dep_manifest) = load_project_manifest(&normalized_root) {
+            collect_dependency_roots(&normalized_root, &dep_manifest, roots, seen);
+        }
     }
 }
 
@@ -793,6 +848,7 @@ mod tests {
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
+        assert!(target.dependency_roots.is_empty());
     }
 
     #[test]
@@ -809,7 +865,7 @@ mod tests {
             default-entry = "app"
 
             [dependencies]
-            basic-cli = { path = "../basic-cli" }
+            basic-cli = { path = "vendor/basic-cli" }
 
             [entries.app]
             path = "app.sp"
@@ -817,7 +873,7 @@ mod tests {
         );
         project.write("src/app.sp", "fn main() -> () { return }\n");
         project.write(
-            "../basic-cli/spore.toml",
+            "vendor/basic-cli/spore.toml",
             r#"
             [package]
             name = "basic-cli"
@@ -831,7 +887,7 @@ mod tests {
             "#,
         );
         project.write(
-            "../basic-cli/src/platform_contract.sp",
+            "vendor/basic-cli/src/platform_contract.sp",
             r#"
             pub fn main() -> () {
                 ?platform_startup_contract
@@ -857,6 +913,16 @@ mod tests {
         assert_eq!(
             contract.handles,
             vec!["Console".to_string(), "Env".to_string()]
+        );
+        assert_eq!(
+            target.dependency_roots,
+            vec![
+                project
+                    .root()
+                    .join("vendor/basic-cli")
+                    .canonicalize()
+                    .expect("canonical dependency root")
+            ]
         );
     }
 
@@ -886,6 +952,7 @@ mod tests {
         assert!(target.platform_name.is_none());
         assert!(target.startup_function.is_none());
         assert!(target.platform_contract.is_none());
+        assert!(target.dependency_roots.is_empty());
     }
 
     #[test]
@@ -913,6 +980,7 @@ mod tests {
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
+        assert!(target.dependency_roots.is_empty());
     }
 
     #[test]
@@ -940,6 +1008,7 @@ mod tests {
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
+        assert!(target.dependency_roots.is_empty());
     }
 
     #[test]
@@ -959,6 +1028,63 @@ mod tests {
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
+        assert!(target.dependency_roots.is_empty());
+    }
+
+    #[test]
+    fn resolve_default_target_legacy_application_collects_transitive_dependency_roots() {
+        let project = TempProject::new(
+            "legacy-app-transitive-deps",
+            r#"
+            [package]
+            name = "demo"
+            type = "application"
+
+            [dependencies]
+            dep-a = { path = "vendor/dep-a" }
+            "#,
+        );
+        project.write("src/main.sp", "fn main() -> () { return }\n");
+        project.write(
+            "vendor/dep-a/spore.toml",
+            r#"
+            [package]
+            name = "dep-a"
+            type = "package"
+
+            [dependencies]
+            dep-b = { path = "../dep-b" }
+            "#,
+        );
+        project.write(
+            "vendor/dep-b/spore.toml",
+            r#"
+            [package]
+            name = "dep-b"
+            type = "package"
+            "#,
+        );
+
+        let target = resolve_default_project_target(project.root()).expect("legacy app target");
+        assert_eq!(target.entry_path, "main.sp");
+        assert_eq!(target.platform_name.as_deref(), Some("cli"));
+        assert_eq!(target.startup_function.as_deref(), Some("main"));
+        assert!(target.platform_contract.is_none());
+        assert_eq!(
+            target.dependency_roots,
+            vec![
+                project
+                    .root()
+                    .join("vendor/dep-a")
+                    .canonicalize()
+                    .expect("canonical dep-a root"),
+                project
+                    .root()
+                    .join("vendor/dep-b")
+                    .canonicalize()
+                    .expect("canonical dep-b root")
+            ]
+        );
     }
 
     #[test]
@@ -981,5 +1107,6 @@ mod tests {
         assert!(target.platform_name.is_none());
         assert!(target.startup_function.is_none());
         assert!(target.platform_contract.is_none());
+        assert!(target.dependency_roots.is_empty());
     }
 }

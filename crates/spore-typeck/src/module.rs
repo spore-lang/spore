@@ -679,6 +679,8 @@ impl ModuleRegistry {
 pub struct ModuleLoader {
     /// Project root directory.
     root: PathBuf,
+    /// Additional dependency roots searched after the project root.
+    dependency_roots: Vec<PathBuf>,
     /// Cache of already-loaded module interfaces.
     loaded: HashMap<String, ModuleInterface>,
     /// Cache of parsed ASTs (needed for transitive import extraction and interpreter).
@@ -689,8 +691,13 @@ pub struct ModuleLoader {
 
 impl ModuleLoader {
     pub fn new(root: PathBuf) -> Self {
+        Self::with_dependency_roots(root, Vec::new())
+    }
+
+    pub fn with_dependency_roots(root: PathBuf, dependency_roots: Vec<PathBuf>) -> Self {
         Self {
             root,
+            dependency_roots,
             loaded: HashMap::new(),
             asts: HashMap::new(),
             sources: HashMap::new(),
@@ -702,8 +709,13 @@ impl ModuleLoader {
     /// `"billing.invoice"` → `{root}/src/billing/invoice.sp`
     pub fn resolve_path(&self, module_path: &str) -> Option<PathBuf> {
         let rel = module_path.replace('.', "/");
-        let path = self.root.join("src").join(&rel).with_extension("sp");
-        if path.exists() { Some(path) } else { None }
+        for root in std::iter::once(&self.root).chain(self.dependency_roots.iter()) {
+            let path = root.join("src").join(&rel).with_extension("sp");
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        None
     }
 
     /// Load a module from disk, parse it, and extract its interface.

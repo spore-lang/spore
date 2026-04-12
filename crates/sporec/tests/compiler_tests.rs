@@ -53,7 +53,7 @@ platform = "basic-cli"
 default-entry = "app"
 
 [dependencies]
-basic-cli = { path = "../basic-cli" }
+basic-cli = { path = "vendor/basic-cli" }
 
 [entries.app]
 path = "app.sp"
@@ -61,7 +61,7 @@ path = "app.sp"
 
 fn write_basic_cli_platform(project: &TempProject, contract_source: &str) {
     project.write(
-        "../basic-cli/spore.toml",
+        "vendor/basic-cli/spore.toml",
         r#"
         [package]
         name = "basic-cli"
@@ -74,7 +74,7 @@ fn write_basic_cli_platform(project: &TempProject, contract_source: &str) {
         handles = ["Console", "FileRead", "FileWrite", "Env", "Spawn"]
         "#,
     );
-    project.write("../basic-cli/src/platform_contract.sp", contract_source);
+    project.write("vendor/basic-cli/src/platform_contract.sp", contract_source);
 }
 
 // ── Verbose output tests ────────────────────────────────────────────
@@ -585,6 +585,137 @@ fn check_project_verbose_includes_imported_module_sections() {
     assert!(
         detail.matches("── Type Inference ──").count() >= 2,
         "expected per-module verbose sections, got: {detail}"
+    );
+}
+
+#[test]
+fn compile_project_resolves_imports_from_path_dependency_modules() {
+    let project = TempProject::new("project-import-path-dependency");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [dependencies]
+        basic-cli = { path = "vendor/basic-cli" }
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        import basic_cli.stdout
+
+        fn main() -> () {
+            println("hello from dependency")
+            return
+        }
+        "#,
+    );
+    project.write(
+        "vendor/basic-cli/spore.toml",
+        r#"
+        [package]
+        name = "basic-cli"
+        type = "platform"
+        "#,
+    );
+    project.write(
+        "vendor/basic-cli/src/basic_cli/stdout.sp",
+        r#"
+        pub fn println(s: Str) -> () {
+            return
+        }
+        "#,
+    );
+
+    let output = compile_project(project.root(), "app.sp")
+        .expect("path dependency module imports should resolve during project compilation");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn compile_legacy_project_resolves_transitive_path_dependency_imports() {
+    let project = TempProject::new("legacy-project-transitive-path-deps");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [dependencies]
+        dep-a = { path = "vendor/dep-a" }
+        "#,
+    );
+    project.write(
+        "src/main.sp",
+        r#"
+        import dep_a.wrapper
+
+        fn main() -> () {
+            print_message()
+            return
+        }
+        "#,
+    );
+    project.write(
+        "vendor/dep-a/spore.toml",
+        r#"
+        [package]
+        name = "dep-a"
+        type = "package"
+
+        [dependencies]
+        dep-b = { path = "../dep-b" }
+        "#,
+    );
+    project.write(
+        "vendor/dep-a/src/dep_a/wrapper.sp",
+        r#"
+        import dep_b.message
+
+        pub fn print_message() -> () {
+            message()
+            return
+        }
+        "#,
+    );
+    project.write(
+        "vendor/dep-b/spore.toml",
+        r#"
+        [package]
+        name = "dep-b"
+        type = "package"
+        "#,
+    );
+    project.write(
+        "vendor/dep-b/src/dep_b/message.sp",
+        r#"
+        pub fn message() -> () {
+            return
+        }
+        "#,
+    );
+
+    let output = compile_project(project.root(), "main.sp")
+        .expect("legacy projects should resolve direct and transitive path dependency imports");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
     );
 }
 
