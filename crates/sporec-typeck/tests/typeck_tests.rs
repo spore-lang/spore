@@ -2052,6 +2052,27 @@ fn test_handle_provides_capability() {
 }
 
 #[test]
+fn test_handle_capability_does_not_escape_scope() {
+    let errs = check_err(
+        r#"
+        fn main() {
+            handle {
+                perform StdIO.println("inside")
+            } with {
+                StdIO.println(msg) => 0
+            }
+            perform StdIO.println("outside")
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("capability") && e.contains("StdIO")),
+        "expected capability error after handle scope ends, got: {errs:?}"
+    );
+}
+
+#[test]
 fn test_perform_uses_declared_effect_return_type() {
     check_ok(
         r#"
@@ -2086,6 +2107,25 @@ fn test_perform_checks_declared_effect_argument_types() {
 }
 
 #[test]
+fn test_handle_result_flows_into_surrounding_expression() {
+    check_ok(
+        r#"
+        effect Math {
+            fn double(x: I32) -> I32
+        }
+        fn main() -> I32 {
+            let doubled = handle {
+                perform Math.double(21)
+            } with {
+                Math.double(x) => x + x
+            }
+            doubled + 1
+        }
+        "#,
+    );
+}
+
+#[test]
 fn test_handle_arm_matches_declared_effect_return_type() {
     let errs = check_err(
         r#"
@@ -2104,6 +2144,29 @@ fn test_handle_arm_matches_declared_effect_return_type() {
     assert!(
         errs.iter().any(|e| e.contains("handler arm `Math.double`")),
         "expected handler arm return type error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_handle_arm_checks_declared_effect_arity() {
+    let errs = check_err(
+        r#"
+        effect Math {
+            fn double(x: I32) -> I32
+        }
+        fn main() -> I32 {
+            handle {
+                perform Math.double(21)
+            } with {
+                Math.double() => 0
+            }
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("handler arm `Math.double` expects 1 parameters, got 0")),
+        "expected handler arm arity error, got: {errs:?}"
     );
 }
 
