@@ -438,6 +438,44 @@ fn compile_project_rejects_declared_entry_without_required_startup() {
 }
 
 #[test]
+fn compile_project_accepts_alias_equivalent_startup_signature() {
+    let project = TempProject::new("project-alias-startup");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        fn main() -> Unit {
+            return
+        }
+
+        alias Unit = ()
+        "#,
+    );
+
+    let output = compile_project(project.root(), "app.sp")
+        .expect("alias-equivalent startup signature should pass validation");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
 fn compile_project_allows_non_entry_module_in_manifest_project() {
     let project = TempProject::new("project-non-entry-check");
     project.write(

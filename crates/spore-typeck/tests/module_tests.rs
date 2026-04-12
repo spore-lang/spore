@@ -268,6 +268,22 @@ fn build_module_interface_extracts_types_and_structs() {
     assert_eq!(*iface.visibility("Point"), SymbolVisibility::Pub);
 }
 
+#[test]
+fn build_module_interface_resolves_aliases_before_function_signatures() {
+    let src = r#"
+fn main() -> Unit { return }
+alias Unit = ()
+"#;
+    let ast = parse(src).unwrap();
+    let iface = build_module_interface(&ast);
+
+    let (_, ret_ty) = iface
+        .functions
+        .get("main")
+        .expect("main should be present in module interface");
+    assert_eq!(*ret_ty, Ty::Unit);
+}
+
 // ── Test: Checker with module_registry field ────────────────────────
 
 #[test]
