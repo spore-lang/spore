@@ -47,15 +47,7 @@ pub fn call(module: &Module, name: &str, args: Vec<Value>) -> Result<Value, Runt
     interp.call_function(name, args)
 }
 
-/// Execute a Spore project with cross-module imports.
-///
-/// Loads imported modules first (making their public symbols available),
-/// then loads the entry module and calls the resolved startup function.
-pub fn run_project(
-    entry: &Module,
-    imports: &[(String, Module)],
-    startup_function: &str,
-) -> Result<Value, RuntimeError> {
+fn project_interpreter(entry: &Module, imports: &[(String, Module)]) -> Interpreter {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
     interp.load_prelude();
@@ -65,7 +57,32 @@ pub fn run_project(
     }
 
     interp.load_module(entry);
+    interp
+}
+
+/// Execute a Spore project with cross-module imports.
+///
+/// Loads imported modules first (making their public symbols available),
+/// then loads the entry module and calls the resolved startup function.
+pub fn run_project(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+) -> Result<Value, RuntimeError> {
+    let mut interp = project_interpreter(entry, imports);
     interp.call_function(startup_function, vec![])
+}
+
+/// Execute a Spore project by routing startup through a platform adapter.
+pub fn run_project_with_adapter(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+    adapter_function: &str,
+) -> Result<Value, RuntimeError> {
+    let mut interp = project_interpreter(entry, imports);
+    let app_main = interp.named_function_value(startup_function)?;
+    interp.call_function(adapter_function, vec![app_main])
 }
 
 /// Generate test input values for a given type.
