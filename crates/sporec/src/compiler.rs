@@ -585,8 +585,10 @@ struct PreparedProject {
 }
 
 /// Parse the selected entry module file, build a module registry, and resolve imports.
-fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> {
-    let mut loader = ModuleLoader::new(root.to_path_buf());
+fn prepare_project(root: &Path, target: &ResolvedProjectTarget) -> Result<PreparedProject, String> {
+    let entry = &target.entry_path;
+    let mut loader =
+        ModuleLoader::with_dependency_roots(root.to_path_buf(), target.dependency_roots.clone());
 
     // Parse the selected entry module file.
     let entry_path = root.join("src").join(entry);
@@ -628,8 +630,13 @@ fn prepare_project(root: &Path, entry: &str) -> Result<PreparedProject, String> 
     })
 }
 
-fn prepare_project_for_report(root: &Path, entry: &str) -> Result<PreparedProject, CheckFailure> {
-    let mut loader = ModuleLoader::new(root.to_path_buf());
+fn prepare_project_for_report(
+    root: &Path,
+    target: &ResolvedProjectTarget,
+) -> Result<PreparedProject, CheckFailure> {
+    let entry = &target.entry_path;
+    let mut loader =
+        ModuleLoader::with_dependency_roots(root.to_path_buf(), target.dependency_roots.clone());
 
     let entry_path = root.join("src").join(entry);
     let source = match std::fs::read_to_string(&entry_path)
@@ -1026,7 +1033,7 @@ pub fn check_project(root: &Path, entry: &str) -> CheckReport {
         Ok(target) => target,
         Err(message) => return CheckReport::Failure(CheckFailure::Message(message)),
     };
-    let prep = match prepare_project_for_report(root, &target.entry_path) {
+    let prep = match prepare_project_for_report(root, &target) {
         Ok(prep) => prep,
         Err(failure) => return CheckReport::Failure(failure),
     };
@@ -1060,7 +1067,7 @@ pub fn check_project(root: &Path, entry: &str) -> CheckReport {
 /// Single-file projects (no imports) work without a `ModuleLoader`.
 pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String> {
     let target = resolve_project_target_by_path(root, entry)?;
-    let prep = prepare_project(root, &target.entry_path)?;
+    let prep = prepare_project(root, &target)?;
     let results = collect_prepared_project_results(&prep, &target.entry_path)?;
     validate_project_startup(&prep, &target)?;
     let warnings = results
@@ -1087,7 +1094,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
             target.entry_path
         )
     })?;
-    let prep = prepare_project(root, &target.entry_path)?;
+    let prep = prepare_project(root, &target)?;
 
     // Type-check
     let _results = collect_prepared_project_results(&prep, &target.entry_path)?;
@@ -1188,7 +1195,7 @@ pub fn check_verbose(source: &str) -> Result<String, String> {
 /// Type-check a Spore project with verbose per-module output.
 pub fn check_project_verbose(root: &Path, entry: &str) -> Result<String, String> {
     let target = resolve_project_target_by_path(root, entry)?;
-    let prep = prepare_project(root, &target.entry_path)?;
+    let prep = prepare_project(root, &target)?;
     let results = collect_prepared_project_results(&prep, &target.entry_path)?;
     validate_project_startup(&prep, &target)?;
     Ok(format_project_verbose_results(&results))
