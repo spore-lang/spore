@@ -209,7 +209,10 @@ fn module_name_for_path(common_root: &Path, path: &Path) -> Result<String, Strin
             path.display()
         ));
     };
-    if let Some(stripped) = last.strip_suffix(".sp") {
+    if let Some(stripped) = last
+        .strip_suffix(".spore")
+        .or_else(|| last.strip_suffix(".sp"))
+    {
         *last = stripped.to_string();
     }
     Ok(components.join("."))

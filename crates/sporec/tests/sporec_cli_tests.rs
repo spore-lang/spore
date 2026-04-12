@@ -113,6 +113,35 @@ fn compile_multiple_files_resolves_imports() {
 }
 
 #[test]
+fn compile_multiple_spore_files_resolves_imports() {
+    let temp = TempDir::new("compile-multi-spore-imports");
+    let main = temp.write(
+        "main.spore",
+        r#"
+        import foo
+        fn main() -> I32 { foo() }
+        "#,
+    );
+    let foo = temp.write("foo.spore", "pub fn foo() -> I32 { 1 }\n");
+
+    let output = sporec_cmd()
+        .args(["compile", main.to_str().unwrap(), foo.to_str().unwrap()])
+        .output()
+        .expect("run sporec compile for multiple .spore files");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("ok: no errors (2 files)"),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
 fn holes_json_contains_holes_key() {
     let temp = TempDir::new("holes-json");
     let file = temp.write(
