@@ -12,10 +12,12 @@ use spore_typeck::hole::{
     TypeInferenceConfidence,
 };
 use spore_typeck::is_synthetic_hole_name;
-use spore_typeck::module::{ModuleError, ModuleInterface, ModuleLoader, ModuleRegistry};
+use spore_typeck::module::{
+    ModuleError, ModuleInterface, ModuleLoader, ModuleRegistry, PreludeOptions,
+};
 use spore_typeck::platform::{PlatformRegistry, PlatformStartupError, PlatformStartupErrorKind};
 use spore_typeck::types::Ty;
-use spore_typeck::{type_check, type_check_with_registry};
+use spore_typeck::{type_check, type_check_with_registry, type_check_with_registry_and_prelude};
 use sporec_diagnostics::{
     Diagnostic as CanonicalDiagnostic, HoleCandidateJson, HoleCandidateRankingJson,
     HoleConfidenceJson, HoleCostBudgetJson, HoleDependencyEdgeJson, HoleDependencyGraphJson,
@@ -581,12 +583,20 @@ struct PreparedProject {
     entry_source: String,
     entry_interface: ModuleInterface,
     registry: ModuleRegistry,
+    prelude_options: PreludeOptions,
     loader: ModuleLoader,
+}
+
+fn project_prelude_options(target: &ResolvedProjectTarget) -> PreludeOptions {
+    PreludeOptions {
+        include_console: target.platform_contract.is_none(),
+    }
 }
 
 /// Parse the selected entry module file, build a module registry, and resolve imports.
 fn prepare_project(root: &Path, target: &ResolvedProjectTarget) -> Result<PreparedProject, String> {
     let entry = &target.entry_path;
+    let prelude_options = project_prelude_options(target);
     let mut loader =
         ModuleLoader::with_dependency_roots(root.to_path_buf(), target.dependency_roots.clone());
 
@@ -626,6 +636,7 @@ fn prepare_project(root: &Path, target: &ResolvedProjectTarget) -> Result<Prepar
         entry_source: source,
         entry_interface: entry_iface,
         registry,
+        prelude_options,
         loader,
     })
 }
@@ -635,6 +646,7 @@ fn prepare_project_for_report(
     target: &ResolvedProjectTarget,
 ) -> Result<PreparedProject, CheckFailure> {
     let entry = &target.entry_path;
+    let prelude_options = project_prelude_options(target);
     let mut loader =
         ModuleLoader::with_dependency_roots(root.to_path_buf(), target.dependency_roots.clone());
 
@@ -693,6 +705,7 @@ fn prepare_project_for_report(
         entry_source: source,
         entry_interface: entry_iface,
         registry,
+        prelude_options,
         loader,
     })
 }
@@ -730,7 +743,11 @@ fn collect_prepared_project_results(
         };
         let ast = with_module_name(ast, &module_path);
         let label = source_label_for_module(&module_path);
-        match type_check_with_registry(&ast, prep.registry.clone()) {
+        match type_check_with_registry_and_prelude(
+            &ast,
+            prep.registry.clone(),
+            prep.prelude_options,
+        ) {
             Ok(result) => results.push((label, result)),
             Err(errs) => {
                 for err in errs {
@@ -743,7 +760,11 @@ fn collect_prepared_project_results(
     let entry_label = entry.replace('\\', "/");
     let entry_name = entry_module_name(entry);
     let entry_ast = with_module_name(&prep.ast, &entry_name);
-    match type_check_with_registry(&entry_ast, prep.registry.clone()) {
+    match type_check_with_registry_and_prelude(
+        &entry_ast,
+        prep.registry.clone(),
+        prep.prelude_options,
+    ) {
         Ok(result) => results.push((entry_label, result)),
         Err(errs) => {
             for err in errs {
@@ -782,7 +803,11 @@ fn collect_prepared_project_diagnostics(
             module_error_source(&module_path, &prep.loader).unwrap_or_else(batch_error_source);
         push_source_if_missing(&mut sources, &source);
         let ast = with_module_name(ast, &module_path);
-        match type_check_with_registry(&ast, prep.registry.clone()) {
+        match type_check_with_registry_and_prelude(
+            &ast,
+            prep.registry.clone(),
+            prep.prelude_options,
+        ) {
             Ok(result) => warnings.extend(anchor_diagnostics_to_source(
                 &source,
                 diagnostics_for_type_errors(&source, &result.warnings),
@@ -798,7 +823,11 @@ fn collect_prepared_project_diagnostics(
     push_source_if_missing(&mut sources, &entry_source);
     let entry_name = entry_module_name(entry);
     let entry_ast = with_module_name(&prep.ast, &entry_name);
-    match type_check_with_registry(&entry_ast, prep.registry.clone()) {
+    match type_check_with_registry_and_prelude(
+        &entry_ast,
+        prep.registry.clone(),
+        prep.prelude_options,
+    ) {
         Ok(result) => warnings.extend(anchor_diagnostics_to_source(
             &entry_source,
             diagnostics_for_type_errors(&entry_source, &result.warnings),

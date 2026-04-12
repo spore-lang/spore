@@ -23,7 +23,7 @@ use check::Checker;
 use cost::{CostAnalyzer, CostChecker, CostResult, CostVector};
 use error::{ErrorCode, TypeError};
 use hole::HoleReport;
-use module::ModuleRegistry;
+use module::{ModuleRegistry, PreludeOptions};
 use sporec_parser::ast::Module;
 
 pub fn is_synthetic_hole_name(name: &str) -> bool {
@@ -62,9 +62,18 @@ pub fn type_check(module: &Module) -> Result<CheckResult, Vec<TypeError>> {
 /// Type-check a parsed Spore module with a shared module registry.
 pub fn type_check_with_registry(
     module: &Module,
-    mut registry: ModuleRegistry,
+    registry: ModuleRegistry,
 ) -> Result<CheckResult, Vec<TypeError>> {
-    registry.register_prelude();
+    type_check_with_registry_and_prelude(module, registry, PreludeOptions::default())
+}
+
+/// Type-check a parsed Spore module with a shared module registry and custom prelude options.
+pub fn type_check_with_registry_and_prelude(
+    module: &Module,
+    mut registry: ModuleRegistry,
+    prelude_options: PreludeOptions,
+) -> Result<CheckResult, Vec<TypeError>> {
+    registry.register_prelude_with_options(prelude_options);
     let mut checker = Checker::with_module_registry(registry);
     checker.load_prelude(&parse_embedded_prelude());
     checker.check_module(module);
