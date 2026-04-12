@@ -17,3 +17,4 @@ serde_json = { workspace = true }
 spore-codegen = { path = "../spore-codegen" }
 spore-parser = { path = "../spore-parser" }
 spore-typeck = { path = "../spore-typeck" }
+sporec-diagnostics = { path = "../sporec-diagnostics" }

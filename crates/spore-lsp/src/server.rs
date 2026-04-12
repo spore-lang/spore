@@ -501,13 +501,13 @@ fn byte_offset_to_position(source: &str, offset: usize) -> (u32, u32) {
 
 /// Build LSP diagnostics from source text by running the Spore compiler.
 pub fn build_diagnostics(source: &str) -> Vec<Value> {
-    let diagnostics = sporec::compile_diagnostics(source);
+    let diagnostics = sporec::compiler::compile_diagnostics(source);
     diagnostics
         .into_iter()
         .map(|d| {
             let severity: u32 = match d.severity {
-                sporec::DiagnosticSeverity::Error => 1,
-                sporec::DiagnosticSeverity::Warning => 2,
+                sporec::compiler::DiagnosticSeverity::Error => 1,
+                sporec::compiler::DiagnosticSeverity::Warning => 2,
             };
             let (start_line, start_char, end_line, end_char) = if let Some(span) = d.span {
                 let (sl, sc) = byte_offset_to_position(source, span.start);
