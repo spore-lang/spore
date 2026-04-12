@@ -517,13 +517,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "spore-codegen"
-version = "0.1.0"
-dependencies = [
- "sporec-parser",
-]
-
-[[package]]
 name = "spore-lsp"
 version = "0.1.0"
 dependencies = [
@@ -547,9 +540,16 @@ version = "0.1.0"
 dependencies = [
  "bpaf",
  "serde_json",
- "spore-codegen",
  "spore-typeck",
+ "sporec-codegen",
  "sporec-diagnostics",
+ "sporec-parser",
+]
+
+[[package]]
+name = "sporec-codegen"
+version = "0.1.0"
+dependencies = [
  "sporec-parser",
 ]
 

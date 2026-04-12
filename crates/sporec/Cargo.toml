@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 bpaf = { workspace = true }
 serde_json = { workspace = true }
-spore-codegen = { path = "../spore-codegen" }
 spore-typeck = { path = "../spore-typeck" }
+sporec-codegen = { path = "../sporec-codegen" }
 sporec-diagnostics = { path = "../sporec-diagnostics" }
 sporec-parser = { path = "../sporec-parser" }

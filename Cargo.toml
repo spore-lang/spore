@@ -2,10 +2,10 @@
 resolver = "2"
 members = [
   "crates/spore-cli",
-  "crates/spore-codegen",
   "crates/spore-lsp",
   "crates/spore-typeck",
   "crates/sporec",
+  "crates/sporec-codegen",
   "crates/sporec-diagnostics",
   "crates/sporec-parser",
 ]
