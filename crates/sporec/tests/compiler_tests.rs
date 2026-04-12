@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use spore_codegen::value::Value;
 use sporec::{
     CheckFailure, CheckReport, check_files, check_project, check_project_verbose, check_verbose,
     compile, compile_project, hole_summary, run_project,
@@ -910,6 +911,64 @@ fn compile_project_accepts_platform_dependency_startup_contract() {
         output.warnings.is_empty(),
         "expected no warnings, got: {:?}",
         output.warnings
+    );
+}
+
+#[test]
+fn run_project_routes_package_platforms_through_adapter() {
+    let project = TempProject::new("project-path-platform-runtime-adapter");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    project.write(
+        "vendor/basic-cli/src/basic_cli/runtime.sp",
+        r#"
+        import basic_cli.runtime_inner
+
+        pub fn value() -> I32 {
+            helper()
+        }
+        "#,
+    );
+    project.write(
+        "vendor/basic-cli/src/basic_cli/runtime_inner.sp",
+        r#"
+        pub fn helper() -> I32 {
+            42
+        }
+        "#,
+    );
+    write_basic_cli_platform(
+        &project,
+        r#"
+        import basic_cli.runtime
+
+        pub fn main() -> I32 {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> I32) -> I32 {
+            value()
+        }
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        fn main() -> I32 {
+            ?entry_startup_should_not_run_directly
+        }
+
+        fn main_for_host(app_main: () -> I32) -> I32 {
+            ?entry_adapter_shadow_should_not_run
+        }
+        "#,
+    );
+
+    let value = run_project(project.root(), "app.sp")
+        .expect("package-backed runtime should invoke the platform adapter");
+    assert_eq!(value.as_int(), Some(42));
+    assert!(
+        matches!(value, Value::Int(42)),
+        "expected adapter return value, got: {value:?}"
     );
 }
 

@@ -154,6 +154,17 @@ impl Env {
     }
 }
 
+fn named_function_closure(name: &str, func: &FnDef) -> Value {
+    Value::Closure(Closure {
+        params: func.params.iter().map(|p| p.name.clone()).collect(),
+        body: func
+            .body
+            .clone()
+            .unwrap_or(Expr::Hole(Some(name.to_string()), None, None)),
+        env: BTreeMap::new(),
+    })
+}
+
 impl Interpreter {
     pub fn new() -> Self {
         Self {
@@ -280,6 +291,15 @@ impl Interpreter {
         self.effect_handlers.push(handler);
     }
 
+    /// Get a named function as a first-class closure value.
+    pub fn named_function_value(&self, name: &str) -> Result<Value> {
+        let func = self
+            .functions
+            .get(name)
+            .ok_or_else(|| RuntimeError::new(format!("unknown function `{name}`")))?;
+        Ok(named_function_closure(name, func))
+    }
+
     /// Try dispatching an operation through registered effect handlers.
     fn try_dispatch_effect(&mut self, name: &str, args: &[Value]) -> Result<Option<Value>> {
         for handler in &self.effect_handlers {
@@ -382,17 +402,7 @@ impl Interpreter {
                 } else if let Some((_, 0)) = self.is_enum_variant(name) {
                     Ok(Value::Enum(name.clone(), vec![]))
                 } else if self.functions.contains_key(name) {
-                    // Return a closure wrapping the named function
-                    let func = &self.functions[name];
-                    Ok(Value::Closure(Closure {
-                        params: func.params.iter().map(|p| p.name.clone()).collect(),
-                        body: func.body.clone().unwrap_or(Expr::Hole(
-                            Some(name.clone()),
-                            None,
-                            None,
-                        )),
-                        env: BTreeMap::new(),
-                    }))
+                    Ok(named_function_closure(name, &self.functions[name]))
                 } else {
                     Err(RuntimeError::new(format!("undefined variable `{name}`")))
                 }

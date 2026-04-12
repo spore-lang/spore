@@ -17,6 +17,23 @@ fn run_project_fn(src: &str, startup: &str) -> Value {
         .unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
+fn run_project_with_adapter(
+    entry_src: &str,
+    adapter_src: &str,
+    startup: &str,
+    adapter: &str,
+) -> Value {
+    let entry = parse(entry_src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    let adapter_module = parse(adapter_src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    spore_codegen::run_project_with_adapter(
+        &entry,
+        &[("platform_contract".into(), adapter_module)],
+        startup,
+        adapter,
+    )
+    .unwrap_or_else(|e| panic!("runtime error: {e}"))
+}
+
 // ── Literals ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -36,6 +53,17 @@ fn test_float_literal() {
 fn test_string_literal() {
     let v = run_main("fn main() -> String { \"hello\" }");
     assert_eq!(v.as_str(), Some("hello"));
+}
+
+#[test]
+fn test_project_runtime_can_call_platform_adapter() {
+    let v = run_project_with_adapter(
+        "fn main() -> Int { ?entry_should_not_run }",
+        "pub fn main_for_host(app_main: () -> Int) -> Int { 42 }",
+        "main",
+        "platform_contract.main_for_host",
+    );
+    assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]

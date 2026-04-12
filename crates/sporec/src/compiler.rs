@@ -24,7 +24,7 @@ use sporec_diagnostics::{
     HoleDependencyKind, HoleErrorClusterJson, HoleInfoJson, HoleLocationJson, HoleReportJson,
     HoleSummary, HoleTypeInferenceJson, Severity, SourceFile,
 };
-use sporec_parser::ast::{Expr, ImportDecl, Item, Span, Stmt};
+use sporec_parser::ast::{Expr, ImportDecl, Item, Module, Span, Stmt};
 use sporec_parser::formatter::format_module;
 use sporec_parser::parse;
 
@@ -954,6 +954,90 @@ fn load_platform_contract(
     })
 }
 
+fn module_imports(module: &Module) -> Vec<ImportDecl> {
+    module
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Import(import) => Some(import.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn load_platform_runtime_modules(
+    contract: &ResolvedPlatformContract,
+) -> Result<Vec<(String, Module)>, String> {
+    let mut loader = ModuleLoader::new(contract.root.clone());
+    let contract_iface = loader
+        .load_module(&contract.contract_module)
+        .map_err(|error| {
+            format!(
+                "platform `{}` contract module `{}` could not be loaded from `{}`: {error}",
+                contract.name,
+                contract.contract_module,
+                contract.root.display()
+            )
+        })?
+        .clone();
+    let contract_ast = loader
+        .get_ast(&contract.contract_module)
+        .cloned()
+        .ok_or_else(|| {
+            format!(
+                "platform `{}` contract module `{}` did not produce a parsed AST",
+                contract.name, contract.contract_module
+            )
+        })?;
+
+    let mut registry = ModuleRegistry::new();
+    registry.register(contract_iface);
+    registry
+        .resolve_imports(
+            &mut loader,
+            &contract.contract_module,
+            &module_imports(&contract_ast),
+        )
+        .map_err(|errors| {
+            format!(
+                "platform `{}` contract module `{}` could not resolve runtime imports: {}",
+                contract.name,
+                contract.contract_module,
+                join_errors(errors)
+            )
+        })?;
+
+    let mut loaded_paths = loader.loaded_modules();
+    loaded_paths.sort();
+    Ok(loaded_paths
+        .into_iter()
+        .filter_map(|path| loader.get_ast(&path).map(|ast| (path, ast.clone())))
+        .collect())
+}
+
+fn collect_runtime_import_modules(
+    prep: &PreparedProject,
+    target: &ResolvedProjectTarget,
+) -> Result<Vec<(String, Module)>, String> {
+    let mut imports = BTreeMap::new();
+
+    let mut loaded_paths = prep.loader.loaded_modules();
+    loaded_paths.sort();
+    for path in loaded_paths {
+        if let Some(ast) = prep.loader.get_ast(&path) {
+            imports.insert(path, ast.clone());
+        }
+    }
+
+    if let Some(contract) = target.platform_contract.as_ref() {
+        for (path, ast) in load_platform_runtime_modules(contract)? {
+            imports.insert(path, ast);
+        }
+    }
+
+    Ok(imports.into_iter().collect())
+}
+
 fn is_hole_backed_contract_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Hole(_, _, _) => true,
@@ -1129,15 +1213,21 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     let _results = collect_prepared_project_results(&prep, &target.entry_path)?;
     validate_project_startup(&prep, &target)?;
 
-    // Collect imported module ASTs for the interpreter
-    let mut imported_paths = prep.loader.loaded_modules();
-    imported_paths.sort();
-    let imported: Vec<(String, sporec_parser::ast::Module)> = imported_paths
-        .into_iter()
-        .filter_map(|path| prep.loader.get_ast(&path).map(|ast| (path, ast.clone())))
-        .collect();
+    let imported = collect_runtime_import_modules(&prep, &target)?;
+    if let Some(contract) = target.platform_contract.as_ref() {
+        let adapter_function =
+            format!("{}.{}", contract.contract_module, contract.adapter_function);
+        return spore_codegen::run_project_with_adapter(
+            &prep.ast,
+            &imported,
+            startup_function,
+            &adapter_function,
+        )
+        .map_err(|error| error.to_string());
+    }
 
-    spore_codegen::run_project(&prep.ast, &imported, startup_function).map_err(|e| e.to_string())
+    spore_codegen::run_project(&prep.ast, &imported, startup_function)
+        .map_err(|error| error.to_string())
 }
 
 /// Analyze holes in Spore source and return the shared JSON report payload.
