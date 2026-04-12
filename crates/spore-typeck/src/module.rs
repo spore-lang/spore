@@ -29,6 +29,20 @@ impl From<&Visibility> for SymbolVisibility {
     }
 }
 
+/// Options for how the synthetic prelude should be assembled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreludeOptions {
+    pub include_console: bool,
+}
+
+impl Default for PreludeOptions {
+    fn default() -> Self {
+        Self {
+            include_console: true,
+        }
+    }
+}
+
 /// Represents a compiled module's public interface.
 #[derive(Debug, Clone, Default)]
 pub struct ModuleInterface {
@@ -396,19 +410,26 @@ impl ModuleRegistry {
 
     /// Register the standard library prelude.
     pub fn register_prelude(&mut self) {
+        self.register_prelude_with_options(PreludeOptions::default());
+    }
+
+    /// Register the standard library prelude with custom builtin options.
+    pub fn register_prelude_with_options(&mut self, options: PreludeOptions) {
         let mut prelude = build_prelude_interface();
 
         prelude.types.entry("List".into()).or_default();
 
-        prelude
-            .functions
-            .insert("print".into(), (vec![Ty::Str], Ty::Unit));
-        prelude
-            .functions
-            .insert("println".into(), (vec![Ty::Str], Ty::Unit));
-        prelude
-            .functions
-            .insert("read_line".into(), (vec![], Ty::Str));
+        if options.include_console {
+            prelude
+                .functions
+                .insert("print".into(), (vec![Ty::Str], Ty::Unit));
+            prelude
+                .functions
+                .insert("println".into(), (vec![Ty::Str], Ty::Unit));
+            prelude
+                .functions
+                .insert("read_line".into(), (vec![], Ty::Str));
+        }
 
         prelude
             .functions
@@ -895,6 +916,21 @@ mod tests {
         assert!(prelude.is_some());
         assert!(prelude.unwrap().exports("Option"));
         assert!(prelude.unwrap().exports("identity"));
+    }
+
+    #[test]
+    fn prelude_registration_can_skip_console_builtins() {
+        let mut reg = ModuleRegistry::new();
+        reg.register_prelude_with_options(PreludeOptions {
+            include_console: false,
+        });
+        let prelude = reg
+            .get(&["Std".into(), "Prelude".into()])
+            .expect("prelude should be registered");
+        assert!(!prelude.exports("print"));
+        assert!(!prelude.exports("println"));
+        assert!(!prelude.exports("read_line"));
+        assert!(prelude.exports("char_to_int"));
     }
 
     #[test]

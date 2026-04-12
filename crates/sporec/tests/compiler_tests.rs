@@ -77,6 +77,15 @@ fn write_basic_cli_platform(project: &TempProject, contract_source: &str) {
     project.write("vendor/basic-cli/src/platform_contract.sp", contract_source);
 }
 
+fn write_basic_cli_stdout_module(project: &TempProject) {
+    project.write(
+        "vendor/basic-cli/src/basic_cli/stdout.sp",
+        r#"
+        pub foreign fn println(s: Str) -> () uses [Console]
+        "#,
+    );
+}
+
 // ── Verbose output tests ────────────────────────────────────────────
 
 #[test]
@@ -643,6 +652,81 @@ fn compile_project_resolves_imports_from_path_dependency_modules() {
         output.warnings.is_empty(),
         "expected no warnings, got: {:?}",
         output.warnings
+    );
+}
+
+#[test]
+fn compile_project_accepts_platform_dependency_console_imports() {
+    let project = TempProject::new("project-path-platform-console-import");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform(
+        &project,
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    write_basic_cli_stdout_module(&project);
+    project.write(
+        "src/app.sp",
+        r#"
+        import basic_cli.stdout
+
+        fn main() -> () {
+            println("hello from imported console")
+            return
+        }
+        "#,
+    );
+
+    let output = compile_project(project.root(), "app.sp")
+        .expect("package-backed platform projects should use imported console modules");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn compile_project_rejects_platform_dependency_bare_console_without_import() {
+    let project = TempProject::new("project-path-platform-bare-console");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform(
+        &project,
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    write_basic_cli_stdout_module(&project);
+    project.write(
+        "src/app.sp",
+        r#"
+        fn main() -> () {
+            println("missing import")
+            return
+        }
+        "#,
+    );
+
+    let err = compile_project(project.root(), "app.sp")
+        .expect_err("package-backed platform projects should not get console prelude builtins");
+    assert!(
+        err.contains("undefined variable `println`"),
+        "expected missing import error, got: {err}"
     );
 }
 
