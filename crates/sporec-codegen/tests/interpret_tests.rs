@@ -50,7 +50,7 @@ fn run_project_on_platform(
             )
         })
         .collect::<Vec<_>>();
-    spore_codegen::run_project_on_platform(&entry, &imported, startup, runtime_platform)
+    sporec_codegen::run_project_on_platform(&entry, &imported, startup, runtime_platform)
         .unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 

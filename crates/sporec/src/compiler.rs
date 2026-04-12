@@ -5,8 +5,6 @@ use crate::diagnostics::{diagnostics_for_parse_errors, diagnostics_for_type_erro
 use crate::project::{
     ResolvedPlatformContract, ResolvedProjectTarget, resolve_project_target_by_path,
 };
-use sporec_codegen::RuntimePlatform;
-use sporec_codegen::value::Value;
 use spore_typeck::CheckResult;
 use spore_typeck::hole::{
     CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
@@ -19,6 +17,7 @@ use spore_typeck::module::{
 use spore_typeck::platform::{PlatformRegistry, PlatformStartupError, PlatformStartupErrorKind};
 use spore_typeck::types::Ty;
 use spore_typeck::{type_check, type_check_with_registry, type_check_with_registry_and_prelude};
+use sporec_codegen::RuntimePlatform;
 use sporec_codegen::value::Value;
 use sporec_diagnostics::{
     Diagnostic as CanonicalDiagnostic, HoleCandidateJson, HoleCandidateRankingJson,
@@ -1249,7 +1248,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
         startup_function,
         runtime_platform,
     )
-        .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string())
 }
 
 /// Analyze holes in Spore source and return the shared JSON report payload.
