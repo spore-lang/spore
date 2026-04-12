@@ -356,7 +356,7 @@ fn infer_project_entry(root: &Path) -> Result<String, String> {
                 return Ok(entry.to_string());
             }
             return Err(format!(
-                "project type `{project_type}` expects `{}`; create it or pass FILE explicitly",
+                "project type `{project_type}` expects default entry path `{}`; create it or pass FILE explicitly",
                 entry_path.display()
             ));
         }
@@ -375,11 +375,11 @@ fn infer_project_entry(root: &Path) -> Result<String, String> {
     match candidates.as_slice() {
         [entry] => Ok((*entry).to_string()),
         [] => Err(format!(
-            "could not infer a project entry from `{}`; add `[package].type` or pass FILE explicitly",
+            "could not infer a project default entry path from `{}`; add `[package].type` or pass FILE explicitly",
             manifest.display()
         )),
         _ => Err(format!(
-            "could not infer a project entry for `{}`; found multiple defaults in src/ ({}) — pass FILE explicitly",
+            "could not infer a project default entry path for `{}`; found multiple defaults in src/ ({}) — pass FILE explicitly",
             root.display(),
             candidates.join(", ")
         )),
@@ -794,7 +794,7 @@ fn exec_build(file: Option<&str>) -> ExitCode {
                 eprintln!("{}: {w}", "warning".yellow().bold());
             }
             let subject = match &target {
-                BuildTarget::Project { entry, .. } => format!("project entry `{entry}`"),
+                BuildTarget::Project { entry, .. } => format!("entry path `{entry}`"),
                 BuildTarget::File(path) => format!("`{path}`"),
             };
             println!(
@@ -1070,7 +1070,7 @@ allow = [\"Compute\"]
         ),
         "platform" => (
             "host.sp",
-            "/// Platform entry point.\n/// The platform provides effect handlers for the application.\npub fn main_for_host(app_main: () -> ()) -> () {\n    app_main();\n    return\n}\n"
+            "/// Platform startup adapter.\n/// This is where the platform sets up effect handlers before calling the application startup function.\npub fn main_for_host(app_main: () -> ()) -> () {\n    app_main();\n    return\n}\n"
                 .to_string(),
         ),
         _ => (

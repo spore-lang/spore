@@ -28,7 +28,8 @@ pub enum SpecKind {
     Property,
 }
 
-/// Execute a Spore module by calling its `main` function.
+/// Execute a Spore module by calling its current default startup function
+/// (`main`).
 pub fn run(module: &Module) -> Result<Value, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
@@ -49,7 +50,8 @@ pub fn call(module: &Module, name: &str, args: Vec<Value>) -> Result<Value, Runt
 /// Execute a Spore project with cross-module imports.
 ///
 /// Loads imported modules first (making their public symbols available),
-/// then loads the entry module and calls its `main` function.
+/// then loads the entry module and calls its current default startup function
+/// (`main`).
 pub fn run_project(entry: &Module, imports: &[(String, Module)]) -> Result<Value, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
