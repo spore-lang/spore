@@ -60,7 +60,10 @@ spec {
 
 @unbounded
 fn dict_contains_key[K, V](d: List[Pair[K, V]], key: K) -> Bool {
-    any(d, |entry: Pair[K, V]| entry.first == key)
+    match d {
+        [] => false,
+        [Pair { first: k, second: _ }, ..rest] => if k == key { true } else { dict_contains_key(rest, key) },
+    }
 }
 
 @unbounded

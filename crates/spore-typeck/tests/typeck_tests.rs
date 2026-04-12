@@ -253,6 +253,36 @@ fn test_struct_literal() {
 }
 
 #[test]
+fn test_generic_struct_literal_infers_type_arguments() {
+    check_ok(
+        r#"
+        struct Pair[A, B] { first: A, second: B }
+
+        fn make_pair[T, U](first: T, second: U) -> Pair[T, U] {
+            Pair { first: first, second: second }
+        }
+        "#,
+    );
+}
+
+#[test]
+fn test_generic_struct_field_access_preserves_type_arguments() {
+    check_ok(
+        r#"
+        struct Pair[A, B] { first: A, second: B }
+
+        fn first(pair: Pair[Str, I32]) -> Str { pair.first }
+
+        fn match_first(pair: Pair[Str, I32]) -> Str {
+            match pair {
+                Pair { first, second } => first,
+            }
+        }
+        "#,
+    );
+}
+
+#[test]
 fn test_struct_field_type_mismatch() {
     let errs = check_err(
         "struct Point { x: F64, y: F64 }
@@ -1942,6 +1972,16 @@ fn builtin_tail_returns_option_list() {
 fn builtin_char_at_returns_option() {
     // Bug A7: char_at should return Option[String]
     check_ok(r#"fn f() -> Option[Str] { char_at("abc", 0) }"#);
+}
+
+#[test]
+fn builtin_char_to_int_type_checks() {
+    check_ok(r#"fn f() -> I32 { char_to_int("A") }"#);
+}
+
+#[test]
+fn builtin_int_to_char_type_checks() {
+    check_ok(r#"fn f() -> Str { int_to_char(65) }"#);
 }
 
 // ── Foreign fn type-checking (continued) ────────────────────────────────

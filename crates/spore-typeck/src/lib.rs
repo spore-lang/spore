@@ -162,6 +162,11 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     .map(|f| (f.name.clone(), checker.resolve_type(&f.ty)))
                     .collect();
                 iface.structs.insert(s.name.clone(), fields);
+                if !s.type_params.is_empty() {
+                    iface
+                        .struct_type_params
+                        .insert(s.name.clone(), s.type_params.clone());
+                }
                 iface.set_visibility(&s.name, SymbolVisibility::from(&s.visibility));
             }
             Item::TypeDef(t) => {

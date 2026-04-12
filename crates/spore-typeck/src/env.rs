@@ -73,6 +73,8 @@ pub struct TypeRegistry {
     pub fn_errors: HashMap<String, ErrorSet>,
     /// Struct definitions: name → field list (name, type)
     pub structs: HashMap<String, Vec<(String, Ty)>>,
+    /// Generic struct type parameters: name → ordered type parameter names
+    pub struct_type_params: HashMap<String, Vec<String>>,
     /// Type (enum) definitions: name → variant list (name, field types)
     pub types: HashMap<String, Vec<(String, Vec<Ty>)>>,
     /// Type parameter names for generic functions: name → [type param names]
