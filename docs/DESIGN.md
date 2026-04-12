@@ -240,9 +240,10 @@ fn name(params) -> ReturnType ! Errors
   - **内存模型方向**：不引入 borrow checker / lifetime system；当前方向是 **Perceus 风格 RC + region optimization**。
   - **验证策略**：以 **spec / property / refinement** 为主线；mutation testing 不进入近期关键路径。
   - **互操作边界**：**Platform 是唯一 FFI 表面**；应用代码不直接声明裸 native FFI。
+  - **handler v0.1 语义**：`handle { ... } with { ... }` 是**词法作用域**、**不可恢复（non-resumable）**、**one-shot** 的；命中规则为**内层优先**，handler arm 在当前活动 handler 栈内求值，因此 arm 内继续触发的 `perform` 仍会按同一套活动 handler 继续匹配；handler arm 的返回值就是对应 `perform` 表达式的值。
 - **仍开放**
   - `Ref[T]` 作为语言内可变单元 vs 平台包装器的精确边界
-  - handler / continuation 的生命周期、逃逸与取消规则
+  - 若未来引入 continuation / resume，handler 的生命周期、逃逸与取消规则如何定义
   - `HostValue` / ADT / `Result` / `Option` 的跨边界映射
   - L0 refinement enforcement 的精确边界
 

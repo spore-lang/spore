@@ -832,7 +832,7 @@ fn test_handle_intercepts_effect() {
 
 #[test]
 fn test_handle_handler_sees_args() {
-    let _v = run_main(
+    let v = run_main(
         r#"
         fn main() -> Int {
             handle {
@@ -843,6 +843,24 @@ fn test_handle_handler_sees_args() {
         }
         "#,
     );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_handler_result_becomes_perform_value() {
+    let v = run_main(
+        r#"
+        fn main() -> Int {
+            let doubled = handle {
+                perform Math.double(21)
+            } with {
+                Math.double(x) => x + x
+            }
+            doubled
+        }
+        "#,
+    );
+    assert_eq!(v.as_int(), Some(42));
 }
 
 // ── Stdlib: extended runtime tests ──────────────────────────────────
@@ -860,7 +878,7 @@ fn test_stdlib_map_option_some() {
 
 #[test]
 fn test_nested_handlers_inner_shadows_outer() {
-    let _v = run_main(
+    let v = run_main(
         r#"
         fn main() -> Int {
             handle {
@@ -874,6 +892,50 @@ fn test_nested_handlers_inner_shadows_outer() {
             }
         }
         "#,
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_handler_arm_runs_with_current_handler_stack() {
+    let v = run_main(
+        r#"
+        fn main() -> Int {
+            handle {
+                handle {
+                    perform Math.a()
+                } with {
+                    Math.a() => perform Math.b()
+                    Math.b() => 1
+                }
+            } with {
+                Math.b() => 2
+            }
+        }
+        "#,
+    );
+    assert_eq!(v.as_int(), Some(1));
+}
+
+#[test]
+fn test_handler_scope_does_not_escape_block() {
+    let module = sporec_parser::parse(
+        r#"
+        fn main() -> Int {
+            handle {
+                perform Math.value()
+            } with {
+                Math.value() => 41
+            }
+            perform Math.value()
+        }
+        "#,
+    )
+    .unwrap();
+    let err = sporec_codegen::run(&module).unwrap_err();
+    assert!(
+        err.to_string().contains("unhandled effect"),
+        "unexpected error: {err}"
     );
 }
 
