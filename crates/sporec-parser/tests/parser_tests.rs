@@ -1,6 +1,6 @@
-use spore_parser::parse;
+use sporec_parser::parse;
 
-fn parse_ok(src: &str) -> spore_parser::ast::Module {
+fn parse_ok(src: &str) -> sporec_parser::ast::Module {
     parse(src).unwrap_or_else(|errs| {
         panic!(
             "parse failed:\n{}",
@@ -27,7 +27,7 @@ fn test_simple_fn() {
     let m = parse_ok("fn add(a: Int, b: Int) -> Int { a + b }");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert_eq!(f.name, "add");
             assert_eq!(f.params.len(), 2);
             assert_eq!(f.params[0].name, "a");
@@ -44,8 +44,8 @@ fn test_simple_fn() {
 fn test_pub_fn() {
     let m = parse_ok("pub fn greet() -> String { \"hello\" }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
-            assert!(matches!(f.visibility, spore_parser::ast::Visibility::Pub));
+        sporec_parser::ast::Item::Function(f) => {
+            assert!(matches!(f.visibility, sporec_parser::ast::Visibility::Pub));
         }
         _ => panic!("expected function"),
     }
@@ -55,10 +55,10 @@ fn test_pub_fn() {
 fn test_pub_pkg_fn() {
     let m = parse_ok("pub(pkg) fn internal() -> Int { 42 }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert!(matches!(
                 f.visibility,
-                spore_parser::ast::Visibility::PubPkg
+                sporec_parser::ast::Visibility::PubPkg
             ));
         }
         _ => panic!("expected function"),
@@ -71,7 +71,7 @@ fn test_pub_pkg_fn() {
 fn test_fn_with_uses() {
     let m = parse_ok("fn fetch(url: String) -> String uses [NetRead] { \"data\" }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let uses = f.uses_clause.as_ref().unwrap();
             assert_eq!(uses.resources, vec!["NetRead"]);
         }
@@ -83,17 +83,19 @@ fn test_fn_with_uses() {
 fn test_fn_with_cost() {
     let m = parse_ok("fn sort(xs: List) -> List cost [O(n), 0, 0, 0] { xs }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let cost = f.cost_clause.as_ref().expect("cost clause should parse");
-            assert!(matches!(cost.compute, spore_parser::ast::CostExpr::Linear(ref v) if v == "n"));
+            assert!(
+                matches!(cost.compute, sporec_parser::ast::CostExpr::Linear(ref v) if v == "n")
+            );
             assert!(matches!(
                 cost.alloc,
-                spore_parser::ast::CostExpr::Literal(0)
+                sporec_parser::ast::CostExpr::Literal(0)
             ));
-            assert!(matches!(cost.io, spore_parser::ast::CostExpr::Literal(0)));
+            assert!(matches!(cost.io, sporec_parser::ast::CostExpr::Literal(0)));
             assert!(matches!(
                 cost.parallel,
-                spore_parser::ast::CostExpr::Literal(0)
+                sporec_parser::ast::CostExpr::Literal(0)
             ));
         }
         _ => panic!("expected function"),
@@ -104,7 +106,7 @@ fn test_fn_with_cost() {
 fn test_fn_with_where() {
     let m = parse_ok("fn show(x: T) -> String where T: Display { \"\" }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let wc = f.where_clause.as_ref().unwrap();
             assert_eq!(wc.constraints.len(), 1);
             assert_eq!(wc.constraints[0].type_var, "T");
@@ -140,16 +142,16 @@ fn test_fn_with_spec_clause_preserves_item_order() {
     "#,
     );
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let spec = f.spec_clause.as_ref().unwrap();
             assert_eq!(spec.items.len(), 2);
             assert!(matches!(
                 &spec.items[0],
-                spore_parser::ast::SpecItem::Property(prop) if prop.label == "commutative"
+                sporec_parser::ast::SpecItem::Property(prop) if prop.label == "commutative"
             ));
             assert!(matches!(
                 &spec.items[1],
-                spore_parser::ast::SpecItem::Example(ex) if ex.label == "identity"
+                sporec_parser::ast::SpecItem::Example(ex) if ex.label == "identity"
             ));
         }
         _ => panic!("expected function"),
@@ -171,12 +173,12 @@ fn test_fn_with_block_spec_example() {
     "#,
     );
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let spec = f.spec_clause.as_ref().unwrap();
             assert!(matches!(
                 &spec.items[0],
-                spore_parser::ast::SpecItem::Example(ex)
-                    if matches!(ex.body.as_ref(), spore_parser::ast::Expr::Block(_, Some(_)))
+                sporec_parser::ast::SpecItem::Example(ex)
+                    if matches!(ex.body.as_ref(), sporec_parser::ast::Expr::Block(_, Some(_)))
             ));
         }
         _ => panic!("expected function"),
@@ -198,7 +200,7 @@ fn test_fn_clauses_parse_in_any_order() {
     "#,
     );
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert!(f.where_clause.is_some());
             assert!(f.uses_clause.is_some());
             assert!(f.cost_clause.is_some());
@@ -246,7 +248,7 @@ fn test_parenthesized_cost_slot_syntax_is_rejected() {
 #[test]
 fn test_throw_signature_clause_is_rejected() {
     let errs =
-        spore_parser::parse("fn read(path: Str) -> Str throw [IoError] { \"x\" }").unwrap_err();
+        sporec_parser::parse("fn read(path: Str) -> Str throw [IoError] { \"x\" }").unwrap_err();
     assert!(!errs.is_empty());
 }
 
@@ -254,22 +256,22 @@ fn test_throw_signature_clause_is_rejected() {
 fn test_width_primitive_and_unit_syntax() {
     let m = parse_ok("fn f(x: I32, y: F64, s: Str) -> () { return }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert!(matches!(
                 f.return_type.as_ref(),
-                Some(spore_parser::ast::TypeExpr::Tuple(ts)) if ts.is_empty()
+                Some(sporec_parser::ast::TypeExpr::Tuple(ts)) if ts.is_empty()
             ));
             assert!(matches!(
                 &f.params[0].ty,
-                spore_parser::ast::TypeExpr::Named(n) if n == "I32"
+                sporec_parser::ast::TypeExpr::Named(n) if n == "I32"
             ));
             assert!(matches!(
                 &f.params[1].ty,
-                spore_parser::ast::TypeExpr::Named(n) if n == "F64"
+                sporec_parser::ast::TypeExpr::Named(n) if n == "F64"
             ));
             assert!(matches!(
                 &f.params[2].ty,
-                spore_parser::ast::TypeExpr::Named(n) if n == "Str"
+                sporec_parser::ast::TypeExpr::Named(n) if n == "Str"
             ));
         }
         _ => panic!("expected function"),
@@ -287,7 +289,7 @@ fn test_trait_item_ast_shape() {
     "#,
     );
     match &m.items[0] {
-        spore_parser::ast::Item::TraitDef(t) => {
+        sporec_parser::ast::Item::TraitDef(t) => {
             assert_eq!(t.name, "Display");
             assert_eq!(t.type_params, vec!["T"]);
             assert_eq!(t.assoc_types.len(), 1);
@@ -307,7 +309,7 @@ fn test_effect_item_ast_shape() {
     "#,
     );
     match &m.items[0] {
-        spore_parser::ast::Item::EffectDef(effect) => {
+        sporec_parser::ast::Item::EffectDef(effect) => {
             assert_eq!(effect.name, "Console");
             assert_eq!(effect.operations.len(), 1);
             assert_eq!(effect.operations[0].name, "println");
@@ -320,7 +322,7 @@ fn test_effect_item_ast_shape() {
 fn test_effect_alias_ast_shape() {
     let m = parse_ok("effect IO = Console | FileRead | FileWrite");
     match &m.items[0] {
-        spore_parser::ast::Item::EffectAlias(alias) => {
+        sporec_parser::ast::Item::EffectAlias(alias) => {
             assert_eq!(alias.name, "IO");
             assert_eq!(alias.effects, vec!["Console", "FileRead", "FileWrite"]);
         }
@@ -338,7 +340,7 @@ fn test_handler_item_ast_shape() {
     "#,
     );
     match &m.items[0] {
-        spore_parser::ast::Item::HandlerDef(handler) => {
+        sporec_parser::ast::Item::HandlerDef(handler) => {
             assert_eq!(handler.name, "MockConsole");
             assert_eq!(handler.effect, "Console");
             assert_eq!(handler.methods.len(), 1);
@@ -355,17 +357,21 @@ fn test_arithmetic_precedence() {
     // 1 + 2 * 3 should parse as 1 + (2 * 3)
     let m = parse_ok("fn f() -> Int { 1 + 2 * 3 }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             // Body is Block([], Some(1 + 2*3))
             match body {
-                spore_parser::ast::Expr::Block(stmts, Some(tail)) => {
+                sporec_parser::ast::Expr::Block(stmts, Some(tail)) => {
                     assert!(stmts.is_empty());
                     match tail.as_ref() {
-                        spore_parser::ast::Expr::BinOp(_, spore_parser::ast::BinOp::Add, rhs) => {
+                        sporec_parser::ast::Expr::BinOp(_, sporec_parser::ast::BinOp::Add, rhs) => {
                             assert!(matches!(
                                 rhs.as_ref(),
-                                spore_parser::ast::Expr::BinOp(_, spore_parser::ast::BinOp::Mul, _)
+                                sporec_parser::ast::Expr::BinOp(
+                                    _,
+                                    sporec_parser::ast::BinOp::Mul,
+                                    _
+                                )
                             ));
                         }
                         _ => panic!("expected Add at top"),
@@ -382,13 +388,13 @@ fn test_arithmetic_precedence() {
 fn test_if_expr() {
     let m = parse_ok("fn f(x: Int) -> Int { if x > 0 { x } else { 0 } }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => {
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => {
                     assert!(matches!(
                         tail.as_ref(),
-                        spore_parser::ast::Expr::If(_, _, Some(_))
+                        sporec_parser::ast::Expr::If(_, _, Some(_))
                     ));
                 }
                 _ => panic!("expected block with if tail"),
@@ -409,11 +415,11 @@ fn test_match_expr() {
     }"#;
     let m = parse_ok(src);
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    spore_parser::ast::Expr::Match(_, arms) => {
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
+                    sporec_parser::ast::Expr::Match(_, arms) => {
                         assert_eq!(arms.len(), 3);
                     }
                     _ => panic!("expected match"),
@@ -429,13 +435,13 @@ fn test_match_expr() {
 fn test_let_stmt() {
     let m = parse_ok("fn f() -> Int { let x = 42; x }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(stmts, Some(_tail)) => {
+                sporec_parser::ast::Expr::Block(stmts, Some(_tail)) => {
                     assert_eq!(stmts.len(), 1);
                     match &stmts[0] {
-                        spore_parser::ast::Stmt::Let(name, _, _) => assert_eq!(name, "x"),
+                        sporec_parser::ast::Stmt::Let(name, _, _) => assert_eq!(name, "x"),
                         _ => panic!("expected let"),
                     }
                 }
@@ -450,11 +456,14 @@ fn test_let_stmt() {
 fn test_pipe_expr() {
     let m = parse_ok("fn f(x: Int) -> Int { x |> double }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => {
-                    assert!(matches!(tail.as_ref(), spore_parser::ast::Expr::Pipe(_, _)));
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => {
+                    assert!(matches!(
+                        tail.as_ref(),
+                        sporec_parser::ast::Expr::Pipe(_, _)
+                    ));
                 }
                 _ => panic!("expected block"),
             }
@@ -467,13 +476,13 @@ fn test_pipe_expr() {
 fn test_lambda() {
     let m = parse_ok("fn f() -> Int { |x| x + 1 }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => {
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => {
                     assert!(matches!(
                         tail.as_ref(),
-                        spore_parser::ast::Expr::Lambda(_, _)
+                        sporec_parser::ast::Expr::Lambda(_, _)
                     ));
                 }
                 _ => panic!("expected block"),
@@ -487,11 +496,11 @@ fn test_lambda() {
 fn test_try_expr() {
     let m = parse_ok("fn f(x: Result) -> Int { x? }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => {
-                    assert!(matches!(tail.as_ref(), spore_parser::ast::Expr::Try(_)));
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => {
+                    assert!(matches!(tail.as_ref(), sporec_parser::ast::Expr::Try(_)));
                 }
                 _ => panic!("expected block"),
             }
@@ -504,11 +513,11 @@ fn test_try_expr() {
 fn test_hole() {
     let m = parse_ok("fn f() -> Int { ?todo }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    spore_parser::ast::Expr::Hole(Some(name), _, _) => assert_eq!(name, "todo"),
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
+                    sporec_parser::ast::Expr::Hole(Some(name), _, _) => assert_eq!(name, "todo"),
                     _ => panic!("expected hole, got {:?}", tail),
                 },
                 _ => panic!("expected block"),
@@ -522,11 +531,11 @@ fn test_hole() {
 fn test_unnamed_hole() {
     let m = parse_ok("fn f() -> Int { ? }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    spore_parser::ast::Expr::Hole(None, None, None) => {}
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
+                    sporec_parser::ast::Expr::Hole(None, None, None) => {}
                     _ => panic!("expected unnamed hole, got {:?}", tail),
                 },
                 _ => panic!("expected block"),
@@ -540,14 +549,14 @@ fn test_unnamed_hole() {
 fn test_signature_type_holes() {
     let m = parse_ok("fn mystery(x: ?) -> ? { x }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert!(matches!(
                 f.params[0].ty,
-                spore_parser::ast::TypeExpr::Hole(None)
+                sporec_parser::ast::TypeExpr::Hole(None)
             ));
             assert!(matches!(
                 f.return_type.as_ref(),
-                Some(spore_parser::ast::TypeExpr::Hole(None))
+                Some(sporec_parser::ast::TypeExpr::Hole(None))
             ));
         }
         _ => panic!("expected function"),
@@ -558,7 +567,7 @@ fn test_signature_type_holes() {
 fn test_allows_annotation_on_function() {
     let m = parse_ok("@allows[validate, sanitize]\nfn f() -> Int { ? }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert_eq!(
                 f.hole_allows.as_ref().unwrap(),
                 &vec!["validate".to_string(), "sanitize".to_string()]
@@ -574,7 +583,7 @@ fn test_allows_annotation_on_function() {
 fn test_struct_def() {
     let m = parse_ok("struct Point { x: Float, y: Float }");
     match &m.items[0] {
-        spore_parser::ast::Item::StructDef(s) => {
+        sporec_parser::ast::Item::StructDef(s) => {
             assert_eq!(s.name, "Point");
             assert_eq!(s.fields.len(), 2);
         }
@@ -586,7 +595,7 @@ fn test_struct_def() {
 fn test_type_def() {
     let m = parse_ok("type Option[T] { Some(T), None }");
     match &m.items[0] {
-        spore_parser::ast::Item::TypeDef(t) => {
+        sporec_parser::ast::Item::TypeDef(t) => {
             assert_eq!(t.name, "Option");
             assert_eq!(t.type_params, vec!["T"]);
             assert_eq!(t.variants.len(), 2);
@@ -601,7 +610,7 @@ fn test_type_def() {
 fn test_import() {
     let m = parse_ok("import std.io.File");
     match &m.items[0] {
-        spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import {
+        sporec_parser::ast::Item::Import(sporec_parser::ast::ImportDecl::Import {
             path,
             alias,
             ..
@@ -617,7 +626,7 @@ fn test_import() {
 fn test_import_with_alias() {
     let m = parse_ok("import std.collections.HashMap as Map");
     match &m.items[0] {
-        spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import {
+        sporec_parser::ast::Item::Import(sporec_parser::ast::ImportDecl::Import {
             path,
             alias,
             ..
@@ -631,7 +640,7 @@ fn test_import_with_alias() {
 
 #[test]
 fn test_capability_keyword_is_rejected() {
-    let errs = spore_parser::parse("capability Display[T] { fn show(self: T) -> String }")
+    let errs = sporec_parser::parse("capability Display[T] { fn show(self: T) -> String }")
         .expect_err("legacy capability syntax should be rejected");
     assert!(
         errs.iter().any(|e| e
@@ -647,8 +656,8 @@ fn test_capability_keyword_is_rejected() {
 fn test_generic_type() {
     let m = parse_ok("fn f(xs: List[Int]) -> List[String] { xs }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => match &f.params[0].ty {
-            spore_parser::ast::TypeExpr::Generic(name, args) => {
+        sporec_parser::ast::Item::Function(f) => match &f.params[0].ty {
+            sporec_parser::ast::TypeExpr::Generic(name, args) => {
                 assert_eq!(name, "List");
                 assert_eq!(args.len(), 1);
             }
@@ -668,8 +677,8 @@ fn test_multiple_items() {
     "#;
     let m = parse_ok(src);
     assert_eq!(m.items.len(), 2);
-    assert!(matches!(m.items[0], spore_parser::ast::Item::StructDef(_)));
-    assert!(matches!(m.items[1], spore_parser::ast::Item::Function(_)));
+    assert!(matches!(m.items[0], sporec_parser::ast::Item::StructDef(_)));
+    assert!(matches!(m.items[1], sporec_parser::ast::Item::Function(_)));
 }
 
 // ── Call expressions ─────────────────────────────────────────────────────
@@ -678,11 +687,14 @@ fn test_multiple_items() {
 fn test_call_expr() {
     let m = parse_ok("fn f() -> Int { add(1, 2) }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => {
-                    assert!(matches!(tail.as_ref(), spore_parser::ast::Expr::Call(_, _)));
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => {
+                    assert!(matches!(
+                        tail.as_ref(),
+                        sporec_parser::ast::Expr::Call(_, _)
+                    ));
                 }
                 _ => panic!("expected block"),
             }
@@ -695,11 +707,14 @@ fn test_call_expr() {
 fn test_method_call() {
     let m = parse_ok("fn f(x: String) -> Int { x.len() }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => {
-                    assert!(matches!(tail.as_ref(), spore_parser::ast::Expr::Call(_, _)));
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => {
+                    assert!(matches!(
+                        tail.as_ref(),
+                        sporec_parser::ast::Expr::Call(_, _)
+                    ));
                 }
                 _ => panic!("expected block"),
             }
@@ -714,11 +729,11 @@ fn test_method_call() {
 fn test_struct_literal() {
     let m = parse_ok("fn f() -> Point { Point { x: 1.0, y: 2.0 } }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    spore_parser::ast::Expr::StructLit(name, fields) => {
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
+                    sporec_parser::ast::Expr::StructLit(name, fields) => {
                         assert_eq!(name, "Point");
                         assert_eq!(fields.len(), 2);
                     }
@@ -737,13 +752,13 @@ fn test_struct_literal() {
 fn test_unary_neg() {
     let m = parse_ok("fn f() -> Int { -42 }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
             match body {
-                spore_parser::ast::Expr::Block(_, Some(tail)) => {
+                sporec_parser::ast::Expr::Block(_, Some(tail)) => {
                     assert!(matches!(
                         tail.as_ref(),
-                        spore_parser::ast::Expr::UnaryOp(spore_parser::ast::UnaryOp::Neg, _)
+                        sporec_parser::ast::Expr::UnaryOp(sporec_parser::ast::UnaryOp::Neg, _)
                     ));
                 }
                 _ => panic!("expected block"),
@@ -760,7 +775,7 @@ fn test_fn_type_params() {
     let m = parse_ok("fn identity[T](x: T) -> T { x }");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert_eq!(f.name, "identity");
             assert_eq!(f.type_params, vec!["T".to_string()]);
             assert_eq!(f.params.len(), 1);
@@ -775,7 +790,7 @@ fn test_fn_type_params() {
 fn test_fn_multiple_type_params() {
     let m = parse_ok("fn pair[A, B](a: A, b: B) -> Tuple { a }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert_eq!(f.type_params, vec!["A".to_string(), "B".to_string()]);
         }
         _ => panic!("expected function"),
@@ -786,7 +801,7 @@ fn test_fn_multiple_type_params() {
 fn test_fn_no_type_params() {
     let m = parse_ok("fn add(a: Int, b: Int) -> Int { a + b }");
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             assert!(f.type_params.is_empty());
         }
         _ => panic!("expected function"),
@@ -800,14 +815,14 @@ fn test_const_item() {
     let m = parse_ok("const MAX: Int = 100");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
-        spore_parser::ast::Item::Const(c) => {
+        sporec_parser::ast::Item::Const(c) => {
             assert_eq!(c.name, "MAX");
             assert!(matches!(
                 c.visibility,
-                spore_parser::ast::Visibility::Private
+                sporec_parser::ast::Visibility::Private
             ));
-            assert!(matches!(&c.ty, spore_parser::ast::TypeExpr::Named(n) if n == "Int"));
-            assert!(matches!(&c.value, spore_parser::ast::Expr::IntLit(100)));
+            assert!(matches!(&c.ty, sporec_parser::ast::TypeExpr::Named(n) if n == "Int"));
+            assert!(matches!(&c.value, sporec_parser::ast::Expr::IntLit(100)));
         }
         _ => panic!("expected const"),
     }
@@ -818,11 +833,11 @@ fn test_pub_const_item() {
     let m = parse_ok("pub const NAME: String = \"hello\"");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
-        spore_parser::ast::Item::Const(c) => {
+        sporec_parser::ast::Item::Const(c) => {
             assert_eq!(c.name, "NAME");
-            assert!(matches!(c.visibility, spore_parser::ast::Visibility::Pub));
-            assert!(matches!(&c.ty, spore_parser::ast::TypeExpr::Named(n) if n == "String"));
-            assert!(matches!(&c.value, spore_parser::ast::Expr::StrLit(_)));
+            assert!(matches!(c.visibility, sporec_parser::ast::Visibility::Pub));
+            assert!(matches!(&c.ty, sporec_parser::ast::TypeExpr::Named(n) if n == "String"));
+            assert!(matches!(&c.value, sporec_parser::ast::Expr::StrLit(_)));
         }
         _ => panic!("expected const"),
     }
@@ -830,12 +845,12 @@ fn test_pub_const_item() {
 
 // ── Return / Throw / List / Char / String prefix tests ──────────────────────
 
-use spore_parser::ast::{Expr, FStringPart, SelectArm, TStringPart, TypeExpr};
+use sporec_parser::ast::{Expr, FStringPart, SelectArm, TStringPart, TypeExpr};
 
 fn get_fn_body(src: &str) -> Expr {
     let m = parse_ok(src);
     let f = match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => f,
+        sporec_parser::ast::Item::Function(f) => f,
         _ => panic!("expected function"),
     };
     f.body.clone().expect("expected body")
@@ -1070,7 +1085,7 @@ fn test_module_header_with_uses_is_rejected() {
 
 // ── Item 4: alias declaration ───────────────────────────────────────────
 
-use spore_parser::ast::{AliasDef, Item, Visibility};
+use sporec_parser::ast::{AliasDef, Item, Visibility};
 
 #[test]
 fn test_alias_def() {
@@ -1125,7 +1140,7 @@ fn test_self_type_in_param() {
 
 // ── Item 6: list pattern ────────────────────────────────────────────────
 
-use spore_parser::ast::Pattern;
+use sporec_parser::ast::Pattern;
 
 #[test]
 fn test_list_pattern_basic() {
@@ -1235,7 +1250,7 @@ fn test_int_scientific_notation() {
 
 #[test]
 fn test_record_type_in_param() {
-    use spore_parser::ast::*;
+    use sporec_parser::ast::*;
     let m = parse_ok("fn f(p: { x: Int, y: Int }) -> Int { 0 }");
     match &m.items[0] {
         Item::Function(f) => match &f.params[0].ty {
@@ -1254,7 +1269,7 @@ fn test_record_type_in_param() {
 
 #[test]
 fn test_trait_assoc_type() {
-    use spore_parser::ast::*;
+    use sporec_parser::ast::*;
     let m = parse_ok(
         r#"
         trait Iterator[T] {
@@ -1277,7 +1292,7 @@ fn test_trait_assoc_type() {
 
 #[test]
 fn test_trait_assoc_type_with_bound() {
-    use spore_parser::ast::*;
+    use sporec_parser::ast::*;
     let m = parse_ok(
         r#"
         trait Container[T] {
@@ -1299,16 +1314,16 @@ fn test_trait_assoc_type_with_bound() {
 // ── Placeholder partial application ─────────────────────────────────────
 
 /// Extract the tail expression from a function body (which is a Block).
-fn body_tail(f: &spore_parser::ast::FnDef) -> &spore_parser::ast::Expr {
+fn body_tail(f: &sporec_parser::ast::FnDef) -> &sporec_parser::ast::Expr {
     match f.body.as_ref().unwrap() {
-        spore_parser::ast::Expr::Block(_, Some(tail)) => tail.as_ref(),
+        sporec_parser::ast::Expr::Block(_, Some(tail)) => tail.as_ref(),
         other => other,
     }
 }
 
 #[test]
 fn test_placeholder_desugars_to_lambda() {
-    use spore_parser::ast::*;
+    use sporec_parser::ast::*;
     let m = parse_ok("fn main() -> Int { f(_, 2) }");
     match &m.items[0] {
         Item::Function(f) => {
@@ -1324,7 +1339,7 @@ fn test_placeholder_desugars_to_lambda() {
 
 #[test]
 fn test_placeholder_multi_params() {
-    use spore_parser::ast::*;
+    use sporec_parser::ast::*;
     let m = parse_ok("fn main() -> Int { f(_, b, _) }");
     match &m.items[0] {
         Item::Function(f) => {
@@ -1345,7 +1360,7 @@ fn test_placeholder_multi_params() {
 
 #[test]
 fn test_no_placeholder_no_desugar() {
-    use spore_parser::ast::*;
+    use sporec_parser::ast::*;
     let m = parse_ok("fn main() -> Int { f(a, 2) }");
     match &m.items[0] {
         Item::Function(f) => {
@@ -1361,7 +1376,7 @@ fn test_no_placeholder_no_desugar() {
 
 #[test]
 fn test_wildcard_in_match_unchanged() {
-    use spore_parser::ast::*;
+    use sporec_parser::ast::*;
     let m = parse_ok(
         r#"
         fn main() -> Int {
@@ -1438,11 +1453,11 @@ fn test_parse_perform() {
     let m = parse_ok(r#"fn main() { perform StdIO.println("hello") }"#);
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
-            if let spore_parser::ast::Expr::Block(_, Some(tail)) = body {
+            if let sporec_parser::ast::Expr::Block(_, Some(tail)) = body {
                 match tail.as_ref() {
-                    spore_parser::ast::Expr::Perform {
+                    sporec_parser::ast::Expr::Perform {
                         effect,
                         operation,
                         args,
@@ -1465,11 +1480,11 @@ fn test_parse_perform() {
 fn test_parse_perform_multiple_args() {
     let m = parse_ok(r#"fn main() { perform IO.write("hello", 42) }"#);
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
-            if let spore_parser::ast::Expr::Block(_, Some(tail)) = body {
+            if let sporec_parser::ast::Expr::Block(_, Some(tail)) = body {
                 match tail.as_ref() {
-                    spore_parser::ast::Expr::Perform { args, .. } => {
+                    sporec_parser::ast::Expr::Perform { args, .. } => {
                         assert_eq!(args.len(), 2);
                     }
                     other => panic!("expected Perform, got {other:?}"),
@@ -1498,11 +1513,11 @@ fn test_parse_handle() {
         "#,
     );
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
-            if let spore_parser::ast::Expr::Block(_, Some(tail)) = body {
+            if let sporec_parser::ast::Expr::Block(_, Some(tail)) = body {
                 match tail.as_ref() {
-                    spore_parser::ast::Expr::Handle { body: _, handlers } => {
+                    sporec_parser::ast::Expr::Handle { body: _, handlers } => {
                         assert_eq!(handlers.len(), 1);
                         assert_eq!(handlers[0].effect, "StdIO");
                         assert_eq!(handlers[0].operation, "println");
@@ -1533,11 +1548,11 @@ fn test_parse_handle_multiple_arms() {
         "#,
     );
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
-            if let spore_parser::ast::Expr::Block(_, Some(tail)) = body {
+            if let sporec_parser::ast::Expr::Block(_, Some(tail)) = body {
                 match tail.as_ref() {
-                    spore_parser::ast::Expr::Handle { handlers, .. } => {
+                    sporec_parser::ast::Expr::Handle { handlers, .. } => {
                         assert_eq!(handlers.len(), 2);
                         assert_eq!(handlers[0].operation, "println");
                         assert_eq!(handlers[1].operation, "read_line");
@@ -1560,7 +1575,7 @@ fn test_fn_def_has_span() {
     let src = "fn add(a: Int, b: Int) -> Int { a + b }";
     let m = parse_ok(src);
     match &m.items[0] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let span = f.span.expect("FnDef should have a span");
             assert_eq!(span.start, 0);
             assert_eq!(span.end, src.len());
@@ -1591,7 +1606,7 @@ fn test_struct_def_has_span() {
     let src = "struct Point { x: Int, y: Int }";
     let m = parse_ok(src);
     match &m.items[0] {
-        spore_parser::ast::Item::StructDef(s) => {
+        sporec_parser::ast::Item::StructDef(s) => {
             let span = s.span.expect("StructDef should have a span");
             assert_eq!(span.start, 0);
             assert_eq!(span.end, src.len());
@@ -1620,7 +1635,7 @@ fn test_type_def_has_span() {
     let src = "type Color { Red, Green, Blue }";
     let m = parse_ok(src);
     match &m.items[0] {
-        spore_parser::ast::Item::TypeDef(t) => {
+        sporec_parser::ast::Item::TypeDef(t) => {
             let span = t.span.expect("TypeDef should have a span");
             assert_eq!(span.start, 0);
             assert_eq!(span.end, src.len());
@@ -1647,7 +1662,9 @@ fn test_import_has_span() {
     let src = "import std.io.File";
     let m = parse_ok(src);
     match &m.items[0] {
-        spore_parser::ast::Item::Import(spore_parser::ast::ImportDecl::Import { span, .. }) => {
+        sporec_parser::ast::Item::Import(sporec_parser::ast::ImportDecl::Import {
+            span, ..
+        }) => {
             let span = span.expect("ImportDecl should have a span");
             assert_eq!(span.start, 0);
             assert_eq!(span.end, src.len());
@@ -1675,7 +1692,7 @@ fn test_fn_span_with_leading_items() {
     let m = parse_ok(src);
     // The fn item starts after the const
     match &m.items[1] {
-        spore_parser::ast::Item::Function(f) => {
+        sporec_parser::ast::Item::Function(f) => {
             let span = f.span.expect("FnDef should have a span");
             let fn_src = &src[span.start..span.end];
             assert!(fn_src.starts_with("fn foo"), "got: {fn_src}");
@@ -1749,7 +1766,7 @@ fn test_private_trait_still_works() {
 
 #[test]
 fn test_capability_alias_is_rejected() {
-    let errs = spore_parser::parse("capability IO = [FileRead, FileWrite]")
+    let errs = sporec_parser::parse("capability IO = [FileRead, FileWrite]")
         .expect_err("legacy capability aliases should be rejected");
     assert!(
         errs.iter().any(|e| e
@@ -1761,7 +1778,7 @@ fn test_capability_alias_is_rejected() {
 
 #[test]
 fn test_trait_alias_is_rejected() {
-    let err = spore_parser::parse("trait IO = FileRead | FileWrite").unwrap_err();
+    let err = sporec_parser::parse("trait IO = FileRead | FileWrite").unwrap_err();
     assert!(
         err.iter()
             .any(|e| e.message.contains("trait aliases are not supported")),

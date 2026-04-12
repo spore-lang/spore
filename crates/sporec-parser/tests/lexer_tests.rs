@@ -1,4 +1,4 @@
-use spore_parser::lexer::{Lexer, Span, TemplatePart, Token};
+use sporec_parser::lexer::{Lexer, Span, TemplatePart, Token};
 
 fn toks(src: &str) -> Vec<Token> {
     Lexer::new(src)

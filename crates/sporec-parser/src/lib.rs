@@ -1,4 +1,4 @@
-/// spore-parser — Spore language parser
+/// sporec-parser — Spore language parser
 ///
 /// Transforms source text into an Abstract Syntax Tree (AST).
 /// Pure function: &str → Result<Ast, ParseError>

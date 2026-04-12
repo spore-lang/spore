@@ -8,4 +8,4 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-spore-parser = { path = "../spore-parser" }
+sporec-parser = { path = "../sporec-parser" }

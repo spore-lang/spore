@@ -24,7 +24,7 @@ use cost::{CostAnalyzer, CostChecker, CostResult, CostVector};
 use error::{ErrorCode, TypeError};
 use hole::HoleReport;
 use module::ModuleRegistry;
-use spore_parser::ast::Module;
+use sporec_parser::ast::Module;
 
 pub fn is_synthetic_hole_name(name: &str) -> bool {
     matches!(
@@ -35,7 +35,7 @@ pub fn is_synthetic_hole_name(name: &str) -> bool {
 
 fn parse_embedded_prelude() -> Module {
     let source = include_str!("../../../stdlib/prelude.sp");
-    spore_parser::parse(source).expect("embedded stdlib/prelude.sp must parse")
+    sporec_parser::parse(source).expect("embedded stdlib/prelude.sp must parse")
 }
 
 /// Result of a successful type check, including hole report and cost analysis.
@@ -104,7 +104,7 @@ pub fn type_check_with_registry(
 /// Build a `ModuleInterface` from a parsed module (for multi-file compilation).
 pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
     use module::{ModuleInterface, SymbolVisibility};
-    use spore_parser::ast::Item;
+    use sporec_parser::ast::Item;
 
     let path: Vec<String> = if module.name.is_empty() {
         Vec::new()

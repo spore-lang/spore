@@ -1,6 +1,6 @@
-use spore_parser::parse;
 use spore_typeck::hir::{HirExpr, HirItem, UNRESOLVED};
 use spore_typeck::lower;
+use sporec_parser::parse;
 
 fn lower_src(src: &str) -> spore_typeck::hir::HirModule {
     let ast = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));

@@ -38,7 +38,7 @@ pub enum Value {
 #[derive(Debug, Clone)]
 pub struct Closure {
     pub params: Vec<String>,
-    pub body: spore_parser::ast::Expr,
+    pub body: sporec_parser::ast::Expr,
     pub env: BTreeMap<String, Value>,
 }
 
@@ -65,7 +65,7 @@ pub struct TaskHandle {
 #[derive(Debug, Clone)]
 pub enum TaskState {
     Pending {
-        expr: spore_parser::ast::Expr,
+        expr: sporec_parser::ast::Expr,
         env: BTreeMap<String, Value>,
     },
     Completed(Value),

@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use spore_parser::ast::{self, BinOp, Expr, FnDef, Item, Module, SelectArm, Stmt};
+use sporec_parser::ast::{self, BinOp, Expr, FnDef, Item, Module, SelectArm, Stmt};
 
 /// Cost expression — a symbolic representation of computational cost.
 ///

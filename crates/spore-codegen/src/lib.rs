@@ -8,7 +8,7 @@ pub mod value;
 
 use effect_handler::CliPlatformHandler;
 use interpret::{Interpreter, RuntimeError};
-use spore_parser::ast::{Module, SpecItem, TypeExpr};
+use sporec_parser::ast::{Module, SpecItem, TypeExpr};
 use value::Value;
 
 /// Result of evaluating a single spec clause.
@@ -151,7 +151,7 @@ pub fn test_specs(module: &Module) -> Result<Vec<SpecResult>, RuntimeError> {
                     match closure_result {
                         Ok(Value::Closure(closure)) => {
                             let param_types: Vec<&TypeExpr> =
-                                if let spore_parser::ast::Expr::Lambda(params, _) =
+                                if let sporec_parser::ast::Expr::Lambda(params, _) =
                                     prop.predicate.as_ref()
                                 {
                                     params.iter().map(|p| &p.ty).collect()

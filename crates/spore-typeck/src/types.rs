@@ -50,7 +50,7 @@ pub enum Ty {
 
     /// Refinement type: base type with decidable predicate.
     /// L0 only supports: comparisons, arithmetic on constants, len(), boolean connectives.
-    Refined(Box<Ty>, String, Box<spore_parser::ast::Expr>),
+    Refined(Box<Ty>, String, Box<sporec_parser::ast::Expr>),
 
     /// Error sentinel — allows type checking to continue after errors
     Error,

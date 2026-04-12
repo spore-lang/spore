@@ -501,7 +501,7 @@ pub fn all_error_codes() -> &'static [ErrorCode] {
 pub struct TypeError {
     pub code: ErrorCode,
     pub message: String,
-    pub span: Option<spore_parser::ast::Span>,
+    pub span: Option<sporec_parser::ast::Span>,
 }
 
 impl TypeError {
@@ -516,7 +516,7 @@ impl TypeError {
     pub fn with_span(
         code: ErrorCode,
         message: impl Into<String>,
-        span: spore_parser::ast::Span,
+        span: sporec_parser::ast::Span,
     ) -> Self {
         Self {
             code,

@@ -520,7 +520,7 @@ dependencies = [
 name = "spore-codegen"
 version = "0.1.0"
 dependencies = [
- "spore-parser",
+ "sporec-parser",
 ]
 
 [[package]]
@@ -528,15 +528,8 @@ name = "spore-lsp"
 version = "0.1.0"
 dependencies = [
  "serde_json",
- "spore-parser",
  "sporec",
-]
-
-[[package]]
-name = "spore-parser"
-version = "0.1.0"
-dependencies = [
- "spore-typeck",
+ "sporec-parser",
 ]
 
 [[package]]
@@ -544,7 +537,7 @@ name = "spore-typeck"
 version = "0.1.0"
 dependencies = [
  "blake3",
- "spore-parser",
+ "sporec-parser",
  "tempfile",
 ]
 
@@ -555,9 +548,9 @@ dependencies = [
  "bpaf",
  "serde_json",
  "spore-codegen",
- "spore-parser",
  "spore-typeck",
  "sporec-diagnostics",
+ "sporec-parser",
 ]
 
 [[package]]
@@ -569,6 +562,13 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "sporec-parser"
+version = "0.1.0"
+dependencies = [
+ "spore-typeck",
 ]
 
 [[package]]

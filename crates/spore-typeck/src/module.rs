@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use spore_parser::{
+use sporec_parser::{
     ast::{ImportDecl, Item, Module as AstModule, TypeExpr, Visibility},
     error::ParseError,
     parse,
@@ -724,7 +724,7 @@ impl ModuleLoader {
         })?;
         self.sources.insert(module_path.to_string(), source.clone());
 
-        let ast = spore_parser::parse(&source).map_err(|errs| ModuleError::ParseErrors {
+        let ast = sporec_parser::parse(&source).map_err(|errs| ModuleError::ParseErrors {
             module: module_path.to_string(),
             errors: errs,
         })?;

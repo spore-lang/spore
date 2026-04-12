@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Read, Write};
 
 use serde_json::{Value, json};
-use spore_parser::ast::{CostExpr, FnDef, Item, TypeExpr};
+use sporec_parser::ast::{CostExpr, FnDef, Item, TypeExpr};
 
 // ── LSP Symbol Kind constants ────────────────────────────────────────
 const SK_FUNCTION: u32 = 12;
@@ -242,7 +242,7 @@ impl LspServer {
         }
 
         // Symbols from AST
-        if let Ok(module) = spore_parser::parse(&source) {
+        if let Ok(module) = sporec_parser::parse(&source) {
             for item in &module.items {
                 match item {
                     Item::Function(f) => {
@@ -581,7 +581,7 @@ pub fn collect_document_symbols(source: &str) -> Vec<SymbolInfo> {
     let mut symbols = Vec::new();
 
     // Parse AST to get symbol names and kinds
-    let Ok(module) = spore_parser::parse(source) else {
+    let Ok(module) = sporec_parser::parse(source) else {
         return symbols;
     };
 
@@ -619,7 +619,7 @@ pub fn collect_document_symbols(source: &str) -> Vec<SymbolInfo> {
 
 /// Build hover markdown for a symbol found in `source`.
 pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
-    let module = spore_parser::parse(source).ok()?;
+    let module = sporec_parser::parse(source).ok()?;
 
     for item in &module.items {
         match item {
