@@ -6,10 +6,12 @@ pub mod effect_handler;
 pub mod interpret;
 pub mod value;
 
-use effect_handler::CliPlatformHandler;
+use effect_handler::{BasicCliPlatformHandler, CliPlatformHandler};
 use interpret::{Interpreter, RuntimeError};
 use sporec_parser::ast::{Module, SpecItem, TypeExpr};
 use value::Value;
+
+pub use effect_handler::RuntimePlatform;
 
 /// Result of evaluating a single spec clause.
 #[derive(Debug, Clone)]
@@ -47,9 +49,22 @@ pub fn call(module: &Module, name: &str, args: Vec<Value>) -> Result<Value, Runt
     interp.call_function(name, args)
 }
 
-fn project_interpreter(entry: &Module, imports: &[(String, Module)]) -> Interpreter {
+fn register_project_runtime_handler(interp: &mut Interpreter, runtime_platform: RuntimePlatform) {
+    match runtime_platform {
+        RuntimePlatform::Cli => interp.register_effect_handler(Box::new(CliPlatformHandler)),
+        RuntimePlatform::BasicCli => {
+            interp.register_effect_handler(Box::new(BasicCliPlatformHandler))
+        }
+    }
+}
+
+fn project_interpreter(
+    entry: &Module,
+    imports: &[(String, Module)],
+    runtime_platform: RuntimePlatform,
+) -> Interpreter {
     let mut interp = Interpreter::new();
-    interp.register_effect_handler(Box::new(CliPlatformHandler));
+    register_project_runtime_handler(&mut interp, runtime_platform);
     interp.load_prelude();
 
     for (path, module) in imports {
@@ -69,7 +84,17 @@ pub fn run_project(
     imports: &[(String, Module)],
     startup_function: &str,
 ) -> Result<Value, RuntimeError> {
-    let mut interp = project_interpreter(entry, imports);
+    run_project_on_platform(entry, imports, startup_function, RuntimePlatform::Cli)
+}
+
+/// Execute a Spore project against a selected runtime host profile.
+pub fn run_project_on_platform(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+    runtime_platform: RuntimePlatform,
+) -> Result<Value, RuntimeError> {
+    let mut interp = project_interpreter(entry, imports, runtime_platform);
     interp.call_function(startup_function, vec![])
 }
 
@@ -80,7 +105,24 @@ pub fn run_project_with_adapter(
     startup_function: &str,
     adapter_function: &str,
 ) -> Result<Value, RuntimeError> {
-    let mut interp = project_interpreter(entry, imports);
+    run_project_with_adapter_on_platform(
+        entry,
+        imports,
+        startup_function,
+        adapter_function,
+        RuntimePlatform::Cli,
+    )
+}
+
+/// Execute a Spore project through a platform adapter and runtime host profile.
+pub fn run_project_with_adapter_on_platform(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+    adapter_function: &str,
+    runtime_platform: RuntimePlatform,
+) -> Result<Value, RuntimeError> {
+    let mut interp = project_interpreter(entry, imports, runtime_platform);
     let app_main = interp.named_function_value(startup_function)?;
     interp.call_function(adapter_function, vec![app_main])
 }

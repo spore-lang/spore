@@ -87,6 +87,15 @@ fn write_basic_cli_stdout_module(project: &TempProject) {
     );
 }
 
+fn write_basic_cli_file_module(project: &TempProject) {
+    project.write(
+        "vendor/basic-cli/src/basic_cli/file.sp",
+        r#"
+        pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]
+        "#,
+    );
+}
+
 // ── Verbose output tests ────────────────────────────────────────────
 
 #[test]
@@ -969,6 +978,100 @@ fn run_project_routes_package_platforms_through_adapter() {
     assert!(
         matches!(value, Value::Int(42)),
         "expected adapter return value, got: {value:?}"
+    );
+}
+
+#[test]
+fn run_project_dispatches_basic_cli_package_foreign_functions() {
+    let project = TempProject::new("project-path-platform-runtime-host-dispatch");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform(
+        &project,
+        r#"
+        pub fn main() -> Bool {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> Bool) -> Bool {
+            app_main()
+        }
+        "#,
+    );
+    write_basic_cli_file_module(&project);
+    project.write(
+        "src/app.sp",
+        &format!(
+            r#"
+            import basic_cli.file
+
+            fn main() -> Bool {{
+                file_exists("{}")
+            }}
+            "#,
+            project.root().join("spore.toml").display()
+        ),
+    );
+
+    let value = run_project(project.root(), "app.sp")
+        .expect("package-backed runtime should dispatch basic-cli foreign functions");
+    assert_eq!(value.as_bool(), Some(true));
+}
+
+#[test]
+fn run_project_rejects_unknown_package_platform_host_binding() {
+    let project = TempProject::new("project-unknown-package-platform-runtime");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "custom-platform"
+        default-entry = "app"
+
+        [dependencies]
+        custom-platform = { path = "vendor/custom-platform" }
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "vendor/custom-platform/spore.toml",
+        r#"
+        [package]
+        name = "custom-platform"
+        type = "platform"
+
+        [platform]
+        contract-module = "platform_contract"
+        startup-contract = "main"
+        adapter-function = "main_for_host"
+        handles = ["NetConnect"]
+        "#,
+    );
+    project.write(
+        "vendor/custom-platform/src/platform_contract.sp",
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    project.write("src/app.sp", "fn main() -> () { return }\n");
+
+    let err = run_project(project.root(), "app.sp")
+        .expect_err("unsupported package platforms should fail explicitly at runtime");
+    assert!(
+        err.contains("runtime host binding for package platform `custom-platform`"),
+        "expected explicit package platform runtime error, got: {err}"
     );
 }
 
