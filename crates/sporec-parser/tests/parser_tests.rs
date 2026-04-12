@@ -1719,7 +1719,7 @@ fn test_error_includes_span() {
     // A missing method in an impl should report the impl's span
     let src = "trait Greet {\n    fn greet(self: Self) -> String\n}\nstruct Bot {}\nimpl Greet for Bot {}";
     let ast = parse_ok(src);
-    let errs = spore_typeck::type_check(&ast).unwrap_err();
+    let errs = sporec_typeck::type_check(&ast).unwrap_err();
     // The error for missing method should have a span pointing to the impl block
     let e = errs
         .iter()

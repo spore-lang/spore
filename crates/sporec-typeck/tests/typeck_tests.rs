@@ -1,8 +1,8 @@
-use spore_typeck::cost::CostResult;
-use spore_typeck::error::ErrorCode;
-use spore_typeck::type_check;
-use spore_typeck::types::{CapSet, ErrorSet, Ty};
 use sporec_parser::parse;
+use sporec_typeck::cost::CostResult;
+use sporec_typeck::error::ErrorCode;
+use sporec_typeck::type_check;
+use sporec_typeck::types::{CapSet, ErrorSet, Ty};
 
 fn check_ok(src: &str) {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
@@ -665,7 +665,7 @@ fn no_cost_annotation_no_warning() {
 #[test]
 fn cost_warning_severity_is_warning() {
     // Verify K0101 has Warning severity, not Error
-    use spore_typeck::error::Severity;
+    use sporec_typeck::error::Severity;
     assert_eq!(
         ErrorCode::K0101.severity(),
         Severity::Warning,
@@ -770,7 +770,7 @@ fn never_type_unifies_with_anything() {
         }
     "#;
     let ast = sporec_parser::parse(src).unwrap();
-    let result = spore_typeck::type_check(&ast);
+    let result = sporec_typeck::type_check(&ast);
     assert!(result.is_ok(), "Never should unify with I32");
 }
 
@@ -781,7 +781,7 @@ fn char_type_basic() {
         fn use_char(c: Char) -> Char { c }
     "#;
     let ast = sporec_parser::parse(src).unwrap();
-    let result = spore_typeck::type_check(&ast);
+    let result = sporec_typeck::type_check(&ast);
     assert!(result.is_ok());
 }
 
@@ -795,7 +795,7 @@ fn occurs_check_prevents_infinite_type() {
     // This is a simpler test - just ensure occurs_in works
     // The real test is that unification with self-referential types fails
     let ast = sporec_parser::parse(src).unwrap();
-    let result = spore_typeck::type_check(&ast);
+    let result = sporec_typeck::type_check(&ast);
     // This should fail with type mismatch, not infinite loop
     assert!(result.is_err());
 }
@@ -1222,8 +1222,8 @@ fn capability_with_assoc_type() {
 
 #[test]
 fn hole_info_v03_has_all_fields() {
-    use spore_typeck::hole::HoleInfo;
-    use spore_typeck::types::Ty;
+    use sporec_typeck::hole::HoleInfo;
+    use sporec_typeck::types::Ty;
     use std::collections::{BTreeMap, BTreeSet};
 
     let info = HoleInfo {
@@ -1252,7 +1252,7 @@ fn hole_info_v03_has_all_fields() {
 
 #[test]
 fn candidate_score_overall_formula() {
-    use spore_typeck::hole::CandidateScore;
+    use sporec_typeck::hole::CandidateScore;
 
     let cs = CandidateScore {
         name: "foo".into(),
@@ -1286,7 +1286,7 @@ fn candidate_score_overall_formula() {
 
 #[test]
 fn dependency_edge_with_kinds() {
-    use spore_typeck::hole::{DependencyEdge, EdgeKind, HoleDependencyGraph};
+    use sporec_typeck::hole::{DependencyEdge, EdgeKind, HoleDependencyGraph};
 
     let mut g = HoleDependencyGraph::new();
     g.add_dependency_typed("?b".into(), "?a".into(), EdgeKind::Type);
@@ -1317,7 +1317,7 @@ fn dependency_edge_with_kinds() {
 
 #[test]
 fn layered_topological_order_basic() {
-    use spore_typeck::hole::HoleDependencyGraph;
+    use sporec_typeck::hole::HoleDependencyGraph;
 
     let mut g = HoleDependencyGraph::new();
     g.add_dependency("?b".into(), "?a".into());
@@ -1334,7 +1334,7 @@ fn layered_topological_order_basic() {
 
 #[test]
 fn layered_topological_order_single() {
-    use spore_typeck::hole::HoleDependencyGraph;
+    use sporec_typeck::hole::HoleDependencyGraph;
 
     let mut g = HoleDependencyGraph::new();
     g.add_hole("?x".into());
@@ -1344,7 +1344,7 @@ fn layered_topological_order_single() {
 
 #[test]
 fn has_cycle_detects_cycles() {
-    use spore_typeck::hole::HoleDependencyGraph;
+    use sporec_typeck::hole::HoleDependencyGraph;
 
     let mut g = HoleDependencyGraph::new();
     g.add_dependency("?a".into(), "?b".into());
@@ -1354,7 +1354,7 @@ fn has_cycle_detects_cycles() {
 
 #[test]
 fn has_cycle_no_cycle() {
-    use spore_typeck::hole::HoleDependencyGraph;
+    use sporec_typeck::hole::HoleDependencyGraph;
 
     let mut g = HoleDependencyGraph::new();
     g.add_dependency("?b".into(), "?a".into());
@@ -1364,7 +1364,7 @@ fn has_cycle_no_cycle() {
 
 #[test]
 fn layered_topological_order_rejects_cycle() {
-    use spore_typeck::hole::HoleDependencyGraph;
+    use sporec_typeck::hole::HoleDependencyGraph;
 
     let mut g = HoleDependencyGraph::new();
     g.add_dependency("?a".into(), "?b".into());
@@ -1377,7 +1377,7 @@ fn layered_topological_order_rejects_cycle() {
 #[test]
 fn diamond_layered_sort() {
     // A→B, A→C, B→D, C→D should yield [[A], [B,C], [D]]
-    use spore_typeck::hole::HoleDependencyGraph;
+    use sporec_typeck::hole::HoleDependencyGraph;
 
     let mut g = HoleDependencyGraph::new();
     g.add_dependency("?B".into(), "?A".into());
@@ -1394,7 +1394,7 @@ fn diamond_layered_sort() {
 
 #[test]
 fn json_includes_edge_kinds() {
-    use spore_typeck::hole::{EdgeKind, HoleDependencyGraph};
+    use sporec_typeck::hole::{EdgeKind, HoleDependencyGraph};
 
     let mut g = HoleDependencyGraph::new();
     g.add_dependency_typed("?b".into(), "?a".into(), EdgeKind::Value);
@@ -1407,7 +1407,7 @@ fn json_includes_edge_kinds() {
 
 #[test]
 fn hole_report_json_v03_fields() {
-    use spore_typeck::hole::HoleReport;
+    use sporec_typeck::hole::HoleReport;
 
     let report = HoleReport::new();
     let json = report.to_json();

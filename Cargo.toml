@@ -3,11 +3,11 @@ resolver = "2"
 members = [
   "crates/spore-cli",
   "crates/spore-lsp",
-  "crates/spore-typeck",
   "crates/sporec",
   "crates/sporec-codegen",
   "crates/sporec-diagnostics",
   "crates/sporec-parser",
+  "crates/sporec-typeck",
 ]
 
 [workspace.package]

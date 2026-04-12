@@ -1,11 +1,11 @@
 //! Tests for module import resolution and multi-file type checking.
 
-use spore_typeck::check::Checker;
-use spore_typeck::error::ErrorCode;
-use spore_typeck::module::{ModuleInterface, ModuleRegistry, SymbolVisibility};
-use spore_typeck::types::Ty;
-use spore_typeck::{build_module_interface, type_check_with_registry};
 use sporec_parser::parse;
+use sporec_typeck::check::Checker;
+use sporec_typeck::error::ErrorCode;
+use sporec_typeck::module::{ModuleInterface, ModuleRegistry, SymbolVisibility};
+use sporec_typeck::types::Ty;
+use sporec_typeck::{build_module_interface, type_check_with_registry};
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
