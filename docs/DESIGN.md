@@ -235,6 +235,17 @@ fn name(params) -> ReturnType ! Errors
 - **运行时方向**：watch mode 的目标是“保存后快速反馈”，不是 Erlang/Smalltalk 式运行时热替换；v0.1 不承诺状态迁移、热升级、分布式热重载或动态装载协议。
 - **实现方向**：编译器继续以 Rust bootstrap 起步，优先保证可维护的 parser/typechecker/codegen/tooling 闭环；纯计算组件未来可逐步自举，但不以“尽快全量自举”压过当前语言设计收敛。
 
+#### 已冻结 / 仍开放的设计契约（2026-04）
+- **已冻结**
+  - **内存模型方向**：不引入 borrow checker / lifetime system；当前方向是 **Perceus 风格 RC + region optimization**。
+  - **验证策略**：以 **spec / property / refinement** 为主线；mutation testing 不进入近期关键路径。
+  - **互操作边界**：**Platform 是唯一 FFI 表面**；应用代码不直接声明裸 native FFI。
+- **仍开放**
+  - `Ref[T]` 作为语言内可变单元 vs 平台包装器的精确边界
+  - handler / continuation 的生命周期、逃逸与取消规则
+  - `HostValue` / ADT / `Result` / `Option` 的跨边界映射
+  - L0 refinement enforcement 的精确边界
+
 ### 标准库（极简）
 - **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Char/Str/(), Option[T], Result[T,E], 基本操作符, |>, ?
 - **spore.list** — List[T]: map/fold/filter/zip/head/tail/len/reverse/sort/...
@@ -251,8 +262,8 @@ fn name(params) -> ReturnType ! Errors
 - Effect handler 风格（与并发模型统一）
 - 不内置官方 Platform，全部第三方
 - 命名 `entry` 选择项目的可执行目标，并解析到对应的 `entry module`
-- Platform 契约: capability 集合 + handler 实现 + `startup contract`
-- `entry module` 中提供满足 `startup contract` 的 `startup function`（当前通常是 `main`）
+- Platform 契约由 manifest 中的 `[platform]` 元数据与专门的 contract module 共同构成：manifest 负责定位 contract module / startup contract symbol / adapter / handled capabilities，contract module 则通过带 hole 的 `startup function` 持有权威签名与 spec
+- `entry module` 中提供满足 `startup contract` 的 `startup function`；Platform contract module 中的 startup `spec` 与应用实现侧 `spec` 会叠加，两边都必须满足
 - 实现语言: 原生代码（Rust/C/编译后的 Spore）
 - 测试: 换 mock Platform（确定性 handler）
 
@@ -301,7 +312,7 @@ fn name(params) -> ReturnType ! Errors
 - **依赖粒度**：继续支持 `sig`-only 依赖与 `sig+impl` 完整依赖。前者服务接口耦合和增量检查，后者服务实际构建与发布；两者都建立在双 hash 身份模型上。
 - **缓存与分发**：默认保持 Git-first、内容寻址、全局去重缓存；`.spore-store` 作为本地缓存与后端抽象入口，可兼容 local path、registry、IPFS 等来源，但仓库内主叙述仍以 Git / 本地路径为第一优先级。
 - **清理与维护工作流**：依赖增删改仍围绕 `spore add` / `spore update` / `spore remove` / `spore gc` 展开；GC 的语义是“以锁文件可达集为根清理未引用哈希”，而不是按版本号或发布时间做启发式删除。
-- **Platform 契约**：Platform 仍是普通包形态的语言级概念，在 manifest 中声明，并以三件事构成契约：处理哪些 capability、提供哪些 handler、以及要求 `entry module` 中的 `startup function` 满足怎样的 `startup contract`。应用代码不直接持有 IO 实现。
+- **Platform 契约**：Platform 仍是普通包形态的语言级概念。当前 MVP 约定 **manifest 中的 `[platform]` 元数据 + 专门的 contract module** 共同构成权威：manifest 负责定位 contract module / startup contract symbol / adapter / handled capabilities，contract module 则通过带 hole 的 startup 定义持有权威签名与 spec；应用代码不直接持有 IO 实现。
 - **项目 entry vs Platform startup contract**：`entry` 是项目层选择的执行目标，解析到某个源文件 / 模块；Platform 不拥有这个模块，但会对该模块中的 `startup function` 施加契约校验。这样可以把“选哪个模块运行”和“该模块里函数签名必须长什么样”明确拆开。
 - **单 Platform / 项目**：一个 manifest-backed 项目只绑定一个 Platform。之所以先收缩到这一模型，是为了避免 handler 路由、priority 规则、测试替身和诊断语义同时膨胀；多个可执行目标先通过命名 `entry` 建模，而不是通过同一项目同时绑定多个 Platform 建模。跨 Platform 组合保留为未来专题设计，而不是 v0.1 承诺面。
 - **测试与替身**：mock / test / record-replay Platform 是 durable 设计结论，不是附带示例。Spore 的“应用代码保持纯净、IO 由 Platform 承担”必须直接转化为可重复测试、确定性重放和平台替换能力。
