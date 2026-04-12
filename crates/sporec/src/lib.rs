@@ -22,7 +22,7 @@ pub use project::{
     ResolvedPlatformContract, ResolvedProjectTarget, load_project_manifest,
     resolve_default_project_target, resolve_project_target_by_path,
 };
-pub use spore_codegen::{SpecKind, SpecResult};
+pub use sporec_codegen::{SpecKind, SpecResult};
 pub use sporec_diagnostics::{
     Diagnostic, DiagnosticRange, HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson,
     HoleCostBudgetJson, HoleDependencyEdgeJson, HoleDependencyGraphJson, HoleDependencyKind,

@@ -5,8 +5,6 @@ use crate::diagnostics::{diagnostics_for_parse_errors, diagnostics_for_type_erro
 use crate::project::{
     ResolvedPlatformContract, ResolvedProjectTarget, resolve_project_target_by_path,
 };
-use spore_codegen::RuntimePlatform;
-use spore_codegen::value::Value;
 use spore_typeck::CheckResult;
 use spore_typeck::hole::{
     CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
@@ -19,6 +17,8 @@ use spore_typeck::module::{
 use spore_typeck::platform::{PlatformRegistry, PlatformStartupError, PlatformStartupErrorKind};
 use spore_typeck::types::Ty;
 use spore_typeck::{type_check, type_check_with_registry, type_check_with_registry_and_prelude};
+use sporec_codegen::RuntimePlatform;
+use sporec_codegen::value::Value;
 use sporec_diagnostics::{
     Diagnostic as CanonicalDiagnostic, HoleCandidateJson, HoleCandidateRankingJson,
     HoleConfidenceJson, HoleCostBudgetJson, HoleDependencyEdgeJson, HoleDependencyGraphJson,
@@ -1232,7 +1232,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     if let Some(contract) = target.platform_contract.as_ref() {
         let adapter_function =
             format!("{}.{}", contract.contract_module, contract.adapter_function);
-        return spore_codegen::run_project_with_adapter_on_platform(
+        return sporec_codegen::run_project_with_adapter_on_platform(
             &prep.ast,
             &imported,
             startup_function,
@@ -1242,8 +1242,13 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
         .map_err(|error| error.to_string());
     }
 
-    spore_codegen::run_project_on_platform(&prep.ast, &imported, startup_function, runtime_platform)
-        .map_err(|error| error.to_string())
+    sporec_codegen::run_project_on_platform(
+        &prep.ast,
+        &imported,
+        startup_function,
+        runtime_platform,
+    )
+    .map_err(|error| error.to_string())
 }
 
 /// Analyze holes in Spore source and return the shared JSON report payload.
@@ -1292,17 +1297,17 @@ pub fn query_hole_report(file: &str, source: &str, hole: &str) -> Result<HoleInf
 pub fn run(source: &str) -> Result<Value, String> {
     let ast = parse(source).map_err(join_errors)?;
     let _result = type_check(&ast).map_err(join_errors)?;
-    spore_codegen::run(&ast).map_err(|e| e.to_string())
+    sporec_codegen::run(&ast).map_err(|e| e.to_string())
 }
 
 /// Run spec clauses in source code and return test results.
-pub fn test_specs(source: &str) -> Result<Vec<spore_codegen::SpecResult>, String> {
+pub fn test_specs(source: &str) -> Result<Vec<sporec_codegen::SpecResult>, String> {
     let ast = parse(source).map_err(join_errors)?;
     // Type-check errors are non-fatal for spec evaluation — the type checker
     // currently has known limitations with generics (Option[T], Pair[K,V])
     // that would block spec testing of otherwise valid code.
     let _ = type_check(&ast);
-    spore_codegen::test_specs(&ast).map_err(|e| e.to_string())
+    sporec_codegen::test_specs(&ast).map_err(|e| e.to_string())
 }
 
 /// Format Spore source code.

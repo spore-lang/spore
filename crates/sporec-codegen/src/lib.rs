@@ -1,4 +1,4 @@
-/// spore-codegen — Spore code generation / execution
+/// sporec-codegen — Spore code generation / execution
 ///
 /// PoC: tree-walking interpreter for direct AST evaluation.
 /// Future native backends can be added without exposing unused scaffolding today.

@@ -2,11 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use spore_codegen::value::Value;
 use sporec::{
     CheckFailure, CheckReport, check_files, check_project, check_project_verbose, check_verbose,
     compile, compile_project, hole_summary, run_project,
 };
+use sporec_codegen::value::Value;
 
 struct TempProject {
     root: PathBuf,

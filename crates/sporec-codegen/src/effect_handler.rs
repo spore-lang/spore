@@ -313,7 +313,7 @@ mod tests {
             .expect("system time should be after epoch")
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "spore-codegen-{name}-{unique}-{}",
+            "sporec-codegen-{name}-{unique}-{}",
             std::process::id()
         ))
     }

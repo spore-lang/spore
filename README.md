@@ -149,7 +149,7 @@ sporec (stateless compiler — pure function)
 │   ├── module       Module registry + import resolution
 │   ├── concurrency  Structured concurrency analysis
 │   └── platform     Platform system (cli/web/embedded)
-└── spore-codegen    Tree-walk interpreter (PoC) / Cranelift (planned)
+└── sporec-codegen   Tree-walk interpreter (PoC) / Cranelift (planned)
 
 spore (stateful codebase manager — handles IO)
 ├── File watching, incremental compilation

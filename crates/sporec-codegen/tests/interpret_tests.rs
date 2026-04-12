@@ -1,19 +1,19 @@
-use spore_codegen::{RuntimePlatform, value::Value};
+use sporec_codegen::{RuntimePlatform, value::Value};
 use sporec_parser::parse;
 
 fn run_main(src: &str) -> Value {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
-    spore_codegen::run(&module).unwrap_or_else(|e| panic!("runtime error: {e}"))
+    sporec_codegen::run(&module).unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
 fn run_fn(src: &str, name: &str, args: Vec<Value>) -> Value {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
-    spore_codegen::call(&module, name, args).unwrap_or_else(|e| panic!("runtime error: {e}"))
+    sporec_codegen::call(&module, name, args).unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
 fn run_project_fn(src: &str, startup: &str) -> Value {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
-    spore_codegen::run_project(&module, &[], startup)
+    sporec_codegen::run_project(&module, &[], startup)
         .unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
@@ -25,7 +25,7 @@ fn run_project_with_adapter(
 ) -> Value {
     let entry = parse(entry_src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
     let adapter_module = parse(adapter_src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
-    spore_codegen::run_project_with_adapter(
+    sporec_codegen::run_project_with_adapter(
         &entry,
         &[("platform_contract".into(), adapter_module)],
         startup,
@@ -50,7 +50,7 @@ fn run_project_on_platform(
             )
         })
         .collect::<Vec<_>>();
-    spore_codegen::run_project_on_platform(&entry, &imported, startup, runtime_platform)
+    sporec_codegen::run_project_on_platform(&entry, &imported, startup, runtime_platform)
         .unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
@@ -486,7 +486,7 @@ fn test_head_tail() {
     let v = run_main("fn main() -> Option[Int] { head([10, 20, 30]) }");
     // Value is Enum("Some", [Int(10)])
     match &v {
-        spore_codegen::value::Value::Enum(name, fields) => {
+        sporec_codegen::value::Value::Enum(name, fields) => {
             assert_eq!(name, "Some");
             assert_eq!(fields.len(), 1);
             assert_eq!(fields[0].as_int(), Some(10));
@@ -497,7 +497,7 @@ fn test_head_tail() {
     // tail returns Option: Some(list) for non-empty list
     let v2 = run_main("fn main() -> Option[List[Int]] { tail([10, 20, 30]) }");
     match &v2 {
-        spore_codegen::value::Value::Enum(name, fields) => {
+        sporec_codegen::value::Value::Enum(name, fields) => {
             assert_eq!(name, "Some");
             assert_eq!(fields.len(), 1);
             let list = fields[0].as_list().unwrap();
@@ -791,7 +791,7 @@ fn test_foreign_fn_runtime_error() {
         fn main() -> String { read_file("test.txt") }
     "#;
     let module = parse(src).unwrap();
-    let err = spore_codegen::run(&module).unwrap_err();
+    let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string()
             .contains("foreign function `read_file` is not available in interpreter mode"),
@@ -902,7 +902,7 @@ fn test_stdlib_map_result_ok() {
 #[test]
 fn test_unhandled_effect_error() {
     let module = sporec_parser::parse(r#"fn main() { perform Unknown.op() }"#).unwrap();
-    let err = spore_codegen::run(&module).unwrap_err();
+    let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("unhandled effect"),
         "unexpected error: {err}"
@@ -914,7 +914,7 @@ fn test_unhandled_effect_error() {
 #[test]
 fn test_shift_left_out_of_range_negative() {
     let module = sporec_parser::parse("fn main() -> Int { 1 << -1 }").unwrap();
-    let err = spore_codegen::run(&module).unwrap_err();
+    let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
         "unexpected error: {err}"
@@ -924,7 +924,7 @@ fn test_shift_left_out_of_range_negative() {
 #[test]
 fn test_shift_left_out_of_range_large() {
     let module = sporec_parser::parse("fn main() -> Int { 1 << 64 }").unwrap();
-    let err = spore_codegen::run(&module).unwrap_err();
+    let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
         "unexpected error: {err}"
@@ -934,7 +934,7 @@ fn test_shift_left_out_of_range_large() {
 #[test]
 fn test_shift_right_out_of_range() {
     let module = sporec_parser::parse("fn main() -> Int { 1 >> 100 }").unwrap();
-    let err = spore_codegen::run(&module).unwrap_err();
+    let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
         "unexpected error: {err}"
@@ -954,7 +954,7 @@ fn test_shift_valid_amounts() {
 
 fn run_main_err(src: &str) -> String {
     let module = sporec_parser::parse(src).unwrap();
-    spore_codegen::run(&module).unwrap_err().to_string()
+    sporec_codegen::run(&module).unwrap_err().to_string()
 }
 
 #[test]
