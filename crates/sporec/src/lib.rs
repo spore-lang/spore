@@ -7,10 +7,11 @@ pub mod diagnostics;
 pub mod project;
 
 pub use compiler::{
-    CompileOutput, Diagnostic as CompilerDiagnostic,
-    DiagnosticSeverity as CompilerDiagnosticSeverity, HoleSummary, check_project_verbose,
-    check_verbose, compile, compile_diagnostics as compile_legacy_diagnostics, compile_files,
-    compile_project, format, hole_summary, holes, run, run_project, test_specs,
+    CheckFailure, CheckReport, CompileOutput, Diagnostic as CompilerDiagnostic,
+    DiagnosticSeverity as CompilerDiagnosticSeverity, HoleSummary, check_files, check_project,
+    check_project_verbose, check_verbose, compile,
+    compile_diagnostics as compile_legacy_diagnostics, compile_files, compile_project, format,
+    hole_summary, holes, run, run_project, test_specs,
 };
 pub use diagnostics::{
     SourceCheckFailure, SourceCheckReport, check_source_file, diagnostics_for_type_errors,
