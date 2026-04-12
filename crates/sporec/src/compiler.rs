@@ -5,6 +5,7 @@ use crate::diagnostics::{diagnostics_for_parse_errors, diagnostics_for_type_erro
 use crate::project::{
     ResolvedPlatformContract, ResolvedProjectTarget, resolve_project_target_by_path,
 };
+use spore_codegen::RuntimePlatform;
 use spore_codegen::value::Value;
 use spore_typeck::CheckResult;
 use spore_typeck::hole::{
@@ -1038,6 +1039,19 @@ fn collect_runtime_import_modules(
     Ok(imports.into_iter().collect())
 }
 
+fn runtime_platform_for_target(target: &ResolvedProjectTarget) -> Result<RuntimePlatform, String> {
+    if let Some(contract) = target.platform_contract.as_ref() {
+        return match contract.name.as_str() {
+            "basic-cli" => Ok(RuntimePlatform::BasicCli),
+            other => Err(format!(
+                "runtime host binding for package platform `{other}` is not implemented yet; currently supported package platforms: basic-cli"
+            )),
+        };
+    }
+
+    Ok(RuntimePlatform::Cli)
+}
+
 fn is_hole_backed_contract_expr(expr: &Expr) -> bool {
     match expr {
         Expr::Hole(_, _, _) => true,
@@ -1214,19 +1228,21 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     validate_project_startup(&prep, &target)?;
 
     let imported = collect_runtime_import_modules(&prep, &target)?;
+    let runtime_platform = runtime_platform_for_target(&target)?;
     if let Some(contract) = target.platform_contract.as_ref() {
         let adapter_function =
             format!("{}.{}", contract.contract_module, contract.adapter_function);
-        return spore_codegen::run_project_with_adapter(
+        return spore_codegen::run_project_with_adapter_on_platform(
             &prep.ast,
             &imported,
             startup_function,
             &adapter_function,
+            runtime_platform,
         )
         .map_err(|error| error.to_string());
     }
 
-    spore_codegen::run_project(&prep.ast, &imported, startup_function)
+    spore_codegen::run_project_on_platform(&prep.ast, &imported, startup_function, runtime_platform)
         .map_err(|error| error.to_string())
 }
 

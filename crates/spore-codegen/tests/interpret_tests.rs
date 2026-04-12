@@ -1,4 +1,4 @@
-use spore_codegen::value::Value;
+use spore_codegen::{RuntimePlatform, value::Value};
 use sporec_parser::parse;
 
 fn run_main(src: &str) -> Value {
@@ -34,6 +34,26 @@ fn run_project_with_adapter(
     .unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
+fn run_project_on_platform(
+    entry_src: &str,
+    imports: &[(&str, &str)],
+    startup: &str,
+    runtime_platform: RuntimePlatform,
+) -> Value {
+    let entry = parse(entry_src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    let imported = imports
+        .iter()
+        .map(|(path, src)| {
+            (
+                (*path).to_string(),
+                parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}")),
+            )
+        })
+        .collect::<Vec<_>>();
+    spore_codegen::run_project_on_platform(&entry, &imported, startup, runtime_platform)
+        .unwrap_or_else(|e| panic!("runtime error: {e}"))
+}
+
 // ── Literals ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -62,6 +82,49 @@ fn test_project_runtime_can_call_platform_adapter() {
         "pub fn main_for_host(app_main: () -> Int) -> Int { 42 }",
         "main",
         "platform_contract.main_for_host",
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_project_runtime_basic_cli_handler_supports_package_foreign_functions() {
+    let temp_path = std::env::temp_dir().display().to_string();
+    let entry_src = format!(
+        r#"
+        import basic_cli.file
+
+        fn main() -> Bool {{
+            file_exists("{temp_path}")
+        }}
+        "#
+    );
+    let v = run_project_on_platform(
+        &entry_src,
+        &[(
+            "basic_cli.file",
+            "pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]",
+        )],
+        "main",
+        RuntimePlatform::BasicCli,
+    );
+    assert_eq!(v.as_bool(), Some(true));
+}
+
+#[test]
+fn test_basic_cli_handler_does_not_intercept_non_foreign_functions() {
+    let v = run_project_on_platform(
+        r#"
+        fn file_exists(x: Int) -> Int {
+            x + 1
+        }
+
+        fn main() -> Int {
+            file_exists(41)
+        }
+        "#,
+        &[],
+        "main",
+        RuntimePlatform::BasicCli,
     );
     assert_eq!(v.as_int(), Some(42));
 }

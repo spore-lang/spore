@@ -467,8 +467,14 @@ impl Interpreter {
                     {
                         return Ok(Value::Enum(name.clone(), arg_vals));
                     }
-                    // 2. Effect handler dispatch (capability-gated I/O)
-                    if let Some(result) = self.try_dispatch_effect(name, &arg_vals)? {
+                    // 2. Effect handler dispatch for foreign functions (or legacy direct host calls).
+                    let dispatch_to_effect_handler = self
+                        .functions
+                        .get(name)
+                        .is_none_or(|function| function.is_foreign);
+                    if dispatch_to_effect_handler
+                        && let Some(result) = self.try_dispatch_effect(name, &arg_vals)?
+                    {
                         return Ok(result);
                     }
                     // 3. Builtin function (pure Compute operations)
