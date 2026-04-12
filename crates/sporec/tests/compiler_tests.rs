@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use sporec::{
-    check_project_verbose, check_verbose, compile, compile_project, hole_summary, run_project,
+    CheckFailure, CheckReport, check_files, check_project, check_project_verbose, check_verbose,
+    compile, compile_project, hole_summary, run_project,
 };
 
 struct TempProject {
@@ -305,6 +306,154 @@ fn compile_project_rejects_type_error_in_imported_module() {
         err.contains("double") || err.contains("E0001"),
         "expected imported module type error details, got: {err}"
     );
+}
+
+#[test]
+fn check_project_returns_canonical_diagnostics_for_imported_module_type_error() {
+    let project = TempProject::new("project-report-import-type-error");
+    project.write(
+        "src/main.sp",
+        r#"
+        import utils
+        fn main() -> () { double(21); return }
+        "#,
+    );
+    project.write(
+        "src/utils.sp",
+        r#"
+        pub fn double(x: I32) -> I32 { "oops" }
+        "#,
+    );
+
+    match check_project(project.root(), "main.sp") {
+        CheckReport::Failure(CheckFailure::Diagnostics {
+            sources,
+            diagnostics,
+        }) => {
+            assert!(
+                sources.iter().any(|source| source.name() == "utils.sp"),
+                "expected imported module source in diagnostic set"
+            );
+            assert!(
+                diagnostics.iter().any(|diagnostic| {
+                    diagnostic
+                        .primary_span
+                        .as_ref()
+                        .map(|span| span.file.as_str())
+                        == Some("utils.sp")
+                }),
+                "expected imported module diagnostic, got: {diagnostics:?}"
+            );
+        }
+        other => panic!("expected canonical imported-module diagnostics, got: {other:?}"),
+    }
+}
+
+#[test]
+fn check_project_returns_canonical_parse_diagnostics_for_imported_module() {
+    let project = TempProject::new("project-report-import-parse-error");
+    project.write(
+        "src/main.sp",
+        r#"
+        import utils
+        fn main() -> () { return }
+        "#,
+    );
+    project.write("src/utils.sp", "pub fn double(x: I32) -> I32 { \n");
+
+    match check_project(project.root(), "main.sp") {
+        CheckReport::Failure(CheckFailure::Diagnostics { diagnostics, .. }) => {
+            assert!(
+                diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == "parse-error"
+                        && diagnostic
+                            .primary_span
+                            .as_ref()
+                            .map(|span| span.file.as_str())
+                            == Some("utils.sp")
+                }),
+                "expected canonical parse diagnostic for imported module, got: {diagnostics:?}"
+            );
+        }
+        other => panic!("expected canonical parse diagnostics, got: {other:?}"),
+    }
+}
+
+#[test]
+fn check_project_returns_startup_diagnostic_for_missing_entry_function() {
+    let project = TempProject::new("project-report-missing-startup");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        fn boot() -> () {
+            return
+        }
+        "#,
+    );
+
+    match check_project(project.root(), "app.sp") {
+        CheckReport::Failure(CheckFailure::Diagnostics {
+            sources,
+            diagnostics,
+        }) => {
+            assert!(
+                sources.iter().any(|source| source.name() == "app.sp"),
+                "expected entry module source in diagnostic set"
+            );
+            assert!(
+                diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.code == "missing-startup-function"),
+                "expected startup diagnostic, got: {diagnostics:?}"
+            );
+        }
+        other => panic!("expected startup diagnostics, got: {other:?}"),
+    }
+}
+
+#[test]
+fn check_files_returns_canonical_parse_diagnostics() {
+    let project = TempProject::new("batch-parse-error");
+    project.write("src/a.sp", "fn main() -> () { return }\n");
+    project.write("src/b.sp", "fn broken( -> () { return }\n");
+    let first = project.root().join("src/a.sp");
+    let second = project.root().join("src/b.sp");
+    let refs = [
+        first.to_str().expect("utf8 path"),
+        second.to_str().expect("utf8 path"),
+    ];
+
+    match check_files(&refs) {
+        CheckReport::Failure(CheckFailure::Diagnostics { diagnostics, .. }) => {
+            assert!(
+                diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == "parse-error"
+                        && diagnostic
+                            .primary_span
+                            .as_ref()
+                            .map(|span| span.file.ends_with("b.sp"))
+                            .unwrap_or(false)
+                }),
+                "expected batch parse diagnostic, got: {diagnostics:?}"
+            );
+        }
+        other => panic!("expected canonical batch parse diagnostics, got: {other:?}"),
+    }
 }
 
 #[test]

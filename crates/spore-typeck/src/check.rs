@@ -193,10 +193,17 @@ impl Checker {
                     format!("cannot read module `{m}`: {detail}"),
                 );
             }
-            Err(ModuleError::ParseError { module: m, detail }) => {
+            Err(ModuleError::ParseErrors { module: m, errors }) => {
                 self.err(
                     ErrorCode::M0001,
-                    format!("parse error in module `{m}`: {detail}"),
+                    format!(
+                        "parse error in module `{m}`: {}",
+                        errors
+                            .into_iter()
+                            .map(|error| error.to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    ),
                 );
             }
         }

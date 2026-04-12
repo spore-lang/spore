@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use spore_parser::{
     ast::{ImportDecl, Item, Module as AstModule, TypeExpr, Visibility},
+    error::ParseError,
     parse,
 };
 
@@ -682,6 +683,8 @@ pub struct ModuleLoader {
     loaded: HashMap<String, ModuleInterface>,
     /// Cache of parsed ASTs (needed for transitive import extraction and interpreter).
     asts: HashMap<String, AstModule>,
+    /// Cache of raw source text for loaded modules, including parse failures.
+    sources: HashMap<String, String>,
 }
 
 impl ModuleLoader {
@@ -690,6 +693,7 @@ impl ModuleLoader {
             root,
             loaded: HashMap::new(),
             asts: HashMap::new(),
+            sources: HashMap::new(),
         }
     }
 
@@ -718,14 +722,11 @@ impl ModuleLoader {
             module: module_path.to_string(),
             detail: e.to_string(),
         })?;
+        self.sources.insert(module_path.to_string(), source.clone());
 
-        let ast = spore_parser::parse(&source).map_err(|errs| ModuleError::ParseError {
+        let ast = spore_parser::parse(&source).map_err(|errs| ModuleError::ParseErrors {
             module: module_path.to_string(),
-            detail: errs
-                .into_iter()
-                .map(|e| e.to_string())
-                .collect::<Vec<_>>()
-                .join("\n"),
+            errors: errs,
         })?;
 
         let mut iface = crate::build_module_interface(&ast);
@@ -739,6 +740,11 @@ impl ModuleLoader {
     /// Get the cached AST for a previously loaded module.
     pub fn get_ast(&self, module_path: &str) -> Option<&AstModule> {
         self.asts.get(module_path)
+    }
+
+    /// Get cached source text for a previously loaded module.
+    pub fn get_source(&self, module_path: &str) -> Option<&str> {
+        self.sources.get(module_path).map(String::as_str)
     }
 
     /// Get a cached module interface.
@@ -770,11 +776,23 @@ pub enum ImportedSymbol {
 #[derive(Debug, Clone)]
 pub enum ModuleError {
     ModuleNotFound(String),
-    SymbolNotFound { module: String, symbol: String },
-    PrivateSymbol { module: String, symbol: String },
+    SymbolNotFound {
+        module: String,
+        symbol: String,
+    },
+    PrivateSymbol {
+        module: String,
+        symbol: String,
+    },
     CircularDependency(Vec<String>),
-    IoError { module: String, detail: String },
-    ParseError { module: String, detail: String },
+    IoError {
+        module: String,
+        detail: String,
+    },
+    ParseErrors {
+        module: String,
+        errors: Vec<ParseError>,
+    },
 }
 
 impl std::fmt::Display for ModuleError {
@@ -796,8 +814,16 @@ impl std::fmt::Display for ModuleError {
             ModuleError::IoError { module, detail } => {
                 write!(f, "cannot read module `{module}`: {detail}")
             }
-            ModuleError::ParseError { module, detail } => {
-                write!(f, "parse error in module `{module}`: {detail}")
+            ModuleError::ParseErrors { module, errors } => {
+                write!(
+                    f,
+                    "parse error in module `{module}`: {}",
+                    errors
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
             }
         }
     }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io;
 use std::ops::Range;
 use std::process::ExitCode;
@@ -394,6 +395,70 @@ pub fn render_diagnostics_human(source: &SourceFile, diagnostics: &[Diagnostic])
     }
 }
 
+fn diagnostic_source_name(diagnostic: &Diagnostic) -> Option<&str> {
+    diagnostic
+        .primary_span
+        .as_ref()
+        .map(|span| span.file.as_str())
+        .or_else(|| {
+            diagnostic
+                .secondary_labels
+                .first()
+                .map(|label| label.span.file.as_str())
+        })
+}
+
+fn is_synthetic_source(name: &str) -> bool {
+    name.starts_with('<') && name.ends_with('>')
+}
+
+fn fallback_source<'a>(
+    source_index: &HashMap<&'a str, &'a SourceFile>,
+    sources: &'a [SourceFile],
+    synthetic: &'a SourceFile,
+) -> &'a SourceFile {
+    source_index
+        .get("<batch>")
+        .copied()
+        .or_else(|| {
+            sources
+                .iter()
+                .find(|source| is_synthetic_source(source.name()))
+        })
+        .or_else(|| sources.first())
+        .unwrap_or(synthetic)
+}
+
+fn source_for_diagnostic<'a>(
+    source_index: &HashMap<&'a str, &'a SourceFile>,
+    sources: &'a [SourceFile],
+    synthetic: &'a SourceFile,
+    diagnostic: &Diagnostic,
+) -> &'a SourceFile {
+    diagnostic_source_name(diagnostic)
+        .and_then(|name| source_index.get(name).copied())
+        .unwrap_or_else(|| fallback_source(source_index, sources, synthetic))
+}
+
+pub fn render_diagnostics_human_with_sources(sources: &[SourceFile], diagnostics: &[Diagnostic]) {
+    let source_index: HashMap<&str, &SourceFile> = sources
+        .iter()
+        .map(|source| (source.name(), source))
+        .collect();
+    let synthetic = SourceFile::new("<diagnostics>", "");
+
+    for diagnostic in diagnostics {
+        let source = source_for_diagnostic(&source_index, sources, &synthetic, diagnostic);
+        let rendered = render_diagnostic_to_string(source, diagnostic)
+            .unwrap_or_else(|_| format!("{}: {}", diagnostic.code, diagnostic.message));
+        if rendered.ends_with('\n') {
+            eprint!("{rendered}");
+        } else {
+            eprintln!("{rendered}");
+        }
+    }
+}
+
 pub fn exit_with_diagnostics_error(
     source: &SourceFile,
     diagnostics: &[Diagnostic],
@@ -407,6 +472,23 @@ pub fn exit_with_diagnostics_error(
         }));
     } else {
         render_diagnostics_human(source, diagnostics);
+    }
+    ExitCode::FAILURE
+}
+
+pub fn exit_with_diagnostics_error_with_sources(
+    sources: &[SourceFile],
+    diagnostics: &[Diagnostic],
+    json_output: bool,
+) -> ExitCode {
+    if json_output {
+        print_json(&json!({
+            "status": "error",
+            "message": diagnostic_message_lines(diagnostics).join("\n"),
+            "diagnostics": diagnostics,
+        }));
+    } else {
+        render_diagnostics_human_with_sources(sources, diagnostics);
     }
     ExitCode::FAILURE
 }
@@ -474,5 +556,30 @@ mod tests {
 
         assert_eq!(reconstructed.byte_range(), Some(6..10));
         assert_eq!(reconstructed.range, original.range);
+    }
+
+    #[test]
+    fn spanless_diagnostics_prefer_batch_source_over_first_real_file() {
+        let entry = SourceFile::new("src/main.sp", "fn main() -> I32 { 0 }\n");
+        let batch = SourceFile::new("<batch>", "");
+        let sources = vec![
+            entry,
+            batch,
+            SourceFile::new("lib/util.sp", "fn util() = 1\n"),
+        ];
+        let source_index: HashMap<&str, &SourceFile> = sources
+            .iter()
+            .map(|source| (source.name(), source))
+            .collect();
+        let synthetic = SourceFile::new("<diagnostics>", "");
+        let diagnostic = Diagnostic::new(
+            "module-not-found",
+            Severity::Error,
+            "module `missing` not found",
+        );
+
+        let source = source_for_diagnostic(&source_index, &sources, &synthetic, &diagnostic);
+
+        assert_eq!(source.name(), "<batch>");
     }
 }
