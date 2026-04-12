@@ -261,10 +261,13 @@ fn name(params) -> ReturnType ! Errors
 - 语言级概念，在 `spore.toml` 中声明；一个项目只绑定一个 Platform
 - 提供所有 IO effect handler（应用代码完全纯净）
 - Effect handler 风格（与并发模型统一）
-- 不内置官方 Platform，全部第三方
+- 长期目标是不内置官方 Platform；当前实现仍保留 `cli` / `web` / `embedded` built-ins 作为 legacy / 过渡路径，但 package-backed Platform 已是主方向
 - 命名 `entry` 选择项目的可执行目标，并解析到对应的 `entry module`
 - Platform 契约由 manifest 中的 `[platform]` 元数据与专门的 contract module 共同构成：manifest 负责定位 contract module / startup contract symbol / adapter / handled capabilities，contract module 则通过带 hole 的 `startup function` 持有权威签名与 spec
-- `entry module` 中提供满足 `startup contract` 的 `startup function`；Platform contract module 中的 startup `spec` 与应用实现侧 `spec` 会叠加，两边都必须满足
+- 设计契约上，`entry module` 中提供满足 `startup contract` 的 `startup function`；Platform contract module 中的 startup `spec` 与应用实现侧 `spec` 视为叠加约束。当前编译器已经强制 hole-backed contract + startup 名称/签名匹配，但 merged `spec` enforcement 仍未落地
+- 启动函数名与签名的当前查找路径是：先由项目 manifest 的 `[project].platform` 选中 Platform 包，再由该包的 `[platform].contract-module` 与 `[platform].startup-contract` 定位 contract module 中的权威 startup 定义；编译器从该 hole-backed 定义读取签名，并要求 entry module 中实现同名同签名的 `startup function`
+- Platform 的 effect / foreign API 由 Platform 自己导出的普通模块定义（例如 `basic_cli.stdout`、`basic_cli.file` 一类模块中的 `foreign fn`）；应用代码像导入普通依赖模块一样导入这些 Platform 模块，编译器 / typechecker 通过依赖根与传递依赖解析去加载它们
+- 当前 runtime 仍不是“从 Platform 包动态装载宿主实现”：`sporec` 现在只对 package-backed `basic-cli` 提供显式 host profile，把导入后的 `basic_cli.*` foreign surface 路由到内建 runtime handler；`handles` 元数据与 startup `spec` stacking 已写入契约，但除 startup shape 校验外，通用 enforcement 仍是后续工作
 - 实现语言: 原生代码（Rust/C/编译后的 Spore）
 - 测试: 换 mock Platform（确定性 handler）
 
