@@ -2,7 +2,7 @@ use std::fs;
 use std::process::ExitCode;
 
 use bpaf::*;
-use serde_json::{Map, Value, json};
+use serde_json::json;
 use spore_parser::parse;
 use spore_typeck::error::{ErrorCode, all_error_codes};
 use spore_typeck::hole::{CandidateRanking, HoleInfo, HoleReport, TypeInferenceConfidence};
@@ -199,9 +199,9 @@ fn exec_holes(file: &str, json_output: bool) -> ExitCode {
     };
 
     if json_output {
-        match sporec::holes(&source) {
+        match sporec::holes_report(&source) {
             Ok(report) => {
-                println!("{report}");
+                sporec_diagnostics::print_json(&report);
                 ExitCode::SUCCESS
             }
             Err(message) => sporec_diagnostics::exit_with_message_error(&message, json_output),
@@ -236,6 +236,16 @@ fn exec_query_hole(file: &str, hole: &str, json_output: bool) -> ExitCode {
         }
     };
 
+    if json_output {
+        return match sporec::query_hole_report(file, &source, hole) {
+            Ok(report) => {
+                sporec_diagnostics::print_json(&report);
+                ExitCode::SUCCESS
+            }
+            Err(message) => sporec_diagnostics::exit_with_message_error(&message, json_output),
+        };
+    }
+
     let report = match load_hole_report(&source) {
         Ok(report) => report,
         Err(message) => {
@@ -252,11 +262,7 @@ fn exec_query_hole(file: &str, hole: &str, json_output: bool) -> ExitCode {
 
     match matches.as_slice() {
         [hole] => {
-            if json_output {
-                sporec_diagnostics::print_json(&hole_to_json(hole));
-            } else {
-                println!("{}", render_hole(hole));
-            }
+            println!("{}", render_hole(hole));
             ExitCode::SUCCESS
         }
         [] => sporec_diagnostics::exit_with_message_error(
@@ -340,98 +346,6 @@ fn display_hole_name(name: &str) -> String {
     } else {
         format!("?{name}")
     }
-}
-
-fn hole_to_json(hole: &HoleInfo) -> Value {
-    let bindings: Map<String, Value> = hole
-        .bindings
-        .iter()
-        .map(|(name, ty)| (name.clone(), Value::String(ty.to_string())))
-        .collect();
-
-    let binding_dependencies: Map<String, Value> = hole
-        .binding_dependencies
-        .iter()
-        .map(|(name, deps)| {
-            (
-                name.clone(),
-                Value::Array(deps.iter().map(|dep| Value::String(dep.clone())).collect()),
-            )
-        })
-        .collect();
-
-    let cost_budget = hole.cost_budget.as_ref().map(|budget| {
-        json!({
-            "budget_total": budget.budget_total,
-            "cost_before_hole": budget.cost_before_hole,
-            "budget_remaining": budget.budget_remaining,
-        })
-    });
-
-    let confidence = hole.confidence.as_ref().map(|confidence| {
-        let type_inference = match confidence.type_inference {
-            TypeInferenceConfidence::Certain => "certain",
-            TypeInferenceConfidence::Partial => "partial",
-            TypeInferenceConfidence::Unknown => "unknown",
-        };
-        let candidate_ranking = match confidence.candidate_ranking {
-            CandidateRanking::UniqueBest => "unique_best",
-            CandidateRanking::Ambiguous => "ambiguous",
-            CandidateRanking::NoCandidates => "no_candidates",
-        };
-        json!({
-            "type_inference": type_inference,
-            "candidate_ranking": candidate_ranking,
-            "ambiguous_count": confidence.ambiguous_count,
-            "recommendation": confidence.recommendation,
-        })
-    });
-
-    json!({
-        "name": hole.name,
-        "display_name": display_hole_name(&hole.name),
-        "location": hole.location.as_ref().map(|location| json!({
-            "file": location.file,
-            "line": location.line,
-            "column": location.column,
-        })),
-        "expected_type": hole.expected_type.to_string(),
-        "type_inferred_from": hole.type_inferred_from,
-        "function": hole.function,
-        "enclosing_signature": hole.enclosing_signature,
-        "bindings": bindings,
-        "binding_dependencies": binding_dependencies,
-        "capabilities": hole.capabilities.iter().cloned().collect::<Vec<_>>(),
-        "errors_to_handle": hole.errors_to_handle,
-        "cost_budget": cost_budget,
-        "candidates": hole
-            .candidates
-            .iter()
-            .map(|candidate| {
-                json!({
-                    "name": candidate.name,
-                    "type_match": candidate.type_match,
-                    "cost_fit": candidate.cost_fit,
-                    "capability_fit": candidate.capability_fit,
-                    "error_coverage": candidate.error_coverage,
-                    "overall": candidate.overall(),
-                })
-            })
-            .collect::<Vec<_>>(),
-        "dependent_holes": hole.dependent_holes,
-        "confidence": confidence,
-        "error_clusters": hole
-            .error_clusters
-            .iter()
-            .map(|cluster| {
-                json!({
-                    "source": cluster.source,
-                    "errors": cluster.errors,
-                    "handling_suggestion": cluster.handling_suggestion,
-                })
-            })
-            .collect::<Vec<_>>(),
-    })
 }
 
 fn render_hole(hole: &HoleInfo) -> String {

@@ -840,9 +840,9 @@ fn exec_holes(file: &str) -> ExitCode {
         Err(c) => return c,
     };
 
-    match sporec::holes(&source) {
-        Ok(j) => {
-            println!("{j}");
+    match sporec::holes_report(&source) {
+        Ok(report) => {
+            sporec_diagnostics::print_json(&report);
             ExitCode::SUCCESS
         }
         Err(msg) => {
@@ -1114,9 +1114,16 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
         }
     }
 
-    // Emit hole_graph_update event if there are holes (JSON mode only)
-    if json_output && let Some(summary) = sporec::hole_summary(source) {
-        println!("{}", summary.to_json());
+    if let Some(summary) = hole_graph_update(source, json_output) {
+        sporec_diagnostics::print_json(&summary);
+    }
+}
+
+fn hole_graph_update(source: &str, json_output: bool) -> Option<sporec::HoleSummary> {
+    if json_output {
+        sporec::hole_summary(source)
+    } else {
+        None
     }
 }
 
@@ -1546,5 +1553,25 @@ mod tests {
         .unwrap();
 
         assert_eq!(infer_project_entry(&project_dir).unwrap(), "main.sp");
+    }
+
+    #[test]
+    fn test_hole_graph_update_emits_json_event_for_sources_with_holes() {
+        let summary = hole_graph_update("fn main() -> I32 { ?todo }\n", true)
+            .expect("hole-bearing source should produce a watch summary");
+        let value = serde_json::to_value(&summary).expect("serialize hole summary");
+
+        assert_eq!(value["event"], "hole_graph_update");
+        assert!(
+            value["holes_total"]
+                .as_u64()
+                .is_some_and(|count| count >= 1)
+        );
+    }
+
+    #[test]
+    fn test_hole_graph_update_skips_non_json_and_hole_free_sources() {
+        assert!(hole_graph_update("fn main() -> I32 { ?todo }\n", false).is_none());
+        assert!(hole_graph_update("fn main() -> I32 { 42 }\n", true).is_none());
     }
 }

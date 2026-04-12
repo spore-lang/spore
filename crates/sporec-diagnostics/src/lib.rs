@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::ops::Range;
 use std::path::Path;
@@ -238,6 +238,140 @@ impl<'a> JsonReport<'a> {
         self.timestamp = Some(timestamp);
         self
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleSummary {
+    pub event: &'static str,
+    pub holes_total: usize,
+    pub filled_this_cycle: usize,
+    pub ready_to_fill: usize,
+    pub blocked: usize,
+}
+
+impl HoleSummary {
+    pub fn new(
+        holes_total: usize,
+        filled_this_cycle: usize,
+        ready_to_fill: usize,
+        blocked: usize,
+    ) -> Self {
+        Self {
+            event: "hole_graph_update",
+            holes_total,
+            filled_this_cycle,
+            ready_to_fill,
+            blocked,
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).expect("serializing hole summary")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleLocationJson {
+    pub file: String,
+    pub line: u32,
+    pub column: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HoleCostBudgetJson {
+    pub budget_total: Option<f64>,
+    pub cost_before_hole: f64,
+    pub budget_remaining: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HoleCandidateJson {
+    pub name: String,
+    pub type_match: f64,
+    pub cost_fit: f64,
+    pub capability_fit: f64,
+    pub error_coverage: f64,
+    pub overall: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HoleTypeInferenceJson {
+    Certain,
+    Partial,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HoleCandidateRankingJson {
+    UniqueBest,
+    Ambiguous,
+    NoCandidates,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleConfidenceJson {
+    pub type_inference: HoleTypeInferenceJson,
+    pub candidate_ranking: HoleCandidateRankingJson,
+    pub ambiguous_count: usize,
+    pub recommendation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleErrorClusterJson {
+    pub source: String,
+    pub errors: Vec<String>,
+    pub handling_suggestion: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HoleDependencyKind {
+    Type,
+    Value,
+    Cost,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleDependencyEdgeJson {
+    pub from: String,
+    pub to: String,
+    pub kind: HoleDependencyKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleDependencyGraphJson {
+    pub dependencies: BTreeMap<String, Vec<String>>,
+    pub edges: Vec<HoleDependencyEdgeJson>,
+    pub roots: Vec<String>,
+    pub suggested_order: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HoleInfoJson {
+    pub name: String,
+    pub display_name: String,
+    pub location: Option<HoleLocationJson>,
+    pub expected_type: String,
+    pub type_inferred_from: Option<String>,
+    pub function: String,
+    pub enclosing_signature: Option<String>,
+    pub bindings: BTreeMap<String, String>,
+    pub binding_dependencies: BTreeMap<String, Vec<String>>,
+    pub capabilities: Vec<String>,
+    pub errors_to_handle: Vec<String>,
+    pub cost_budget: Option<HoleCostBudgetJson>,
+    pub candidates: Vec<HoleCandidateJson>,
+    pub dependent_holes: Vec<String>,
+    pub confidence: Option<HoleConfidenceJson>,
+    pub error_clusters: Vec<HoleErrorClusterJson>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct HoleReportJson {
+    pub holes: Vec<HoleInfoJson>,
+    pub dependency_graph: HoleDependencyGraphJson,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -832,6 +966,17 @@ mod tests {
                 .as_array()
                 .is_some_and(|errors| errors.is_empty())
         );
+    }
+
+    #[test]
+    fn serializes_hole_summary_as_watch_event() {
+        let summary = HoleSummary::new(3, 0, 1, 2);
+        let value = serde_json::to_value(&summary).expect("serialize hole summary");
+
+        assert_eq!(value["event"], "hole_graph_update");
+        assert_eq!(value["holes_total"], 3);
+        assert_eq!(value["ready_to_fill"], 1);
+        assert_eq!(value["blocked"], 2);
     }
 
     #[test]

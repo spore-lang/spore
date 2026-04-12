@@ -218,6 +218,12 @@ fn holes_json_contains_holes_key() {
         stdout.contains("\"name\": \"todo\"") || stdout.contains("\"name\":\"todo\""),
         "stdout: {stdout}"
     );
+    assert!(stdout.contains("\"dependency_graph\""), "stdout: {stdout}");
+    assert!(
+        stdout.contains("\"display_name\": \"?todo\"")
+            || stdout.contains("\"display_name\":\"?todo\""),
+        "stdout: {stdout}"
+    );
 }
 
 #[test]
@@ -272,6 +278,11 @@ fn query_hole_json_finds_named_hole() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("\"name\":\"todo\"") || stdout.contains("\"name\": \"todo\""),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"display_name\":\"?todo\"")
+            || stdout.contains("\"display_name\": \"?todo\""),
         "stdout: {stdout}"
     );
     assert!(stdout.contains("\"expected_type\""), "stdout: {stdout}");
