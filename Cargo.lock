@@ -534,6 +534,8 @@ dependencies = [
 name = "sporec"
 version = "0.1.0"
 dependencies = [
+ "bpaf",
+ "serde_json",
  "spore-codegen",
  "spore-parser",
  "spore-typeck",
