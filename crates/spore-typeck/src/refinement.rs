@@ -7,7 +7,7 @@
 //! - Boolean connectives: `&&, ||, !`
 //! - String `.len()` method
 
-use spore_parser::ast::{BinOp, Expr, UnaryOp};
+use sporec_parser::ast::{BinOp, Expr, UnaryOp};
 
 /// A compile-time constant value for refinement checking.
 #[derive(Debug, Clone)]

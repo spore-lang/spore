@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::{cell::RefCell, rc::Rc};
 
-use spore_parser::ast::*;
+use sporec_parser::ast::*;
 
 use crate::effect_handler::EffectHandler;
 use crate::value::{ChannelEndpoint, ChannelState, Closure, TaskHandle, TaskState, Value};
@@ -207,7 +207,7 @@ impl Interpreter {
     /// Load the prelude (embedded at compile time).
     pub fn load_prelude(&mut self) {
         let source = include_str!("../../../stdlib/prelude.sp");
-        if let Ok(module) = spore_parser::parse(source) {
+        if let Ok(module) = sporec_parser::parse(source) {
             self.load_module(&module);
         }
     }

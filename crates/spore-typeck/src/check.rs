@@ -3,7 +3,7 @@
 //! Walks the AST and verifies type consistency, building up a type
 //! environment as it goes. Reports all errors (does not bail on first).
 
-use spore_parser::ast::*;
+use sporec_parser::ast::*;
 
 use crate::env::{Env, TypeRegistry};
 use crate::error::{ErrorCode, TypeError};

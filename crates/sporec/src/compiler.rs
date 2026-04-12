@@ -6,9 +6,6 @@ use crate::project::{
     ResolvedPlatformContract, ResolvedProjectTarget, resolve_project_target_by_path,
 };
 use spore_codegen::value::Value;
-use spore_parser::ast::{Expr, ImportDecl, Item, Span, Stmt};
-use spore_parser::formatter::format_module;
-use spore_parser::parse;
 use spore_typeck::CheckResult;
 use spore_typeck::hole::{
     CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
@@ -25,6 +22,9 @@ use sporec_diagnostics::{
     HoleDependencyKind, HoleErrorClusterJson, HoleInfoJson, HoleLocationJson, HoleReportJson,
     HoleSummary, HoleTypeInferenceJson, Severity, SourceFile,
 };
+use sporec_parser::ast::{Expr, ImportDecl, Item, Span, Stmt};
+use sporec_parser::formatter::format_module;
+use sporec_parser::parse;
 
 fn join_errors<E: std::fmt::Display>(errs: Vec<E>) -> String {
     errs.into_iter()
@@ -577,7 +577,7 @@ fn module_name_for_path(common_root: &Path, path: &Path) -> Result<String, Strin
 ///
 /// Shared setup for [`compile_project`] and [`run_project`].
 struct PreparedProject {
-    ast: spore_parser::ast::Module,
+    ast: sporec_parser::ast::Module,
     entry_source: String,
     entry_interface: ModuleInterface,
     registry: ModuleRegistry,
@@ -699,9 +699,9 @@ fn source_label_for_module(module_path: &str) -> String {
 }
 
 fn with_module_name(
-    ast: &spore_parser::ast::Module,
+    ast: &sporec_parser::ast::Module,
     module_name: &str,
-) -> spore_parser::ast::Module {
+) -> sporec_parser::ast::Module {
     let mut ast = ast.clone();
     ast.name = module_name.to_string();
     ast
@@ -931,9 +931,9 @@ fn is_hole_backed_contract_expr(expr: &Expr) -> bool {
 }
 
 fn contract_function_def<'a>(
-    module: &'a spore_parser::ast::Module,
+    module: &'a sporec_parser::ast::Module,
     name: &str,
-) -> Option<&'a spore_parser::ast::FnDef> {
+) -> Option<&'a sporec_parser::ast::FnDef> {
     module.items.iter().find_map(|item| match item {
         Item::Function(function) if function.name == name => Some(function),
         _ => None,
@@ -1096,7 +1096,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     // Collect imported module ASTs for the interpreter
     let mut imported_paths = prep.loader.loaded_modules();
     imported_paths.sort();
-    let imported: Vec<(String, spore_parser::ast::Module)> = imported_paths
+    let imported: Vec<(String, sporec_parser::ast::Module)> = imported_paths
         .into_iter()
         .filter_map(|path| prep.loader.get_ast(&path).map(|ast| (path, ast.clone())))
         .collect();

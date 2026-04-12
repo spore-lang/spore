@@ -4,10 +4,10 @@ members = [
   "crates/spore-cli",
   "crates/spore-codegen",
   "crates/spore-lsp",
-  "crates/spore-parser",
   "crates/spore-typeck",
   "crates/sporec",
   "crates/sporec-diagnostics",
+  "crates/sporec-parser",
 ]
 
 [workspace.package]

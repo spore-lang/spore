@@ -1,8 +1,8 @@
-use spore_parser::parse;
 use spore_typeck::cost::CostResult;
 use spore_typeck::error::ErrorCode;
 use spore_typeck::type_check;
 use spore_typeck::types::{CapSet, ErrorSet, Ty};
+use sporec_parser::parse;
 
 fn check_ok(src: &str) {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
@@ -769,7 +769,7 @@ fn never_type_unifies_with_anything() {
             diverge()
         }
     "#;
-    let ast = spore_parser::parse(src).unwrap();
+    let ast = sporec_parser::parse(src).unwrap();
     let result = spore_typeck::type_check(&ast);
     assert!(result.is_ok(), "Never should unify with I32");
 }
@@ -780,7 +780,7 @@ fn char_type_basic() {
         fn get_char() -> Char { ?todo }
         fn use_char(c: Char) -> Char { c }
     "#;
-    let ast = spore_parser::parse(src).unwrap();
+    let ast = sporec_parser::parse(src).unwrap();
     let result = spore_typeck::type_check(&ast);
     assert!(result.is_ok());
 }
@@ -794,7 +794,7 @@ fn occurs_check_prevents_infinite_type() {
     "#;
     // This is a simpler test - just ensure occurs_in works
     // The real test is that unification with self-referential types fails
-    let ast = spore_parser::parse(src).unwrap();
+    let ast = sporec_parser::parse(src).unwrap();
     let result = spore_typeck::type_check(&ast);
     // This should fail with type mismatch, not infinite loop
     assert!(result.is_err());
@@ -1837,7 +1837,7 @@ fn refinement_type_display() {
     let ty = Ty::Refined(
         Box::new(Ty::Int),
         "self".into(),
-        Box::new(spore_parser::ast::Expr::BoolLit(true)),
+        Box::new(sporec_parser::ast::Expr::BoolLit(true)),
     );
     let display = format!("{ty}");
     assert_eq!(display, "I32 when <predicate>");
@@ -2234,7 +2234,7 @@ fn test_error_set_propagation() {
 
 #[test]
 fn refined_types_different_predicates_not_equal() {
-    use spore_parser::ast::{BinOp, Expr};
+    use sporec_parser::ast::{BinOp, Expr};
 
     let pos = Ty::Refined(
         Box::new(Ty::Int),
@@ -2323,7 +2323,7 @@ fn throw_named_error_declared_ok() {
 
 #[test]
 fn refined_types_identical_are_equal() {
-    use spore_parser::ast::{BinOp, Expr};
+    use sporec_parser::ast::{BinOp, Expr};
 
     let a = Ty::Refined(
         Box::new(Ty::Int),
@@ -2362,7 +2362,7 @@ fn test_fn_type_equality_with_error_set() {
 
 #[test]
 fn refined_types_different_var_names_not_equal() {
-    use spore_parser::ast::{BinOp, Expr};
+    use sporec_parser::ast::{BinOp, Expr};
 
     let a = Ty::Refined(
         Box::new(Ty::Int),

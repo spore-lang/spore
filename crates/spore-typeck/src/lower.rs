@@ -5,7 +5,7 @@
 //! for downstream passes.
 
 use crate::hir::*;
-use spore_parser::ast;
+use sporec_parser::ast;
 use std::collections::HashMap;
 
 pub struct Lowering {

@@ -1,5 +1,5 @@
 use spore_codegen::value::Value;
-use spore_parser::parse;
+use sporec_parser::parse;
 
 fn run_main(src: &str) -> Value {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
@@ -645,7 +645,7 @@ fn test_placeholder_pipe_chain() {
 // ── Stdlib: parse each stdlib file ──────────────────────────────────────
 
 fn assert_stdlib_source_parses(name: &str, src: &str) {
-    spore_parser::parse(src).unwrap_or_else(|e| panic!("{name} parse error: {e:?}"));
+    sporec_parser::parse(src).unwrap_or_else(|e| panic!("{name} parse error: {e:?}"));
 }
 
 #[test]
@@ -810,7 +810,7 @@ fn test_stdlib_map_result_ok() {
 
 #[test]
 fn test_unhandled_effect_error() {
-    let module = spore_parser::parse(r#"fn main() { perform Unknown.op() }"#).unwrap();
+    let module = sporec_parser::parse(r#"fn main() { perform Unknown.op() }"#).unwrap();
     let err = spore_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("unhandled effect"),
@@ -822,7 +822,7 @@ fn test_unhandled_effect_error() {
 
 #[test]
 fn test_shift_left_out_of_range_negative() {
-    let module = spore_parser::parse("fn main() -> Int { 1 << -1 }").unwrap();
+    let module = sporec_parser::parse("fn main() -> Int { 1 << -1 }").unwrap();
     let err = spore_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
@@ -832,7 +832,7 @@ fn test_shift_left_out_of_range_negative() {
 
 #[test]
 fn test_shift_left_out_of_range_large() {
-    let module = spore_parser::parse("fn main() -> Int { 1 << 64 }").unwrap();
+    let module = sporec_parser::parse("fn main() -> Int { 1 << 64 }").unwrap();
     let err = spore_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
@@ -842,7 +842,7 @@ fn test_shift_left_out_of_range_large() {
 
 #[test]
 fn test_shift_right_out_of_range() {
-    let module = spore_parser::parse("fn main() -> Int { 1 >> 100 }").unwrap();
+    let module = sporec_parser::parse("fn main() -> Int { 1 >> 100 }").unwrap();
     let err = spore_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
@@ -862,7 +862,7 @@ fn test_shift_valid_amounts() {
 // ── Integer overflow safety ─────────────────────────────────────────────
 
 fn run_main_err(src: &str) -> String {
-    let module = spore_parser::parse(src).unwrap();
+    let module = sporec_parser::parse(src).unwrap();
     spore_codegen::run(&module).unwrap_err().to_string()
 }
 

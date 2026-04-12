@@ -13,5 +13,5 @@ path = "src/main.rs"
 
 [dependencies]
 serde_json = { workspace = true }
-spore-parser = { path = "../spore-parser" }
 sporec = { path = "../sporec" }
+sporec-parser = { path = "../sporec-parser" }

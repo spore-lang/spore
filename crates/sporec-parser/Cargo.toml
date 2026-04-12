@@ -1,5 +1,5 @@
 [package]
-name = "spore-parser"
+name = "sporec-parser"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
