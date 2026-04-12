@@ -2,9 +2,11 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::diagnostics::{diagnostics_for_parse_errors, diagnostics_for_type_errors, source_file};
-use crate::project::{ResolvedProjectTarget, resolve_project_target_by_path};
+use crate::project::{
+    ResolvedPlatformContract, ResolvedProjectTarget, resolve_project_target_by_path,
+};
 use spore_codegen::value::Value;
-use spore_parser::ast::{ImportDecl, Item, Span};
+use spore_parser::ast::{Expr, ImportDecl, Item, Span, Stmt};
 use spore_parser::formatter::format_module;
 use spore_parser::parse;
 use spore_typeck::CheckResult;
@@ -15,6 +17,7 @@ use spore_typeck::hole::{
 use spore_typeck::is_synthetic_hole_name;
 use spore_typeck::module::{ModuleError, ModuleInterface, ModuleLoader, ModuleRegistry};
 use spore_typeck::platform::{PlatformRegistry, PlatformStartupError, PlatformStartupErrorKind};
+use spore_typeck::types::Ty;
 use spore_typeck::{type_check, type_check_with_registry};
 use sporec_diagnostics::{
     Diagnostic as CanonicalDiagnostic, HoleCandidateJson, HoleCandidateRankingJson,
@@ -809,9 +812,181 @@ fn startup_error_to_diagnostic(
     let code = match error.kind {
         PlatformStartupErrorKind::MissingStartupFunction => "missing-startup-function",
         PlatformStartupErrorKind::WrongStartupSignature => "wrong-startup-signature",
+        PlatformStartupErrorKind::InvalidPlatformContract => "invalid-platform-contract",
     };
     CanonicalDiagnostic::new(code, Severity::Error, error.message)
         .with_primary_span(source.span(0..0))
+}
+
+#[derive(Debug, Clone)]
+struct LoadedPlatformContract {
+    startup_params: Vec<Ty>,
+    startup_return: Ty,
+}
+
+fn invalid_platform_contract_error(message: impl Into<String>) -> PlatformStartupError {
+    PlatformStartupError {
+        kind: PlatformStartupErrorKind::InvalidPlatformContract,
+        message: message.into(),
+    }
+}
+
+fn load_platform_contract(
+    contract: &ResolvedPlatformContract,
+) -> Result<LoadedPlatformContract, PlatformStartupError> {
+    let mut loader = ModuleLoader::new(contract.root.clone());
+    let contract_iface = loader
+        .load_module(&contract.contract_module)
+        .map_err(|error| {
+            invalid_platform_contract_error(format!(
+                "platform `{}` contract module `{}` could not be loaded from `{}`: {error}",
+                contract.name,
+                contract.contract_module,
+                contract.root.display()
+            ))
+        })?
+        .clone();
+    let contract_ast = loader.get_ast(&contract.contract_module).ok_or_else(|| {
+        invalid_platform_contract_error(format!(
+            "platform `{}` contract module `{}` did not produce a parsed AST",
+            contract.name, contract.contract_module
+        ))
+    })?;
+
+    let startup_def =
+        contract_function_def(contract_ast, &contract.startup_function).ok_or_else(|| {
+            invalid_platform_contract_error(format!(
+                "platform `{}` contract module `{}` does not define startup contract `{}`",
+                contract.name, contract.contract_module, contract.startup_function
+            ))
+        })?;
+    if !startup_def
+        .body
+        .as_ref()
+        .is_some_and(is_hole_backed_contract_expr)
+    {
+        return Err(invalid_platform_contract_error(format!(
+            "platform `{}` startup contract `{}` in module `{}` must be hole-backed",
+            contract.name, contract.startup_function, contract.contract_module
+        )));
+    }
+
+    let (startup_params, startup_return) = contract_iface
+        .functions
+        .get(&contract.startup_function)
+        .cloned()
+        .ok_or_else(|| {
+            invalid_platform_contract_error(format!(
+                "platform `{}` contract module `{}` could not extract a signature for startup contract `{}`",
+                contract.name, contract.contract_module, contract.startup_function
+            ))
+        })?;
+    let (adapter_params, adapter_return) = contract_iface
+        .functions
+        .get(&contract.adapter_function)
+        .cloned()
+        .ok_or_else(|| {
+            invalid_platform_contract_error(format!(
+                "platform `{}` contract module `{}` does not define adapter function `{}`",
+                contract.name, contract.contract_module, contract.adapter_function
+            ))
+        })?;
+    let expected_adapter_params = vec![Ty::Fn(
+        startup_params.clone(),
+        Box::new(startup_return.clone()),
+        Default::default(),
+        Default::default(),
+    )];
+    if adapter_params != expected_adapter_params || adapter_return != startup_return {
+        return Err(invalid_platform_contract_error(format!(
+            "platform `{}` adapter `{}` in module `{}` should match `{}`, found `{}`",
+            contract.name,
+            contract.adapter_function,
+            contract.contract_module,
+            format_signature(
+                &contract.adapter_function,
+                &expected_adapter_params,
+                &startup_return
+            ),
+            format_signature(&contract.adapter_function, &adapter_params, &adapter_return)
+        )));
+    }
+
+    Ok(LoadedPlatformContract {
+        startup_params,
+        startup_return,
+    })
+}
+
+fn is_hole_backed_contract_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Hole(_, _, _) => true,
+        Expr::Block(stmts, Some(expr)) if stmts.is_empty() => is_hole_backed_contract_expr(expr),
+        Expr::Block(stmts, None) => match stmts.as_slice() {
+            [Stmt::Expr(expr)] => is_hole_backed_contract_expr(expr),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+fn contract_function_def<'a>(
+    module: &'a spore_parser::ast::Module,
+    name: &str,
+) -> Option<&'a spore_parser::ast::FnDef> {
+    module.items.iter().find_map(|item| match item {
+        Item::Function(function) if function.name == name => Some(function),
+        _ => None,
+    })
+}
+
+fn format_signature(name: &str, params: &[Ty], ret: &Ty) -> String {
+    format!(
+        "{name}({}) -> {ret}",
+        params
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+fn validate_platform_contract_entry_startup(
+    entry_iface: &ModuleInterface,
+    contract: &ResolvedPlatformContract,
+) -> Result<(), PlatformStartupError> {
+    let loaded = load_platform_contract(contract)?;
+    let module_name = entry_iface.qualified_name();
+    let Some((actual_params, actual_return)) =
+        entry_iface.functions.get(&contract.startup_function)
+    else {
+        return Err(PlatformStartupError {
+            kind: PlatformStartupErrorKind::MissingStartupFunction,
+            message: format!(
+                "entry module `{module_name}` does not define required startup function `{}` from platform `{}` contract module `{}`",
+                contract.startup_function, contract.name, contract.contract_module
+            ),
+        });
+    };
+
+    if actual_params != &loaded.startup_params || actual_return != &loaded.startup_return {
+        return Err(PlatformStartupError {
+            kind: PlatformStartupErrorKind::WrongStartupSignature,
+            message: format!(
+                "startup function `{}` in entry module `{module_name}` should match platform contract `{}` from `{}` ({})",
+                contract.startup_function,
+                contract.contract_module,
+                contract.name,
+                format_signature(
+                    &contract.startup_function,
+                    &loaded.startup_params,
+                    &loaded.startup_return
+                )
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_project_startup_error(
@@ -821,6 +996,9 @@ fn validate_project_startup_error(
     let Some(platform_name) = target.platform_name.as_deref() else {
         return Ok(());
     };
+    if let Some(contract) = target.platform_contract.as_ref() {
+        return validate_platform_contract_entry_startup(&prep.entry_interface, contract);
+    }
 
     let registry = PlatformRegistry::with_builtins();
     let platform = registry

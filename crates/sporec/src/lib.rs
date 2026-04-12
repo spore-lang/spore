@@ -18,7 +18,8 @@ pub use diagnostics::{
     source_file, type_error_to_diagnostic,
 };
 pub use project::{
-    ProjectConfig, ProjectEntry, ProjectManifest, ResolvedProjectTarget, load_project_manifest,
+    DependencySpec, PlatformManifest, ProjectConfig, ProjectEntry, ProjectManifest,
+    ResolvedPlatformContract, ResolvedProjectTarget, load_project_manifest,
     resolve_default_project_target, resolve_project_target_by_path,
 };
 pub use spore_codegen::{SpecKind, SpecResult};
