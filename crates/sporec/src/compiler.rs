@@ -6,9 +6,6 @@ use crate::project::{
     ResolvedPlatformContract, ResolvedProjectTarget, resolve_project_target_by_path,
 };
 use spore_codegen::value::Value;
-use sporec_parser::ast::{Expr, ImportDecl, Item, Span, Stmt};
-use sporec_parser::formatter::format_module;
-use sporec_parser::parse;
 use spore_typeck::CheckResult;
 use spore_typeck::hole::{
     CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
@@ -25,7 +22,7 @@ use sporec_diagnostics::{
     HoleDependencyKind, HoleErrorClusterJson, HoleInfoJson, HoleLocationJson, HoleReportJson,
     HoleSummary, HoleTypeInferenceJson, Severity, SourceFile,
 };
-use sporec_parser::ast::{ImportDecl, Item, Span};
+use sporec_parser::ast::{Expr, ImportDecl, Item, Span, Stmt};
 use sporec_parser::formatter::format_module;
 use sporec_parser::parse;
 
@@ -934,9 +931,9 @@ fn is_hole_backed_contract_expr(expr: &Expr) -> bool {
 }
 
 fn contract_function_def<'a>(
-    module: &'a spore_parser::ast::Module,
+    module: &'a sporec_parser::ast::Module,
     name: &str,
-) -> Option<&'a spore_parser::ast::FnDef> {
+) -> Option<&'a sporec_parser::ast::FnDef> {
     module.items.iter().find_map(|item| match item {
         Item::Function(function) if function.name == name => Some(function),
         _ => None,
