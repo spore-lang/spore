@@ -84,6 +84,55 @@ fn compile_fails_on_invalid_file() {
 }
 
 #[test]
+fn compile_json_failures_include_canonical_diagnostics() {
+    let temp = TempDir::new("compile-json-fail");
+    let file = temp.write("main.sp", "fn main() -> I32 { \"oops\" }\n");
+
+    let output = sporec_cmd()
+        .args(["compile", "--json", file.to_str().unwrap()])
+        .output()
+        .expect("run sporec compile --json");
+
+    assert!(
+        !output.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert!(
+        output.stderr.is_empty(),
+        "stderr should stay empty for JSON errors, got: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"status\":\"error\""), "stdout: {stdout}");
+    assert!(stdout.contains("\"diagnostics\""), "stdout: {stdout}");
+    assert!(stdout.contains("\"code\":\"E0001\""), "stdout: {stdout}");
+}
+
+#[test]
+fn compile_json_parse_failures_include_canonical_diagnostics() {
+    let temp = TempDir::new("compile-json-parse-fail");
+    let file = temp.write("main.sp", "fn main( -> I32 { 42 }\n");
+
+    let output = sporec_cmd()
+        .args(["compile", "--json", file.to_str().unwrap()])
+        .output()
+        .expect("run sporec compile --json");
+
+    assert!(
+        !output.status.success(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"diagnostics\""), "stdout: {stdout}");
+    assert!(
+        stdout.contains("\"code\":\"parse-error\""),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
 fn compile_multiple_files_resolves_imports() {
     let temp = TempDir::new("compile-multi-imports");
     let main = temp.write(

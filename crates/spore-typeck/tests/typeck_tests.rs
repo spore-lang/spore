@@ -112,6 +112,19 @@ fn test_string_concat() {
     check_ok("fn f() -> Str { \"a\" + \"b\" }");
 }
 
+#[test]
+fn test_generic_unit_variant_freshens_per_use() {
+    check_ok(
+        r#"
+        type Option[T] { Some(T), None }
+
+        fn choose(flag: Bool) -> Option[Str] {
+            if flag { None } else { Some("x") }
+        }
+        "#,
+    );
+}
+
 // ── Comparisons ──────────────────────────────────────────────────────────
 
 #[test]

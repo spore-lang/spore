@@ -367,8 +367,19 @@ impl Checker {
 
                 for (vname, field_tys) in &variants {
                     if field_tys.is_empty() {
-                        // Zero-field variant: register as a value of the enum type.
-                        self.env.define(vname.clone(), ret_ty.clone());
+                        if t.type_params.is_empty() {
+                            // Non-generic zero-field variant: register as a value.
+                            self.env.define(vname.clone(), ret_ty.clone());
+                        } else {
+                            // Generic zero-field variant: treat it like a zero-arg constructor so
+                            // each use can freshen the type parameters independently.
+                            self.registry
+                                .functions
+                                .insert(vname.clone(), (Vec::new(), ret_ty.clone(), CapSet::new()));
+                            self.registry
+                                .fn_type_params
+                                .insert(vname.clone(), t.type_params.clone());
+                        }
                     } else {
                         // Variant with fields: register as a constructor function.
                         self.registry.functions.insert(
@@ -825,16 +836,25 @@ impl Checker {
             Expr::Var(name) => {
                 if let Some(ty) = self.env.lookup(name) {
                     ty.clone()
-                } else if let Some((_, _ret, _)) = self.registry.functions.get(name) {
-                    // bare function name as value — return its function type
-                    let (params, ret, caps) = self.registry.functions[name].clone();
-                    let errors = self
-                        .registry
-                        .fn_errors
-                        .get(name)
-                        .cloned()
-                        .unwrap_or_default();
-                    Ty::Fn(params, Box::new(ret), caps, errors)
+                } else if let Some((params, ret, caps)) = self.registry.functions.get(name).cloned()
+                {
+                    if params.is_empty() && self.find_unit_variant(name).is_some() {
+                        if let Some(type_params) = self.registry.fn_type_params.get(name).cloned() {
+                            let (_, ret, _) = self.instantiate_sig(&type_params, &[], &ret);
+                            ret
+                        } else {
+                            ret
+                        }
+                    } else {
+                        // bare function name as value — return its function type
+                        let errors = self
+                            .registry
+                            .fn_errors
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default();
+                        Ty::Fn(params, Box::new(ret), caps, errors)
+                    }
                 } else if let Some((params, ret)) = self.lookup_module_function(name) {
                     Ty::Fn(params, Box::new(ret), CapSet::new(), ErrorSet::new())
                 } else {
