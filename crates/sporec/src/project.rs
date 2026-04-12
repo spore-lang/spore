@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use spore_typeck::platform::PlatformRegistry;
+use sporec_typeck::platform::PlatformRegistry;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectManifest {

@@ -5,18 +5,6 @@ use crate::diagnostics::{diagnostics_for_parse_errors, diagnostics_for_type_erro
 use crate::project::{
     ResolvedPlatformContract, ResolvedProjectTarget, resolve_project_target_by_path,
 };
-use spore_typeck::CheckResult;
-use spore_typeck::hole::{
-    CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
-    TypeInferenceConfidence,
-};
-use spore_typeck::is_synthetic_hole_name;
-use spore_typeck::module::{
-    ModuleError, ModuleInterface, ModuleLoader, ModuleRegistry, PreludeOptions,
-};
-use spore_typeck::platform::{PlatformRegistry, PlatformStartupError, PlatformStartupErrorKind};
-use spore_typeck::types::Ty;
-use spore_typeck::{type_check, type_check_with_registry, type_check_with_registry_and_prelude};
 use sporec_codegen::RuntimePlatform;
 use sporec_codegen::value::Value;
 use sporec_diagnostics::{
@@ -28,6 +16,18 @@ use sporec_diagnostics::{
 use sporec_parser::ast::{Expr, ImportDecl, Item, Module, Span, Stmt};
 use sporec_parser::formatter::format_module;
 use sporec_parser::parse;
+use sporec_typeck::CheckResult;
+use sporec_typeck::hole::{
+    CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
+    TypeInferenceConfidence,
+};
+use sporec_typeck::is_synthetic_hole_name;
+use sporec_typeck::module::{
+    ModuleError, ModuleInterface, ModuleLoader, ModuleRegistry, PreludeOptions,
+};
+use sporec_typeck::platform::{PlatformRegistry, PlatformStartupError, PlatformStartupErrorKind};
+use sporec_typeck::types::Ty;
+use sporec_typeck::{type_check, type_check_with_registry, type_check_with_registry_and_prelude};
 
 fn join_errors<E: std::fmt::Display>(errs: Vec<E>) -> String {
     errs.into_iter()
@@ -145,7 +145,7 @@ fn hole_info_json(hole: &TypeckHoleInfo) -> HoleInfoJson {
 }
 
 fn hole_dependency_graph_json(
-    graph: &spore_typeck::hole::HoleDependencyGraph,
+    graph: &sporec_typeck::hole::HoleDependencyGraph,
 ) -> HoleDependencyGraphJson {
     let dependencies = graph
         .dependencies
@@ -406,7 +406,7 @@ pub fn check_files(paths: &[&str]) -> CheckReport {
         .into_iter()
         .map(|(path, canonical_path, source, ast)| {
             let module_name = module_name_for_path(&common_root, &canonical_path)?;
-            let mut iface = spore_typeck::build_module_interface(&ast);
+            let mut iface = sporec_typeck::build_module_interface(&ast);
             iface.path = module_name
                 .split('.')
                 .map(|segment| segment.to_string())
@@ -482,7 +482,7 @@ pub fn compile_files(paths: &[&str]) -> Result<CompileOutput, String> {
         .into_iter()
         .map(|(path, canonical_path, ast)| {
             let module_name = module_name_for_path(&common_root, &canonical_path)?;
-            let mut iface = spore_typeck::build_module_interface(&ast);
+            let mut iface = sporec_typeck::build_module_interface(&ast);
             iface.path = module_name
                 .split('.')
                 .map(|segment| segment.to_string())
@@ -612,7 +612,7 @@ fn prepare_project(root: &Path, target: &ResolvedProjectTarget) -> Result<Prepar
 
     // Build registry and register the entry module
     let mut registry = ModuleRegistry::new();
-    let mut entry_iface = spore_typeck::build_module_interface(&ast);
+    let mut entry_iface = sporec_typeck::build_module_interface(&ast);
     entry_iface.path = module_name.split('.').map(|s| s.to_string()).collect();
     registry.register(entry_iface.clone());
 
@@ -672,7 +672,7 @@ fn prepare_project_for_report(
     let module_name = entry.trim_end_matches(".sp").replace(['/', '\\'], ".");
 
     let mut registry = ModuleRegistry::new();
-    let mut entry_iface = spore_typeck::build_module_interface(&ast);
+    let mut entry_iface = sporec_typeck::build_module_interface(&ast);
     entry_iface.path = module_name.split('.').map(|s| s.to_string()).collect();
     registry.register(entry_iface.clone());
 

@@ -139,7 +139,7 @@ impl Display for Point {
 ```
 sporec (stateless compiler — pure function)
 ├── sporec-parser     Source text → AST
-├── spore-typeck     Type checking, capability & cost analysis
+├── sporec-typeck     Type checking, capability & cost analysis
 │   ├── hir          HIR with pipe desugaring
 │   ├── capability   Capability algebra (∪/∩/hierarchy)
 │   ├── cost         4D cost vectors + cost checker

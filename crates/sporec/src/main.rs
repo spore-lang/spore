@@ -3,10 +3,10 @@ use std::process::ExitCode;
 
 use bpaf::*;
 use serde_json::json;
-use spore_typeck::error::{ErrorCode, all_error_codes};
-use spore_typeck::hole::{CandidateRanking, HoleInfo, HoleReport, TypeInferenceConfidence};
-use spore_typeck::{is_synthetic_hole_name, type_check};
 use sporec_parser::parse;
+use sporec_typeck::error::{ErrorCode, all_error_codes};
+use sporec_typeck::hole::{CandidateRanking, HoleInfo, HoleReport, TypeInferenceConfidence};
+use sporec_typeck::{is_synthetic_hole_name, type_check};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 

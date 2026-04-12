@@ -8,4 +8,4 @@ repository.workspace = true
 license.workspace = true
 
 [dev-dependencies]
-spore-typeck = { path = "../spore-typeck" }
+sporec-typeck = { path = "../sporec-typeck" }

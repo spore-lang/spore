@@ -1,8 +1,8 @@
-use spore_typeck::hir::{HirExpr, HirItem, UNRESOLVED};
-use spore_typeck::lower;
 use sporec_parser::parse;
+use sporec_typeck::hir::{HirExpr, HirItem, UNRESOLVED};
+use sporec_typeck::lower;
 
-fn lower_src(src: &str) -> spore_typeck::hir::HirModule {
+fn lower_src(src: &str) -> sporec_typeck::hir::HirModule {
     let ast = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
     lower(&ast)
 }
@@ -139,7 +139,7 @@ fn block_with_let_lowering() {
 }
 
 // Bring hir module into scope for pattern matching.
-use spore_typeck::hir;
+use sporec_typeck::hir;
 
 #[test]
 fn imports_are_skipped() {

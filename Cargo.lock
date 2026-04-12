@@ -526,24 +526,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "spore-typeck"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "sporec-parser",
- "tempfile",
-]
-
-[[package]]
 name = "sporec"
 version = "0.1.0"
 dependencies = [
  "bpaf",
  "serde_json",
- "spore-typeck",
  "sporec-codegen",
  "sporec-diagnostics",
  "sporec-parser",
+ "sporec-typeck",
 ]
 
 [[package]]
@@ -568,7 +559,16 @@ dependencies = [
 name = "sporec-parser"
 version = "0.1.0"
 dependencies = [
- "spore-typeck",
+ "sporec-typeck",
+]
+
+[[package]]
+name = "sporec-typeck"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "sporec-parser",
+ "tempfile",
 ]
 
 [[package]]

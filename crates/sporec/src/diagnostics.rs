@@ -1,8 +1,8 @@
-use spore_typeck::error::{Severity as TypeckSeverity, TypeError};
-use spore_typeck::type_check;
 use sporec_diagnostics::{Diagnostic, Severity, SourceFile};
 use sporec_parser::error::ParseError;
 use sporec_parser::parse;
+use sporec_typeck::error::{Severity as TypeckSeverity, TypeError};
+use sporec_typeck::type_check;
 
 pub fn source_file(name: impl Into<String>, contents: impl Into<String>) -> SourceFile {
     SourceFile::new(name, contents)
@@ -97,9 +97,9 @@ fn map_typeck_severity(severity: TypeckSeverity) -> Severity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spore_typeck::error::{ErrorCode, TypeError};
     use sporec_parser::ast::Span;
     use sporec_parser::error::ParseError;
+    use sporec_typeck::error::{ErrorCode, TypeError};
 
     #[test]
     fn converts_type_error_into_canonical_diagnostic() {
