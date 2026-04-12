@@ -1,11 +1,13 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::io;
 use std::ops::Range;
+use std::path::Path;
 use std::process::ExitCode;
 
 use ariadne::{Color, Label, Report, ReportKind, Source};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use thiserror::Error;
 use tracing::debug;
 
@@ -143,6 +145,140 @@ impl Diagnostic {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReportStatus {
+    Ok,
+    Error,
+    Fail,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct JsonReport<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<Severity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<ReportStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<Cow<'a, str>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<&'a Diagnostic>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<&'a [Diagnostic]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning_diagnostics: Option<&'a [Diagnostic]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub errors: Option<&'a [Diagnostic]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<u64>,
+}
+
+impl<'a> JsonReport<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_event(mut self, event: &'static str) -> Self {
+        self.event = Some(event);
+        self
+    }
+
+    pub fn with_file(mut self, file: &'a str) -> Self {
+        self.file = Some(file);
+        self
+    }
+
+    pub fn with_severity(mut self, severity: Severity) -> Self {
+        self.severity = Some(severity);
+        self
+    }
+
+    pub fn with_status(mut self, status: ReportStatus) -> Self {
+        self.status = Some(status);
+        self
+    }
+
+    pub fn with_message(mut self, message: impl Into<Cow<'a, str>>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+
+    pub fn with_diagnostic(mut self, diagnostic: &'a Diagnostic) -> Self {
+        self.diagnostic = Some(diagnostic);
+        self
+    }
+
+    pub fn with_diagnostics(mut self, diagnostics: &'a [Diagnostic]) -> Self {
+        self.diagnostics = Some(diagnostics);
+        self
+    }
+
+    pub fn with_warnings(mut self, warnings: &'a [String]) -> Self {
+        self.warnings = Some(warnings);
+        self
+    }
+
+    pub fn with_warning_diagnostics(mut self, warning_diagnostics: &'a [Diagnostic]) -> Self {
+        self.warning_diagnostics = Some(warning_diagnostics);
+        self
+    }
+
+    pub fn with_errors(mut self, errors: &'a [Diagnostic]) -> Self {
+        self.errors = Some(errors);
+        self
+    }
+
+    pub fn with_timestamp(mut self, timestamp: u64) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LspPosition {
+    pub line: u32,
+    pub character: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LspRange {
+    pub start: LspPosition,
+    pub end: LspPosition,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LspLocation {
+    pub uri: String,
+    pub range: LspRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspDiagnosticRelatedInformation {
+    pub location: LspLocation,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspDiagnostic {
+    pub range: LspRange,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<u32>,
+    pub source: &'static str,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_information: Vec<LspDiagnosticRelatedInformation>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SourceFile {
     name: String,
@@ -249,6 +385,26 @@ impl SourceFile {
             byte_range: Some(start..end),
         })
     }
+
+    fn line_start(&self, line_index: usize) -> Option<usize> {
+        self.line_starts.get(line_index).copied()
+    }
+
+    fn line_end(&self, line_index: usize) -> Option<usize> {
+        let line_start = self.line_start(line_index)?;
+        let raw_line_end = self
+            .line_starts
+            .get(line_index + 1)
+            .copied()
+            .unwrap_or(self.contents.len());
+        Some(
+            if raw_line_end > line_start && self.contents.as_bytes()[raw_line_end - 1] == b'\n' {
+                raw_line_end - 1
+            } else {
+                raw_line_end
+            },
+        )
+    }
 }
 
 #[derive(Debug, Error)]
@@ -345,7 +501,7 @@ pub fn render_diagnostic<W: io::Write>(
     Ok(())
 }
 
-pub fn print_json(value: &Value) {
+pub fn print_json<T: Serialize>(value: &T) {
     println!(
         "{}",
         serde_json::to_string(value).expect("serializing JSON output")
@@ -373,10 +529,11 @@ pub fn emit_warning_message(message: &str, json_output: bool) {
 
 pub fn exit_with_message_error(message: &str, json_output: bool) -> ExitCode {
     if json_output {
-        print_json(&json!({
-            "status": "error",
-            "message": message,
-        }));
+        print_json(
+            &JsonReport::new()
+                .with_status(ReportStatus::Error)
+                .with_message(message),
+        );
     } else {
         eprintln!("error: {message}");
     }
@@ -465,11 +622,12 @@ pub fn exit_with_diagnostics_error(
     json_output: bool,
 ) -> ExitCode {
     if json_output {
-        print_json(&json!({
-            "status": "error",
-            "message": diagnostic_message_lines(diagnostics).join("\n"),
-            "diagnostics": diagnostics,
-        }));
+        print_json(
+            &JsonReport::new()
+                .with_status(ReportStatus::Error)
+                .with_message(diagnostic_message_lines(diagnostics).join("\n"))
+                .with_diagnostics(diagnostics),
+        );
     } else {
         render_diagnostics_human(source, diagnostics);
     }
@@ -482,15 +640,138 @@ pub fn exit_with_diagnostics_error_with_sources(
     json_output: bool,
 ) -> ExitCode {
     if json_output {
-        print_json(&json!({
-            "status": "error",
-            "message": diagnostic_message_lines(diagnostics).join("\n"),
-            "diagnostics": diagnostics,
-        }));
+        print_json(
+            &JsonReport::new()
+                .with_status(ReportStatus::Error)
+                .with_message(diagnostic_message_lines(diagnostics).join("\n"))
+                .with_diagnostics(diagnostics),
+        );
     } else {
         render_diagnostics_human_with_sources(sources, diagnostics);
     }
     ExitCode::FAILURE
+}
+
+fn severity_to_lsp(severity: Severity) -> u32 {
+    match severity {
+        Severity::Error => 1,
+        Severity::Warning => 2,
+        Severity::Note => 3,
+    }
+}
+
+fn fallback_lsp_position(position: Position) -> LspPosition {
+    LspPosition {
+        line: position.line.saturating_sub(1) as u32,
+        character: position.col.saturating_sub(1) as u32,
+    }
+}
+
+fn source_position_to_lsp(source: &SourceFile, position: Position) -> LspPosition {
+    if position.line == 0 {
+        return LspPosition {
+            line: 0,
+            character: 0,
+        };
+    }
+    let line_index = position.line - 1;
+    let Some(line_start) = source.line_start(line_index) else {
+        return fallback_lsp_position(position);
+    };
+    let line_end = source.line_end(line_index).unwrap_or(source.contents.len());
+    let byte_offset = source
+        .byte_offset(position)
+        .unwrap_or(line_end)
+        .clamp(line_start, line_end);
+    let character = source.contents[line_start..byte_offset]
+        .encode_utf16()
+        .count() as u32;
+    LspPosition {
+        line: line_index as u32,
+        character,
+    }
+}
+
+fn span_to_lsp_range(source: Option<&SourceFile>, span: &SourceSpan) -> LspRange {
+    if let Some(source) = source.filter(|source| source.name() == span.file) {
+        LspRange {
+            start: source_position_to_lsp(source, span.range.start),
+            end: source_position_to_lsp(source, span.range.end),
+        }
+    } else {
+        LspRange {
+            start: fallback_lsp_position(span.range.start),
+            end: fallback_lsp_position(span.range.end),
+        }
+    }
+}
+
+fn diagnostic_file_uri(file: &str, default_uri: &str) -> String {
+    if file == default_uri {
+        return default_uri.to_string();
+    }
+    if file.starts_with("file://") || file.starts_with("untitled:") {
+        return file.to_string();
+    }
+    if Path::new(file).is_absolute() {
+        return format!("file://{file}");
+    }
+    default_uri.to_string()
+}
+
+pub fn lsp_diagnostic_for_source(
+    source: &SourceFile,
+    diagnostic: &Diagnostic,
+    uri: &str,
+) -> LspDiagnostic {
+    let range = diagnostic
+        .primary_span
+        .as_ref()
+        .map(|span| span_to_lsp_range(Some(source), span))
+        .unwrap_or(LspRange {
+            start: LspPosition {
+                line: 0,
+                character: 0,
+            },
+            end: LspPosition {
+                line: 0,
+                character: 0,
+            },
+        });
+    let related_information = diagnostic
+        .related
+        .iter()
+        .filter_map(|related| {
+            let span = related.span.as_ref()?;
+            Some(LspDiagnosticRelatedInformation {
+                location: LspLocation {
+                    uri: diagnostic_file_uri(&span.file, uri),
+                    range: span_to_lsp_range(Some(source), span),
+                },
+                message: related.message.clone(),
+            })
+        })
+        .collect();
+
+    LspDiagnostic {
+        range,
+        severity: Some(severity_to_lsp(diagnostic.severity)),
+        source: "spore",
+        message: diagnostic.message.clone(),
+        code: Some(diagnostic.code.clone()),
+        related_information,
+    }
+}
+
+pub fn lsp_diagnostics_for_source(
+    source: &SourceFile,
+    diagnostics: &[Diagnostic],
+    uri: &str,
+) -> Vec<LspDiagnostic> {
+    diagnostics
+        .iter()
+        .map(|diagnostic| lsp_diagnostic_for_source(source, diagnostic, uri))
+        .collect()
 }
 
 #[cfg(test)]
@@ -527,6 +808,33 @@ mod tests {
     }
 
     #[test]
+    fn serializes_json_report_with_canonical_diagnostics() {
+        let source = SourceFile::new("src/demo.sp", "alpha\nbeta\n");
+        let diagnostic = Diagnostic::new("E0301", Severity::Error, "type mismatch")
+            .with_primary_span(source.span(6..10));
+        let warnings = vec!["W0001: cost exceeded".to_string()];
+        let empty: [Diagnostic; 0] = [];
+        let report = JsonReport::new()
+            .with_status(ReportStatus::Error)
+            .with_message("type mismatch")
+            .with_diagnostics(std::slice::from_ref(&diagnostic))
+            .with_warnings(&warnings)
+            .with_errors(&empty);
+
+        let value = serde_json::to_value(&report).expect("serialize json report");
+
+        assert_eq!(value["status"], "error");
+        assert_eq!(value["message"], "type mismatch");
+        assert_eq!(value["diagnostics"][0]["code"], "E0301");
+        assert_eq!(value["warnings"][0], "W0001: cost exceeded");
+        assert!(
+            value["errors"]
+                .as_array()
+                .is_some_and(|errors| errors.is_empty())
+        );
+    }
+
+    #[test]
     fn renders_human_output_with_ariadne() {
         let source = SourceFile::new("src/demo.sp", "let answer = true\nanswer + 1\n");
         let diagnostic = Diagnostic::new("E0301", Severity::Error, "type mismatch")
@@ -556,6 +864,34 @@ mod tests {
 
         assert_eq!(reconstructed.byte_range(), Some(6..10));
         assert_eq!(reconstructed.range, original.range);
+    }
+
+    #[test]
+    fn maps_canonical_diagnostics_to_lsp_shape() {
+        let source = SourceFile::new("file:///workspace/main.sp", "alpha\nbeta\n");
+        let diagnostic = Diagnostic::new("E0301", Severity::Error, "type mismatch")
+            .with_primary_span(source.span(6..10))
+            .with_related(RelatedDiagnostic::new(
+                "related note",
+                Some(source.span(0..5)),
+            ));
+
+        let value = serde_json::to_value(lsp_diagnostic_for_source(
+            &source,
+            &diagnostic,
+            "file:///workspace/main.sp",
+        ))
+        .expect("serialize lsp diagnostic");
+
+        assert_eq!(value["code"], "E0301");
+        assert_eq!(value["severity"], 1);
+        assert_eq!(value["range"]["start"]["line"], 1);
+        assert_eq!(value["range"]["start"]["character"], 0);
+        assert_eq!(
+            value["relatedInformation"][0]["location"]["uri"],
+            "file:///workspace/main.sp"
+        );
+        assert_eq!(value["relatedInformation"][0]["message"], "related note");
     }
 
     #[test]

@@ -460,7 +460,7 @@ impl LspServer {
     }
 
     fn publish_diagnostics(&self, uri: &str, source: &str) {
-        let diagnostics = build_diagnostics(source);
+        let diagnostics = build_diagnostics_for_document(uri, source);
         self.send_notification(
             "textDocument/publishDiagnostics",
             json!({
@@ -479,53 +479,33 @@ impl Default for LspServer {
 
 // ── Free functions (public for testing) ──────────────────────────────
 
-/// Convert a byte offset to (line, character) using UTF-16 code units
-/// as required by the LSP specification.
-fn byte_offset_to_position(source: &str, offset: usize) -> (u32, u32) {
-    let offset = offset.min(source.len());
-    let mut line = 0u32;
-    let mut col = 0u32;
-    for (i, ch) in source.char_indices() {
-        if i >= offset {
-            break;
-        }
-        if ch == '\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += ch.len_utf16() as u32;
-        }
-    }
-    (line, col)
-}
-
 /// Build LSP diagnostics from source text by running the Spore compiler.
 pub fn build_diagnostics(source: &str) -> Vec<Value> {
-    let diagnostics = sporec::compiler::compile_diagnostics(source);
-    diagnostics
+    build_diagnostics_for_document("file:///buffer.sp", source)
+}
+
+pub fn build_diagnostics_for_document(uri: &str, source: &str) -> Vec<Value> {
+    let (source_file, diagnostics) = match sporec::check_source_file(uri, source) {
+        sporec::SourceCheckReport::Success { source, warnings } => (source, warnings),
+        sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Diagnostics {
+            source,
+            diagnostics,
+        }) => (source, diagnostics),
+        sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Message(message)) => {
+            let source_file = sporec::source_file(uri, source);
+            let diagnostic = sporec::Diagnostic::new(
+                "lsp-diagnostic-message",
+                sporec::CanonicalSeverity::Error,
+                message,
+            )
+            .with_primary_span(source_file.span(0..0));
+            (source_file, vec![diagnostic])
+        }
+    };
+
+    sporec::lsp_diagnostics_for_source(&source_file, &diagnostics, uri)
         .into_iter()
-        .map(|d| {
-            let severity: u32 = match d.severity {
-                sporec::compiler::DiagnosticSeverity::Error => 1,
-                sporec::compiler::DiagnosticSeverity::Warning => 2,
-            };
-            let (start_line, start_char, end_line, end_char) = if let Some(span) = d.span {
-                let (sl, sc) = byte_offset_to_position(source, span.start);
-                let (el, ec) = byte_offset_to_position(source, span.end);
-                (sl, sc, el, ec)
-            } else {
-                (0, 0, 0, 0)
-            };
-            json!({
-                "range": {
-                    "start": { "line": start_line, "character": start_char },
-                    "end": { "line": end_line, "character": end_char }
-                },
-                "severity": severity,
-                "source": "spore",
-                "message": d.message
-            })
-        })
+        .map(|diagnostic| serde_json::to_value(diagnostic).expect("serialize lsp diagnostic"))
         .collect()
 }
 

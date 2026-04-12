@@ -23,8 +23,11 @@ pub use project::{
 };
 pub use spore_codegen::{SpecKind, SpecResult};
 pub use sporec_diagnostics::{
-    Diagnostic, DiagnosticRange, Position as DiagnosticPosition,
-    RelatedDiagnostic as DiagnosticRelated, RenderError as DiagnosticRenderError,
+    Diagnostic, DiagnosticRange, JsonReport as DiagnosticJsonReport, LspDiagnostic,
+    LspDiagnosticRelatedInformation, LspLocation, LspPosition, LspRange,
+    Position as DiagnosticPosition, RelatedDiagnostic as DiagnosticRelated,
+    RenderError as DiagnosticRenderError, ReportStatus as DiagnosticReportStatus,
     SecondaryLabel as DiagnosticSecondaryLabel, Severity as CanonicalSeverity, SourceFile,
-    SourceSpan, render_diagnostic, render_diagnostic_to_string,
+    SourceSpan, lsp_diagnostic_for_source, lsp_diagnostics_for_source, render_diagnostic,
+    render_diagnostic_to_string,
 };
