@@ -91,8 +91,8 @@ fn name(params) -> ReturnType ! Errors
 - 语法: `?name` 或 `?name : Type`（无 @priority，已移除）
 - 填洞顺序: 编译器依赖分析推荐，按传递依赖者数量降序排列
 - Partial 函数可编译、可模拟、不可执行
-- HoleReport JSON: 完整上下文（类型、绑定、能力、代价预算、候选函数）
-- CLI: `sporec holes <file>`, `sporec query-hole <file> <hole>`, `spore holes <file>`
+- 当前稳定机器面: `sporec holes <file> --json` 提供共享 typed hole report；`sporec query-hole <file> <hole> --json` 复用同一模型并裁成单 hole 视图
+- `spore holes <file>` 当前只是该 batch hole report 的高层入口；更丰富的协作协议仍留在后续 watch/agent transport 层
 
 ### 模块系统（v0.1）
 - 一文件一模块: `src/billing/invoice.sp` → `billing.invoice`
@@ -164,12 +164,13 @@ fn name(params) -> ReturnType ! Errors
 - 当前实现：
   - 核心仍是“保存后编译”，不是运行时热替换
   - 模块级增量决策仍围绕 `sig hash` / `impl hash`
-  - `spore watch --json` 已有粗粒度机器输出，但还不是稳定的通用协议
+  - `spore watch --json` 当前稳定输出是粗粒度 NDJSON：每轮一个 `compile_result`，有 hole 时再附一个 summary-style `hole_graph_update`
+  - 当前 watch 事件只承诺编译结果与 hole 图摘要；它还不是完整的 hole/watch 通用协议
   - LSP 当前是进程内编译 + 薄映射，不依赖 `watch --json` 作为唯一后端
 - 下一步目标：
   - watch / batch / LSP 都建立在同一份 Diagnostic IR 上
-  - richer NDJSON 事件流作为后续 transport 层，而不是先定义另一套诊断 schema
-  - hole 协议、watch 事件和 LSP adapter 都从同一份结构化诊断对象派生
+  - richer NDJSON 事件流作为后续 transport 层，而不是把当前 `compile_result` / `hole_graph_update` 直接膨胀成另一套诊断 schema
+  - 更细粒度的 hole 协议、watch 事件和 LSP adapter 都从同一份结构化诊断对象派生
 
 ### 语法设计（v0.2）
 - 完全 expression-based（if/match 都有返回值）
@@ -207,7 +208,7 @@ fn name(params) -> ReturnType ! Errors
 | 类型系统 | nominal 为主、局部推断、显式签名、sealed enum、关联类型/GAT、const generics、L0/L1 细化类型；v0.1 不引入 HKT 或完整 dependent types。 | `SEP-0002-type-system.md` |
 | 能力 / effect 语义 | 语义层保持 capability-set 检查、推断 purity/determinism、handler 由 Platform / runtime 承载；语法层继续采用本文统一后的 `uses [...]` 与 trait/capability 约定。 | `SEP-0003-effect-capability-system.md` |
 | 代价模型 | 保留四维 CostVector（compute/alloc/io/parallel）与静态验证目标；现行 surface syntax 固定为 `cost [c, a, i, p]`，复杂代数与更丰富表达式留待后续。 | `SEP-0004-cost-analysis.md` |
-| Hole 协作协议 | typed holes、依赖感知排序、JSON 报告、跨模块聚合、Open→Filling→Filled→Accepted 状态机；本文保留工作流摘要，完整协议见 SEP。 | `SEP-0005-hole-system.md` |
+| Hole 协作协议 | typed holes、依赖感知排序、共享 hole JSON 报告；当前稳定 CLI 面是 batch `holes --json` / 单 hole `query-hole --json`，更完整的跨模块协作状态机仍由 SEP 持有。 | `SEP-0005-hole-system.md` |
 | 编译器输出 / 架构 / watch | 诊断编码、默认/verbose/json 三模式、内容寻址缓存、增量编译、watch/LSP 后端、6 阶段 pipeline 的高层约束保留在本文；详细数据模型与协议交给 SEP。 | `SEP-0006-compiler-architecture.md` |
 | 并发模型 | 结构化并发、`Spawn` 能力、Channel 消息传递、取消传播、lane 作为 parallel cost 维度；本文保留用户心智模型，形式化语义见 SEP。 | `SEP-0007-concurrency-model.md` |
 | 模块 / 包 / Platform | 一文件一模块、双 hash、private-by-default、内容寻址依赖、Git-first 存储、Platform 提供 IO handler、无 wildcard import；本文的“无模块级 carrier / ceiling、仅项目与 Platform 边界检查”是当前统一口径。 | `SEP-0008-module-package-system.md` |
@@ -278,7 +279,7 @@ fn name(params) -> ReturnType ! Errors
 ### 编译器输出与工具消费约定
 - 这是仓库内保留的**高层行为约束**；错误码枚举、JSON schema、字段级协议由 `SEP-0006-compiler-architecture.md` 继续持有。
 - 编译器输出同时服务 **人类开发者 / CI / LSP / Agent**。因此稳定约束应先锚定在**共享 Diagnostic IR**，再由默认文本、`--verbose`、`--json`、LSP adapter 各自投影出去。
-- 当前 CLI JSON 仍有命令私有 schema；下一步要消除这种分叉，把稳定机器契约收敛到最小字段集：`code / severity / message / primary_span / secondary_labels / notes / help / related`。
+- 当前 CLI JSON 仍有命令私有 schema；但 hole 相关命令已先收敛到共享 typed machine model。下一步要继续把稳定机器契约收敛到最小字段集：`code / severity / message / primary_span / secondary_labels / notes / help / related`。
 - 默认文本输出应尽量 help-rich，但 `help` 本身保持可选：有明确下一步时就给 `help:`，没有时也不能伪造建议。
 - 错误码分类继续固定为 `E/W/C/K/H/M` 六大族：类型、警告、能力、代价、hole、模块。`sporec explain CODE` 是统一的长解释入口，避免把长篇错误说明散落在旧文档中。
 - Hole 诊断是 **note / partial-state signal**，不是单独导致退出失败的错误；只有真实类型/能力/代价/模块错误才使编译返回非零状态。这一点是后续 hole workflow、watch mode 与 CI 兼容性的基础。
@@ -289,7 +290,7 @@ fn name(params) -> ReturnType ! Errors
 - **双 hash 决策树** 是 watch / cache 设计核心：`impl hash` 不变则本模块直接跳过；`impl` 变但 `sig hash` 不变则只重编本模块；`sig hash` 改变时才沿依赖图向下游传播。
 - `sig hash` 只覆盖公开接口、能力要求与 cost annotation；私有实现、注释、内部 hole 状态不应触发下游级联。这样保证“改实现不改接口”仍是局部反馈。
 - `spore watch` 的触发语义是 **保存后编译**，不是对半编辑 buffer 做每击键分析；watch 输出面向终端与 LSP/Agent 共用，默认要能在失败后继续工作并保留最近一次可用依赖图。
-- Hole 协作保留单一主循环：`DISCOVER → ANALYZE → PROPOSE → VERIFY → ACCEPT/REJECT`。其中 `DISCOVER` 在长期目标里可来自 `spore watch --json` 的 hole 图事件；当前稳定面仍可依赖 batch diagnostics 与 `sporec query-hole <file> <id> --json` 组合完成 `ANALYZE`。`REJECT` 必须返回结构化 root cause 与 fix hints，而不是只给一段文本。
+- Hole 协作保留单一主循环：`DISCOVER → ANALYZE → PROPOSE → VERIFY → ACCEPT/REJECT`。当前稳定面里，`DISCOVER/ANALYZE` 主要来自 batch `sporec holes <file> --json` 与 `sporec query-hole <file> <id> --json`；`spore watch --json` 目前只补充 `compile_result` 与 `hole_graph_update` 摘要。长期目标里再把更细粒度的 hole/watch 事件并入同一 transport。`REJECT` 必须返回结构化 root cause 与 fix hints，而不是只给一段文本。
 - 填洞仍采用**单 hole 原子提交**的约束：一次只替换一个 hole、再交给增量编译验证。这样能把诊断、候选排序、依赖图更新和 agent 重试策略都锚定在可回滚的最小步上。
 - v0.1 watch 的目标是“增量编译 + 实时诊断 + hole 进度”，而不是运行时状态保持式 hot reload；因此旧热重载调研中的 Erlang/Smalltalk/Pharo 路线只作为参考，不进入当前承诺面。
 
