@@ -1,5 +1,5 @@
 [project]
-name = "spore-cli"
+name = "spore"
 dynamic = ["version"]
 description = "CLI and reference compiler for the Spore language."
 readme = "README.md"
@@ -30,5 +30,5 @@ build-backend = "maturin"
 
 [tool.maturin]
 bindings = "bin"
-manifest-path = "crates/spore-cli/Cargo.toml"
+manifest-path = "crates/spore/Cargo.toml"
 strip = true

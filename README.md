@@ -137,21 +137,22 @@ impl Display for Point {
 ## Architecture
 
 ```
-sporec (stateless compiler — pure function)
-├── sporec-parser     Source text → AST
-├── sporec-typeck     Type checking, capability & cost analysis
-│   ├── hir          HIR with pipe desugaring
-│   ├── capability   Capability algebra (∪/∩/hierarchy)
-│   ├── cost         4D cost vectors + cost checker
-│   ├── hole         Hole dependency graph + topological ordering
-│   ├── sig_hash     BLAKE3 256-bit signature hashing
-│   ├── incremental  Incremental compilation DB
-│   ├── module       Module registry + import resolution
-│   ├── concurrency  Structured concurrency analysis
-│   └── platform     Platform system (cli/web/embedded)
-└── sporec-codegen   Tree-walk interpreter (PoC) / Cranelift (planned)
+sporec (stateless compiler CLI / product)
+└── sporec-driver    Host-side compiler driver crate
+    ├── sporec-parser     Source text -> AST
+    ├── sporec-typeck     Type checking, capability & cost analysis
+    │   ├── hir          HIR with pipe desugaring
+    │   ├── capability   Capability algebra (∪/∩/hierarchy)
+    │   ├── cost         4D cost vectors + cost checker
+    │   ├── hole         Hole dependency graph + topological ordering
+    │   ├── sig_hash     BLAKE3 256-bit signature hashing
+    │   ├── incremental  Incremental compilation DB
+    │   ├── module       Module registry + import resolution
+    │   ├── concurrency  Structured concurrency analysis
+    │   └── platform     Platform system (cli/web/embedded)
+    └── sporec-codegen   Tree-walk interpreter (PoC) / Cranelift (planned)
 
-spore (stateful codebase manager — handles IO)
+spore (stateful codebase manager — handles IO / project workflow)
 ├── File watching, incremental compilation
 ├── Package management (content-addressed)
 ├── Platform management
@@ -166,7 +167,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. 
 
 ## Packaging
 
-The `spore` CLI is packaged from `crates/spore-cli` via `maturin` so it can be built and published as a PyPI binary package.
+The `spore` CLI is packaged from `crates/spore` via `maturin` so it can be built and published as a PyPI binary package.
 
 ```bash
 just package-cli        # build a wheel into dist/

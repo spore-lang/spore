@@ -1,20 +1,24 @@
 [package]
-name = "sporec"
+name = "spore"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Spore language compiler (stateless, pure function: source → compiled output)"
+description = "Spore codebase manager (stateful: file IO, watch mode, scaffolding)"
 repository.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "sporec"
+name = "spore"
 path = "src/main.rs"
 
 [dependencies]
 bpaf = { workspace = true }
+notify = { workspace = true }
+notify-debouncer-mini = { workspace = true }
+owo-colors = { workspace = true }
 serde_json = { workspace = true }
-sporec-codegen = { path = "../sporec-codegen" }
 sporec-diagnostics = { path = "../sporec-diagnostics" }
-sporec-parser = { path = "../sporec-parser" }
-sporec-typeck = { path = "../sporec-typeck" }
+sporec-driver = { path = "../sporec-driver" }
+
+[dev-dependencies]
+tempfile = "3"

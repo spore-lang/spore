@@ -124,7 +124,7 @@ fn name(params) -> ReturnType ! Errors
 - 当前实现：
   - 默认文本输出已存在，但仍有不少 ad hoc `eprintln!` / 字符串拼接路径
   - 部分 `--json` 已存在，但不同命令仍是命令私有 schema
-  - `sporec::compile_diagnostics` 目前只有 `message / span / severity`
+  - `sporec_driver::compile_diagnostics` 目前只有 `message / span / severity`
   - 错误码族 `E/W/C/K/H/M` 已在 typeck 层落地
   - `sporec explain CODE` 已是统一长解释入口
 - 下一步目标：

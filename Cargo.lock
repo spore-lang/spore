@@ -503,7 +503,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "spore-cli"
+name = "spore"
 version = "0.1.0"
 dependencies = [
  "bpaf",
@@ -511,8 +511,8 @@ dependencies = [
  "notify-debouncer-mini",
  "owo-colors",
  "serde_json",
- "sporec",
  "sporec-diagnostics",
+ "sporec-driver",
  "tempfile",
 ]
 
@@ -521,20 +521,8 @@ name = "spore-lsp"
 version = "0.1.0"
 dependencies = [
  "serde_json",
- "sporec",
+ "sporec-driver",
  "sporec-parser",
-]
-
-[[package]]
-name = "sporec"
-version = "0.1.0"
-dependencies = [
- "bpaf",
- "serde_json",
- "sporec-codegen",
- "sporec-diagnostics",
- "sporec-parser",
- "sporec-typeck",
 ]
 
 [[package]]
@@ -553,6 +541,18 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "sporec-driver"
+version = "0.1.0"
+dependencies = [
+ "bpaf",
+ "serde_json",
+ "sporec-codegen",
+ "sporec-diagnostics",
+ "sporec-parser",
+ "sporec-typeck",
 ]
 
 [[package]]
