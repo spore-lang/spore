@@ -23,7 +23,7 @@ Codebase Manager: `spore`（有状态）
 | # | 决策 | 说明 |
 |---|------|------|
 | D1 | `struct` 用于积类型 | 不使用 `type = {}`，parser 仅支持 `struct` |
-| D2 | `capability` 废弃 → `trait` | formatter 自动重写；parser 发出诊断 |
+| D2 | `capability` 废弃 → `trait` | 不再保留 formatter 自动重写；parser 直接拒绝旧关键字 |
 | D3 | SEP spec-clause 分支优先合入 | 实现先于文档 |
 | D4 | `perform` 为规范 effect 调用语法 | parser 和 AST 已支持 |
 | D5 | `throw` = `return Err()` 语法糖 | 暂定，SEP-0001 开放问题 #4 |
@@ -60,21 +60,22 @@ fn name(params) -> ReturnType ! Errors
 > 解析器接受 `where`、`uses`、`cost`、`spec` 子句按任意顺序出现；文档与格式化输出统一推荐顺序为 `where` → `uses` → `cost` → `spec`。
 
 > **v0.2→v0.3 变更**: 原 `where { ... }` 统一块拆分为独立子句：
-> - `where T: Constraint` — 泛型约束（保留 where 关键字）
+> - `where T: Constraint, U: Constraint` — 泛型约束（单个 `where` 子句内逗号分隔）
 > - `uses [Capabilities]` — 能力集声明（独立子句）
 > - `cost [compute, alloc, io, parallel]` — 四维代价声明（固定顺序独立子句）
 >
 > 细化类型谓词语法同步变更: `where |n| n > 0` → `when self > 0`
 >
 > **v0.3→v0.4 变更**: 移除 `with [...]` 子句。函数属性（pure, deterministic, total）从 `uses` 自动推断：
-> - `uses []` → pure + deterministic + total
-> - `uses [Compute]` → deterministic（纯计算，无副作用）
-> - 含 IO/State capability → 非 pure
-> - 编译器自动验证一致性，无需手动声明
+> - `uses []` → 无外部 capability / effect 依赖
+> - 非空 `uses [...]` → 依赖对应 capability / effect 边界；purity / determinism 由编译器按具体集合推断
+> - 编译器自动验证一致性，无需手动声明 pure / deterministic / total
 
 ### 能力集系统
-- 内置: Compute, FileRead, FileWrite, NetRead, NetWrite, Clock, Random, StateRead, StateWrite, Spawn
-- 自定义: `trait Name = [...]`（capability = trait，统一机制）
+- 内置: Console, FileRead, FileWrite, NetConnect, NetListen, Env, Spawn, Clock, Random, Exit
+- 自定义 effect 接口: `effect Name { ... }`
+- effect alias: `effect Name = A | B`
+- effect 调用规范: `perform Effect.op(...)`，并要求存在显式 `effect` 声明；未声明 pseudo-effect 仅作为 legacy compatibility path
 - 推断规则: 无依赖→自由函数 / 有依赖未声明→不完整函数 / 声明→验证一致性
 - FuncCall/Module 已移除，用 @allows + 调用图查询替代
 
@@ -105,11 +106,11 @@ fn name(params) -> ReturnType ! Errors
 - 无 Functor: 泛型 + 能力集替代
 - 模块名仅由文件路径决定；无 `module ...` 头声明
 - 不存在模块级 capability ceiling / carrier；能力检查仅在函数级 `uses [...]` 与项目 / Platform 边界发生
-- 导入: `import mod as alias` / `alias x = mod.item`（无通配符、无隐式嵌套）
+- 导入: `import mod as alias`（无通配符、无隐式嵌套）
 
 ### 类型系统（v0.1）
 - Nominal 为主 + 匿名结构体记录（structural）
-- Capability = Trait（统一机制，capability 是 trait 语法糖）
+- Trait 约束与 effect / capability 分离：`where` 用于 trait，`effect` / `uses` / `perform` 用于 effect
 - 关联类型 + GAT 支持
 - 无 HKT（关联类型 + GAT 已足够，避免错误信息灾难）
 - 细化类型: L0 可判定谓词（`when self > 0`）+ L1 抽象解释传播（无 SMT）
@@ -179,18 +180,18 @@ fn name(params) -> ReturnType ! Errors
 - 错误: `! Errors` 签名契约 + `throw expr` + `?` 传播糖（调用边界受检）
 - Lambda: `|x, y| x + y`
 - 注释: `//` / `///` / `/* */`（可嵌套）
-- 绑定: `let` 不可变 + shadowing，`Ref[T]` 可变容器（需 StateWrite）
+- 绑定: `let` 不可变 + shadowing，`Ref[T]` 可变容器（精确 capability / host boundary 仍开放）
 - 模式匹配: `match`（穷尽 + 嵌套 + guard + or-pattern）
 - 无循环: 递归 + 高阶函数（map/fold/filter），编译器保证 TCO
 - 条件: `if cond { a } else { b }` 表达式
 - 类型注解后置: `name: Type`
-- trait 实现内联: `implements [...]`（Roc 风格）
+- trait 实现采用 `impl Trait for Type { ... }`
 - `struct` 记录 + `type` 枚举/ADT
 - `trait` 关键字（= trait）
 - 函数属性（pure, deterministic, total）— 从 `uses` 自动推断，无需关键字
 - `when` 子句用于细化类型谓词（`when self > 0`），不再使用 `where` / `if`
-- `where` 关键字仅保留用于单一泛型约束（`where T: Constraint`）；多重 / 分组形式暂不纳入 v0.1
-- 基本类型（文档规范写法）: I32/I64/U32/U64/F32/F64/Bool/Char/Str/() + List[T]/Map[K,V]/Set[T]
+- `where` 关键字用于单个子句内的逗号分隔泛型约束（`where T: Constraint, U: Constraint`）；不引入 `+` 多重 bound 语法
+- 基本类型（文档规范写法）: I32/I64/U32/U64/F32/F64/Int/Float/Bool/Char/Str/() + List[T]/Map[K,V]/Set[T]
 
 ## 文档治理与规范映射
 
@@ -205,7 +206,7 @@ fn name(params) -> ReturnType ! Errors
 |---|---|---|
 | 核心语法与签名 | expression-based 语言；签名子句推荐顺序 `where → uses → cost → spec`；`struct`/`type`/`trait`/`perform`/`when`/`[T]`/`Str` 等统一决策以本文 D1–D13、N1–N7 为当前权威。若任何 SEP 草案仍保留旧表面写法，以本文为准，待后续回写。 | `SEP-0001-core-syntax.md` |
 | 类型系统 | nominal 为主、局部推断、显式签名、sealed enum、关联类型/GAT、const generics、L0/L1 细化类型；v0.1 不引入 HKT 或完整 dependent types。 | `SEP-0002-type-system.md` |
-| 能力 / effect 语义 | 语义层保持 capability-set 检查、推断 purity/determinism、handler 由 Platform / runtime 承载；语法层继续采用本文统一后的 `uses [...]` 与 trait/capability 约定。 | `SEP-0003-effect-capability-system.md` |
+| 能力 / effect 语义 | 语义层保持 capability-set 检查并推断 purity/determinism；trait 约束与 effect 接口分离，surface 采用显式 `effect` 声明、`perform Effect.op(...)`、`uses [...]`，且 top-level `handler` 是 committed v0.1 surface。 | `SEP-0003-effect-capability-system.md` |
 | 代价模型 | 保留四维 CostVector（compute/alloc/io/parallel）与静态验证目标；现行 surface syntax 固定为 `cost [c, a, i, p]`，复杂代数与更丰富表达式留待后续。 | `SEP-0004-cost-analysis.md` |
 | Hole 协作协议 | typed holes、依赖感知排序、JSON 报告、跨模块聚合、Open→Filling→Filled→Accepted 状态机；本文保留工作流摘要，完整协议见 SEP。 | `SEP-0005-hole-system.md` |
 | 编译器输出 / 架构 / watch | 诊断编码、默认/verbose/json 三模式、内容寻址缓存、增量编译、watch/LSP 后端、6 阶段 pipeline 的高层约束保留在本文；详细数据模型与协议交给 SEP。 | `SEP-0006-compiler-architecture.md` |
@@ -240,7 +241,7 @@ fn name(params) -> ReturnType ! Errors
   - **内存模型方向**：不引入 borrow checker / lifetime system；当前方向是 **Perceus 风格 RC + region optimization**。
   - **验证策略**：以 **spec / property / refinement** 为主线；mutation testing 不进入近期关键路径。
   - **互操作边界**：**Platform 是唯一 FFI 表面**；应用代码不直接声明裸 native FFI。
-  - **handler v0.1 语义**：`handle { ... } with { ... }` 是**词法作用域**、**不可恢复（non-resumable）**、**one-shot** 的；命中规则为**内层优先**，handler arm 在当前活动 handler 栈内求值，因此 arm 内继续触发的 `perform` 仍会按同一套活动 handler 继续匹配；handler arm 的返回值就是对应 `perform` 表达式的值。
+  - **handler v0.1 语义**：`handle { ... } with { ... }` 是**词法作用域**、**不可恢复（non-resumable）**、**one-shot** 的；命中规则为**内层优先**，handler arm 在当前活动 handler 栈内求值，因此 arm 内继续触发的 `perform` 仍会按同一套活动 handler 继续匹配；handler arm 的返回值就是对应 `perform` 表达式的值。top-level `handler` 也属于 committed v0.1 surface，命名 handler 的绑定形态固定为 `handle { ... } with { use HandlerName { ... } }`，但 lowering/runtime 仍待补齐。
 - **仍开放**
   - `Ref[T]` 作为语言内可变单元 vs 平台包装器的精确边界
   - 若未来引入 continuation / resume，handler 的生命周期、逃逸与取消规则如何定义
@@ -248,20 +249,20 @@ fn name(params) -> ReturnType ! Errors
   - L0 refinement enforcement 的精确边界
 
 ### 标准库（极简）
-- **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Bool/Char/Str/(), Option[T], Result[T,E], 基本操作符, |>, ?
+- **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Int/Float/Bool/Char/Str/(), Option[T], Result[T,E], 基本操作符, |>, ?
 - **spore.list** — List[T]: map/fold/filter/zip/head/tail/len/reverse/sort/...
 - **spore.map** — Map[K,V]: insert/get/remove/keys/values/merge/...
 - **spore.set** — Set[T]: add/remove/contains/union/intersect/diff/...
 - **spore.str** — Str 扩展: split/join/trim/contains/starts_with/replace/...
 - **spore.math** — 数学函数: abs/min/max/pow/sqrt/...
-- **spore.ref** — Ref[T] 可变容器（需 StateWrite capability）
+- **spore.ref** — Ref[T] 可变容器（精确 capability / host boundary 仍开放）
 - 其余全部第三方（JSON/HTTP/正则/时间等）
 
 ### Platform 系统（v0.1）
 - 语言级概念，在 `spore.toml` 中声明；一个项目只绑定一个 Platform
 - 提供所有 IO effect handler（应用代码完全纯净）
 - Effect handler 风格（与并发模型统一）
-- 长期目标是不内置官方 Platform；当前实现仍保留 `cli` / `web` / `embedded` built-ins 作为 legacy / 过渡路径，但 package-backed Platform 已是主方向
+- 长期目标是不内置官方 Platform；当前实现仍保留 `cli` / `web` / `embedded` built-ins 作为 legacy / 过渡路径，但 package-backed Platform 已是主方向，默认新项目脚手架也应朝 package-backed `basic-cli` 对齐
 - 命名 `entry` 选择项目的可执行目标，并解析到对应的 `entry module`
 - Platform 契约由 manifest 中的 `[platform]` 元数据与专门的 contract module 共同构成：manifest 负责定位 contract module / startup contract symbol / adapter / handled capabilities，contract module 则通过带 hole 的 `startup function` 持有权威签名与 spec
 - 设计契约上，`entry module` 中提供满足 `startup contract` 的 `startup function`；Platform contract module 中的 startup `spec` 与应用实现侧 `spec` 视为叠加约束。当前编译器已经强制 hole-backed contract + startup 名称/签名匹配，但 merged `spec` enforcement 仍未落地
@@ -397,11 +398,11 @@ SourceFile { path, contents }
 #### 设计决策记录
 - **不需要 MIR**: 无 borrow checker，无需 CFG 级别分析
 - **不需要 flat IR**: 无 comptime，当前 hash + 依赖图方案已覆盖主要增量缓存需求
-- **能力+代价合并到 TypeCheck**: capability = trait，与类型信息交叉使用，减少 IR 转换
+- **能力+代价合并到 TypeCheck**: capability-set 检查与代价分析继续放在 TypeCheck，与类型信息交叉使用，减少 IR 转换；trait 约束与 effect 接口在该层交汇但不合并为同一语法实体
 - **脱糖全在 Resolve 层**: `|>`/`?`/`f"..."` 均在进入 HIR 前脱糖，TypeCheck 不处理语法糖
 - **不支持 Comptime**: const generics + 细化类型 + 代价模型已足够；Elm/Roc/Gleam 均无 comptime
 
 ## 后续维护重点
 - [ ] 将仍与本文表面语法不一致的 SEP 草案回写统一（重点：syntax / effect / module-package）
-- [ ] 补齐已知实现差距：Range `a..b`、并发 runtime、 richer cost expressions
+- [ ] 补齐已知实现差距：Range `a..b`、declared-effect enforcement、top-level handler / effect alias lowering、richer cost expressions
 - [ ] 在实现推进时保持本文、SEP 与 README 的交叉引用同步
