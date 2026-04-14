@@ -1,3 +1,15 @@
+// Standalone file example for quick experimentation
+//
+// This file demonstrates Spore's core features without requiring a project or Platform.
+// Standalone files use `fn main() -> I32` and do not participate in a package-backed Platform contract.
+// They still run through legacy built-in CLI behavior today (e.g., `println` works),
+// but the return value is printed as output rather than used as a process exit code.
+//
+// For production code, prefer creating a project with `spore new app-name`, which provides
+// Platform capabilities and uses `fn main() -> ()` as the entry point.
+//
+// Run this file with: spore run examples/demo.sp
+// Expected output: 204
 fn add(a: I32, b: I32) -> I32
 spec {
     example "identity": add(0, 42) == 42
