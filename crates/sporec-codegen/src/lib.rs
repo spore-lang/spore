@@ -6,12 +6,12 @@ pub mod effect_handler;
 pub mod interpret;
 pub mod value;
 
-use effect_handler::{BasicCliPlatformHandler, CliPlatformHandler};
+use effect_handler::{BasicCliPlatformHandler, CliPlatformHandler, RuntimeSignal};
 use interpret::{Interpreter, RuntimeError};
 use sporec_parser::ast::{Module, SpecItem, TypeExpr};
 use value::Value;
 
-pub use effect_handler::RuntimePlatform;
+pub use effect_handler::{RuntimePlatform, RuntimeSignal as ProjectRuntimeSignal};
 
 /// Result of evaluating a single spec clause.
 #[derive(Debug, Clone)]
@@ -28,6 +28,12 @@ pub struct SpecResult {
 pub enum SpecKind {
     Example,
     Property,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProjectRunOutcome {
+    Completed(Value),
+    Exited(i64),
 }
 
 /// Execute a Spore module by calling its current default startup function
@@ -94,8 +100,11 @@ pub fn run_project_on_platform(
     startup_function: &str,
     runtime_platform: RuntimePlatform,
 ) -> Result<Value, RuntimeError> {
-    let mut interp = project_interpreter(entry, imports, runtime_platform);
-    interp.call_function(startup_function, vec![])
+    match run_project_with_outcome_on_platform(entry, imports, startup_function, runtime_platform)?
+    {
+        ProjectRunOutcome::Completed(value) => Ok(value),
+        ProjectRunOutcome::Exited(code) => Err(RuntimeError::signal(RuntimeSignal::Exit(code))),
+    }
 }
 
 /// Execute a Spore project by routing startup through a platform adapter.
@@ -122,16 +131,80 @@ pub fn run_project_with_adapter_on_platform(
     adapter_function: &str,
     runtime_platform: RuntimePlatform,
 ) -> Result<Value, RuntimeError> {
+    match run_project_with_adapter_outcome_on_platform(
+        entry,
+        imports,
+        startup_function,
+        adapter_function,
+        runtime_platform,
+    )? {
+        ProjectRunOutcome::Completed(value) => Ok(value),
+        ProjectRunOutcome::Exited(code) => Err(RuntimeError::signal(RuntimeSignal::Exit(code))),
+    }
+}
+
+pub fn run_project_with_outcome(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+) -> Result<ProjectRunOutcome, RuntimeError> {
+    run_project_with_outcome_on_platform(entry, imports, startup_function, RuntimePlatform::Cli)
+}
+
+pub fn run_project_with_outcome_on_platform(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+    runtime_platform: RuntimePlatform,
+) -> Result<ProjectRunOutcome, RuntimeError> {
+    let mut interp = project_interpreter(entry, imports, runtime_platform);
+    project_run_outcome(interp.call_function(startup_function, vec![]))
+}
+
+pub fn run_project_with_adapter_outcome(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+    adapter_function: &str,
+) -> Result<ProjectRunOutcome, RuntimeError> {
+    run_project_with_adapter_outcome_on_platform(
+        entry,
+        imports,
+        startup_function,
+        adapter_function,
+        RuntimePlatform::Cli,
+    )
+}
+
+pub fn run_project_with_adapter_outcome_on_platform(
+    entry: &Module,
+    imports: &[(String, Module)],
+    startup_function: &str,
+    adapter_function: &str,
+    runtime_platform: RuntimePlatform,
+) -> Result<ProjectRunOutcome, RuntimeError> {
     let mut interp = project_interpreter(entry, imports, runtime_platform);
     let app_main = interp.named_function_value(startup_function)?;
-    interp.call_function(adapter_function, vec![app_main])
+    project_run_outcome(interp.call_function(adapter_function, vec![app_main]))
+}
+
+fn project_run_outcome(
+    result: Result<Value, RuntimeError>,
+) -> Result<ProjectRunOutcome, RuntimeError> {
+    match result {
+        Ok(value) => Ok(ProjectRunOutcome::Completed(value)),
+        Err(error) => match error.runtime_signal() {
+            Some(RuntimeSignal::Exit(code)) => Ok(ProjectRunOutcome::Exited(code)),
+            None => Err(error),
+        },
+    }
 }
 
 /// Generate test input values for a given type.
 fn test_values_for_type(ty: &TypeExpr) -> Vec<Value> {
     match ty {
         TypeExpr::Named(name) => match name.as_str() {
-            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => vec![
+            "Int" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => vec![
                 Value::Int(0),
                 Value::Int(1),
                 Value::Int(-1),

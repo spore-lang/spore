@@ -6,6 +6,17 @@
 use crate::value::Value;
 use std::io::Write;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeSignal {
+    Exit(i64),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum EffectOutcome {
+    Value(Value),
+    Signal(RuntimeSignal),
+}
+
 /// Runtime host profile used to select effect-handler coverage for project mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimePlatform {
@@ -16,7 +27,7 @@ pub enum RuntimePlatform {
 /// A runtime effect handler that provides implementations for capability-gated operations.
 pub trait EffectHandler: std::fmt::Debug {
     /// Handle an effect invocation. Returns the result value.
-    fn handle(&self, operation: &str, args: &[Value]) -> Result<Value, String>;
+    fn handle(&self, operation: &str, args: &[Value]) -> Result<EffectOutcome, String>;
 
     /// List the operations this handler provides.
     fn operations(&self) -> &[&str];
@@ -53,8 +64,10 @@ const BASIC_CLI_OPS: &[&str] = &[
     "basic_cli.dir.dir_mkdir",
     "basic_cli.env.env_get",
     "basic_cli.env.env_set",
+    "exit",
     "basic_cli.cmd.process_run",
     "basic_cli.cmd.process_run_status",
+    "basic_cli.cmd.exit",
 ];
 
 fn require_arg<'a>(args: &'a [Value], idx: usize, operation: &str) -> Result<&'a Value, String> {
@@ -100,6 +113,17 @@ fn require_str_list_arg(
     }
 }
 
+fn require_int_arg(args: &[Value], idx: usize, operation: &str) -> Result<i64, String> {
+    match require_arg(args, idx, operation)? {
+        Value::Int(value) => Ok(*value),
+        other => Err(format!(
+            "{operation}: argument {} should be Int, got {}",
+            idx + 1,
+            other.type_name()
+        )),
+    }
+}
+
 fn io_error(operation: &str, error: impl std::fmt::Display) -> String {
     format!("{operation}: {error}")
 }
@@ -120,17 +144,17 @@ fn normalize_basic_cli_operation(operation: &str) -> &str {
 pub struct CliPlatformHandler;
 
 impl EffectHandler for CliPlatformHandler {
-    fn handle(&self, operation: &str, args: &[Value]) -> Result<Value, String> {
+    fn handle(&self, operation: &str, args: &[Value]) -> Result<EffectOutcome, String> {
         match operation {
             "print" => {
                 let val = require_arg(args, 0, operation)?;
                 print!("{val}");
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "println" => {
                 let val = require_arg(args, 0, operation)?;
                 println!("{val}");
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "read_line" => {
                 let mut buf = String::new();
@@ -143,7 +167,7 @@ impl EffectHandler for CliPlatformHandler {
                         buf.pop();
                     }
                 }
-                Ok(Value::Str(buf))
+                Ok(EffectOutcome::Value(Value::Str(buf)))
             }
             _ => Err(format!(
                 "CliPlatformHandler: unknown operation `{operation}`"
@@ -161,7 +185,7 @@ impl EffectHandler for CliPlatformHandler {
 pub struct BasicCliPlatformHandler;
 
 impl EffectHandler for BasicCliPlatformHandler {
-    fn handle(&self, operation: &str, args: &[Value]) -> Result<Value, String> {
+    fn handle(&self, operation: &str, args: &[Value]) -> Result<EffectOutcome, String> {
         match normalize_basic_cli_operation(operation) {
             "print" => {
                 let text = require_str_arg(args, 0, operation)?;
@@ -169,12 +193,12 @@ impl EffectHandler for BasicCliPlatformHandler {
                 std::io::stdout()
                     .flush()
                     .map_err(|error| io_error(operation, error))?;
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "println" => {
                 let text = require_str_arg(args, 0, operation)?;
                 println!("{text}");
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "eprint" => {
                 let text = require_str_arg(args, 0, operation)?;
@@ -182,12 +206,12 @@ impl EffectHandler for BasicCliPlatformHandler {
                 std::io::stderr()
                     .flush()
                     .map_err(|error| io_error(operation, error))?;
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "eprintln" => {
                 let text = require_str_arg(args, 0, operation)?;
                 eprintln!("{text}");
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "read_line" => {
                 let mut buf = String::new();
@@ -200,33 +224,35 @@ impl EffectHandler for BasicCliPlatformHandler {
                         buf.pop();
                     }
                 }
-                Ok(Value::Str(buf))
+                Ok(EffectOutcome::Value(Value::Str(buf)))
             }
             "file_read" => {
                 let path = require_str_arg(args, 0, operation)?;
                 let content =
                     std::fs::read_to_string(path).map_err(|error| io_error(operation, error))?;
-                Ok(Value::Str(content))
+                Ok(EffectOutcome::Value(Value::Str(content)))
             }
             "file_write" => {
                 let path = require_str_arg(args, 0, operation)?;
                 let content = require_str_arg(args, 1, operation)?;
                 std::fs::write(path, content).map_err(|error| io_error(operation, error))?;
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "file_exists" => {
                 let path = require_str_arg(args, 0, operation)?;
-                Ok(Value::Bool(std::path::Path::new(path).exists()))
+                Ok(EffectOutcome::Value(Value::Bool(
+                    std::path::Path::new(path).exists(),
+                )))
             }
             "file_stat" => {
                 let path = require_str_arg(args, 0, operation)?;
                 let meta = std::fs::metadata(path).map_err(|error| io_error(operation, error))?;
-                Ok(Value::Str(format!(
+                Ok(EffectOutcome::Value(Value::Str(format!(
                     "size={} is_dir={} is_file={}",
                     meta.len(),
                     meta.is_dir(),
                     meta.is_file()
-                )))
+                ))))
             }
             "dir_list" => {
                 let path = require_str_arg(args, 0, operation)?;
@@ -238,18 +264,21 @@ impl EffectHandler for BasicCliPlatformHandler {
                             .map_err(|error| io_error(operation, error))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(Value::List(entries))
+                Ok(EffectOutcome::Value(Value::List(entries)))
             }
             "dir_mkdir" => {
                 let path = require_str_arg(args, 0, operation)?;
                 std::fs::create_dir_all(path).map_err(|error| io_error(operation, error))?;
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "env_get" => {
                 let key = require_str_arg(args, 0, operation)?;
                 match std::env::var(key) {
-                    Ok(value) => Ok(Value::Enum("Some".into(), vec![Value::Str(value)])),
-                    Err(_) => Ok(Value::Enum("None".into(), vec![])),
+                    Ok(value) => Ok(EffectOutcome::Value(Value::Enum(
+                        "Some".into(),
+                        vec![Value::Str(value)],
+                    ))),
+                    Err(_) => Ok(EffectOutcome::Value(Value::Enum("None".into(), vec![]))),
                 }
             }
             "env_set" => {
@@ -257,7 +286,7 @@ impl EffectHandler for BasicCliPlatformHandler {
                 let value = require_str_arg(args, 1, operation)?;
                 // SAFETY: project-mode interpreter execution is single-threaded.
                 unsafe { std::env::set_var(key, value) };
-                Ok(Value::Unit)
+                Ok(EffectOutcome::Value(Value::Unit))
             }
             "process_run" => {
                 let command = require_str_arg(args, 0, operation)?;
@@ -267,9 +296,9 @@ impl EffectHandler for BasicCliPlatformHandler {
                     .output()
                     .map_err(|error| exec_error(operation, command, error))?;
                 if output.status.success() {
-                    Ok(Value::Str(
+                    Ok(EffectOutcome::Value(Value::Str(
                         String::from_utf8_lossy(&output.stdout).into_owned(),
-                    ))
+                    )))
                 } else {
                     Err(exec_error(
                         operation,
@@ -289,7 +318,13 @@ impl EffectHandler for BasicCliPlatformHandler {
                     .args(&process_args)
                     .status()
                     .map_err(|error| exec_error(operation, command, error))?;
-                Ok(Value::Int(status.code().unwrap_or(-1) as i64))
+                Ok(EffectOutcome::Value(Value::Int(
+                    status.code().unwrap_or(-1) as i64,
+                )))
+            }
+            "exit" => {
+                let code = require_int_arg(args, 0, operation)?;
+                Ok(EffectOutcome::Signal(RuntimeSignal::Exit(code)))
             }
             _ => Err(format!(
                 "BasicCliPlatformHandler: unknown operation `{operation}`"
@@ -332,7 +367,7 @@ mod tests {
         let h = CliPlatformHandler;
         let result = h.handle("print", &[Value::Str("hello".into())]);
         assert!(result.is_ok());
-        assert!(matches!(result.unwrap(), Value::Unit));
+        assert!(matches!(result.unwrap(), EffectOutcome::Value(Value::Unit)));
     }
 
     #[test]
@@ -340,7 +375,7 @@ mod tests {
         let h = CliPlatformHandler;
         let result = h.handle("println", &[Value::Str("hello".into())]);
         assert!(result.is_ok());
-        assert!(matches!(result.unwrap(), Value::Unit));
+        assert!(matches!(result.unwrap(), EffectOutcome::Value(Value::Unit)));
     }
 
     #[test]
@@ -364,6 +399,8 @@ mod tests {
         let ops = h.operations();
         assert!(ops.contains(&"file_exists"));
         assert!(ops.contains(&"basic_cli.file.file_exists"));
+        assert!(ops.contains(&"exit"));
+        assert!(ops.contains(&"basic_cli.cmd.exit"));
     }
 
     #[test]
@@ -377,7 +414,7 @@ mod tests {
                 &[Value::Str(path.display().to_string())],
             )
             .expect("file_exists should succeed");
-        assert_eq!(result, Value::Bool(true));
+        assert_eq!(result, EffectOutcome::Value(Value::Bool(true)));
         let _ = std::fs::remove_file(path);
     }
 
@@ -392,9 +429,18 @@ mod tests {
             .expect("env_get should succeed");
         assert_eq!(
             result,
-            Value::Enum("Some".into(), vec![Value::Str("hello".into())])
+            EffectOutcome::Value(Value::Enum("Some".into(), vec![Value::Str("hello".into())],))
         );
         // SAFETY: paired cleanup for the test-only variable above.
         unsafe { std::env::remove_var(&key) };
+    }
+
+    #[test]
+    fn basic_cli_handler_exit_returns_structured_signal() {
+        let h = BasicCliPlatformHandler;
+        let result = h
+            .handle("basic_cli.cmd.exit", &[Value::Int(7)])
+            .expect("exit should succeed");
+        assert_eq!(result, EffectOutcome::Signal(RuntimeSignal::Exit(7)));
     }
 }
