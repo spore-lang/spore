@@ -2170,6 +2170,81 @@ fn test_handle_arm_checks_declared_effect_arity() {
     );
 }
 
+#[test]
+fn test_named_handler_payload_and_self_typecheck() {
+    check_ok(
+        r#"
+        effect Math {
+            fn double(x: I32) -> I32
+        }
+        handler Math as DoubleMath(multiplier: I32) {
+            fn double(x: I32) -> I32 { x * self.multiplier }
+        }
+        fn main() -> I32 {
+            handle {
+                perform Math.double(21)
+            } with {
+                use DoubleMath { multiplier: 2 }
+            }
+        }
+        "#,
+    );
+}
+
+#[test]
+fn test_named_handler_payload_checks_field_types() {
+    let errs = check_err(
+        r#"
+        effect Math {
+            fn double(x: I32) -> I32
+        }
+        handler Math as DoubleMath(multiplier: I32) {
+            fn double(x: I32) -> I32 { x * self.multiplier }
+        }
+        fn main() -> I32 {
+            handle {
+                perform Math.double(21)
+            } with {
+                use DoubleMath { multiplier: "oops" }
+            }
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("payload field `multiplier`")
+                || e.contains("expected `I32`, got `Str`")),
+        "expected named handler payload type error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_named_and_inline_duplicate_binding_errors() {
+    let errs = check_err(
+        r#"
+        effect Math {
+            fn double(x: I32) -> I32
+        }
+        handler Math as DoubleMath(multiplier: I32) {
+            fn double(x: I32) -> I32 { x * self.multiplier }
+        }
+        fn main() -> I32 {
+            handle {
+                perform Math.double(21)
+            } with {
+                use DoubleMath { multiplier: 2 },
+                on Math.double(x) => x + x
+            }
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("duplicate handler binding") && e.contains("Math.double")),
+        "expected duplicate handler binding error, got: {errs:?}"
+    );
+}
+
 // ── Or-pattern binding validation ───────────────────────────────────────
 
 #[test]

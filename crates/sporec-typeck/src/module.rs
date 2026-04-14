@@ -9,6 +9,7 @@ use sporec_parser::{
     parse,
 };
 
+use crate::env::HandlerInfo;
 use crate::types::{CapSet, ErrorSet, Ty};
 
 /// Visibility of an exported symbol.
@@ -58,6 +59,8 @@ pub struct ModuleInterface {
     pub struct_type_params: HashMap<String, Vec<String>>,
     /// Exported capabilities
     pub capabilities: HashSet<String>,
+    /// Exported named handlers
+    pub handlers: HashMap<String, HandlerInfo>,
     /// Visibility of each symbol
     pub visibilities: HashMap<String, SymbolVisibility>,
 }
@@ -93,6 +96,7 @@ impl ModuleInterface {
             || self.types.contains_key(name)
             || self.structs.contains_key(name)
             || self.capabilities.contains(name)
+            || self.handlers.contains_key(name)
     }
 
     /// Get all exported names (sorted, deduplicated).
@@ -103,6 +107,7 @@ impl ModuleInterface {
             .chain(self.types.keys())
             .chain(self.structs.keys())
             .chain(self.capabilities.iter())
+            .chain(self.handlers.keys())
             .cloned()
             .collect();
         names.sort();
@@ -264,8 +269,44 @@ fn build_prelude_interface() -> ModuleInterface {
             | Item::CapabilityAlias { .. }
             | Item::TraitDef(_)
             | Item::EffectDef(_)
-            | Item::EffectAlias(_)
-            | Item::HandlerDef(_) => {}
+            | Item::EffectAlias(_) => {}
+            Item::HandlerDef(handler) => {
+                let fields = handler
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        (
+                            field.name.clone(),
+                            resolve_prelude_type(&field.ty, &HashMap::new()),
+                        )
+                    })
+                    .collect();
+                let methods = handler
+                    .methods
+                    .iter()
+                    .map(|method| {
+                        let param_tys = method
+                            .params
+                            .iter()
+                            .map(|param| resolve_prelude_type(&param.ty, &HashMap::new()))
+                            .collect();
+                        let ret_ty = method
+                            .return_type
+                            .as_ref()
+                            .map(|ty| resolve_prelude_type(ty, &HashMap::new()))
+                            .unwrap_or(Ty::Unit);
+                        (method.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                iface.handlers.insert(
+                    handler.name.clone(),
+                    HandlerInfo {
+                        effect: handler.effect.clone(),
+                        fields,
+                        methods,
+                    },
+                );
+            }
         }
     }
 
@@ -398,6 +439,8 @@ impl ModuleRegistry {
                 ImportedSymbol::Type
             } else if module.structs.contains_key(name) {
                 ImportedSymbol::Struct
+            } else if module.handlers.contains_key(name) {
+                ImportedSymbol::Handler
             } else {
                 ImportedSymbol::Capability
             };
@@ -802,6 +845,7 @@ pub enum ImportedSymbol {
     Function,
     Type,
     Struct,
+    Handler,
     Capability,
 }
 

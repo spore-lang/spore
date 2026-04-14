@@ -563,9 +563,21 @@ impl<'a> Formatter<'a> {
     fn fmt_handler_def(&mut self, h: &HandlerDef) {
         self.write_indent();
         self.write("handler ");
-        self.write(&h.name);
-        self.write(" for ");
         self.write(&h.effect);
+        self.write(" as ");
+        self.write(&h.name);
+        if !h.fields.is_empty() {
+            self.write("(");
+            for (idx, field) in h.fields.iter().enumerate() {
+                if idx > 0 {
+                    self.write(", ");
+                }
+                self.write(&field.name);
+                self.write(": ");
+                self.fmt_type_expr(&field.ty);
+            }
+            self.write(")");
+        }
         self.write(" {");
         self.newline();
         self.indent += 1;
@@ -1025,15 +1037,34 @@ impl<'a> Formatter<'a> {
                 self.write(" with {");
                 self.newline();
                 self.indent += 1;
-                for arm in handlers {
+                for binding in handlers {
                     self.write_indent();
-                    self.write(&arm.effect);
-                    self.write(".");
-                    self.write(&arm.operation);
-                    self.write("(");
-                    self.write(&arm.params.join(", "));
-                    self.write(") => ");
-                    self.fmt_expr(&arm.body);
+                    match binding {
+                        HandleBinding::Use(handler_use) => {
+                            self.write("use ");
+                            self.write(&handler_use.handler);
+                            self.write(" {");
+                            for (idx, (field, value)) in handler_use.payload.iter().enumerate() {
+                                if idx > 0 {
+                                    self.write(", ");
+                                }
+                                self.write(field);
+                                self.write(": ");
+                                self.fmt_expr(value);
+                            }
+                            self.write("}");
+                        }
+                        HandleBinding::On(arm) => {
+                            self.write("on ");
+                            self.write(&arm.effect);
+                            self.write(".");
+                            self.write(&arm.operation);
+                            self.write("(");
+                            self.write(&arm.params.join(", "));
+                            self.write(") => ");
+                            self.fmt_expr(&arm.body);
+                        }
+                    }
                     self.write(",");
                     self.newline();
                 }
@@ -1395,7 +1426,7 @@ mod tests {
             "\n",
             "effect IO = Console | FileRead\n",
             "\n",
-            "handler MockConsole for Console {\n",
+            "handler Console as MockConsole {\n",
             "    fn println(msg: String) -> Unit {}\n",
             "}\n",
         );
@@ -1403,7 +1434,7 @@ mod tests {
         assert!(out.contains("trait Display[T] {"));
         assert!(out.contains("effect Console {"));
         assert!(out.contains("effect IO = Console | FileRead"));
-        assert!(out.contains("handler MockConsole for Console {"));
+        assert!(out.contains("handler Console as MockConsole {"));
     }
 
     // ── Comment preservation tests ──────────────────────────────────
