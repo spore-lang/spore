@@ -105,15 +105,15 @@ fn exec_compile(files: &[String], json_output: bool) -> ExitCode {
             }
         };
 
-        return match sporec::compile(&source) {
+        return match sporec_driver::compile(&source) {
             Ok(output) => {
                 let (warning_source, warning_diagnostics) =
-                    match sporec::check_source_file(file, &source) {
-                        sporec::SourceCheckReport::Success { source, warnings } => {
+                    match sporec_driver::check_source_file(file, &source) {
+                        sporec_driver::SourceCheckReport::Success { source, warnings } => {
                             (source, warnings)
                         }
-                        sporec::SourceCheckReport::Failure(
-                            sporec::SourceCheckFailure::Diagnostics {
+                        sporec_driver::SourceCheckReport::Failure(
+                            sporec_driver::SourceCheckFailure::Diagnostics {
                                 source,
                                 diagnostics,
                             },
@@ -124,8 +124,8 @@ fn exec_compile(files: &[String], json_output: bool) -> ExitCode {
                                 json_output,
                             );
                         }
-                        sporec::SourceCheckReport::Failure(
-                            sporec::SourceCheckFailure::Message(message),
+                        sporec_driver::SourceCheckReport::Failure(
+                            sporec_driver::SourceCheckFailure::Message(message),
                         ) => {
                             return sporec_diagnostics::exit_with_message_error(
                                 &message,
@@ -149,19 +149,21 @@ fn exec_compile(files: &[String], json_output: bool) -> ExitCode {
                 }
                 ExitCode::SUCCESS
             }
-            Err(message) => match sporec::check_source_file(file, &source) {
-                sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Diagnostics {
-                    source,
-                    diagnostics,
-                }) => sporec_diagnostics::exit_with_diagnostics_error(
+            Err(message) => match sporec_driver::check_source_file(file, &source) {
+                sporec_driver::SourceCheckReport::Failure(
+                    sporec_driver::SourceCheckFailure::Diagnostics {
+                        source,
+                        diagnostics,
+                    },
+                ) => sporec_diagnostics::exit_with_diagnostics_error(
                     &source,
                     &diagnostics,
                     json_output,
                 ),
-                sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Message(
-                    fallback,
-                )) => sporec_diagnostics::exit_with_message_error(&fallback, json_output),
-                sporec::SourceCheckReport::Success { .. } => {
+                sporec_driver::SourceCheckReport::Failure(
+                    sporec_driver::SourceCheckFailure::Message(fallback),
+                ) => sporec_diagnostics::exit_with_message_error(&fallback, json_output),
+                sporec_driver::SourceCheckReport::Success { .. } => {
                     sporec_diagnostics::exit_with_message_error(&message, json_output)
                 }
             },
@@ -169,7 +171,7 @@ fn exec_compile(files: &[String], json_output: bool) -> ExitCode {
     }
 
     let refs: Vec<&str> = files.iter().map(|file| file.as_str()).collect();
-    let result = sporec::compile_files(&refs);
+    let result = sporec_driver::compile_files(&refs);
 
     match result {
         Ok(output) => {
@@ -199,7 +201,7 @@ fn exec_holes(file: &str, json_output: bool) -> ExitCode {
     };
 
     if json_output {
-        match sporec::holes_report(&source) {
+        match sporec_driver::holes_report(&source) {
             Ok(report) => {
                 sporec_diagnostics::print_json(&report);
                 ExitCode::SUCCESS
@@ -237,7 +239,7 @@ fn exec_query_hole(file: &str, hole: &str, json_output: bool) -> ExitCode {
     };
 
     if json_output {
-        return match sporec::query_hole_report(file, &source, hole) {
+        return match sporec_driver::query_hole_report(file, &source, hole) {
             Ok(report) => {
                 sporec_diagnostics::print_json(&report);
                 ExitCode::SUCCESS

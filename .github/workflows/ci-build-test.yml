@@ -115,7 +115,7 @@ jobs:
 
       - name: Smoke-test built wheel
         run: |
-          uv tool run --from ./dist/spore_cli-*.whl spore run examples/demo.sp > /tmp/spore-wheel.out
+          uv tool run --from ./dist/*.whl spore run examples/demo.sp > /tmp/spore-wheel.out
           grep -qx '204' /tmp/spore-wheel.out
-          uv tool run --from ./dist/spore_cli-*.whl spore check examples/demo.sp
-          uv tool run --from ./dist/spore_cli-*.whl spore test examples/demo.sp
+          uv tool run --from ./dist/*.whl spore check examples/demo.sp
+          uv tool run --from ./dist/*.whl spore test examples/demo.sp

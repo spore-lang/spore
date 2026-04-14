@@ -290,13 +290,13 @@ fn fail_deny_warnings(
 }
 
 fn report_batch_check(
-    report: sporec::CheckReport,
+    report: sporec_driver::CheckReport,
     json_output: bool,
     deny_warnings: bool,
     human_success_message: &str,
 ) -> ExitCode {
     match report {
-        sporec::CheckReport::Success { sources, warnings } => {
+        sporec_driver::CheckReport::Success { sources, warnings } => {
             let has_warnings = !warnings.is_empty();
             let warning_messages = sporec_diagnostics::diagnostic_message_lines(&warnings);
             if json_output {
@@ -325,7 +325,7 @@ fn report_batch_check(
             }
             ExitCode::SUCCESS
         }
-        sporec::CheckReport::Failure(sporec::CheckFailure::Diagnostics {
+        sporec_driver::CheckReport::Failure(sporec_driver::CheckFailure::Diagnostics {
             sources,
             diagnostics,
         }) => sporec_diagnostics::exit_with_diagnostics_error_with_sources(
@@ -333,7 +333,7 @@ fn report_batch_check(
             &diagnostics,
             output_mode(json_output),
         ),
-        sporec::CheckReport::Failure(sporec::CheckFailure::Message(message)) => {
+        sporec_driver::CheckReport::Failure(sporec_driver::CheckFailure::Message(message)) => {
             fail_message(&message, json_output)
         }
     }
@@ -346,8 +346,8 @@ fn report_single_file_check(
     deny_warnings: bool,
     human_success_message: &str,
 ) -> ExitCode {
-    match sporec::check_source_file(path, source) {
-        sporec::SourceCheckReport::Success { source, warnings } => {
+    match sporec_driver::check_source_file(path, source) {
+        sporec_driver::SourceCheckReport::Success { source, warnings } => {
             let has_warnings = !warnings.is_empty();
             let warning_messages = sporec_diagnostics::diagnostic_message_lines(&warnings);
             if json_output {
@@ -378,17 +378,19 @@ fn report_single_file_check(
 
             ExitCode::SUCCESS
         }
-        sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Diagnostics {
-            source,
-            diagnostics,
-        }) => sporec_diagnostics::exit_with_diagnostics_error(
+        sporec_driver::SourceCheckReport::Failure(
+            sporec_driver::SourceCheckFailure::Diagnostics {
+                source,
+                diagnostics,
+            },
+        ) => sporec_diagnostics::exit_with_diagnostics_error(
             &source,
             &diagnostics,
             output_mode(json_output),
         ),
-        sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Message(message)) => {
-            fail_message(&message, json_output)
-        }
+        sporec_driver::SourceCheckReport::Failure(sporec_driver::SourceCheckFailure::Message(
+            message,
+        )) => fail_message(&message, json_output),
     }
 }
 
@@ -426,7 +428,7 @@ fn find_project_root(path: &Path) -> Option<PathBuf> {
 }
 
 fn infer_project_entry(root: &Path) -> Result<String, String> {
-    sporec::resolve_default_project_target(root).map(|target| target.entry_path)
+    sporec_driver::resolve_default_project_target(root).map(|target| target.entry_path)
 }
 
 enum BuildTarget {
@@ -480,13 +482,13 @@ fn resolve_build_target(file: Option<&str>, cwd: &Path) -> Result<BuildTarget, S
 
 fn exec_run(file: &str, json_output: bool) -> ExitCode {
     let result = if let Some((root, entry)) = find_project_target(file) {
-        sporec::run_project(&root, &entry)
+        sporec_driver::run_project(&root, &entry)
     } else {
         let source = match read_source_message(file) {
             Ok(s) => s,
             Err(message) => return fail_message(&message, json_output),
         };
-        sporec::run(&source)
+        sporec_driver::run(&source)
     };
 
     match result {
@@ -509,7 +511,7 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
         let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
         let success_message = format!("{} no errors ({} files)", "✓".green(), files.len());
         report_batch_check(
-            sporec::check_files(&refs),
+            sporec_driver::check_files(&refs),
             json_output,
             deny_warnings,
             &success_message,
@@ -519,8 +521,8 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
         if verbose {
             let result = if let Some((root, entry)) = find_project_target(path) {
                 if deny_warnings {
-                    match sporec::check_project(&root, &entry) {
-                        sporec::CheckReport::Success { sources, warnings } => {
+                    match sporec_driver::check_project(&root, &entry) {
+                        sporec_driver::CheckReport::Success { sources, warnings } => {
                             if !warnings.is_empty() {
                                 let warning_messages =
                                     sporec_diagnostics::diagnostic_message_lines(&warnings);
@@ -534,30 +536,34 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
                                 );
                             }
                         }
-                        sporec::CheckReport::Failure(sporec::CheckFailure::Diagnostics {
-                            sources,
-                            diagnostics,
-                        }) => {
+                        sporec_driver::CheckReport::Failure(
+                            sporec_driver::CheckFailure::Diagnostics {
+                                sources,
+                                diagnostics,
+                            },
+                        ) => {
                             return sporec_diagnostics::exit_with_diagnostics_error_with_sources(
                                 &sources,
                                 &diagnostics,
                                 false,
                             );
                         }
-                        sporec::CheckReport::Failure(sporec::CheckFailure::Message(message)) => {
+                        sporec_driver::CheckReport::Failure(
+                            sporec_driver::CheckFailure::Message(message),
+                        ) => {
                             return fail_human(&message);
                         }
                     }
                 }
-                sporec::check_project_verbose(&root, &entry)
+                sporec_driver::check_project_verbose(&root, &entry)
             } else {
                 let source = match read_source(path) {
                     Ok(s) => s,
                     Err(c) => return c,
                 };
                 if deny_warnings {
-                    match sporec::check_source_file(path, &source) {
-                        sporec::SourceCheckReport::Success {
+                    match sporec_driver::check_source_file(path, &source) {
+                        sporec_driver::SourceCheckReport::Success {
                             source: canonical_source,
                             warnings,
                         } => {
@@ -575,8 +581,8 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
                                 );
                             }
                         }
-                        sporec::SourceCheckReport::Failure(
-                            sporec::SourceCheckFailure::Diagnostics {
+                        sporec_driver::SourceCheckReport::Failure(
+                            sporec_driver::SourceCheckFailure::Diagnostics {
                                 source,
                                 diagnostics,
                             },
@@ -587,12 +593,12 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
                                 false,
                             );
                         }
-                        sporec::SourceCheckReport::Failure(
-                            sporec::SourceCheckFailure::Message(message),
+                        sporec_driver::SourceCheckReport::Failure(
+                            sporec_driver::SourceCheckFailure::Message(message),
                         ) => return fail_human(&message),
                     }
                 }
-                sporec::check_verbose(&source)
+                sporec_driver::check_verbose(&source)
             };
 
             match result {
@@ -602,23 +608,25 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
                 }
                 Err(msg) => {
                     if let Some((root, entry)) = find_project_target(path) {
-                        match sporec::check_project(&root, &entry) {
-                            sporec::CheckReport::Failure(sporec::CheckFailure::Diagnostics {
-                                sources,
-                                diagnostics,
-                            }) => {
+                        match sporec_driver::check_project(&root, &entry) {
+                            sporec_driver::CheckReport::Failure(
+                                sporec_driver::CheckFailure::Diagnostics {
+                                    sources,
+                                    diagnostics,
+                                },
+                            ) => {
                                 return sporec_diagnostics::exit_with_diagnostics_error_with_sources(
                                     &sources,
                                     &diagnostics,
                                     false,
                                 );
                             }
-                            sporec::CheckReport::Failure(sporec::CheckFailure::Message(
-                                message,
-                            )) => {
+                            sporec_driver::CheckReport::Failure(
+                                sporec_driver::CheckFailure::Message(message),
+                            ) => {
                                 return fail_human(&message);
                             }
-                            sporec::CheckReport::Success { .. } => {}
+                            sporec_driver::CheckReport::Success { .. } => {}
                         }
                     }
                     fail_human(&msg)
@@ -627,7 +635,7 @@ fn exec_check(files: &[String], verbose: bool, json_output: bool, deny_warnings:
         } else {
             if let Some((root, entry)) = find_project_target(path) {
                 report_batch_check(
-                    sporec::check_project(&root, &entry),
+                    sporec_driver::check_project(&root, &entry),
                     json_output,
                     deny_warnings,
                     "✓ no errors",
@@ -653,8 +661,8 @@ fn exec_test(files: &[String], verbose: bool, json_output: bool, deny_warnings: 
             Err(message) => return fail_message(&message, json_output),
         };
 
-        match sporec::check_source_file(path, &source) {
-            sporec::SourceCheckReport::Success {
+        match sporec_driver::check_source_file(path, &source) {
+            sporec_driver::SourceCheckReport::Success {
                 source: canonical_source,
                 warnings,
             } => {
@@ -676,25 +684,29 @@ fn exec_test(files: &[String], verbose: bool, json_output: bool, deny_warnings: 
                     return fail_deny_warnings(&warning_messages, Some(&warnings), json_output);
                 }
             }
-            sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Diagnostics {
-                source,
-                diagnostics,
-            }) => {
+            sporec_driver::SourceCheckReport::Failure(
+                sporec_driver::SourceCheckFailure::Diagnostics {
+                    source,
+                    diagnostics,
+                },
+            ) => {
                 return sporec_diagnostics::exit_with_diagnostics_error(
                     &source,
                     &diagnostics,
                     json_output,
                 );
             }
-            sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Message(message)) => {
+            sporec_driver::SourceCheckReport::Failure(
+                sporec_driver::SourceCheckFailure::Message(message),
+            ) => {
                 return fail_message(&message, json_output);
             }
         }
 
-        match sporec::test_specs(&source) {
+        match sporec_driver::test_specs(&source) {
             Ok(results) => {
                 for r in &results {
-                    let kind_label = if r.kind == sporec::SpecKind::Example {
+                    let kind_label = if r.kind == sporec_driver::SpecKind::Example {
                         "example"
                     } else {
                         "property"
@@ -773,7 +785,7 @@ fn exec_format(files: &[String], check_mode: bool, diff_mode: bool) -> ExitCode 
             }
         };
 
-        match sporec::format(&source) {
+        match sporec_driver::format(&source) {
             Ok(formatted) => {
                 if check_mode {
                     if formatted != source {
@@ -840,7 +852,7 @@ fn exec_holes(file: &str) -> ExitCode {
         Err(c) => return c,
     };
 
-    match sporec::holes_report(&source) {
+    match sporec_driver::holes_report(&source) {
         Ok(report) => {
             sporec_diagnostics::print_json(&report);
             ExitCode::SUCCESS
@@ -870,7 +882,7 @@ fn exec_build(file: Option<&str>) -> ExitCode {
                 "✓".green(),
             );
             report_batch_check(
-                sporec::check_project(root, entry),
+                sporec_driver::check_project(root, entry),
                 false,
                 false,
                 &success_message,
@@ -970,8 +982,8 @@ fn exec_watch(file: &str, json_output: bool) -> ExitCode {
 fn check_and_report(path: &str, source: &str, json_output: bool) {
     let ts = timestamp();
     if let Some((root, entry)) = find_project_target(path) {
-        match sporec::check_project(&root, &entry) {
-            sporec::CheckReport::Success { sources, warnings } => {
+        match sporec_driver::check_project(&root, &entry) {
+            sporec_driver::CheckReport::Success { sources, warnings } => {
                 for warning in &warnings {
                     if json_output {
                         sporec_diagnostics::print_json(
@@ -1004,7 +1016,7 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
                     eprintln!("[{ts}] {} `{path}` — no errors", "✓".green());
                 }
             }
-            sporec::CheckReport::Failure(sporec::CheckFailure::Diagnostics {
+            sporec_driver::CheckReport::Failure(sporec_driver::CheckFailure::Diagnostics {
                 sources,
                 diagnostics,
             }) => {
@@ -1028,7 +1040,7 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
                     );
                 }
             }
-            sporec::CheckReport::Failure(sporec::CheckFailure::Message(message)) => {
+            sporec_driver::CheckReport::Failure(sporec_driver::CheckFailure::Message(message)) => {
                 if json_output {
                     sporec_diagnostics::print_json(
                         &sporec_diagnostics::JsonReport::new()
@@ -1045,8 +1057,8 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
             }
         }
     } else {
-        match sporec::check_source_file(path, source) {
-            sporec::SourceCheckReport::Success { source, warnings } => {
+        match sporec_driver::check_source_file(path, source) {
+            sporec_driver::SourceCheckReport::Success { source, warnings } => {
                 if json_output {
                     for warning in warnings {
                         sporec_diagnostics::print_json(
@@ -1075,10 +1087,12 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
                     eprintln!("[{ts}] {} `{path}` — no errors", "✓".green());
                 }
             }
-            sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Diagnostics {
-                source,
-                diagnostics,
-            }) => {
+            sporec_driver::SourceCheckReport::Failure(
+                sporec_driver::SourceCheckFailure::Diagnostics {
+                    source,
+                    diagnostics,
+                },
+            ) => {
                 if json_output {
                     let message =
                         sporec_diagnostics::diagnostic_message_lines(&diagnostics).join("\n");
@@ -1096,7 +1110,9 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
                     sporec_diagnostics::render_diagnostics_human(&source, &diagnostics);
                 }
             }
-            sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Message(message)) => {
+            sporec_driver::SourceCheckReport::Failure(
+                sporec_driver::SourceCheckFailure::Message(message),
+            ) => {
                 if json_output {
                     sporec_diagnostics::print_json(
                         &sporec_diagnostics::JsonReport::new()
@@ -1119,9 +1135,9 @@ fn check_and_report(path: &str, source: &str, json_output: bool) {
     }
 }
 
-fn hole_graph_update(source: &str, json_output: bool) -> Option<sporec::HoleSummary> {
+fn hole_graph_update(source: &str, json_output: bool) -> Option<sporec_driver::HoleSummary> {
     if json_output {
-        sporec::hole_summary(source)
+        sporec_driver::hole_summary(source)
     } else {
         None
     }
@@ -1412,7 +1428,7 @@ mod tests {
             let project_dir = tmp.path().join(name);
             create_project(&project_dir, name, project_type).unwrap();
 
-            let result = sporec::compile_project(&project_dir, entry);
+            let result = sporec_driver::compile_project(&project_dir, entry);
             assert!(
                 result.is_ok(),
                 "scaffolded {project_type} project should type-check: {result:?}"

@@ -485,17 +485,21 @@ pub fn build_diagnostics(source: &str) -> Vec<Value> {
 }
 
 pub fn build_diagnostics_for_document(uri: &str, source: &str) -> Vec<Value> {
-    let (source_file, diagnostics) = match sporec::check_source_file(uri, source) {
-        sporec::SourceCheckReport::Success { source, warnings } => (source, warnings),
-        sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Diagnostics {
-            source,
-            diagnostics,
-        }) => (source, diagnostics),
-        sporec::SourceCheckReport::Failure(sporec::SourceCheckFailure::Message(message)) => {
-            let source_file = sporec::source_file(uri, source);
-            let diagnostic = sporec::Diagnostic::new(
+    let (source_file, diagnostics) = match sporec_driver::check_source_file(uri, source) {
+        sporec_driver::SourceCheckReport::Success { source, warnings } => (source, warnings),
+        sporec_driver::SourceCheckReport::Failure(
+            sporec_driver::SourceCheckFailure::Diagnostics {
+                source,
+                diagnostics,
+            },
+        ) => (source, diagnostics),
+        sporec_driver::SourceCheckReport::Failure(sporec_driver::SourceCheckFailure::Message(
+            message,
+        )) => {
+            let source_file = sporec_driver::source_file(uri, source);
+            let diagnostic = sporec_driver::Diagnostic::new(
                 "lsp-diagnostic-message",
-                sporec::CanonicalSeverity::Error,
+                sporec_driver::CanonicalSeverity::Error,
                 message,
             )
             .with_primary_span(source_file.span(0..0));
@@ -503,7 +507,7 @@ pub fn build_diagnostics_for_document(uri: &str, source: &str) -> Vec<Value> {
         }
     };
 
-    sporec::lsp_diagnostics_for_source(&source_file, &diagnostics, uri)
+    sporec_driver::lsp_diagnostics_for_source(&source_file, &diagnostics, uri)
         .into_iter()
         .map(|diagnostic| serde_json::to_value(diagnostic).expect("serialize lsp diagnostic"))
         .collect()

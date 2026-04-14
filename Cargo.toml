@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/spore-cli",
+  "crates/spore",
   "crates/spore-lsp",
-  "crates/sporec",
   "crates/sporec-codegen",
   "crates/sporec-diagnostics",
+  "crates/sporec-driver",
   "crates/sporec-parser",
   "crates/sporec-typeck",
 ]
