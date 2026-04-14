@@ -95,10 +95,12 @@ pub struct Interpreter {
     structs: BTreeMap<String, StructDef>,
     /// Global type definitions
     type_defs: BTreeMap<String, TypeDef>,
+    /// Global named handler definitions.
+    handlers: BTreeMap<String, HandlerDef>,
     /// Effect handlers for capability-gated operations (e.g. I/O).
     effect_handlers: Vec<Box<dyn EffectHandler>>,
     /// Stack of handler frames installed by `handle ... with { ... }`.
-    handler_stack: Vec<Vec<EffectArm>>,
+    handler_stack: Vec<Vec<RuntimeEffectArm>>,
     /// Active task scopes for `parallel_scope`.
     task_scopes: Vec<Vec<TaskHandle>>,
     /// Rotation cursor used to avoid fixed-priority `select` behavior.
@@ -108,6 +110,15 @@ pub struct Interpreter {
 /// A local variable environment (stack of scopes).
 struct Env {
     scopes: Vec<BTreeMap<String, Value>>,
+}
+
+#[derive(Debug, Clone)]
+struct RuntimeEffectArm {
+    effect: String,
+    operation: String,
+    params: Vec<String>,
+    body: Expr,
+    captured_env: BTreeMap<String, Value>,
 }
 
 impl Env {
@@ -171,6 +182,7 @@ impl Interpreter {
             functions: BTreeMap::new(),
             structs: BTreeMap::new(),
             type_defs: BTreeMap::new(),
+            handlers: BTreeMap::new(),
             effect_handlers: Vec::new(),
             handler_stack: Vec::new(),
             task_scopes: Vec::new(),
@@ -236,6 +248,9 @@ impl Interpreter {
                 Item::TypeDef(t) => {
                     self.type_defs.insert(t.name.clone(), t.clone());
                 }
+                Item::HandlerDef(h) => {
+                    self.handlers.insert(h.name.clone(), h.clone());
+                }
                 Item::CapabilityDef(_)
                 | Item::ImplDef(_)
                 | Item::Import(_)
@@ -244,8 +259,7 @@ impl Interpreter {
                 | Item::CapabilityAlias { .. }
                 | Item::TraitDef(_)
                 | Item::EffectDef(_)
-                | Item::EffectAlias(_)
-                | Item::HandlerDef(_) => {}
+                | Item::EffectAlias(_) => {}
             }
         }
     }
@@ -281,9 +295,114 @@ impl Interpreter {
                         .entry(t.name.clone())
                         .or_insert_with(|| t.clone());
                 }
+                Item::HandlerDef(h) => {
+                    let qualified = format!("{module_path}.{}", h.name);
+                    self.handlers.insert(qualified, h.clone());
+                    self.handlers
+                        .entry(h.name.clone())
+                        .or_insert_with(|| h.clone());
+                }
                 _ => {}
             }
         }
+    }
+
+    fn materialize_handle_bindings(
+        &mut self,
+        handlers: &[HandleBinding],
+        env: &mut Env,
+    ) -> Result<Vec<RuntimeEffectArm>> {
+        let mut frame = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+
+        for binding in handlers {
+            match binding {
+                HandleBinding::On(arm) => {
+                    let key = (arm.effect.clone(), arm.operation.clone());
+                    if !seen.insert(key.clone()) {
+                        return Err(RuntimeError::new(format!(
+                            "duplicate handler binding for `{}.{}` in one `with` block",
+                            key.0, key.1
+                        )));
+                    }
+                    frame.push(RuntimeEffectArm {
+                        effect: arm.effect.clone(),
+                        operation: arm.operation.clone(),
+                        params: arm.params.clone(),
+                        body: (*arm.body).clone(),
+                        captured_env: env.snapshot(),
+                    });
+                }
+                HandleBinding::Use(handler_use) => {
+                    let handler_def = self
+                        .handlers
+                        .get(&handler_use.handler)
+                        .cloned()
+                        .ok_or_else(|| {
+                            RuntimeError::new(format!("unknown handler `{}`", handler_use.handler))
+                        })?;
+
+                    let mut payload = BTreeMap::new();
+                    for (field, value_expr) in &handler_use.payload {
+                        let value = self.eval(value_expr, env)?;
+                        payload.insert(field.clone(), value);
+                    }
+                    for field in &handler_def.fields {
+                        if !payload.contains_key(&field.name) {
+                            return Err(RuntimeError::new(format!(
+                                "handler `{}` is missing payload field `{}`",
+                                handler_use.handler, field.name
+                            )));
+                        }
+                    }
+                    for field_name in payload.keys() {
+                        if !handler_def
+                            .fields
+                            .iter()
+                            .any(|field| &field.name == field_name)
+                        {
+                            return Err(RuntimeError::new(format!(
+                                "handler `{}` has no payload field `{field_name}`",
+                                handler_use.handler
+                            )));
+                        }
+                    }
+
+                    let self_value = Value::Struct(handler_def.name.clone(), payload);
+                    let mut captured_env = env.snapshot();
+                    captured_env.insert("self".to_string(), self_value);
+
+                    for method in &handler_def.methods {
+                        let key = (handler_def.effect.clone(), method.name.clone());
+                        if !seen.insert(key.clone()) {
+                            return Err(RuntimeError::new(format!(
+                                "duplicate handler binding for `{}.{}` in one `with` block",
+                                key.0, key.1
+                            )));
+                        }
+                        let Some(body) = &method.body else {
+                            return Err(RuntimeError::new(format!(
+                                "handler `{}` method `{}` has no body",
+                                handler_def.name, method.name
+                            )));
+                        };
+                        frame.push(RuntimeEffectArm {
+                            effect: handler_def.effect.clone(),
+                            operation: method.name.clone(),
+                            params: method
+                                .params
+                                .iter()
+                                .map(|param| param.name.clone())
+                                .collect(),
+                            body: body.clone(),
+                            captured_env: captured_env.clone(),
+                        });
+                    }
+                }
+            }
+        }
+
+        Ok(frame)
     }
 
     /// Register an effect handler for capability-gated operations.
@@ -797,7 +916,7 @@ impl Interpreter {
                     for arm in frame {
                         if arm.effect == *effect && arm.operation == *operation {
                             let arm = arm.clone();
-                            let mut handler_env = Env::new();
+                            let mut handler_env = Env::from_map(arm.captured_env.clone());
                             for (param, val) in arm.params.iter().zip(arg_vals.iter()) {
                                 handler_env.define(param.clone(), val.clone());
                             }
@@ -817,7 +936,8 @@ impl Interpreter {
             }
 
             Expr::Handle { body, handlers } => {
-                self.handler_stack.push(handlers.clone());
+                let frame = self.materialize_handle_bindings(handlers, env)?;
+                self.handler_stack.push(frame);
                 let result = self.eval(body, env);
                 self.handler_stack.pop();
                 result

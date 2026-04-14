@@ -334,7 +334,7 @@ fn test_effect_alias_ast_shape() {
 fn test_handler_item_ast_shape() {
     let m = parse_ok(
         r#"
-        handler MockConsole for Console {
+        handler Console as MockConsole(output: List[Str]) {
             fn println(msg: String) -> Unit { return }
         }
     "#,
@@ -343,6 +343,8 @@ fn test_handler_item_ast_shape() {
         sporec_parser::ast::Item::HandlerDef(handler) => {
             assert_eq!(handler.name, "MockConsole");
             assert_eq!(handler.effect, "Console");
+            assert_eq!(handler.fields.len(), 1);
+            assert_eq!(handler.fields[0].name, "output");
             assert_eq!(handler.methods.len(), 1);
             assert_eq!(handler.methods[0].name, "println");
         }
@@ -1507,7 +1509,7 @@ fn test_parse_handle() {
             handle {
                 perform StdIO.println("hello")
             } with {
-                StdIO.println(msg) => 42
+                on StdIO.println(msg) => 42
             }
         }
         "#,
@@ -1519,9 +1521,14 @@ fn test_parse_handle() {
                 match tail.as_ref() {
                     sporec_parser::ast::Expr::Handle { body: _, handlers } => {
                         assert_eq!(handlers.len(), 1);
-                        assert_eq!(handlers[0].effect, "StdIO");
-                        assert_eq!(handlers[0].operation, "println");
-                        assert_eq!(handlers[0].params, vec!["msg".to_string()]);
+                        match &handlers[0] {
+                            sporec_parser::ast::HandleBinding::On(arm) => {
+                                assert_eq!(arm.effect, "StdIO");
+                                assert_eq!(arm.operation, "println");
+                                assert_eq!(arm.params, vec!["msg".to_string()]);
+                            }
+                            other => panic!("expected inline handler arm, got {other:?}"),
+                        }
                     }
                     other => panic!("expected Handle, got {other:?}"),
                 }
@@ -1541,8 +1548,8 @@ fn test_parse_handle_multiple_arms() {
             handle {
                 42
             } with {
-                StdIO.println(msg) => 0,
-                StdIO.read_line() => "input"
+                on StdIO.println(msg) => 0,
+                on StdIO.read_line() => "input"
             }
         }
         "#,
@@ -1554,9 +1561,64 @@ fn test_parse_handle_multiple_arms() {
                 match tail.as_ref() {
                     sporec_parser::ast::Expr::Handle { handlers, .. } => {
                         assert_eq!(handlers.len(), 2);
-                        assert_eq!(handlers[0].operation, "println");
-                        assert_eq!(handlers[1].operation, "read_line");
-                        assert!(handlers[1].params.is_empty());
+                        match (&handlers[0], &handlers[1]) {
+                            (
+                                sporec_parser::ast::HandleBinding::On(first),
+                                sporec_parser::ast::HandleBinding::On(second),
+                            ) => {
+                                assert_eq!(first.operation, "println");
+                                assert_eq!(second.operation, "read_line");
+                                assert!(second.params.is_empty());
+                            }
+                            other => panic!("expected inline handler arms, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected Handle, got {other:?}"),
+                }
+            } else {
+                panic!("expected block with tail");
+            }
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_parse_handle_named_and_inline_bindings() {
+    let m = parse_ok(
+        r#"
+        fn main() {
+            handle {
+                perform Math.double(21)
+            } with {
+                use DoubleMath { multiplier: 2 },
+                on Console.println(msg) => 0
+            }
+        }
+        "#,
+    );
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            let body = f.body.as_ref().unwrap();
+            if let sporec_parser::ast::Expr::Block(_, Some(tail)) = body {
+                match tail.as_ref() {
+                    sporec_parser::ast::Expr::Handle { handlers, .. } => {
+                        assert_eq!(handlers.len(), 2);
+                        match &handlers[0] {
+                            sporec_parser::ast::HandleBinding::Use(binding) => {
+                                assert_eq!(binding.handler, "DoubleMath");
+                                assert_eq!(binding.payload.len(), 1);
+                                assert_eq!(binding.payload[0].0, "multiplier");
+                            }
+                            other => panic!("expected named handler use, got {other:?}"),
+                        }
+                        match &handlers[1] {
+                            sporec_parser::ast::HandleBinding::On(arm) => {
+                                assert_eq!(arm.effect, "Console");
+                                assert_eq!(arm.operation, "println");
+                            }
+                            other => panic!("expected inline handler arm, got {other:?}"),
+                        }
                     }
                     other => panic!("expected Handle, got {other:?}"),
                 }

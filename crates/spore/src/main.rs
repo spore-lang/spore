@@ -1220,6 +1220,66 @@ fn is_valid_type(t: &str) -> bool {
     matches!(t, "application" | "package" | "platform")
 }
 
+const BASIC_CLI_SCAFFOLD_MANIFEST: &str = "\
+[package]
+name = \"basic-cli\"
+version = \"0.1.0\"
+type = \"platform\"
+spore-version = \">=0.1.0\"
+
+[platform]
+contract-module = \"platform_contract\"
+startup-contract = \"main\"
+adapter-function = \"main_for_host\"
+handles = [\"Console\", \"FileRead\", \"FileWrite\", \"Env\", \"Spawn\"]
+
+[capabilities]
+allow = [\"Compute\"]
+
+[dependencies]
+";
+
+const BASIC_CLI_SCAFFOLD_CONTRACT: &str = "\
+/// Platform contract module for `basic-cli`.
+/// Applications targeting this Platform must implement the same `main`
+/// signature in their entry module.
+pub fn main() -> () {
+    ?platform_startup_contract
+}
+
+/// Platform-owned startup adapter.
+pub fn main_for_host(app_main: () -> ()) -> () {
+    app_main()
+    return
+}
+";
+
+const BASIC_CLI_SCAFFOLD_STDOUT: &str = "\
+/// basic-cli platform — Standard output operations
+pub foreign fn println(s: Str) -> () uses [Console]
+";
+
+fn write_basic_cli_scaffold(dir: &Path) -> std::io::Result<()> {
+    let basic_cli_root = dir.join("vendor").join("basic-cli");
+    std::fs::create_dir_all(basic_cli_root.join("src").join("basic_cli"))?;
+    std::fs::write(
+        basic_cli_root.join("spore.toml"),
+        BASIC_CLI_SCAFFOLD_MANIFEST,
+    )?;
+    std::fs::write(
+        basic_cli_root.join("src").join("platform_contract.sp"),
+        BASIC_CLI_SCAFFOLD_CONTRACT,
+    )?;
+    std::fs::write(
+        basic_cli_root
+            .join("src")
+            .join("basic_cli")
+            .join("stdout.sp"),
+        BASIC_CLI_SCAFFOLD_STDOUT,
+    )?;
+    Ok(())
+}
+
 fn create_project(dir: &Path, name: &str, project_type: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(dir.join("src"))?;
 
@@ -1234,15 +1294,19 @@ spore-version = \">=0.1.0\"
     );
     let project_config = match project_type {
         "application" => {
-            "\n[project]\nplatform = \"cli\"\ndefault-entry = \"app\"\n\n[entries.app]\npath = \"main.sp\"\n".to_string()
+            "\n[project]\nplatform = \"basic-cli\"\ndefault-entry = \"app\"\n\n[entries.app]\npath = \"main.sp\"\n".to_string()
         }
         "platform" => {
             "\n[project]\nplatform = \"cli\"\ndefault-entry = \"host\"\n\n[entries.host]\npath = \"host.sp\"\n".to_string()
         }
         _ => String::new(),
     };
+    let dependencies = match project_type {
+        "application" => "basic-cli = { path = \"vendor/basic-cli\" }\n",
+        _ => "",
+    };
     let toml = format!(
-        "{manifest_header}{project_config}\n[capabilities]\nallow = [\"Compute\"]\n\n[dependencies]\n"
+        "{manifest_header}{project_config}\n[capabilities]\nallow = [\"Compute\"]\n\n[dependencies]\n{dependencies}"
     );
     std::fs::write(dir.join("spore.toml"), toml)?;
 
@@ -1259,10 +1323,15 @@ spore-version = \">=0.1.0\"
         ),
         _ => (
             "main.sp",
-            format!("fn main() -> () {{\n    println(\"Hello from {name}!\");\n    return\n}}\n"),
+            format!(
+                "import basic_cli.stdout\n\nfn main() -> () uses [Console] {{\n    println(\"Hello from {name}!\")\n    return\n}}\n"
+            ),
         ),
     };
     std::fs::write(dir.join("src").join(filename), content)?;
+    if project_type == "application" {
+        write_basic_cli_scaffold(dir)?;
+    }
     std::fs::write(dir.join(".gitignore"), "/target\n/.spore-store\n")?;
     Ok(())
 }
@@ -1283,8 +1352,24 @@ mod tests {
         assert!(toml.contains("name = \"my-app\""));
         assert!(toml.contains("type = \"application\""));
         assert!(toml.contains("[project]"));
+        assert!(toml.contains("platform = \"basic-cli\""));
         assert!(toml.contains("default-entry = \"app\""));
         assert!(toml.contains("[entries.app]"));
+        assert!(toml.contains("basic-cli = { path = \"vendor/basic-cli\" }"));
+        assert!(project_dir.join("vendor/basic-cli/spore.toml").exists());
+        assert!(
+            project_dir
+                .join("vendor/basic-cli/src/platform_contract.sp")
+                .exists()
+        );
+        assert!(
+            project_dir
+                .join("vendor/basic-cli/src/basic_cli/stdout.sp")
+                .exists()
+        );
+        let main = fs::read_to_string(project_dir.join("src/main.sp")).unwrap();
+        assert!(main.contains("import basic_cli.stdout"));
+        assert!(main.contains("uses [Console]"));
     }
 
     #[test]

@@ -18,10 +18,11 @@ Spore is a compiled language where function signatures are "gravity centers" —
 
 - Modules come only from file paths; there is no `module ...` header.
 - Capability checks live on function signatures and package/Platform boundaries only; source files have no module-level `uses` carrier.
-- Stable generic bounds use repeated single-bound clauses: `where T: Trait`.
-- Error sets are checked contracts: `throw expr` must match the current `! [...]`, calling a throwing function requires compatible caller errors, and `?` is propagation sugar.
-- Primitive syntax is `I32`/`I64`/`U32`/`U64`/`F32`/`F64`/`Bool`/`Char`/`Str`/`()`. Hole syntax stays at the richer docs target in the syntax spec.
-- Active concurrency docs target `parallel_scope { ... }`, `spawn { ... }`, postfix `task.await`, `Channel.new[...]`, and `select { ... timeout(...) => ... }`.
+- Stable generic bounds use a single comma-separated clause: `where T: Trait, U: Trait`.
+- Effect operations use explicit `effect` declarations plus `perform Effect.op(...)`; reusable unions use `effect Name = A | B`.
+- Error sets are checked contracts: `throw expr` must match the current `! E1 | E2`, calling a throwing function requires compatible caller errors, and `?` is propagation sugar.
+- Current implementation primitives are `I32`/`I64`/`U32`/`U64`/`F32`/`F64`/`Bool`/`Char`/`Str`/`()`. The locked surface also keeps `Int`/`Float` as `I64`/`F64` aliases; implementation catch-up is tracked separately.
+- The live structured-concurrency surface includes `parallel_scope { ... }`, `spawn { ... }`, postfix `task.await`, `Channel.new[...]`, and `select { ... timeout(...) => ... }`.
 
 ## Quick Start
 
@@ -78,34 +79,39 @@ fn main() -> I32 {
 ### Capabilities, Costs, and Error Sets
 
 These annotations are part of the function signature — the compiler verifies
-capabilities, cost budgets, and checked error contracts at call boundaries.
-`throw expr` must be covered by the current function's `! [...]`, calling a
-`! [...]` function requires a compatible caller signature, and `?` is sugar for
+capabilities, cost budgets, checked error contracts, and explicit effect
+surfaces at call boundaries. `throw expr` must be covered by the current
+function's `! E1 | E2`, calling a throwing function requires a compatible
+caller signature, and `?` is sugar for
 that propagation rule.
 
 The parser accepts `where`, `uses`, `cost`, and `spec` clauses in any order.
 Documentation examples use the canonical order: `where`, `uses`, `cost`, `spec`,
-and stable `where` syntax is the single-bound form `where T: Trait` (repeat
-clauses as needed). Active cost syntax is the fixed-order vector
+and stable `where` syntax is a single comma-separated clause such as
+`where T: Trait, U: Trait`. Active cost syntax is the fixed-order vector
 `cost [compute, alloc, io, parallel]`; each slot currently uses the minimal
 subset only: integer constants, parameter variables, or linear `O(n)` terms.
 Old scalar `cost <= expr`, `log`/`max`/`min`, and richer algebraic terms are
 deferred.
 
 ```spore
-fn fetch(url: Str) -> Str ! [NetError, Timeout]
-    uses [NetRead]
+effect NetConnect {
+    fn fetch(url: Str) -> Str ! NetError | Timeout
+}
+
+fn fetch(url: Str) -> Str ! NetError | Timeout
+    uses [NetConnect]
     cost [1, 0, 1, 0]
 {
-    ?todo
+    perform NetConnect.fetch(url)
 }
 ```
 
-### Parallel Fetch (Design Intent — not yet runnable)
+### Parallel Fetch
 
 ```spore
-fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! [NetError, Timeout]
-    uses [NetRead, Spawn]
+fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! NetError | Timeout
+    uses [NetConnect, Spawn]
     cost [O(n), O(n), n, n]
 {
     parallel_scope {
@@ -115,10 +121,10 @@ fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! [NetError, Timeout]
 }
 ```
 
-> This illustrates the target syntax for structured concurrency with capability
-> propagation. The parser accepts it but the interpreter cannot execute it yet.
-> Until richer cost-slot terms land, examples use explicit parameters such as
-> `n` instead of projections like `urls.len`.
+> This is part of the live structured-concurrency surface: the parser,
+> typechecker, and interpreter all cover the current `parallel_scope` / `spawn`
+> / `await` / `select` subset. Until richer cost-slot terms land, examples use
+> explicit parameters such as `n` instead of projections like `urls.len`.
 > The same active-docs target also uses `Channel.new[...]` and
 > `select { msg from rx => ..., timeout(5.seconds) => ... }`.
 
@@ -161,7 +167,7 @@ spore (stateful codebase manager — handles IO / project workflow)
 
 ## Project Status
 
-**Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, and cost analysis. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, and try-operator support.
+**Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, cost analysis, and the current structured-concurrency subset. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, try-operator support, and the current structured-concurrency runtime.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. Topic-level normative proposals live in the sibling `spore-evolution/seps/` repo.
 

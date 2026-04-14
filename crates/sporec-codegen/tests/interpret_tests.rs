@@ -838,7 +838,7 @@ fn test_handle_handler_sees_args() {
             handle {
                 perform Math.double(21)
             } with {
-                Math.double(x) => x + x
+                on Math.double(x) => x + x
             }
         }
         "#,
@@ -854,9 +854,57 @@ fn test_handler_result_becomes_perform_value() {
             let doubled = handle {
                 perform Math.double(21)
             } with {
-                Math.double(x) => x + x
+                on Math.double(x) => x + x
             }
             doubled
+        }
+        "#,
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_named_handler_instance_uses_payload_and_self() {
+    let v = run_main(
+        r#"
+        effect Math {
+            fn double(x: Int) -> Int
+        }
+        handler Math as DoubleMath(multiplier: Int) {
+            fn double(x: Int) -> Int {
+                x * self.multiplier
+            }
+        }
+        fn main() -> Int {
+            handle {
+                perform Math.double(21)
+            } with {
+                use DoubleMath { multiplier: 2 }
+            }
+        }
+        "#,
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_named_handler_and_inline_on_can_mix_for_different_effects() {
+    let v = run_main(
+        r#"
+        effect Math {
+            fn double(x: Int) -> Int
+        }
+        handler Math as DoubleMath(multiplier: Int) {
+            fn double(x: Int) -> Int { x * self.multiplier }
+        }
+        fn main() -> Int {
+            handle {
+                perform StdIO.println("hello")
+                perform Math.double(21)
+            } with {
+                use DoubleMath { multiplier: 2 },
+                on StdIO.println(msg) => 0
+            }
         }
         "#,
     );

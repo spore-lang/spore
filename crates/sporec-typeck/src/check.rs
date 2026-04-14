@@ -5,7 +5,7 @@
 
 use sporec_parser::ast::*;
 
-use crate::env::{Env, TypeRegistry};
+use crate::env::{Env, HandlerInfo, TypeRegistry};
 use crate::error::{ErrorCode, TypeError};
 use crate::hole::{HoleDependencyGraph, HoleInfo, HoleReport};
 use crate::module::{ImportedSymbol, ModuleError, ModuleRegistry};
@@ -27,6 +27,10 @@ fn find_missing_set_items<'a>(
         .filter(|item| !current_set.contains(*item))
         .map(|s| s.as_str())
         .collect()
+}
+
+fn handler_self_type_name(name: &str) -> String {
+    format!("__handler::{name}")
 }
 
 pub struct Checker {
@@ -272,6 +276,22 @@ impl Checker {
                             .insert(name.clone(), type_params.clone());
                     }
                 }
+                ImportedSymbol::Handler => {
+                    if let Some(handler) = module.handlers.get(name) {
+                        if let Some(existing) = self.registry.handlers.get(name)
+                            && existing != handler
+                        {
+                            self.err(
+                                ErrorCode::M0303,
+                                format!(
+                                    "ambiguous import: `{name}` is exported by multiple imported modules"
+                                ),
+                            );
+                            continue;
+                        }
+                        self.registry.handlers.insert(name.clone(), handler.clone());
+                    }
+                }
                 ImportedSymbol::Capability => {
                     if module.capabilities.contains(name) {
                         self.registry
@@ -508,6 +528,11 @@ impl Checker {
                     self.err(ErrorCode::C0002, format!("unknown effect `{}`", hd.effect));
                     return;
                 }
+                let fields: Vec<(String, Ty)> = hd
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.clone(), self.resolve_type(&field.ty)))
+                    .collect();
                 let methods: Vec<(String, Vec<Ty>, Ty)> = hd
                     .methods
                     .iter()
@@ -522,6 +547,17 @@ impl Checker {
                         (m.name.clone(), param_tys, ret_ty)
                     })
                     .collect();
+                self.registry.handlers.insert(
+                    hd.name.clone(),
+                    HandlerInfo {
+                        effect: hd.effect.clone(),
+                        fields: fields.clone(),
+                        methods: methods.clone(),
+                    },
+                );
+                self.registry
+                    .structs
+                    .insert(handler_self_type_name(&hd.name), fields);
                 self.registry
                     .impls
                     .insert((hd.effect.clone(), hd.name.clone()), methods);
@@ -557,6 +593,7 @@ impl Checker {
         contract_noun: &str,
         span: Option<Span>,
         type_mapping: &HashMap<String, Ty>,
+        extra_bindings: &[(String, Ty)],
     ) {
         for (method_name, _expected_params, _expected_ret) in contract_methods {
             if !methods.iter().any(|m| &m.name == method_name) {
@@ -643,7 +680,7 @@ impl Checker {
         }
 
         for method in methods {
-            self.check_fn(method);
+            self.check_fn_with_extra_bindings(method, extra_bindings);
         }
     }
 
@@ -691,6 +728,7 @@ impl Checker {
             "capability",
             impl_def.span,
             &type_mapping,
+            &[],
         );
     }
 
@@ -705,6 +743,8 @@ impl Checker {
             "handler `{}` for effect `{}`",
             handler_def.name, handler_def.effect
         );
+        let self_ty = Ty::Named(handler_self_type_name(&handler_def.name));
+        let extra_bindings = vec![("self".to_string(), self_ty)];
         self.check_contract_impl(
             &handler_def.effect,
             &effect_methods,
@@ -714,10 +754,15 @@ impl Checker {
             "effect",
             handler_def.span,
             &HashMap::new(),
+            &extra_bindings,
         );
     }
 
     fn check_fn(&mut self, f: &FnDef) {
+        self.check_fn_with_extra_bindings(f, &[]);
+    }
+
+    fn check_fn_with_extra_bindings(&mut self, f: &FnDef, extra_bindings: &[(String, Ty)]) {
         self.concurrency.enter_function(&f.name);
         // Set current function's capability set (with hierarchy expansion)
         let prev_caps = std::mem::replace(
@@ -773,6 +818,9 @@ impl Checker {
         // Bind parameters
         for (param, ty) in f.params.iter().zip(declared_param_tys.into_iter()) {
             self.env.define(param.name.clone(), ty);
+        }
+        for (name, ty) in extra_bindings {
+            self.env.define(name.clone(), ty.clone());
         }
 
         // Check body if present
@@ -1432,19 +1480,122 @@ impl Checker {
             }
 
             Expr::Handle { body, handlers } => {
-                // The handler arms provide capabilities to the body.
-                // For each arm, collect provided capabilities and add to scope.
                 let mut provided_caps: CapSet = std::collections::BTreeSet::new();
-                for arm in handlers {
-                    provided_caps.insert(arm.effect.clone());
+                let mut seen_operations: HashSet<(String, String)> = HashSet::new();
+
+                for binding in handlers {
+                    match binding {
+                        HandleBinding::On(arm) => {
+                            provided_caps.insert(arm.effect.clone());
+                            let key = (arm.effect.clone(), arm.operation.clone());
+                            if !seen_operations.insert(key.clone()) {
+                                self.err(
+                                    ErrorCode::E0014,
+                                    format!(
+                                        "duplicate handler binding for `{}.{}` in one `with` block",
+                                        key.0, key.1
+                                    ),
+                                );
+                            }
+                        }
+                        HandleBinding::Use(handler_use) => {
+                            let Some(info) =
+                                self.registry.handlers.get(&handler_use.handler).cloned()
+                            else {
+                                self.err(
+                                    ErrorCode::C0002,
+                                    format!("unknown handler `{}`", handler_use.handler),
+                                );
+                                continue;
+                            };
+
+                            provided_caps.insert(info.effect.clone());
+                            for (operation, _, _) in &info.methods {
+                                let key = (info.effect.clone(), operation.clone());
+                                if !seen_operations.insert(key.clone()) {
+                                    self.err(
+                                        ErrorCode::E0014,
+                                        format!(
+                                            "duplicate handler binding for `{}.{}` in one `with` block",
+                                            key.0, key.1
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
+
+                for binding in handlers {
+                    if let HandleBinding::Use(handler_use) = binding {
+                        let Some(info) = self.registry.handlers.get(&handler_use.handler).cloned()
+                        else {
+                            continue;
+                        };
+
+                        let mut seen_fields = HashSet::new();
+                        for (field_name, value_expr) in &handler_use.payload {
+                            if !seen_fields.insert(field_name.clone()) {
+                                self.err(
+                                    ErrorCode::E0015,
+                                    format!(
+                                        "duplicate payload field `{field_name}` in handler `{}`",
+                                        handler_use.handler
+                                    ),
+                                );
+                            }
+
+                            let value_ty = self.check_expr(value_expr);
+                            if let Some((_, expected_ty)) =
+                                info.fields.iter().find(|(name, _)| name == field_name)
+                            {
+                                self.unify(
+                                    expected_ty,
+                                    &value_ty,
+                                    &format!(
+                                        "payload field `{field_name}` for handler `{}`",
+                                        handler_use.handler
+                                    ),
+                                );
+                            } else {
+                                self.err(
+                                    ErrorCode::E0015,
+                                    format!(
+                                        "handler `{}` has no payload field `{field_name}`",
+                                        handler_use.handler
+                                    ),
+                                );
+                            }
+                        }
+
+                        for (field_name, _) in &info.fields {
+                            if !handler_use
+                                .payload
+                                .iter()
+                                .any(|(name, _)| name == field_name)
+                            {
+                                self.err(
+                                    ErrorCode::E0101,
+                                    format!(
+                                        "handler `{}` is missing payload field `{field_name}`",
+                                        handler_use.handler
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+
                 let prev_caps = self.current_caps.clone();
                 self.current_caps.extend(provided_caps);
 
                 let body_ty = self.check_expr(body);
 
-                // Check handler arm bodies
-                for arm in handlers {
+                for binding in handlers {
+                    let HandleBinding::On(arm) = binding else {
+                        continue;
+                    };
+
                     self.env.push_scope();
                     if self.registry.capabilities.contains_key(&arm.effect) {
                         if let Some((param_tys, ret_ty)) =
@@ -1650,7 +1801,14 @@ impl Checker {
                 Self::count_spawns(body)
                     + handlers
                         .iter()
-                        .map(|arm| Self::count_spawns(&arm.body))
+                        .map(|binding| match binding {
+                            HandleBinding::Use(handler_use) => handler_use
+                                .payload
+                                .iter()
+                                .map(|(_, expr)| Self::count_spawns(expr))
+                                .sum(),
+                            HandleBinding::On(arm) => Self::count_spawns(&arm.body),
+                        })
                         .sum::<usize>()
             }
             Expr::Perform { args, .. } => args.iter().map(|arg| Self::count_spawns(arg)).sum(),
