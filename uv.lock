@@ -3,5 +3,5 @@ revision = 3
 requires-python = ">=3.8"
 
 [[package]]
-name = "spore-cli"
+name = "spore"
 source = { editable = "." }
