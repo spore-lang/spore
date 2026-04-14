@@ -64,6 +64,14 @@ impl Default for Env {
     }
 }
 
+/// Registered signature information for a named handler.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HandlerInfo {
+    pub effect: String,
+    pub fields: Vec<(String, Ty)>,
+    pub methods: Vec<(String, Vec<Ty>, Ty)>,
+}
+
 /// Top-level type registry — struct definitions, type defs, function signatures.
 #[derive(Debug, Clone, Default)]
 pub struct TypeRegistry {
@@ -89,4 +97,6 @@ pub struct TypeRegistry {
     pub impls: HashMap<(String, String), Vec<(String, Vec<Ty>, Ty)>>,
     /// Type aliases: name → resolved Ty (supports refinement aliases like `alias Port = Int when ...`)
     pub type_aliases: HashMap<String, Ty>,
+    /// Named handlers: handler name → handler metadata.
+    pub handlers: HashMap<String, HandlerInfo>,
 }

@@ -279,10 +279,11 @@ pub enum Expr {
         operation: String,
         args: Vec<Box<Expr>>,
     },
-    /// `handle { body } with { StdIO.println(msg) => { ... } }` — install handlers.
+    /// `handle { body } with { use HostConsole {}, on Console.println(msg) => { ... } }`
+    /// — install named and/or inline handlers.
     Handle {
         body: Box<Expr>,
-        handlers: Vec<EffectArm>,
+        handlers: Vec<HandleBinding>,
     },
     /// Placeholder for partial application — desugared to lambda parameter.
     /// `f(_, 2)` desugars to `|_p0| f(_p0, 2)`.
@@ -291,7 +292,21 @@ pub enum Expr {
     Placeholder,
 }
 
-/// A single effect handler arm in a `handle` expression.
+/// A single item inside a `handle ... with { ... }` block.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HandleBinding {
+    Use(HandlerUse),
+    On(EffectArm),
+}
+
+/// Install a named handler instance with explicit payload initialization.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HandlerUse {
+    pub handler: String,
+    pub payload: Vec<(String, Expr)>,
+}
+
+/// A single inline effect handler arm in a `handle` expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EffectArm {
     pub effect: String,
@@ -471,7 +486,7 @@ pub struct EffectAlias {
     pub span: Option<Span>,
 }
 
-/// Handler implementation: `handler MockConsole for Console { ... }`
+/// Handler implementation: `handler Console as MockConsole(prefix: Str) { ... }`
 #[derive(Debug, Clone)]
 pub struct HandlerDef {
     pub name: String,

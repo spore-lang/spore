@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use sporec_parser::ast::{self, BinOp, Expr, FnDef, Item, Module, SelectArm, Stmt};
+use sporec_parser::ast::{self, BinOp, Expr, FnDef, HandleBinding, Item, Module, SelectArm, Stmt};
 
 /// Cost expression — a symbolic representation of computational cost.
 ///
@@ -477,11 +477,20 @@ impl CostAnalyzer {
 
             // Handle: body cost + max(handler arm costs)
             Expr::Handle { body, handlers } => {
-                let body_cost = self.analyze_expr_cost(body);
+                let mut body_cost = self.analyze_expr_cost(body);
                 let mut max_arm = CostVector::zero();
-                for arm in handlers {
-                    let arm_cost = self.analyze_expr_cost(&arm.body);
-                    max_arm = max_arm.max(&arm_cost);
+                for binding in handlers {
+                    match binding {
+                        HandleBinding::Use(handler_use) => {
+                            for (_, value) in &handler_use.payload {
+                                body_cost = body_cost.seq(&self.analyze_expr_cost(value));
+                            }
+                        }
+                        HandleBinding::On(arm) => {
+                            let arm_cost = self.analyze_expr_cost(&arm.body);
+                            max_arm = max_arm.max(&arm_cost);
+                        }
+                    }
                 }
                 body_cost.seq(&max_arm)
             }
@@ -778,8 +787,15 @@ where
         }
         Expr::Handle { body, handlers } => {
             walk_expr(body, on_call);
-            for arm in handlers {
-                walk_expr(&arm.body, on_call);
+            for binding in handlers {
+                match binding {
+                    HandleBinding::Use(handler_use) => {
+                        for (_, expr) in &handler_use.payload {
+                            walk_expr(expr, on_call);
+                        }
+                    }
+                    HandleBinding::On(arm) => walk_expr(&arm.body, on_call),
+                }
             }
         }
         // Leaves — no recursion

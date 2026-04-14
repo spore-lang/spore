@@ -195,6 +195,38 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                 iface.capabilities.insert(cap.name.clone());
                 iface.set_visibility(&cap.name, SymbolVisibility::from(&cap.visibility));
             }
+            Item::HandlerDef(handler) => {
+                let fields = handler
+                    .fields
+                    .iter()
+                    .map(|field| (field.name.clone(), checker.resolve_type(&field.ty)))
+                    .collect();
+                let methods = handler
+                    .methods
+                    .iter()
+                    .map(|method| {
+                        let param_tys = method
+                            .params
+                            .iter()
+                            .map(|param| checker.resolve_type(&param.ty))
+                            .collect();
+                        let ret_ty = method
+                            .return_type
+                            .as_ref()
+                            .map(|ty| checker.resolve_type(ty))
+                            .unwrap_or(types::Ty::Unit);
+                        (method.name.clone(), param_tys, ret_ty)
+                    })
+                    .collect();
+                iface.handlers.insert(
+                    handler.name.clone(),
+                    env::HandlerInfo {
+                        effect: handler.effect.clone(),
+                        fields,
+                        methods,
+                    },
+                );
+            }
             _ => {}
         }
     }

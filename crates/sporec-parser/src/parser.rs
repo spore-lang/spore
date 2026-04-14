@@ -184,6 +184,20 @@ impl Parser {
         }
     }
 
+    fn at_contextual_ident(&self, expected: &str) -> bool {
+        matches!(self.peek(), Token::Ident(name) if name == expected)
+    }
+
+    fn parse_qualified_ident(&mut self) -> Result<String, ParseError> {
+        let mut name = self.expect_ident()?;
+        while self.at(&Token::Dot) {
+            self.advance();
+            let seg = self.expect_ident()?;
+            name = format!("{name}.{seg}");
+        }
+        Ok(name)
+    }
+
     fn error(&self, message: String) -> ParseError {
         ParseError {
             message,
@@ -1018,15 +1032,39 @@ impl Parser {
     fn parse_handler_item(&mut self) -> Result<Item, ParseError> {
         let start = self.peek_span().start;
         self.expect(&Token::Handler)?;
-        let name = self.expect_ident()?;
+        let first = self.expect_ident()?;
+        let (effect, name) = if self.at(&Token::As) {
+            self.advance();
+            let name = self.expect_ident()?;
+            (first, name)
+        } else {
+            // Compatibility path: `handler Name for Effect { ... }`
+            let next = self.expect_ident()?;
+            if next != "for" {
+                return Err(self.error(format!(
+                    "expected `as` or legacy `for` after handler head, got `{next}`"
+                )));
+            }
+            let effect = self.expect_ident()?;
+            (effect, first)
+        };
 
-        // Expect `for` (parsed as identifier, same pattern as impl)
-        let next = self.expect_ident()?;
-        if next != "for" {
-            return Err(self.error(format!("expected `for` after handler name, got `{next}`")));
-        }
-
-        let effect = self.expect_ident()?;
+        let fields = if self.at(&Token::LParen) {
+            self.advance();
+            let fields = self.parse_comma_sep(
+                |p| {
+                    let name = p.expect_ident()?;
+                    p.expect(&Token::Colon)?;
+                    let ty = p.parse_type_expr()?;
+                    Ok(FieldDef { name, ty })
+                },
+                &Token::RParen,
+            )?;
+            self.expect(&Token::RParen)?;
+            fields
+        } else {
+            vec![]
+        };
 
         self.expect(&Token::LBrace)?;
         let mut methods = Vec::new();
@@ -1040,7 +1078,7 @@ impl Parser {
         Ok(Item::HandlerDef(HandlerDef {
             name,
             effect,
-            fields: vec![],
+            fields,
             methods,
             span: Some(Span::new(start, end)),
         }))
@@ -1699,20 +1737,7 @@ impl Parser {
         self.expect(&Token::LBrace)?;
         let mut handlers = Vec::new();
         while !self.at(&Token::RBrace) && !self.at_eof() {
-            let effect = self.expect_ident()?;
-            self.expect(&Token::Dot)?;
-            let operation = self.expect_ident()?;
-            self.expect(&Token::LParen)?;
-            let params = self.parse_comma_sep(|p| p.expect_ident(), &Token::RParen)?;
-            self.expect(&Token::RParen)?;
-            self.expect(&Token::FatArrow)?;
-            let arm_body = self.parse_expr()?;
-            handlers.push(EffectArm {
-                effect,
-                operation,
-                params,
-                body: Box::new(arm_body),
-            });
+            handlers.push(self.parse_handle_binding()?);
             if self.at(&Token::Comma) {
                 self.advance();
             }
@@ -1721,6 +1746,47 @@ impl Parser {
         Ok(Expr::Handle {
             body: Box::new(body),
             handlers,
+        })
+    }
+
+    fn parse_handle_binding(&mut self) -> Result<HandleBinding, ParseError> {
+        if self.at_contextual_ident("use") {
+            self.advance();
+            let handler = self.parse_qualified_ident()?;
+            self.expect(&Token::LBrace)?;
+            let payload = self.parse_comma_sep(
+                |p| {
+                    let field = p.expect_ident()?;
+                    p.expect(&Token::Colon)?;
+                    let value = p.parse_expr()?;
+                    Ok((field, value))
+                },
+                &Token::RBrace,
+            )?;
+            self.expect(&Token::RBrace)?;
+            Ok(HandleBinding::Use(HandlerUse { handler, payload }))
+        } else {
+            if self.at_contextual_ident("on") {
+                self.advance();
+            }
+            Ok(HandleBinding::On(self.parse_effect_arm()?))
+        }
+    }
+
+    fn parse_effect_arm(&mut self) -> Result<EffectArm, ParseError> {
+        let effect = self.expect_ident()?;
+        self.expect(&Token::Dot)?;
+        let operation = self.expect_ident()?;
+        self.expect(&Token::LParen)?;
+        let params = self.parse_comma_sep(|p| p.expect_ident(), &Token::RParen)?;
+        self.expect(&Token::RParen)?;
+        self.expect(&Token::FatArrow)?;
+        let arm_body = self.parse_expr()?;
+        Ok(EffectArm {
+            effect,
+            operation,
+            params,
+            body: Box::new(arm_body),
         })
     }
 
