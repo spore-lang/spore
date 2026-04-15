@@ -157,14 +157,14 @@ fn check_verbose_uses_cost_vector_syntax() {
 fn check_verbose_hides_synthetic_hole_names() {
     let output = check_verbose(
         r#"
-        fn f() -> Int {
+        fn f() -> I32 {
             ?
         }
     "#,
     )
     .unwrap();
     assert!(
-        output.contains("?: expected Int"),
+        output.contains("?: expected I32"),
         "verbose output should render unnamed holes as `?`, got: {output}"
     );
     assert!(
@@ -177,14 +177,14 @@ fn check_verbose_hides_synthetic_hole_names() {
 fn check_verbose_keeps_user_named_hole_names() {
     let output = check_verbose(
         r#"
-        fn f() -> Int {
+        fn f() -> I32 {
             ?_hole_manual
         }
     "#,
     )
     .unwrap();
     assert!(
-        output.contains("?_hole_manual: expected Int"),
+        output.contains("?_hole_manual: expected I32"),
         "verbose output should keep user-authored hole names, got: {output}"
     );
 }
