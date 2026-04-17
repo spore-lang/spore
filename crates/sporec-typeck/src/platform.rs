@@ -227,6 +227,7 @@ pub struct PlatformStartupError {
 pub enum PlatformStartupErrorKind {
     MissingStartupFunction,
     WrongStartupSignature,
+    UnsupportedCapability,
     InvalidPlatformContract,
 }
 

@@ -147,7 +147,6 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
             break;
         }
     }
-
     for item in &module.items {
         match item {
             Item::Function(f) => {
@@ -162,6 +161,41 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     .map(|t| checker.resolve_type(t))
                     .unwrap_or(types::Ty::Unit);
                 iface.functions.insert(f.name.clone(), (param_tys, ret_ty));
+                iface.function_caps.insert(
+                    f.name.clone(),
+                    checker.declared_capabilities(f.uses_clause.as_ref()),
+                );
+                if !f.errors.is_empty() {
+                    let error_set: types::ErrorSet = f
+                        .errors
+                        .iter()
+                        .filter_map(|te| match te {
+                            sporec_parser::ast::TypeExpr::Named(name) => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect();
+                    iface.function_errors.insert(f.name.clone(), error_set);
+                }
+                let mut type_params = f.type_params.clone();
+                if let Some(wc) = &f.where_clause {
+                    type_params.extend(wc.constraints.iter().map(|c| c.type_var.clone()));
+                    if !wc.constraints.is_empty() {
+                        iface.function_where_bounds.insert(
+                            f.name.clone(),
+                            wc.constraints
+                                .iter()
+                                .map(|c| (c.type_var.clone(), c.bound.clone()))
+                                .collect(),
+                        );
+                    }
+                }
+                type_params.sort();
+                type_params.dedup();
+                if !type_params.is_empty() {
+                    iface
+                        .function_type_params
+                        .insert(f.name.clone(), type_params);
+                }
                 iface.set_visibility(&f.name, SymbolVisibility::from(&f.visibility));
             }
             Item::StructDef(s) => {
@@ -193,7 +227,86 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
             }
             Item::CapabilityDef(cap) => {
                 iface.capabilities.insert(cap.name.clone());
+                iface.capability_methods.insert(
+                    cap.name.clone(),
+                    (
+                        cap.type_params.clone(),
+                        cap.methods
+                            .iter()
+                            .map(|method| {
+                                let param_tys = method
+                                    .params
+                                    .iter()
+                                    .map(|param| checker.resolve_type(&param.ty))
+                                    .collect();
+                                let ret_ty = method
+                                    .return_type
+                                    .as_ref()
+                                    .map(|ty| checker.resolve_type(ty))
+                                    .unwrap_or(types::Ty::Unit);
+                                (method.name.clone(), param_tys, ret_ty)
+                            })
+                            .collect(),
+                    ),
+                );
                 iface.set_visibility(&cap.name, SymbolVisibility::from(&cap.visibility));
+            }
+            Item::TraitDef(trait_def) => {
+                iface.capabilities.insert(trait_def.name.clone());
+                iface.capability_methods.insert(
+                    trait_def.name.clone(),
+                    (
+                        trait_def.type_params.clone(),
+                        trait_def
+                            .methods
+                            .iter()
+                            .map(|method| {
+                                let param_tys = method
+                                    .params
+                                    .iter()
+                                    .map(|param| checker.resolve_type(&param.ty))
+                                    .collect();
+                                let ret_ty = method
+                                    .return_type
+                                    .as_ref()
+                                    .map(|ty| checker.resolve_type(ty))
+                                    .unwrap_or(types::Ty::Unit);
+                                (method.name.clone(), param_tys, ret_ty)
+                            })
+                            .collect(),
+                    ),
+                );
+                iface.set_visibility(
+                    &trait_def.name,
+                    SymbolVisibility::from(&trait_def.visibility),
+                );
+            }
+            Item::EffectDef(effect) => {
+                iface.capabilities.insert(effect.name.clone());
+                iface.capability_methods.insert(
+                    effect.name.clone(),
+                    (
+                        vec![],
+                        effect
+                            .operations
+                            .iter()
+                            .map(|operation| {
+                                let param_tys = operation
+                                    .params
+                                    .iter()
+                                    .map(|param| checker.resolve_type(&param.ty))
+                                    .collect();
+                                let ret_ty = operation
+                                    .return_type
+                                    .as_ref()
+                                    .map(|ty| checker.resolve_type(ty))
+                                    .unwrap_or(types::Ty::Unit);
+                                (operation.name.clone(), param_tys, ret_ty)
+                            })
+                            .collect(),
+                    ),
+                );
+                iface.set_visibility(&effect.name, SymbolVisibility::from(&effect.visibility));
             }
             Item::HandlerDef(handler) => {
                 let fields = handler

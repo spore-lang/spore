@@ -51,6 +51,14 @@ pub struct ModuleInterface {
     pub path: Vec<String>,
     /// Exported functions: name → (param types, return type)
     pub functions: HashMap<String, (Vec<Ty>, Ty)>,
+    /// Exported function capabilities: name → declared/normalized `uses [...]`
+    pub function_caps: HashMap<String, CapSet>,
+    /// Exported function error sets: name → declared `! E1 | E2`
+    pub function_errors: HashMap<String, ErrorSet>,
+    /// Exported generic function type parameters.
+    pub function_type_params: HashMap<String, Vec<String>>,
+    /// Exported generic `where` bounds for functions.
+    pub function_where_bounds: HashMap<String, Vec<(String, String)>>,
     /// Exported types: name → variant names + field types
     pub types: HashMap<String, Vec<(String, Vec<Ty>)>>,
     /// Exported structs: name → field names + types
@@ -59,6 +67,9 @@ pub struct ModuleInterface {
     pub struct_type_params: HashMap<String, Vec<String>>,
     /// Exported capabilities
     pub capabilities: HashSet<String>,
+    /// Exported capability/effect method signatures.
+    #[allow(clippy::type_complexity)]
+    pub capability_methods: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
     /// Exported named handlers
     pub handlers: HashMap<String, HandlerInfo>,
     /// Visibility of each symbol
@@ -195,6 +206,7 @@ fn build_prelude_interface() -> ModuleInterface {
     let module = parse(include_str!("../../../stdlib/prelude.sp"))
         .expect("embedded stdlib/prelude.sp must parse");
     let mut iface = ModuleInterface::new(vec!["Std".into(), "Prelude".into()]);
+    let checker = crate::check::Checker::new();
 
     for item in &module.items {
         match item {
@@ -217,6 +229,41 @@ fn build_prelude_interface() -> ModuleInterface {
                     .map(|ty| resolve_prelude_type(ty, &mapping))
                     .unwrap_or(Ty::Unit);
                 iface.functions.insert(f.name.clone(), (param_tys, ret_ty));
+                iface.function_caps.insert(
+                    f.name.clone(),
+                    checker.declared_capabilities(f.uses_clause.as_ref()),
+                );
+                if !f.errors.is_empty() {
+                    let error_set: ErrorSet = f
+                        .errors
+                        .iter()
+                        .filter_map(|te| match te {
+                            TypeExpr::Named(name) => Some(name.clone()),
+                            _ => None,
+                        })
+                        .collect();
+                    iface.function_errors.insert(f.name.clone(), error_set);
+                }
+                let mut fn_type_params = f.type_params.clone();
+                if let Some(wc) = &f.where_clause {
+                    fn_type_params.extend(wc.constraints.iter().map(|c| c.type_var.clone()));
+                    if !wc.constraints.is_empty() {
+                        iface.function_where_bounds.insert(
+                            f.name.clone(),
+                            wc.constraints
+                                .iter()
+                                .map(|c| (c.type_var.clone(), c.bound.clone()))
+                                .collect(),
+                        );
+                    }
+                }
+                fn_type_params.sort();
+                fn_type_params.dedup();
+                if !fn_type_params.is_empty() {
+                    iface
+                        .function_type_params
+                        .insert(f.name.clone(), fn_type_params);
+                }
                 iface.set_visibility(&f.name, SymbolVisibility::from(&f.visibility));
             }
             Item::StructDef(s) => {

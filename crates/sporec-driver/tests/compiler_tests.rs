@@ -61,9 +61,27 @@ path = "app.sp"
 "#;
 
 fn write_basic_cli_platform(project: &TempProject, contract_source: &str) {
+    write_basic_cli_platform_with_handles(
+        project,
+        &["Console", "FileRead", "FileWrite", "Env", "Spawn"],
+        contract_source,
+    );
+}
+
+fn write_basic_cli_platform_with_handles(
+    project: &TempProject,
+    handles: &[&str],
+    contract_source: &str,
+) {
+    let handles = handles
+        .iter()
+        .map(|handle| format!("\"{handle}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     project.write(
         "vendor/basic-cli/spore.toml",
-        r#"
+        &format!(
+            r#"
         [package]
         name = "basic-cli"
         type = "platform"
@@ -72,8 +90,9 @@ fn write_basic_cli_platform(project: &TempProject, contract_source: &str) {
         contract-module = "platform_contract"
         startup-contract = "main"
         adapter-function = "main_for_host"
-        handles = ["Console", "FileRead", "FileWrite", "Env", "Spawn", "Exit"]
-        "#,
+        handles = [{handles}]
+        "#
+        ),
     );
     project.write("vendor/basic-cli/src/platform_contract.sp", contract_source);
 }
@@ -697,7 +716,7 @@ fn compile_project_accepts_platform_dependency_console_imports() {
         r#"
         import basic_cli.stdout
 
-        fn main() -> () {
+        fn main() -> () uses [Console] {
             println("hello from imported console")
             return
         }
@@ -710,6 +729,48 @@ fn compile_project_accepts_platform_dependency_console_imports() {
         output.warnings.is_empty(),
         "expected no warnings, got: {:?}",
         output.warnings
+    );
+}
+
+#[test]
+fn compile_project_rejects_platform_dependency_console_imports_without_uses() {
+    let project = TempProject::new("project-path-platform-console-import-without-uses");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform(
+        &project,
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    write_basic_cli_stdout_module(&project);
+    project.write(
+        "src/app.sp",
+        r#"
+        import basic_cli.stdout
+
+        fn main() -> () {
+            println("hello from imported console")
+            return
+        }
+        "#,
+    );
+
+    let err = compile_project(project.root(), "app.sp")
+        .expect_err("imported platform functions should preserve capability requirements");
+    assert!(
+        err.contains("missing capabilities"),
+        "expected capability propagation error, got: {err}"
+    );
+    assert!(
+        err.contains("Console"),
+        "expected Console capability error, got: {err}"
     );
 }
 
@@ -746,6 +807,151 @@ fn compile_project_rejects_platform_dependency_bare_console_without_import() {
     assert!(
         err.contains("undefined variable `println`"),
         "expected missing import error, got: {err}"
+    );
+}
+
+#[test]
+fn compile_project_rejects_startup_capabilities_outside_platform_handles() {
+    let project = TempProject::new("project-platform-handles-mismatch");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform_with_handles(
+        &project,
+        &["FileRead", "FileWrite", "Env", "Spawn", "Exit"],
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    write_basic_cli_stdout_module(&project);
+    project.write(
+        "src/app.sp",
+        r#"
+        import basic_cli.stdout
+
+        fn main() -> () uses [Console] {
+            println("hello from imported console")
+            return
+        }
+        "#,
+    );
+
+    let err = compile_project(project.root(), "app.sp")
+        .expect_err("startup capabilities should be validated against [platform].handles");
+    assert!(
+        err.contains("[platform].handles"),
+        "expected handles validation error, got: {err}"
+    );
+    assert!(
+        err.contains("Console"),
+        "expected missing Console handle, got: {err}"
+    );
+}
+
+#[test]
+fn compile_project_accepts_imported_effect_operations() {
+    let project = TempProject::new("project-imported-effect-operations");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [dependencies]
+        effects = { path = "vendor/effects" }
+        "#,
+    );
+    project.write(
+        "src/main.sp",
+        r#"
+        import effects.console
+
+        fn main() -> () uses [Console] {
+            let line = perform Console.read_line();
+            line;
+            return
+        }
+        "#,
+    );
+    project.write(
+        "vendor/effects/spore.toml",
+        r#"
+        [package]
+        name = "effects"
+        type = "package"
+        "#,
+    );
+    project.write(
+        "vendor/effects/src/effects/console.sp",
+        r#"
+        pub effect Console {
+            fn read_line() -> Str
+        }
+        "#,
+    );
+
+    let output = compile_project(project.root(), "main.sp")
+        .expect("imported effect interfaces should preserve operation signatures");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn compile_project_rejects_wrong_args_for_imported_effect_operations() {
+    let project = TempProject::new("project-imported-effect-operations-wrong-args");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [dependencies]
+        effects = { path = "vendor/effects" }
+        "#,
+    );
+    project.write(
+        "src/main.sp",
+        r#"
+        import effects.console
+
+        fn main() -> () uses [Console] {
+            perform Console.println(42)
+        }
+        "#,
+    );
+    project.write(
+        "vendor/effects/spore.toml",
+        r#"
+        [package]
+        name = "effects"
+        type = "package"
+        "#,
+    );
+    project.write(
+        "vendor/effects/src/effects/console.sp",
+        r#"
+        pub effect Console {
+            fn println(msg: Str) -> ()
+        }
+        "#,
+    );
+
+    let err = compile_project(project.root(), "main.sp")
+        .expect_err("imported effect operation signatures should still be typechecked");
+    assert!(
+        err.contains("argument 1 of `Console.println`")
+            || err.contains("expected `Str`, got `I32`"),
+        "expected imported effect argument type error, got: {err}"
     );
 }
 
@@ -1013,7 +1219,7 @@ fn run_project_dispatches_basic_cli_package_foreign_functions() {
             r#"
             import basic_cli.file
 
-            fn main() -> Bool {{
+            fn main() -> Bool uses [FileRead] {{
                 file_exists("{}")
             }}
             "#,
@@ -1030,8 +1236,9 @@ fn run_project_dispatches_basic_cli_package_foreign_functions() {
 fn run_project_with_outcome_returns_basic_cli_exit_code() {
     let project = TempProject::new("project-basic-cli-exit-outcome");
     project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
-    write_basic_cli_platform(
+    write_basic_cli_platform_with_handles(
         &project,
+        &["Console", "FileRead", "FileWrite", "Env", "Spawn", "Exit"],
         r#"
         pub fn main() -> () {
             ?platform_startup_contract
@@ -1051,7 +1258,7 @@ fn run_project_with_outcome_returns_basic_cli_exit_code() {
 
         fn exit_code() -> Int { 7 }
 
-        fn main() -> () {
+        fn main() -> () uses [Exit] {
             exit(exit_code())
         }
         "#,

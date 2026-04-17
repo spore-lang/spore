@@ -415,3 +415,38 @@ fn f() -> I32 { compute(1) }
         "expected M0303 (ambiguous import), got: {errs:?}"
     );
 }
+
+#[test]
+fn ambiguous_import_same_effect_different_modules() {
+    let mut registry = ModuleRegistry::new();
+
+    let mut mod_a = ModuleInterface::new(vec!["ModA".into()]);
+    mod_a.capabilities.insert("Console".into());
+    mod_a.capability_methods.insert(
+        "Console".into(),
+        (vec![], vec![("println".into(), vec![Ty::Str], Ty::Unit)]),
+    );
+    mod_a.set_visibility("Console", SymbolVisibility::Pub);
+    registry.register(mod_a);
+
+    let mut mod_b = ModuleInterface::new(vec!["ModB".into()]);
+    mod_b.capabilities.insert("Console".into());
+    mod_b.capability_methods.insert(
+        "Console".into(),
+        (vec![], vec![("println".into(), vec![Ty::Int], Ty::Unit)]),
+    );
+    mod_b.set_visibility("Console", SymbolVisibility::Pub);
+    registry.register(mod_b);
+
+    let src = r#"
+import ModA as A
+import ModB as B
+fn f() -> () uses [Console] { perform Console.println("hello") }
+"#;
+
+    let errs = check_with_registry(src, registry).unwrap_err();
+    assert!(
+        errs.iter().any(|(code, _)| *code == ErrorCode::M0303),
+        "expected M0303 (ambiguous import), got: {errs:?}"
+    );
+}

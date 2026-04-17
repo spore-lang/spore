@@ -239,12 +239,52 @@ impl Checker {
             match kind {
                 ImportedSymbol::Function => {
                     if let Some((params, ret)) = module.functions.get(name) {
+                        let caps = module.function_caps.get(name).cloned().unwrap_or_default();
+                        let errors = module
+                            .function_errors
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default();
+                        let type_params = module
+                            .function_type_params
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default();
+                        let where_bounds = module
+                            .function_where_bounds
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default();
                         // Detect ambiguous imports: if the name already
                         // exists from a *different* module, emit an error.
                         if let Some(existing) = self.registry.functions.get(name) {
                             // Same signature from the prelude is OK (re-import);
                             // different signature means different source module.
-                            if existing.0 != *params || existing.1 != *ret {
+                            let existing_errors = self
+                                .registry
+                                .fn_errors
+                                .get(name)
+                                .cloned()
+                                .unwrap_or_default();
+                            let existing_type_params = self
+                                .registry
+                                .fn_type_params
+                                .get(name)
+                                .cloned()
+                                .unwrap_or_default();
+                            let existing_where_bounds = self
+                                .registry
+                                .fn_where_bounds
+                                .get(name)
+                                .cloned()
+                                .unwrap_or_default();
+                            if existing.0 != *params
+                                || existing.1 != *ret
+                                || existing.2 != caps
+                                || existing_errors != errors
+                                || existing_type_params != type_params
+                                || existing_where_bounds != where_bounds
+                            {
                                 self.err(
                                     ErrorCode::M0303,
                                     format!(
@@ -254,11 +294,24 @@ impl Checker {
                                 continue;
                             }
                         }
-                        // Import with empty capability set (cross-module calls
-                        // inherit the callee's declared caps on invocation)
+                        // Preserve exported `uses [...]` metadata so imported
+                        // calls propagate capabilities across module boundaries.
                         self.registry
                             .functions
-                            .insert(name.clone(), (params.clone(), ret.clone(), CapSet::new()));
+                            .insert(name.clone(), (params.clone(), ret.clone(), caps));
+                        if !errors.is_empty() {
+                            self.registry.fn_errors.insert(name.clone(), errors);
+                        }
+                        if !type_params.is_empty() {
+                            self.registry
+                                .fn_type_params
+                                .insert(name.clone(), type_params);
+                        }
+                        if !where_bounds.is_empty() {
+                            self.registry
+                                .fn_where_bounds
+                                .insert(name.clone(), where_bounds);
+                        }
                     }
                 }
                 ImportedSymbol::Type => {
@@ -294,9 +347,23 @@ impl Checker {
                 }
                 ImportedSymbol::Capability => {
                     if module.capabilities.contains(name) {
-                        self.registry
-                            .capabilities
-                            .insert(name.clone(), (Vec::new(), Vec::new()));
+                        let methods = module
+                            .capability_methods
+                            .get(name)
+                            .cloned()
+                            .unwrap_or((Vec::new(), Vec::new()));
+                        if let Some(existing) = self.registry.capabilities.get(name)
+                            && existing != &methods
+                        {
+                            self.err(
+                                ErrorCode::M0303,
+                                format!(
+                                    "ambiguous import: `{name}` is exported by multiple imported modules"
+                                ),
+                            );
+                            continue;
+                        }
+                        self.registry.capabilities.insert(name.clone(), methods);
                     }
                 }
             }
@@ -320,12 +387,7 @@ impl Checker {
                 let caps: CapSet = f
                     .uses_clause
                     .as_ref()
-                    .map(|uc| {
-                        let raw = crate::capability::CapabilitySet::from_names(
-                            uc.resources.iter().cloned(),
-                        );
-                        self.hierarchy.expand(&raw).to_btreeset()
-                    })
+                    .map(|uc| self.declared_capabilities(Some(uc)))
                     .unwrap_or_default();
                 self.registry
                     .functions
@@ -571,6 +633,19 @@ impl Checker {
         }
     }
 
+    pub(crate) fn declared_capabilities(
+        &self,
+        uses_clause: Option<&UsesClause>,
+    ) -> BTreeSet<String> {
+        uses_clause
+            .map(|uc| {
+                let raw =
+                    crate::capability::CapabilitySet::from_names(uc.resources.iter().cloned());
+                self.hierarchy.expand(&raw).to_btreeset()
+            })
+            .unwrap_or_default()
+    }
+
     // ── Checking (second pass) ──────────────────────────────────────
 
     fn check_item(&mut self, item: &Item) {
@@ -765,17 +840,8 @@ impl Checker {
     fn check_fn_with_extra_bindings(&mut self, f: &FnDef, extra_bindings: &[(String, Ty)]) {
         self.concurrency.enter_function(&f.name);
         // Set current function's capability set (with hierarchy expansion)
-        let prev_caps = std::mem::replace(
-            &mut self.current_caps,
-            f.uses_clause
-                .as_ref()
-                .map(|uc| {
-                    let raw =
-                        crate::capability::CapabilitySet::from_names(uc.resources.iter().cloned());
-                    self.hierarchy.expand(&raw).to_btreeset()
-                })
-                .unwrap_or_default(),
-        );
+        let declared_caps = self.declared_capabilities(f.uses_clause.as_ref());
+        let prev_caps = std::mem::replace(&mut self.current_caps, declared_caps);
 
         // Set current function's error set (! E1 | E2)
         let prev_errors = std::mem::replace(
@@ -920,8 +986,8 @@ impl Checker {
                             .unwrap_or_default();
                         Ty::Fn(params, Box::new(ret), caps, errors)
                     }
-                } else if let Some((params, ret)) = self.lookup_module_function(name) {
-                    Ty::Fn(params, Box::new(ret), CapSet::new(), ErrorSet::new())
+                } else if let Some((params, ret, caps)) = self.lookup_module_function(name) {
+                    Ty::Fn(params, Box::new(ret), caps, ErrorSet::new())
                 } else {
                     self.err(ErrorCode::E0004, format!("undefined variable `{name}`"));
                     Ty::Error
@@ -1435,48 +1501,44 @@ impl Checker {
                         ),
                     );
                 }
-                let has_registered_effect = self.registry.capabilities.contains_key(effect);
-                if has_registered_effect {
-                    if let Some((param_tys, ret_ty)) =
-                        self.lookup_registered_effect_operation(effect, operation)
-                    {
-                        if param_tys.len() != args.len() {
-                            self.err(
-                                ErrorCode::E0007,
-                                format!(
-                                    "effect operation `{effect}.{operation}` expects {} arguments, got {}",
-                                    param_tys.len(),
-                                    args.len()
-                                ),
-                            );
-                            for arg in args {
-                                let _ = self.check_expr(arg);
-                            }
-                            return self.apply_subst(&ret_ty);
-                        }
-                        for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
-                            let arg_ty = self.check_expr(arg_expr);
-                            self.unify(
-                                expected,
-                                &arg_ty,
-                                &format!("argument {} of `{effect}.{operation}`", i + 1),
-                            );
-                        }
-                        return self.apply_subst(&ret_ty);
-                    }
+                if !self.registry.capabilities.contains_key(effect) {
                     for arg in args {
                         let _ = self.check_expr(arg);
                     }
+                    self.err(ErrorCode::C0002, format!("unknown effect `{effect}`"));
                     return Ty::Error;
                 }
-
-                // Transitional fallback: platform-provided effects are still wired
-                // through runtime handlers before their signatures are surfaced as
-                // source-defined `effect` items, so keep the legacy Unit behavior.
+                if let Some((param_tys, ret_ty)) =
+                    self.lookup_registered_effect_operation(effect, operation)
+                {
+                    if param_tys.len() != args.len() {
+                        self.err(
+                            ErrorCode::E0007,
+                            format!(
+                                "effect operation `{effect}.{operation}` expects {} arguments, got {}",
+                                param_tys.len(),
+                                args.len()
+                            ),
+                        );
+                        for arg in args {
+                            let _ = self.check_expr(arg);
+                        }
+                        return self.apply_subst(&ret_ty);
+                    }
+                    for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
+                        let arg_ty = self.check_expr(arg_expr);
+                        self.unify(
+                            expected,
+                            &arg_ty,
+                            &format!("argument {} of `{effect}.{operation}`", i + 1),
+                        );
+                    }
+                    return self.apply_subst(&ret_ty);
+                }
                 for arg in args {
                     let _ = self.check_expr(arg);
                 }
-                Ty::Unit
+                Ty::Error
             }
 
             Expr::Handle { body, handlers } => {
@@ -1486,6 +1548,13 @@ impl Checker {
                 for binding in handlers {
                     match binding {
                         HandleBinding::On(arm) => {
+                            if !self.registry.capabilities.contains_key(&arm.effect) {
+                                self.err(
+                                    ErrorCode::C0002,
+                                    format!("unknown effect `{}`", arm.effect),
+                                );
+                                continue;
+                            }
                             provided_caps.insert(arm.effect.clone());
                             let key = (arm.effect.clone(), arm.operation.clone());
                             if !seen_operations.insert(key.clone()) {
@@ -1866,7 +1935,7 @@ impl Checker {
 
         // Direct call by name: check module registry (prelude builtins)
         if let Expr::Var(name) = callee
-            && let Some((param_tys, ret_ty)) = self.lookup_module_function(name)
+            && let Some((param_tys, ret_ty, caps)) = self.lookup_module_function(name)
         {
             if param_tys.len() != args.len() {
                 self.err(
@@ -1887,6 +1956,7 @@ impl Checker {
                     &format!("argument {} of `{name}`", i + 1),
                 );
             }
+            self.check_cap_propagation(&caps);
             return ret_ty;
         }
         // Could be a variable holding a function
@@ -1984,15 +2054,19 @@ impl Checker {
     /// Look up a function in the module registry (e.g. prelude builtins).
     /// Instantiates fresh type variables for each `Ty::Var` in the signature
     /// to avoid collisions with the checker's own variable counter.
-    fn lookup_module_function(&mut self, name: &str) -> Option<(Vec<Ty>, Ty)> {
+    fn lookup_module_function(&mut self, name: &str) -> Option<(Vec<Ty>, Ty, CapSet)> {
         // First pass: find the signature (immutable borrow of module_registry)
-        let found = self
-            .module_registry
-            .all_interfaces()
-            .find_map(|module| module.functions.get(name))
-            .map(|(params, ret)| (params.clone(), ret.clone()));
+        let found = self.module_registry.all_interfaces().find_map(|module| {
+            module.functions.get(name).map(|(params, ret)| {
+                (
+                    params.clone(),
+                    ret.clone(),
+                    module.function_caps.get(name).cloned().unwrap_or_default(),
+                )
+            })
+        });
 
-        let (params, ret) = found?;
+        let (params, ret, caps) = found?;
 
         // Collect all Var IDs used in the signature
         let mut var_ids = std::collections::BTreeSet::new();
@@ -2001,7 +2075,7 @@ impl Checker {
         }
         Self::collect_vars(&ret, &mut var_ids);
         if var_ids.is_empty() {
-            return Some((params, ret));
+            return Some((params, ret, caps));
         }
         // Map old IDs → fresh variables (mutable borrow of self)
         let mapping: std::collections::BTreeMap<u32, Ty> = var_ids
@@ -2013,7 +2087,7 @@ impl Checker {
             .map(|t| Self::replace_vars(t, &mapping))
             .collect();
         let ret = Self::replace_vars(&ret, &mapping);
-        Some((params, ret))
+        Some((params, ret, caps))
     }
 
     /// Collect all `Ty::Var` IDs from a type.

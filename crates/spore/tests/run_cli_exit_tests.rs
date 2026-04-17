@@ -110,7 +110,7 @@ fn project_basic_cli_exit_returns_requested_code_without_printing_value() {
 
         fn exit_code() -> Int { 7 }
 
-        fn main() -> () {
+        fn main() -> () uses [Exit] {
             exit(exit_code())
         }
         "#,

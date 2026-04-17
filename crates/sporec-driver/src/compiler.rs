@@ -849,6 +849,7 @@ fn startup_error_to_diagnostic(
     let code = match error.kind {
         PlatformStartupErrorKind::MissingStartupFunction => "missing-startup-function",
         PlatformStartupErrorKind::WrongStartupSignature => "wrong-startup-signature",
+        PlatformStartupErrorKind::UnsupportedCapability => "unsupported-platform-capability",
         PlatformStartupErrorKind::InvalidPlatformContract => "invalid-platform-contract",
     };
     CanonicalDiagnostic::new(code, Severity::Error, error.message)
@@ -1116,6 +1117,30 @@ fn validate_platform_contract_entry_startup(
                     &loaded.startup_params,
                     &loaded.startup_return
                 )
+            ),
+        });
+    }
+
+    let allowed_handles: std::collections::BTreeSet<String> =
+        contract.handles.iter().cloned().collect();
+    let required_caps = entry_iface
+        .function_caps
+        .get(&contract.startup_function)
+        .cloned()
+        .unwrap_or_default();
+    let missing_handles: Vec<String> = required_caps
+        .iter()
+        .filter(|cap| !allowed_handles.contains(*cap))
+        .cloned()
+        .collect();
+    if !missing_handles.is_empty() {
+        return Err(PlatformStartupError {
+            kind: PlatformStartupErrorKind::UnsupportedCapability,
+            message: format!(
+                "startup function `{}` in entry module `{module_name}` requires capabilities [{}] not listed in `[platform].handles` for platform `{}`",
+                contract.startup_function,
+                missing_handles.join(", "),
+                contract.name
             ),
         });
     }
