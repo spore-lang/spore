@@ -269,6 +269,15 @@ fn fail_human(message: &str) -> ExitCode {
     sporec_diagnostics::exit_with_message_error(message, false)
 }
 
+fn project_exit_code(code: i64) -> Result<ExitCode, String> {
+    match u8::try_from(code) {
+        Ok(code) => Ok(ExitCode::from(code)),
+        Err(_) => Err(format!(
+            "project requested unsupported exit code {code}; expected 0..=255"
+        )),
+    }
+}
+
 fn fail_deny_warnings(
     warnings: &[String],
     warning_diagnostics: Option<&[sporec_diagnostics::Diagnostic]>,
@@ -482,17 +491,17 @@ fn resolve_build_target(file: Option<&str>, cwd: &Path) -> Result<BuildTarget, S
 
 fn exec_run(file: &str, json_output: bool) -> ExitCode {
     let result = if let Some((root, entry)) = find_project_target(file) {
-        sporec_driver::run_project(&root, &entry)
+        sporec_driver::run_project_with_outcome(&root, &entry)
     } else {
         let source = match read_source_message(file) {
             Ok(s) => s,
             Err(message) => return fail_message(&message, json_output),
         };
-        sporec_driver::run(&source)
+        sporec_driver::run(&source).map(sporec_driver::ProjectRunOutcome::Completed)
     };
 
     match result {
-        Ok(value) => {
+        Ok(sporec_driver::ProjectRunOutcome::Completed(value)) => {
             if json_output {
                 sporec_diagnostics::print_json(
                     &json!({"status": "ok", "value": value.to_string()}),
@@ -502,6 +511,15 @@ fn exec_run(file: &str, json_output: bool) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        Ok(sporec_driver::ProjectRunOutcome::Exited(code)) => match project_exit_code(code) {
+            Ok(exit_code) => {
+                if json_output {
+                    sporec_diagnostics::print_json(&json!({"status": "ok", "exit_code": code}));
+                }
+                exit_code
+            }
+            Err(message) => fail_message(&message, json_output),
+        },
         Err(msg) => fail_message(&msg, json_output),
     }
 }

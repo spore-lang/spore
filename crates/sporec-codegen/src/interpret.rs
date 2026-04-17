@@ -9,20 +9,33 @@ use std::{cell::RefCell, rc::Rc};
 
 use sporec_parser::ast::*;
 
-use crate::effect_handler::EffectHandler;
+use crate::effect_handler::{EffectHandler, EffectOutcome, RuntimeSignal};
 use crate::value::{ChannelEndpoint, ChannelState, Closure, TaskHandle, TaskState, Value};
 
 /// Runtime error during evaluation.
 #[derive(Debug, Clone)]
 pub struct RuntimeError {
     pub message: String,
+    signal: Option<RuntimeSignal>,
 }
 
 impl RuntimeError {
     pub fn new(msg: impl Into<String>) -> Self {
         Self {
             message: msg.into(),
+            signal: None,
         }
+    }
+
+    pub fn signal(signal: RuntimeSignal) -> Self {
+        Self {
+            message: format!("runtime signal: {signal:?}"),
+            signal: Some(signal),
+        }
+    }
+
+    pub fn runtime_signal(&self) -> Option<RuntimeSignal> {
+        self.signal
     }
 }
 
@@ -424,7 +437,10 @@ impl Interpreter {
         for handler in &self.effect_handlers {
             if handler.operations().contains(&name) {
                 let result = handler.handle(name, args).map_err(RuntimeError::new)?;
-                return Ok(Some(result));
+                return match result {
+                    EffectOutcome::Value(value) => Ok(Some(value)),
+                    EffectOutcome::Signal(signal) => Err(RuntimeError::signal(signal)),
+                };
             }
         }
         Ok(None)

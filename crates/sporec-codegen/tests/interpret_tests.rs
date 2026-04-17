@@ -1,4 +1,4 @@
-use sporec_codegen::{RuntimePlatform, value::Value};
+use sporec_codegen::{ProjectRunOutcome, RuntimePlatform, value::Value};
 use sporec_parser::parse;
 
 fn run_main(src: &str) -> Value {
@@ -52,6 +52,31 @@ fn run_project_on_platform(
         .collect::<Vec<_>>();
     sporec_codegen::run_project_on_platform(&entry, &imported, startup, runtime_platform)
         .unwrap_or_else(|e| panic!("runtime error: {e}"))
+}
+
+fn run_project_outcome_on_platform(
+    entry_src: &str,
+    imports: &[(&str, &str)],
+    startup: &str,
+    runtime_platform: RuntimePlatform,
+) -> ProjectRunOutcome {
+    let entry = parse(entry_src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    let imported = imports
+        .iter()
+        .map(|(path, src)| {
+            (
+                (*path).to_string(),
+                parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}")),
+            )
+        })
+        .collect::<Vec<_>>();
+    sporec_codegen::run_project_with_outcome_on_platform(
+        &entry,
+        &imported,
+        startup,
+        runtime_platform,
+    )
+    .unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
 // ── Literals ─────────────────────────────────────────────────────────────
@@ -127,6 +152,28 @@ fn test_basic_cli_handler_does_not_intercept_non_foreign_functions() {
         RuntimePlatform::BasicCli,
     );
     assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_project_runtime_basic_cli_exit_returns_structured_outcome() {
+    let outcome = run_project_outcome_on_platform(
+        r#"
+        import basic_cli.cmd
+
+        fn exit_code() -> Int { 7 }
+
+        fn main() -> () {
+            exit(exit_code())
+        }
+        "#,
+        &[(
+            "basic_cli.cmd",
+            "pub foreign fn exit(code: Int) -> Never uses [Exit]",
+        )],
+        "main",
+        RuntimePlatform::BasicCli,
+    );
+    assert_eq!(outcome, ProjectRunOutcome::Exited(7));
 }
 
 #[test]

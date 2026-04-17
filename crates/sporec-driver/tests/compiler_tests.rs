@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use sporec_codegen::value::Value;
 use sporec_driver::{
     CheckFailure, CheckReport, check_files, check_project, check_project_verbose, check_verbose,
-    compile, compile_project, hole_summary, run_project,
+    compile, compile_project, hole_summary, run_project, run_project_with_outcome,
 };
 
 struct TempProject {
@@ -72,7 +72,7 @@ fn write_basic_cli_platform(project: &TempProject, contract_source: &str) {
         contract-module = "platform_contract"
         startup-contract = "main"
         adapter-function = "main_for_host"
-        handles = ["Console", "FileRead", "FileWrite", "Env", "Spawn"]
+        handles = ["Console", "FileRead", "FileWrite", "Env", "Spawn", "Exit"]
         "#,
     );
     project.write("vendor/basic-cli/src/platform_contract.sp", contract_source);
@@ -92,6 +92,15 @@ fn write_basic_cli_file_module(project: &TempProject) {
         "vendor/basic-cli/src/basic_cli/file.sp",
         r#"
         pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]
+        "#,
+    );
+}
+
+fn write_basic_cli_cmd_module(project: &TempProject) {
+    project.write(
+        "vendor/basic-cli/src/basic_cli/cmd.sp",
+        r#"
+        pub foreign fn exit(code: Int) -> Never uses [Exit]
         "#,
     );
 }
@@ -148,14 +157,14 @@ fn check_verbose_uses_cost_vector_syntax() {
 fn check_verbose_hides_synthetic_hole_names() {
     let output = check_verbose(
         r#"
-        fn f() -> Int {
+        fn f() -> I32 {
             ?
         }
     "#,
     )
     .unwrap();
     assert!(
-        output.contains("?: expected Int"),
+        output.contains("?: expected I32"),
         "verbose output should render unnamed holes as `?`, got: {output}"
     );
     assert!(
@@ -168,14 +177,14 @@ fn check_verbose_hides_synthetic_hole_names() {
 fn check_verbose_keeps_user_named_hole_names() {
     let output = check_verbose(
         r#"
-        fn f() -> Int {
+        fn f() -> I32 {
             ?_hole_manual
         }
     "#,
     )
     .unwrap();
     assert!(
-        output.contains("?_hole_manual: expected Int"),
+        output.contains("?_hole_manual: expected I32"),
         "verbose output should keep user-authored hole names, got: {output}"
     );
 }
@@ -1015,6 +1024,42 @@ fn run_project_dispatches_basic_cli_package_foreign_functions() {
     let value = run_project(project.root(), "app.sp")
         .expect("package-backed runtime should dispatch basic-cli foreign functions");
     assert_eq!(value.as_bool(), Some(true));
+}
+
+#[test]
+fn run_project_with_outcome_returns_basic_cli_exit_code() {
+    let project = TempProject::new("project-basic-cli-exit-outcome");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    write_basic_cli_platform(
+        &project,
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main()
+            return
+        }
+        "#,
+    );
+    write_basic_cli_cmd_module(&project);
+    project.write(
+        "src/app.sp",
+        r#"
+        import basic_cli.cmd
+
+        fn exit_code() -> Int { 7 }
+
+        fn main() -> () {
+            exit(exit_code())
+        }
+        "#,
+    );
+
+    let outcome = run_project_with_outcome(project.root(), "app.sp")
+        .expect("basic-cli exit should surface as a structured project outcome");
+    assert_eq!(outcome, sporec_driver::ProjectRunOutcome::Exited(7));
 }
 
 #[test]

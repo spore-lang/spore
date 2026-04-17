@@ -5,8 +5,8 @@ use crate::diagnostics::{diagnostics_for_parse_errors, diagnostics_for_type_erro
 use crate::project::{
     ResolvedPlatformContract, ResolvedProjectTarget, resolve_project_target_by_path,
 };
-use sporec_codegen::RuntimePlatform;
 use sporec_codegen::value::Value;
+use sporec_codegen::{ProjectRunOutcome, RuntimePlatform};
 use sporec_diagnostics::{
     Diagnostic as CanonicalDiagnostic, HoleCandidateJson, HoleCandidateRankingJson,
     HoleConfidenceJson, HoleCostBudgetJson, HoleDependencyEdgeJson, HoleDependencyGraphJson,
@@ -1214,6 +1214,13 @@ pub fn compile_project(root: &Path, entry: &str) -> Result<CompileOutput, String
 /// Like [`compile_project`], but also invokes the interpreter with
 /// cross-module function resolution.
 pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
+    match run_project_with_outcome(root, entry)? {
+        ProjectRunOutcome::Completed(value) => Ok(value),
+        ProjectRunOutcome::Exited(code) => Err(format!("project requested exit with code {code}")),
+    }
+}
+
+pub fn run_project_with_outcome(root: &Path, entry: &str) -> Result<ProjectRunOutcome, String> {
     let target = resolve_project_target_by_path(root, entry)?;
     let startup_function = target.startup_function.as_deref().ok_or_else(|| {
         format!(
@@ -1232,7 +1239,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
     if let Some(contract) = target.platform_contract.as_ref() {
         let adapter_function =
             format!("{}.{}", contract.contract_module, contract.adapter_function);
-        return sporec_codegen::run_project_with_adapter_on_platform(
+        return sporec_codegen::run_project_with_adapter_outcome_on_platform(
             &prep.ast,
             &imported,
             startup_function,
@@ -1242,7 +1249,7 @@ pub fn run_project(root: &Path, entry: &str) -> Result<Value, String> {
         .map_err(|error| error.to_string());
     }
 
-    sporec_codegen::run_project_on_platform(
+    sporec_codegen::run_project_with_outcome_on_platform(
         &prep.ast,
         &imported,
         startup_function,
