@@ -2011,14 +2011,17 @@ fn test_foreign_fn_callable_signature() {
 fn test_perform_requires_capability() {
     let errs = check_err(
         r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
         fn main() {
-            perform StdIO.println("hello")
+            perform Console.println("hello")
         }
         "#,
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("capability") && e.contains("StdIO")),
+            .any(|e| e.contains("capability") && e.contains("Console")),
         "expected capability error, got: {errs:?}"
     );
 }
@@ -2027,8 +2030,11 @@ fn test_perform_requires_capability() {
 fn test_perform_with_capability_ok() {
     check_ok(
         r#"
-        fn main() uses [StdIO] {
-            perform StdIO.println("hello")
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
+        fn main() uses [Console] {
+            perform Console.println("hello")
         }
         "#,
     );
@@ -2036,15 +2042,18 @@ fn test_perform_with_capability_ok() {
 
 #[test]
 fn test_handle_provides_capability() {
-    // The handle expression provides StdIO capability to its body,
-    // so perform StdIO.println should be allowed even without `uses [StdIO]`.
+    // The handle expression provides Console capability to its body,
+    // so perform Console.println should be allowed even without `uses [Console]`.
     check_ok(
         r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
         fn main() {
             handle {
-                perform StdIO.println("hello")
+                perform Console.println("hello")
             } with {
-                StdIO.println(msg) => 0
+                on Console.println(msg) => { msg; }
             }
         }
         "#,
@@ -2052,22 +2061,40 @@ fn test_handle_provides_capability() {
 }
 
 #[test]
+fn test_perform_requires_declared_effect_interface() {
+    let errs = check_err(
+        r#"
+        fn main() uses [Console] {
+            perform Console.println("hello")
+        }
+        "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("unknown effect `Console`")),
+        "expected unknown effect error, got: {errs:?}"
+    );
+}
+
+#[test]
 fn test_handle_capability_does_not_escape_scope() {
     let errs = check_err(
         r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
         fn main() {
             handle {
-                perform StdIO.println("inside")
+                perform Console.println("inside")
             } with {
-                StdIO.println(msg) => 0
+                on Console.println(msg) => 0
             }
-            perform StdIO.println("outside")
+            perform Console.println("outside")
         }
         "#,
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("capability") && e.contains("StdIO")),
+            .any(|e| e.contains("capability") && e.contains("Console")),
         "expected capability error after handle scope ends, got: {errs:?}"
     );
 }
