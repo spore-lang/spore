@@ -816,7 +816,7 @@ impl Checker {
         self.env.push_scope();
 
         // Bind parameters
-        for (param, ty) in f.params.iter().zip(declared_param_tys.into_iter()) {
+        for (param, ty) in f.params.iter().zip(declared_param_tys) {
             self.env.define(param.name.clone(), ty);
         }
         for (name, ty) in extra_bindings {

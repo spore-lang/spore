@@ -28,24 +28,64 @@ Spore is a compiled language where function signatures are "gravity centers" —
 
 ```bash
 cargo build                                      # build the compiler
-cargo run --bin spore -- run examples/demo.sp    # run the demo program (outputs 204)
-cargo run --bin spore -- check examples/demo.sp  # type-check only
-cargo run --bin spore -- test examples/demo.sp   # validate the example as a spec file
-cargo test --all                                 # run all tests
+cargo run --bin spore -- new hello-app          # create a new application project
+cd hello-app && ../target/debug/spore run src/main.sp  # run the application from this checkout
+cargo test --all                                 # run all compiler tests
 ```
+
+For single-file exploration:
+```bash
+cargo run --bin spore -- run examples/demo.sp   # run standalone file (no Platform)
+cargo run --bin spore -- check examples/demo.sp # type-check standalone file
+cargo run --bin spore -- test examples/demo.sp  # validate spec examples in file
+```
+
+If `spore` is installed on your `PATH`, you can replace the explicit Cargo or
+`target/debug/spore` invocations above with bare `spore ...`.
 
 ## Examples
 
-The canonical runnable example lives in [`examples/demo.sp`](examples/demo.sp).
+### Hello World (Application Project)
 
-### Hello World
+The canonical way to write Spore programs is as a project with a Platform contract:
+
+```bash
+spore new hello-app
+```
+
+This generates `src/main.sp` with a Platform-aware entry point:
 
 ```spore
-fn main() -> I32 {
-    let greeting = "Hello, Spore!";
-    42
+import basic_cli.stdout
+
+fn main() -> () uses [Console] {
+    println("Hello from hello-app!")
+    return
 }
 ```
+
+Applications declare `fn main() -> ()` and use Platform-provided capabilities.
+The `basic-cli` Platform handles effect operations like `Console` for terminal IO.
+
+### Standalone File Mode
+
+For quick experiments, you can run single `.sp` files without a project:
+
+```spore
+fn demo() -> I32 {
+    let x = 42;
+    x * 2
+}
+
+fn main() -> I32 {
+    demo()
+}
+```
+
+Standalone mode uses `fn main() -> I32` and does not participate in a package-backed Platform contract.
+It still runs through legacy built-in CLI behavior today (e.g., `println` works), but the return value is printed as output rather than used as a process exit code.
+Real applications should prefer `spore new` / project mode with Platform capabilities.
+See [`examples/demo.sp`](examples/demo.sp) for a standalone example file.
 
 ### Structs and Pattern Matching
 
@@ -70,7 +110,7 @@ fn area(s: Shape) -> I32 {
 ```spore
 fn apply(f: (I32) -> I32, x: I32) -> I32 { f(x) }
 
-fn main() -> I32 {
+fn compute() -> I32 {
     let double = |x: I32| x * 2;
     apply(double, 21)
 }
