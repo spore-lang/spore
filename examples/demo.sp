@@ -5,10 +5,13 @@
 // They still run through legacy built-in CLI behavior today (e.g., `println` works),
 // but the return value is printed as output rather than used as a process exit code.
 //
-// For production code, prefer creating a project with `spore new app-name`, which provides
-// Platform capabilities and uses `fn main() -> ()` as the entry point.
+// For production code, prefer creating a project with
+// `cargo run --bin spore -- new app-name` from a source checkout (or
+// `spore new app-name` if the CLI is installed), which provides Platform
+// capabilities and uses `fn main() -> ()` as the entry point.
 //
-// Run this file with: spore run examples/demo.sp
+// Run this file with: cargo run --bin spore -- run examples/demo.sp
+// (or `spore run examples/demo.sp` if the CLI is installed)
 // Expected output: 204
 fn add(a: I32, b: I32) -> I32
 spec {

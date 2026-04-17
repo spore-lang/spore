@@ -27,18 +27,21 @@ Spore is a compiled language where function signatures are "gravity centers" —
 ## Quick Start
 
 ```bash
-cargo build                           # build the compiler
-spore new hello-app                   # create a new application project
-cd hello-app && spore run src/main.sp  # run the application
-cargo test --all                      # run all compiler tests
+cargo build                                      # build the compiler
+cargo run --bin spore -- new hello-app          # create a new application project
+cd hello-app && ../target/debug/spore run src/main.sp  # run the application from this checkout
+cargo test --all                                 # run all compiler tests
 ```
 
 For single-file exploration:
 ```bash
-spore run examples/demo.sp           # run standalone file (no Platform)
-spore check examples/demo.sp         # type-check standalone file
-spore test examples/demo.sp          # validate spec examples in file
+cargo run --bin spore -- run examples/demo.sp   # run standalone file (no Platform)
+cargo run --bin spore -- check examples/demo.sp # type-check standalone file
+cargo run --bin spore -- test examples/demo.sp  # validate spec examples in file
 ```
+
+If `spore` is installed on your `PATH`, you can replace the explicit Cargo or
+`target/debug/spore` invocations above with bare `spore ...`.
 
 ## Examples
 
@@ -56,7 +59,7 @@ This generates `src/main.sp` with a Platform-aware entry point:
 import basic_cli.stdout
 
 fn main() -> () uses [Console] {
-    println("Hello, Spore!")
+    println("Hello from hello-app!")
     return
 }
 ```
