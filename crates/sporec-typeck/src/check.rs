@@ -543,10 +543,15 @@ impl Checker {
                     methods,
                 );
             }
-            Item::Import(_)
-            | Item::Const(_)
-            | Item::CapabilityAlias { .. }
-            | Item::EffectAlias(_) => {}
+            Item::Import(_) | Item::Const(_) | Item::CapabilityAlias { .. } => {}
+            Item::EffectAlias(ea) => {
+                // Register the alias into the capability hierarchy so that
+                // `uses [AliasName]` expands to its constituent effects.
+                for component in &ea.effects {
+                    self.hierarchy
+                        .add_implies(ea.name.clone(), component.clone());
+                }
+            }
             Item::TraitDef(td) => {
                 let methods: Vec<(String, Vec<Ty>, Ty)> = td
                     .methods
@@ -653,6 +658,23 @@ impl Checker {
             Item::Function(f) => self.check_fn(f),
             Item::ImplDef(impl_def) => self.check_impl(impl_def),
             Item::HandlerDef(handler_def) => self.check_handler(handler_def),
+            Item::EffectAlias(ea) => {
+                // Validate that every component of the alias names a known
+                // effect/capability defined in this module (or imported).
+                // TODO: cross-module alias export — aliases are currently only
+                //       visible within the same module's Checker instance.
+                for component in &ea.effects {
+                    if !self.registry.capabilities.contains_key(component) {
+                        self.err(
+                            ErrorCode::C0002,
+                            format!(
+                                "effect alias `{}` references unknown effect `{}`",
+                                ea.name, component
+                            ),
+                        );
+                    }
+                }
+            }
             _ => {} // structs/types already registered; capabilities/imports deferred
         }
     }
@@ -958,7 +980,7 @@ impl Checker {
     fn check_expr(&mut self, expr: &Expr) -> Ty {
         match expr {
             Expr::IntLit(_) => Ty::Int,
-            Expr::FloatLit(_) => Ty::Float,
+            Expr::FloatLit(_) => Ty::F64,
             Expr::StrLit(_) => Ty::Str,
             Expr::BoolLit(_) => Ty::Bool,
             Expr::FString(_) => Ty::Str,
@@ -2185,7 +2207,8 @@ impl Checker {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
                 "Int" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => Ty::Int,
-                "F32" | "F64" => Ty::Float,
+                "F32" => Ty::F32,
+                "F64" => Ty::F64,
                 "Bool" => Ty::Bool,
                 "Str" => Ty::Str,
                 "Char" => Ty::Char,
@@ -2468,7 +2491,8 @@ impl Checker {
             Ty::Refined(base, _, _) => self.bound_target_names(base),
             Ty::Named(name) | Ty::App(name, _) => vec![name.clone()],
             Ty::Int => vec!["I32".into()],
-            Ty::Float => vec!["F64".into()],
+            Ty::F32 => vec!["F32".into()],
+            Ty::F64 => vec!["F64".into()],
             Ty::Bool => vec!["Bool".into()],
             Ty::Str => vec!["Str".into()],
             Ty::Char => vec!["Char".into()],
@@ -2911,7 +2935,7 @@ impl Checker {
                     }
                 }
             }
-            Ty::Int | Ty::Float | Ty::Str => {
+            Ty::Int | Ty::F32 | Ty::F64 | Ty::Str => {
                 self.err(
                     ErrorCode::E0010,
                     format!(

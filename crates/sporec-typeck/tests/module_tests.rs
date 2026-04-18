@@ -22,8 +22,7 @@ fn check_with_registry(
 
 fn make_math_module() -> ModuleInterface {
     let mut m = ModuleInterface::new(vec!["Math".into()]);
-    m.functions
-        .insert("sqrt".into(), (vec![Ty::Float], Ty::Float));
+    m.functions.insert("sqrt".into(), (vec![Ty::F64], Ty::F64));
     m.set_visibility("sqrt", SymbolVisibility::Pub);
     m.functions.insert("abs".into(), (vec![Ty::Int], Ty::Int));
     m.set_visibility("abs", SymbolVisibility::Pub);
@@ -304,7 +303,7 @@ fn imported_struct_preserves_field_types() {
     let mut iface = ModuleInterface::new(vec!["Shapes".into()]);
     iface.structs.insert(
         "Point".into(),
-        vec![("x".into(), Ty::Int), ("y".into(), Ty::Float)],
+        vec![("x".into(), Ty::Int), ("y".into(), Ty::F64)],
     );
     iface.set_visibility("Point", SymbolVisibility::Pub);
 

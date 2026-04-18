@@ -230,7 +230,8 @@ impl Lowering {
                 "Int" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => {
                     HirTypeRef::Primitive(PrimitiveTy::Int)
                 }
-                "F32" | "F64" => HirTypeRef::Primitive(PrimitiveTy::Float),
+                "F32" => HirTypeRef::Primitive(PrimitiveTy::F32),
+                "F64" => HirTypeRef::Primitive(PrimitiveTy::F64),
                 "Bool" => HirTypeRef::Primitive(PrimitiveTy::Bool),
                 "Str" => HirTypeRef::Primitive(PrimitiveTy::Str),
                 "Char" => HirTypeRef::Primitive(PrimitiveTy::Char),

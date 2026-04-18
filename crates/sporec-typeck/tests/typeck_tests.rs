@@ -2564,12 +2564,12 @@ fn ty_fold_replaces_int_with_float_in_nested_type() {
         ErrorSet::new(),
     );
     let folded = ty.fold(&mut |t| match t {
-        Ty::Int => Ty::Float,
+        Ty::Int => Ty::F64,
         other => other,
     });
     let expected = Ty::Fn(
-        vec![Ty::Float, Ty::Tuple(vec![Ty::Float, Ty::Bool])],
-        Box::new(Ty::Float),
+        vec![Ty::F64, Ty::Tuple(vec![Ty::F64, Ty::Bool])],
+        Box::new(Ty::F64),
         CapSet::new(),
         ErrorSet::new(),
     );
@@ -2861,7 +2861,8 @@ fn effect_definition_parses() {
 
 #[test]
 fn effect_alias_parses() {
-    // Effect alias is a no-op in type checking for now, but should parse
+    // Effect alias is parsed and registered; components are validated in the
+    // second typeck pass.  A bare alias with no function body produces no error.
     let module = parse(
         r#"
         effect IO = Console | FileRead | FileWrite
@@ -2869,6 +2870,42 @@ fn effect_alias_parses() {
     )
     .unwrap();
     assert_eq!(module.items.len(), 1);
+}
+
+#[test]
+fn effect_alias_same_module_expands() {
+    // `uses [MyIO]` should expand to the Console + FileRead components defined
+    // by the alias in the same module — no capability errors expected.
+    check_ok(
+        r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
+        effect FileRead {
+            fn read(path: Str) -> Str
+        }
+        effect MyIO = Console | FileRead
+        fn greet() -> () uses [MyIO] {
+            perform Console.println("hello");
+        }
+    "#,
+    );
+}
+
+#[test]
+fn effect_alias_unknown_component_rejected() {
+    // Referencing a non-existent effect inside an alias definition should
+    // produce a C0002 diagnostic.
+    let errs = check_err(
+        r#"
+        effect BadAlias = NonExistentEffect
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("NonExistentEffect")),
+        "expected error mentioning NonExistentEffect, got: {:?}",
+        errs
+    );
 }
 
 // ── Handler keyword ─────────────────────────────────────────────────────
@@ -3080,4 +3117,22 @@ fn spec_empty_clause_ok() {
         }
     "#,
     );
+}
+
+// ── F32 / F64 as distinct types ───────────────────────────────────────────
+
+#[test]
+fn f32_identity_fn() {
+    check_ok("fn f(x: F32) -> F32 { x }");
+}
+
+#[test]
+fn f64_identity_fn() {
+    check_ok("fn f(x: F64) -> F64 { x }");
+}
+
+#[test]
+fn float_literal_infers_f64() {
+    // Float literals default to F64
+    check_ok("fn apply() -> F64 { let x: F64 = 3.14; x }");
 }

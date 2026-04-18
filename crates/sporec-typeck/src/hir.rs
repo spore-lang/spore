@@ -67,7 +67,9 @@ pub enum HirTypeRef {
 #[derive(Debug, Clone, Copy)]
 pub enum PrimitiveTy {
     Int,
-    Float,
+    // Future: F16
+    F32,
+    F64,
     Bool,
     Str,
     Char,

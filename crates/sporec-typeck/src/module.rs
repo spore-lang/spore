@@ -139,7 +139,8 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
     match te {
         TypeExpr::Named(name) => match name.as_str() {
             "Int" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => Ty::Int,
-            "F32" | "F64" => Ty::Float,
+            "F32" => Ty::F32,
+            "F64" => Ty::F64,
             "Bool" => Ty::Bool,
             "Str" => Ty::Str,
             "Char" => Ty::Char,
@@ -316,6 +317,10 @@ fn build_prelude_interface() -> ModuleInterface {
             | Item::CapabilityAlias { .. }
             | Item::TraitDef(_)
             | Item::EffectDef(_)
+            // TODO: export effect-alias expansion into ModuleInterface so that
+            //       cross-module `uses [AliasName]` resolves correctly.
+            //       For now alias expansion is same-module only (handled in
+            //       Checker::register_item via the local CapabilityHierarchy).
             | Item::EffectAlias(_) => {}
             Item::HandlerDef(handler) => {
                 let fields = handler
@@ -961,8 +966,7 @@ mod tests {
     fn register_and_lookup_module() {
         let mut reg = ModuleRegistry::new();
         let mut m = ModuleInterface::new(vec!["Math".into()]);
-        m.functions
-            .insert("sqrt".into(), (vec![Ty::Float], Ty::Float));
+        m.functions.insert("sqrt".into(), (vec![Ty::F64], Ty::F64));
         reg.register(m);
 
         let found = reg.get(&["Math".into()]);

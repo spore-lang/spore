@@ -18,7 +18,9 @@ pub type ErrorSet = BTreeSet<String>;
 pub enum Ty {
     /// Primitive types
     Int,
-    Float,
+    // Future: F16
+    F32,
+    F64,
     Bool,
     Str,
     Char,
@@ -57,9 +59,9 @@ pub enum Ty {
 }
 
 impl Ty {
-    /// Check if this type is numeric (Int or Float).
+    /// Check if this type is numeric (Int, F32, or F64).
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Ty::Int | Ty::Float)
+        matches!(self, Ty::Int | Ty::F32 | Ty::F64)
     }
 
     /// Check if this type is the error sentinel.
@@ -174,7 +176,8 @@ impl PartialEq for Ty {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Ty::Int, Ty::Int)
-            | (Ty::Float, Ty::Float)
+            | (Ty::F32, Ty::F32)
+            | (Ty::F64, Ty::F64)
             | (Ty::Bool, Ty::Bool)
             | (Ty::Str, Ty::Str)
             | (Ty::Char, Ty::Char)
@@ -203,7 +206,8 @@ impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Ty::Int => write!(f, "I32"),
-            Ty::Float => write!(f, "F64"),
+            Ty::F32 => write!(f, "F32"),
+            Ty::F64 => write!(f, "F64"),
             Ty::Bool => write!(f, "Bool"),
             Ty::Str => write!(f, "Str"),
             Ty::Char => write!(f, "Char"),
