@@ -3136,3 +3136,16 @@ fn float_literal_infers_f64() {
     // Float literals default to F64
     check_ok("fn apply() -> F64 { let x: F64 = 3.14; x }");
 }
+
+// ── Float type alias ─────────────────────────────────────────────────────
+
+#[test]
+fn float_alias_identity_fn() {
+    check_ok("fn f(x: Float) -> Float { x }");
+}
+
+#[test]
+fn float_alias_literal_param() {
+    check_ok("fn f(x: Float) -> Float { x }");
+    check_ok("fn apply() -> Float { let x: Float = 3.14; x }");
+}
