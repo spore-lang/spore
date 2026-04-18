@@ -1,9 +1,10 @@
 // Standalone file example for quick experimentation
 //
 // This file demonstrates Spore's core features without requiring a project or Platform.
-// Standalone files use `fn main() -> I32` and do not participate in a package-backed Platform contract.
-// They still run through legacy built-in CLI behavior today (e.g., `println` works),
-// but the return value is printed as output rather than used as a process exit code.
+// Standalone files still do not participate in a package-backed Platform contract.
+// They still run through legacy built-in CLI behavior today (e.g., bare `println` works),
+// but CLI return values have no default host meaning: they are not printed for you and
+// they are not treated as process exit codes.
 //
 // For production code, prefer creating a project with
 // `cargo run --bin spore -- new app-name` from a source checkout (or
@@ -113,7 +114,7 @@ spec {
 }
 { "Hello, " + name + "!" }
 
-fn main() -> I32 {
+fn main() -> () {
     let sum = add(20, 22)
     let p = Point { x: 3, y: 4 }
     let d = distance_squared(p)
@@ -124,5 +125,10 @@ fn main() -> I32 {
     let f5 = factorial(5)
     let fib = fibonacci(10)
     let even = is_even(42)
-    sum + d + tripled + piped + a
+    println(greet("world"))
+    println(to_string(sum + d + tripled + piped + a))
+    f5
+    fib
+    even
+    return
 }

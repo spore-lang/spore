@@ -501,13 +501,9 @@ fn exec_run(file: &str, json_output: bool) -> ExitCode {
     };
 
     match result {
-        Ok(sporec_driver::ProjectRunOutcome::Completed(value)) => {
+        Ok(sporec_driver::ProjectRunOutcome::Completed(_value)) => {
             if json_output {
-                sporec_diagnostics::print_json(
-                    &json!({"status": "ok", "value": value.to_string()}),
-                );
-            } else {
-                println!("{value}");
+                sporec_diagnostics::print_json(&json!({"status": "ok"}));
             }
             ExitCode::SUCCESS
         }

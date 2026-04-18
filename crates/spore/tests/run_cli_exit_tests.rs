@@ -32,7 +32,7 @@ fn spore_cmd() -> Command {
 }
 
 #[test]
-fn standalone_run_still_prints_return_value() {
+fn standalone_run_ignores_return_value_by_default() {
     let project = TempProject::new();
     let file = project.write("main.sp", "fn main() -> I32 { 42 }\n");
 
@@ -46,7 +46,57 @@ fn standalone_run_still_prints_return_value() {
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "42");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).trim().is_empty(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn standalone_run_prints_only_explicit_console_output() {
+    let project = TempProject::new();
+    let file = project.write(
+        "main.sp",
+        r#"
+        fn main() -> () {
+            println("hello")
+            return
+        }
+        "#,
+    );
+
+    let output = spore_cmd()
+        .args(["run", file.to_str().expect("utf-8 path")])
+        .output()
+        .expect("run spore");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
+}
+
+#[test]
+fn standalone_run_json_omits_completion_value() {
+    let project = TempProject::new();
+    let file = project.write("main.sp", "fn main() -> I32 { 42 }\n");
+
+    let output = spore_cmd()
+        .args(["run", "--json", file.to_str().expect("utf-8 path")])
+        .output()
+        .expect("run spore");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"status\":\"ok\""), "stdout: {stdout}");
+    assert!(!stdout.contains("\"value\""), "stdout: {stdout}");
 }
 
 #[test]
