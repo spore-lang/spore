@@ -115,20 +115,20 @@ spec {
 { "Hello, " + name + "!" }
 
 fn main() -> () {
-    let sum = add(20, 22)
-    let p = Point { x: 3, y: 4 }
-    let d = distance_squared(p)
-    let tripled = apply(|x: I32| x * 3, 14)
-    let piped = 10 |> double
-    let c = Circle(5)
-    let a = area(c)
-    let f5 = factorial(5)
-    let fib = fibonacci(10)
-    let even = is_even(42)
-    println(greet("world"))
-    println(to_string(sum + d + tripled + piped + a))
-    f5
-    fib
-    even
+    let sum = add(20, 22);
+    let p = Point { x: 3, y: 4 };
+    let d = distance_squared(p);
+    let tripled = apply(|x: I32| x * 3, 14);
+    let piped = 10 |> double;
+    let c = Circle(5);
+    let a = area(c);
+    let f5 = factorial(5);
+    let fib = fibonacci(10);
+    let even = is_even(42);
+    println(greet("world"));
+    println(to_string(sum + d + tripled + piped + a));
+    f5;
+    fib;
+    even;
     return
 }

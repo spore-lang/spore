@@ -1114,11 +1114,13 @@ impl<'a> Formatter<'a> {
                 }
                 self.write(" = ");
                 self.fmt_expr(expr);
+                self.write(";");
                 self.newline();
             }
             Stmt::Expr(expr) => {
                 self.write_indent();
                 self.fmt_expr(expr);
+                self.write(";");
                 self.newline();
             }
         }
@@ -1308,8 +1310,8 @@ mod tests {
     fn test_multi_statement_block() {
         let src = concat!(
             "fn main() -> Int {\n",
-            "    let x = 1\n",
-            "    let y = 2\n",
+            "    let x = 1;\n",
+            "    let y = 2;\n",
             "    x + y\n",
             "}\n",
         );
@@ -1381,7 +1383,7 @@ mod tests {
             "fn show[T](x: T) -> T cost [5, 0, 0, 0] spec {\n",
             "    property \"roundtrip\": |x: T| true\n",
             "    example \"block\" {\n",
-            "        let y = x\n",
+            "        let y = x;\n",
             "        y == x\n",
             "    }\n",
             "} uses [Console] where T: Display { x }\n",
@@ -1391,7 +1393,7 @@ mod tests {
             "spec {\n",
             "    property \"roundtrip\": |x: T| true\n",
             "    example \"block\" {\n",
-            "        let y = x\n",
+            "        let y = x;\n",
             "        y == x\n",
             "    }\n",
             "}\n",

@@ -165,7 +165,7 @@ fn test_fn_with_block_spec_example() {
         fn add(a: Int, b: Int) -> Int
         spec {
             example "block" {
-                let sum = add(2, 3)
+                let sum = add(2, 3);
                 sum == 5
             }
         }

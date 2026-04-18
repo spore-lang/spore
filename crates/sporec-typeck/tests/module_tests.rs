@@ -315,7 +315,7 @@ fn imported_struct_preserves_field_types() {
     let src = r#"
 import Shapes
 pub fn origin() -> I32 {
-    let p = Point { x: 1, y: 2.0 }
+    let p = Point { x: 1, y: 2.0 };
     p.x
 }
 "#;
