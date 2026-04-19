@@ -227,7 +227,7 @@ impl Lowering {
     fn lower_type_expr(&self, te: &ast::TypeExpr) -> HirTypeRef {
         match te {
             ast::TypeExpr::Named(name) => match name.as_str() {
-                "Int" | "I32" => HirTypeRef::Primitive(PrimitiveTy::I32),
+                "I32" => HirTypeRef::Primitive(PrimitiveTy::I32),
                 "I8" => HirTypeRef::Primitive(PrimitiveTy::I8),
                 "I16" => HirTypeRef::Primitive(PrimitiveTy::I16),
                 "I64" => HirTypeRef::Primitive(PrimitiveTy::I64),

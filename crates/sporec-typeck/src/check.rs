@@ -2206,7 +2206,7 @@ impl Checker {
     pub fn resolve_type(&mut self, te: &TypeExpr) -> Ty {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
-                "Int" | "I32" => Ty::I32,
+                "I32" => Ty::I32,
                 "I8" => Ty::I8,
                 "I16" => Ty::I16,
                 "I64" => Ty::I64,

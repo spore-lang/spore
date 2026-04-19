@@ -119,7 +119,7 @@ fn write_basic_cli_cmd_module(project: &TempProject) {
     project.write(
         "vendor/basic-cli/src/basic_cli/cmd.sp",
         r#"
-        pub foreign fn exit(code: Int) -> Never uses [Exit]
+        pub foreign fn exit(code: I32) -> Never uses [Exit]
         "#,
     );
 }
@@ -1256,7 +1256,7 @@ fn run_project_with_outcome_returns_basic_cli_exit_code() {
         r#"
         import basic_cli.cmd
 
-        fn exit_code() -> Int { 7 }
+        fn exit_code() -> I32 { 7 }
 
         fn main() -> () uses [Exit] {
             exit(exit_code())
