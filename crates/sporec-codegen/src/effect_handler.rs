@@ -8,7 +8,7 @@ use std::io::Write;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeSignal {
-    Exit(i64),
+    Exit(u8),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,14 +124,8 @@ fn require_int_arg(args: &[Value], idx: usize, operation: &str) -> Result<i64, S
     }
 }
 
-fn require_exit_code(code: i64, operation: &str) -> Result<i64, String> {
-    if !(0..=255).contains(&code) {
-        Err(format!(
-            "{operation}: exit code {code} is out of range 0..=255"
-        ))
-    } else {
-        Ok(code)
-    }
+fn require_exit_code(code: i64, operation: &str) -> Result<u8, String> {
+    u8::try_from(code).map_err(|_| format!("{operation}: exit code {code} is out of range 0..=255"))
 }
 
 fn io_error(operation: &str, error: impl std::fmt::Display) -> String {

@@ -269,13 +269,8 @@ fn fail_human(message: &str) -> ExitCode {
     sporec_diagnostics::exit_with_message_error(message, false)
 }
 
-fn project_exit_code(code: i64) -> Result<ExitCode, String> {
-    match u8::try_from(code) {
-        Ok(code) => Ok(ExitCode::from(code)),
-        Err(_) => Err(format!(
-            "project requested unsupported exit code {code}; expected 0..=255"
-        )),
-    }
+fn project_exit_code(code: u8) -> ExitCode {
+    ExitCode::from(code)
 }
 
 fn fail_deny_warnings(
@@ -507,15 +502,12 @@ fn exec_run(file: &str, json_output: bool) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Ok(sporec_driver::ProjectRunOutcome::Exited(code)) => match project_exit_code(code) {
-            Ok(exit_code) => {
-                if json_output {
-                    sporec_diagnostics::print_json(&json!({"status": "ok", "exit_code": code}));
-                }
-                exit_code
+        Ok(sporec_driver::ProjectRunOutcome::Exited(code)) => {
+            if json_output {
+                sporec_diagnostics::print_json(&json!({"status": "ok", "exit_code": code}));
             }
-            Err(message) => fail_message(&message, json_output),
-        },
+            project_exit_code(code)
+        }
         Err(msg) => fail_message(&msg, json_output),
     }
 }

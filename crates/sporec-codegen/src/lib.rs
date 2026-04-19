@@ -33,7 +33,7 @@ pub enum SpecKind {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProjectRunOutcome {
     Completed(Value),
-    Exited(i64),
+    Exited(u8),
 }
 
 /// Execute a Spore module by calling its current default startup function
