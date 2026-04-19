@@ -303,7 +303,7 @@ fn test_hover_returns_hole_information() {
         "expected hole hover, got: {text}"
     );
     assert!(
-        text.contains("?todo : I32"),
+        text.contains("?todo : Int"),
         "expected hole type, got: {text}"
     );
     assert!(
@@ -323,7 +323,7 @@ fn second() -> String { ?todo }
     let second = build_hover_for_position(source, 1, 26).expect("second hole hover");
 
     assert!(
-        first.contains("?todo : I32"),
+        first.contains("?todo : Int"),
         "expected first hole type, got: {first}"
     );
     assert!(
