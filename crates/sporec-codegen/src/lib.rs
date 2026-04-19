@@ -204,7 +204,7 @@ fn project_run_outcome(
 fn test_values_for_type(ty: &TypeExpr) -> Vec<Value> {
     match ty {
         TypeExpr::Named(name) => match name.as_str() {
-            "Int" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => vec![
+            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => vec![
                 Value::Int(0),
                 Value::Int(1),
                 Value::Int(-1),

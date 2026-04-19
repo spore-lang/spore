@@ -16,9 +16,18 @@ pub type ErrorSet = BTreeSet<String>;
 #[derive(Debug, Clone)]
 #[must_use]
 pub enum Ty {
-    /// Primitive types
-    Int,
-    Float,
+    /// Primitive integer types
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+    // Future: F16
+    F32,
+    F64,
     Bool,
     Str,
     Char,
@@ -57,9 +66,17 @@ pub enum Ty {
 }
 
 impl Ty {
-    /// Check if this type is numeric (Int or Float).
+    /// Check if this type is an integer type.
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            Ty::I8 | Ty::I16 | Ty::I32 | Ty::I64 | Ty::U8 | Ty::U16 | Ty::U32 | Ty::U64
+        )
+    }
+
+    /// Check if this type is numeric (any integer, F32, or F64).
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Ty::Int | Ty::Float)
+        self.is_integer() || matches!(self, Ty::F32 | Ty::F64)
     }
 
     /// Check if this type is the error sentinel.
@@ -173,8 +190,16 @@ impl Ty {
 impl PartialEq for Ty {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Ty::Int, Ty::Int)
-            | (Ty::Float, Ty::Float)
+            (Ty::I8, Ty::I8)
+            | (Ty::I16, Ty::I16)
+            | (Ty::I32, Ty::I32)
+            | (Ty::I64, Ty::I64)
+            | (Ty::U8, Ty::U8)
+            | (Ty::U16, Ty::U16)
+            | (Ty::U32, Ty::U32)
+            | (Ty::U64, Ty::U64)
+            | (Ty::F32, Ty::F32)
+            | (Ty::F64, Ty::F64)
             | (Ty::Bool, Ty::Bool)
             | (Ty::Str, Ty::Str)
             | (Ty::Char, Ty::Char)
@@ -202,8 +227,16 @@ impl Eq for Ty {}
 impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Ty::Int => write!(f, "I32"),
-            Ty::Float => write!(f, "F64"),
+            Ty::I8 => write!(f, "I8"),
+            Ty::I16 => write!(f, "I16"),
+            Ty::I32 => write!(f, "I32"),
+            Ty::I64 => write!(f, "I64"),
+            Ty::U8 => write!(f, "U8"),
+            Ty::U16 => write!(f, "U16"),
+            Ty::U32 => write!(f, "U32"),
+            Ty::U64 => write!(f, "U64"),
+            Ty::F32 => write!(f, "F32"),
+            Ty::F64 => write!(f, "F64"),
             Ty::Bool => write!(f, "Bool"),
             Ty::Str => write!(f, "Str"),
             Ty::Char => write!(f, "Char"),

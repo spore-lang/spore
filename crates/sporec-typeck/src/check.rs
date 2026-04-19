@@ -543,10 +543,15 @@ impl Checker {
                     methods,
                 );
             }
-            Item::Import(_)
-            | Item::Const(_)
-            | Item::CapabilityAlias { .. }
-            | Item::EffectAlias(_) => {}
+            Item::Import(_) | Item::Const(_) | Item::CapabilityAlias { .. } => {}
+            Item::EffectAlias(ea) => {
+                // Register the alias into the capability hierarchy so that
+                // `uses [AliasName]` expands to its constituent effects.
+                for component in &ea.effects {
+                    self.hierarchy
+                        .add_implies(ea.name.clone(), component.clone());
+                }
+            }
             Item::TraitDef(td) => {
                 let methods: Vec<(String, Vec<Ty>, Ty)> = td
                     .methods
@@ -653,6 +658,23 @@ impl Checker {
             Item::Function(f) => self.check_fn(f),
             Item::ImplDef(impl_def) => self.check_impl(impl_def),
             Item::HandlerDef(handler_def) => self.check_handler(handler_def),
+            Item::EffectAlias(ea) => {
+                // Validate that every component of the alias names a known
+                // effect/capability defined in this module (or imported).
+                // TODO: cross-module alias export — aliases are currently only
+                //       visible within the same module's Checker instance.
+                for component in &ea.effects {
+                    if !self.registry.capabilities.contains_key(component) {
+                        self.err(
+                            ErrorCode::C0002,
+                            format!(
+                                "effect alias `{}` references unknown effect `{}`",
+                                ea.name, component
+                            ),
+                        );
+                    }
+                }
+            }
             _ => {} // structs/types already registered; capabilities/imports deferred
         }
     }
@@ -957,8 +979,8 @@ impl Checker {
 
     fn check_expr(&mut self, expr: &Expr) -> Ty {
         match expr {
-            Expr::IntLit(_) => Ty::Int,
-            Expr::FloatLit(_) => Ty::Float,
+            Expr::IntLit(_) => Ty::I32,
+            Expr::FloatLit(_) => Ty::F64,
             Expr::StrLit(_) => Ty::Str,
             Expr::BoolLit(_) => Ty::Bool,
             Expr::FString(_) => Ty::Str,
@@ -1012,10 +1034,10 @@ impl Checker {
                         Ty::Bool
                     }
                     UnaryOp::BitNot => {
-                        if ty != Ty::Int && !ty.is_error() {
+                        if !ty.is_integer() && !ty.is_error() {
                             self.err(ErrorCode::E0002, format!("cannot apply `~` to type `{ty}`"));
                         }
-                        Ty::Int
+                        ty
                     }
                 }
             }
@@ -1358,7 +1380,7 @@ impl Checker {
 
             Expr::ChannelNew { elem_type, buffer } => {
                 let buffer_ty = self.check_expr(buffer);
-                self.unify(&Ty::Int, &buffer_ty, "Channel.new buffer");
+                self.unify(&Ty::I32, &buffer_ty, "Channel.new buffer");
                 let elem_ty = self.resolve_type(elem_type);
                 Ty::Tuple(vec![
                     Ty::App("Sender".into(), vec![elem_ty.clone()]),
@@ -1400,10 +1422,10 @@ impl Checker {
             Expr::ParallelScope { lanes, body } => {
                 if let Some(lanes_expr) = lanes {
                     let lanes_ty = self.check_expr(lanes_expr);
-                    if lanes_ty != Ty::Int && !lanes_ty.is_error() {
+                    if lanes_ty != Ty::I32 && !lanes_ty.is_error() {
                         self.err(
                             ErrorCode::E0002,
-                            format!("parallel_scope lanes must be Int, got `{lanes_ty}`"),
+                            format!("parallel_scope lanes must be I32, got `{lanes_ty}`"),
                         );
                     }
                     if let Expr::IntLit(n) = lanes_expr.as_ref()
@@ -1468,7 +1490,7 @@ impl Checker {
                         }
                         SelectArm::Timeout { duration, body } => {
                             let duration_ty = self.check_expr(duration);
-                            self.unify(&Ty::Int, &duration_ty, "select timeout");
+                            self.unify(&Ty::I32, &duration_ty, "select timeout");
                             self.check_expr(body)
                         }
                     };
@@ -1768,21 +1790,21 @@ impl Checker {
                 }
                 Ty::Bool
             }
-            // Bitwise: both Int
+            // Bitwise: both integer
             BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor | BinOp::Shl | BinOp::Shr => {
-                if lt != Ty::Int {
+                if !lt.is_integer() && !lt.is_error() {
                     self.err(
                         ErrorCode::E0002,
-                        format!("bitwise `{op:?}` expects Int, got `{lt}`"),
+                        format!("bitwise `{op:?}` expects integer type, got `{lt}`"),
                     );
                 }
-                if rt != Ty::Int {
+                if !rt.is_integer() && !rt.is_error() {
                     self.err(
                         ErrorCode::E0002,
-                        format!("bitwise `{op:?}` expects Int, got `{rt}`"),
+                        format!("bitwise `{op:?}` expects integer type, got `{rt}`"),
                     );
                 }
-                Ty::Int
+                lt
             }
         }
     }
@@ -2184,8 +2206,16 @@ impl Checker {
     pub fn resolve_type(&mut self, te: &TypeExpr) -> Ty {
         match te {
             TypeExpr::Named(name) => match name.as_str() {
-                "Int" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => Ty::Int,
-                "F32" | "F64" => Ty::Float,
+                "I32" => Ty::I32,
+                "I8" => Ty::I8,
+                "I16" => Ty::I16,
+                "I64" => Ty::I64,
+                "U8" => Ty::U8,
+                "U16" => Ty::U16,
+                "U32" => Ty::U32,
+                "U64" => Ty::U64,
+                "F32" => Ty::F32,
+                "F64" => Ty::F64,
                 "Bool" => Ty::Bool,
                 "Str" => Ty::Str,
                 "Char" => Ty::Char,
@@ -2467,8 +2497,16 @@ impl Checker {
         match ty {
             Ty::Refined(base, _, _) => self.bound_target_names(base),
             Ty::Named(name) | Ty::App(name, _) => vec![name.clone()],
-            Ty::Int => vec!["I32".into()],
-            Ty::Float => vec!["F64".into()],
+            Ty::I8 => vec!["I8".into()],
+            Ty::I16 => vec!["I16".into()],
+            Ty::I32 => vec!["I32".into()],
+            Ty::I64 => vec!["I64".into()],
+            Ty::U8 => vec!["U8".into()],
+            Ty::U16 => vec!["U16".into()],
+            Ty::U32 => vec!["U32".into()],
+            Ty::U64 => vec!["U64".into()],
+            Ty::F32 => vec!["F32".into()],
+            Ty::F64 => vec!["F64".into()],
             Ty::Bool => vec!["Bool".into()],
             Ty::Str => vec!["Str".into()],
             Ty::Char => vec!["Char".into()],
@@ -2690,7 +2728,7 @@ impl Checker {
                 }
             }
             Pattern::IntLit(_) => {
-                if *scrutinee_ty != Ty::Int && !scrutinee_ty.is_error() {
+                if !scrutinee_ty.is_integer() && !scrutinee_ty.is_error() {
                     self.err(
                         ErrorCode::E0011,
                         format!("integer pattern cannot match type `{scrutinee_ty}`"),
@@ -2911,7 +2949,17 @@ impl Checker {
                     }
                 }
             }
-            Ty::Int | Ty::Float | Ty::Str => {
+            Ty::I8
+            | Ty::I16
+            | Ty::I32
+            | Ty::I64
+            | Ty::U8
+            | Ty::U16
+            | Ty::U32
+            | Ty::U64
+            | Ty::F32
+            | Ty::F64
+            | Ty::Str => {
                 self.err(
                     ErrorCode::E0010,
                     format!(

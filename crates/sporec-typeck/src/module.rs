@@ -138,8 +138,16 @@ fn prelude_type_mapping(type_params: &[String]) -> HashMap<String, Ty> {
 fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
     match te {
         TypeExpr::Named(name) => match name.as_str() {
-            "Int" | "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => Ty::Int,
-            "F32" | "F64" => Ty::Float,
+            "I32" => Ty::I32,
+            "I8" => Ty::I8,
+            "I16" => Ty::I16,
+            "I64" => Ty::I64,
+            "U8" => Ty::U8,
+            "U16" => Ty::U16,
+            "U32" => Ty::U32,
+            "U64" => Ty::U64,
+            "F32" => Ty::F32,
+            "F64" => Ty::F64,
             "Bool" => Ty::Bool,
             "Str" => Ty::Str,
             "Char" => Ty::Char,
@@ -316,6 +324,10 @@ fn build_prelude_interface() -> ModuleInterface {
             | Item::CapabilityAlias { .. }
             | Item::TraitDef(_)
             | Item::EffectDef(_)
+            // TODO: export effect-alias expansion into ModuleInterface so that
+            //       cross-module `uses [AliasName]` resolves correctly.
+            //       For now alias expansion is same-module only (handled in
+            //       Checker::register_item via the local CapabilityHierarchy).
             | Item::EffectAlias(_) => {}
             Item::HandlerDef(handler) => {
                 let fields = handler
@@ -523,7 +535,7 @@ impl ModuleRegistry {
 
         prelude
             .functions
-            .insert("string_length".into(), (vec![Ty::Str], Ty::Int));
+            .insert("string_length".into(), (vec![Ty::Str], Ty::I32));
         prelude.functions.insert(
             "split".into(),
             (
@@ -549,19 +561,19 @@ impl ModuleRegistry {
         prelude.functions.insert(
             "char_at".into(),
             (
-                vec![Ty::Str, Ty::Int],
+                vec![Ty::Str, Ty::I32],
                 Ty::App("Option".into(), vec![Ty::Str]),
             ),
         );
         prelude
             .functions
-            .insert("char_to_int".into(), (vec![Ty::Str], Ty::Int));
+            .insert("char_to_int".into(), (vec![Ty::Str], Ty::I32));
         prelude
             .functions
-            .insert("int_to_char".into(), (vec![Ty::Int], Ty::Str));
+            .insert("int_to_char".into(), (vec![Ty::I32], Ty::Str));
         prelude.functions.insert(
             "substring".into(),
-            (vec![Ty::Str, Ty::Int, Ty::Int], Ty::Str),
+            (vec![Ty::Str, Ty::I32, Ty::I32], Ty::Str),
         );
         prelude
             .functions
@@ -571,28 +583,28 @@ impl ModuleRegistry {
             .insert("to_string".into(), (vec![Ty::Var(0)], Ty::Str));
         prelude
             .functions
-            .insert("string_index_of".into(), (vec![Ty::Str, Ty::Str], Ty::Int));
+            .insert("string_index_of".into(), (vec![Ty::Str, Ty::Str], Ty::I32));
 
         prelude
             .functions
-            .insert("abs".into(), (vec![Ty::Int], Ty::Int));
+            .insert("abs".into(), (vec![Ty::I32], Ty::I32));
         prelude
             .functions
-            .insert("min".into(), (vec![Ty::Int, Ty::Int], Ty::Int));
+            .insert("min".into(), (vec![Ty::I32, Ty::I32], Ty::I32));
         prelude
             .functions
-            .insert("max".into(), (vec![Ty::Int, Ty::Int], Ty::Int));
+            .insert("max".into(), (vec![Ty::I32, Ty::I32], Ty::I32));
 
         let list_t = Ty::App("List".into(), vec![Ty::Var(0)]);
         let list_u = Ty::App("List".into(), vec![Ty::Var(1)]);
         prelude
             .functions
-            .insert("len".into(), (vec![Ty::Var(0)], Ty::Int));
+            .insert("len".into(), (vec![Ty::Var(0)], Ty::I32));
         prelude.functions.insert(
             "range".into(),
             (
-                vec![Ty::Int, Ty::Int],
-                Ty::App("List".into(), vec![Ty::Int]),
+                vec![Ty::I32, Ty::I32],
+                Ty::App("List".into(), vec![Ty::I32]),
             ),
         );
         prelude
@@ -961,8 +973,7 @@ mod tests {
     fn register_and_lookup_module() {
         let mut reg = ModuleRegistry::new();
         let mut m = ModuleInterface::new(vec!["Math".into()]);
-        m.functions
-            .insert("sqrt".into(), (vec![Ty::Float], Ty::Float));
+        m.functions.insert("sqrt".into(), (vec![Ty::F64], Ty::F64));
         reg.register(m);
 
         let found = reg.get(&["Math".into()]);
