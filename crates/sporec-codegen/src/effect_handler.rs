@@ -8,7 +8,7 @@ use std::io::Write;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeSignal {
-    Exit(i64),
+    Exit(u8),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +122,10 @@ fn require_int_arg(args: &[Value], idx: usize, operation: &str) -> Result<i64, S
             other.type_name()
         )),
     }
+}
+
+fn require_exit_code(code: i64, operation: &str) -> Result<u8, String> {
+    u8::try_from(code).map_err(|_| format!("{operation}: exit code {code} is out of range 0..=255"))
 }
 
 fn io_error(operation: &str, error: impl std::fmt::Display) -> String {
@@ -324,6 +328,7 @@ impl EffectHandler for BasicCliPlatformHandler {
             }
             "exit" => {
                 let code = require_int_arg(args, 0, operation)?;
+                let code = require_exit_code(code, operation)?;
                 Ok(EffectOutcome::Signal(RuntimeSignal::Exit(code)))
             }
             _ => Err(format!(
@@ -442,5 +447,38 @@ mod tests {
             .handle("basic_cli.cmd.exit", &[Value::Int(7)])
             .expect("exit should succeed");
         assert_eq!(result, EffectOutcome::Signal(RuntimeSignal::Exit(7)));
+    }
+
+    #[test]
+    fn exit_code_out_of_range_returns_error() {
+        let h = BasicCliPlatformHandler;
+        let result_high = h.handle("exit", &[Value::Int(256)]);
+        assert!(result_high.is_err(), "exit code 256 should be rejected");
+        assert!(
+            result_high.unwrap_err().contains("out of range"),
+            "error message should mention out of range"
+        );
+
+        let result_neg = h.handle("exit", &[Value::Int(-1)]);
+        assert!(result_neg.is_err(), "exit code -1 should be rejected");
+        assert!(
+            result_neg.unwrap_err().contains("out of range"),
+            "error message should mention out of range"
+        );
+    }
+
+    #[test]
+    fn exit_code_in_range_returns_signal() {
+        let h = BasicCliPlatformHandler;
+
+        let result_zero = h
+            .handle("exit", &[Value::Int(0)])
+            .expect("exit code 0 should succeed");
+        assert_eq!(result_zero, EffectOutcome::Signal(RuntimeSignal::Exit(0)));
+
+        let result_max = h
+            .handle("exit", &[Value::Int(255)])
+            .expect("exit code 255 should succeed");
+        assert_eq!(result_max, EffectOutcome::Signal(RuntimeSignal::Exit(255)));
     }
 }
