@@ -453,7 +453,10 @@ mod tests {
         std::fs::write(dir.join("alpha.txt"), "a").expect("write alpha");
 
         let result = h
-            .handle("dir_list", &[Value::Str(dir.to_string_lossy().into_owned())])
+            .handle(
+                "dir_list",
+                &[Value::Str(dir.to_string_lossy().into_owned())],
+            )
             .expect("dir_list should succeed");
 
         let EffectOutcome::Value(Value::List(entries)) = result else {
