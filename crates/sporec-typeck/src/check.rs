@@ -1425,7 +1425,7 @@ impl Checker {
                     if lanes_ty != Ty::I32 && !lanes_ty.is_error() {
                         self.err(
                             ErrorCode::E0002,
-                            format!("parallel_scope lanes must be Int, got `{lanes_ty}`"),
+                            format!("parallel_scope lanes must be I32, got `{lanes_ty}`"),
                         );
                     }
                     if let Expr::IntLit(n) = lanes_expr.as_ref()

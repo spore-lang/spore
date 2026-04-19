@@ -780,7 +780,7 @@ impl Interpreter {
                 let buffer_val = self.eval(buffer, env)?;
                 let raw_size = buffer_val
                     .as_int()
-                    .ok_or_else(|| RuntimeError::new("Channel.new buffer must be Int"))?;
+                    .ok_or_else(|| RuntimeError::new("Channel.new buffer must be I32"))?;
                 if raw_size < 0 {
                     return Err(RuntimeError::new(format!(
                         "Channel.new buffer must be >= 0, got {raw_size}"
@@ -823,7 +823,7 @@ impl Interpreter {
                     let lanes_value = self.eval(lanes_expr, env)?;
                     let lanes_int = lanes_value
                         .as_int()
-                        .ok_or_else(|| RuntimeError::new("parallel_scope lanes must be Int"))?;
+                        .ok_or_else(|| RuntimeError::new("parallel_scope lanes must be I32"))?;
                     if lanes_int <= 0 {
                         return Err(RuntimeError::new(format!(
                             "parallel_scope lanes must be > 0, got {lanes_int}"
