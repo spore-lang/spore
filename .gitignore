@@ -16,6 +16,7 @@
 *~
 .idea/
 .vscode/
+.cursor/
 *.iml
 
 # Coverage
