@@ -83,6 +83,12 @@ pub struct SymbolInfo {
     pub detail: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HoleSurface {
+    pub name: Option<String>,
+    pub display_name: String,
+}
+
 pub struct LspServer {
     pub documents: HashMap<String, String>,
 }
@@ -356,12 +362,7 @@ impl LspServer {
     pub fn handle_hover(&self, params: &Value) -> Option<Value> {
         let (_, source, line, col) = self.extract_text_document_params(params)?;
 
-        let word = word_at_position(&source, line, col);
-        if word.is_empty() {
-            return Some(json!(null));
-        }
-
-        if let Some(hover) = build_hover_for_symbol(&source, &word) {
+        if let Some(hover) = build_hover_for_position(&source, line, col) {
             return Some(json!({
                 "contents": {
                     "kind": "markdown",
@@ -513,6 +514,21 @@ pub fn build_diagnostics_for_document(uri: &str, source: &str) -> Vec<Value> {
         .collect()
 }
 
+pub fn build_hover_for_position(source: &str, line: u32, col: u32) -> Option<String> {
+    if let Some(hole) = hole_at_position(source, line, col)
+        && let Some(hover) = build_hover_for_hole(source, line, col, &hole)
+    {
+        return Some(hover);
+    }
+
+    let word = word_at_position(source, line, col);
+    if word.is_empty() {
+        return None;
+    }
+
+    build_hover_for_symbol(source, &word)
+}
+
 /// Extract the word (identifier) at a given (line, col) position.
 pub fn word_at_position(source: &str, line: u32, col: u32) -> String {
     let Some(line_text) = source.lines().nth(line as usize) else {
@@ -539,6 +555,175 @@ pub fn word_at_position(source: &str, line: u32, col: u32) -> String {
 
 fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
+}
+
+fn is_hole_ident_char(b: u8) -> bool {
+    is_ident_char(b)
+}
+
+pub fn hole_at_position(source: &str, line: u32, col: u32) -> Option<HoleSurface> {
+    let line_text = source.lines().nth(line as usize)?;
+    let bytes = line_text.as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+
+    let candidates = [
+        col as usize,
+        (col as usize).saturating_sub(1),
+        (col as usize).saturating_add(1),
+    ];
+
+    for col in candidates {
+        let Some(&current) = bytes.get(col) else {
+            continue;
+        };
+
+        let start = if current == b'?' {
+            col
+        } else if is_hole_ident_char(current) {
+            let mut start = col;
+            while start > 0 && is_hole_ident_char(bytes[start - 1]) {
+                start -= 1;
+            }
+            if start > 0 && bytes[start - 1] == b'?' {
+                start - 1
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        };
+
+        let mut end = start + 1;
+        while end < bytes.len() && is_hole_ident_char(bytes[end]) {
+            end += 1;
+        }
+
+        let display_name = line_text[start..end].to_string();
+        let name = display_name.strip_prefix('?').and_then(|suffix| {
+            if suffix.is_empty() {
+                None
+            } else {
+                Some(suffix.to_string())
+            }
+        });
+
+        return Some(HoleSurface { name, display_name });
+    }
+
+    None
+}
+
+fn byte_offset_at_position(source: &str, line: u32, col: u32) -> Option<usize> {
+    let source_file = sporec_driver::source_file("file:///buffer.sp", source);
+    source_file.byte_offset(sporec_driver::DiagnosticPosition {
+        line: line as usize + 1,
+        col: col as usize + 1,
+    })
+}
+
+fn enclosing_function_at_position(source: &str, line: u32, col: u32) -> Option<String> {
+    let byte_offset = byte_offset_at_position(source, line, col)?;
+    let module = sporec_parser::parse(source).ok()?;
+
+    module.items.iter().find_map(|item| {
+        let span = item.span()?;
+        if !(span.start..=span.end).contains(&byte_offset) {
+            return None;
+        }
+
+        match item {
+            Item::Function(function) => Some(function.name.clone()),
+            Item::HandlerDef(handler) => Some(handler.name.clone()),
+            _ => None,
+        }
+    })
+}
+
+fn build_hover_for_hole(source: &str, line: u32, col: u32, hole: &HoleSurface) -> Option<String> {
+    let report = sporec_driver::holes_report(source).ok()?;
+    let enclosing_function = enclosing_function_at_position(source, line, col);
+
+    let mut matches: Vec<&sporec_driver::HoleInfoJson> = report
+        .holes
+        .iter()
+        .filter(|candidate| match hole.name.as_deref() {
+            Some(name) => candidate.name == name,
+            None => candidate.display_name == hole.display_name,
+        })
+        .collect();
+
+    if let Some(function) = enclosing_function.as_deref() {
+        let scoped: Vec<_> = matches
+            .iter()
+            .copied()
+            .filter(|candidate| candidate.function == function)
+            .collect();
+        if scoped.len() == 1 {
+            return Some(format_hole_hover(scoped[0]));
+        }
+        if !scoped.is_empty() {
+            matches = scoped;
+        }
+    }
+
+    if matches.len() == 1 {
+        return Some(format_hole_hover(matches[0]));
+    }
+
+    None
+}
+
+fn format_hole_hover(hole: &sporec_driver::HoleInfoJson) -> String {
+    let mut parts = vec![
+        format!("**Typed hole** `{}`", hole.display_name),
+        String::new(),
+        format!(
+            "```spore\n{} : {}\n```",
+            hole.display_name, hole.expected_type
+        ),
+    ];
+
+    if let Some(signature) = &hole.enclosing_signature {
+        parts.push(format!("**Enclosing signature:** `{signature}`"));
+    } else if !hole.function.is_empty() {
+        parts.push(format!("**Function:** `{}`", hole.function));
+    }
+
+    if let Some(type_inferred_from) = &hole.type_inferred_from {
+        parts.push(format!("**Inferred from:** {type_inferred_from}"));
+    }
+
+    if !hole.bindings.is_empty() {
+        let bindings = hole
+            .bindings
+            .iter()
+            .take(8)
+            .map(|(name, ty)| format!("{name}: {ty}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        parts.push(format!("**Bindings in scope**\n```spore\n{bindings}\n```"));
+    }
+
+    if !hole.candidates.is_empty() {
+        let candidates = hole
+            .candidates
+            .iter()
+            .take(3)
+            .map(|candidate| format!("- `{}` ({:.2})", candidate.name, candidate.overall))
+            .collect::<Vec<_>>()
+            .join("\n");
+        parts.push(format!("**Top candidates**\n{candidates}"));
+    }
+
+    if let Some(confidence) = &hole.confidence
+        && let Some(recommendation) = &confidence.recommendation
+    {
+        parts.push(format!("**Recommendation:** {recommendation}"));
+    }
+
+    parts.join("\n\n")
 }
 
 /// Search source text for a definition of `name` (e.g. `fn name`, `type name`,
