@@ -260,7 +260,7 @@ impl EffectHandler for BasicCliPlatformHandler {
             }
             "dir_list" => {
                 let path = require_str_arg(args, 0, operation)?;
-                let entries = std::fs::read_dir(path)
+                let mut entries = std::fs::read_dir(path)
                     .map_err(|error| io_error(operation, error))?
                     .map(|entry| {
                         entry
@@ -268,6 +268,10 @@ impl EffectHandler for BasicCliPlatformHandler {
                             .map_err(|error| io_error(operation, error))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                entries.sort_by(|a, b| match (a, b) {
+                    (Value::Str(a), Value::Str(b)) => a.cmp(b),
+                    _ => std::cmp::Ordering::Equal,
+                });
                 Ok(EffectOutcome::Value(Value::List(entries)))
             }
             "dir_mkdir" => {
@@ -438,6 +442,33 @@ mod tests {
         );
         // SAFETY: paired cleanup for the test-only variable above.
         unsafe { std::env::remove_var(&key) };
+    }
+
+    #[test]
+    fn basic_cli_handler_dir_list_returns_stable_sorted_names() {
+        let h = BasicCliPlatformHandler;
+        let dir = temp_path("dir-list");
+        std::fs::create_dir_all(&dir).expect("create temporary directory");
+        std::fs::write(dir.join("zeta.txt"), "z").expect("write zeta");
+        std::fs::write(dir.join("alpha.txt"), "a").expect("write alpha");
+
+        let result = h
+            .handle("dir_list", &[Value::Str(dir.to_string_lossy().into_owned())])
+            .expect("dir_list should succeed");
+
+        let EffectOutcome::Value(Value::List(entries)) = result else {
+            panic!("expected list result");
+        };
+
+        assert_eq!(
+            entries,
+            vec![
+                Value::Str("alpha.txt".into()),
+                Value::Str("zeta.txt".into())
+            ]
+        );
+
+        std::fs::remove_dir_all(&dir).expect("cleanup temporary directory");
     }
 
     #[test]
