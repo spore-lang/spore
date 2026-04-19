@@ -1567,21 +1567,21 @@ impl Parser {
             // Check for `let` statement
             if self.at(&Token::Let) {
                 stmts.push(self.parse_let_stmt()?);
-                // Optional semicolon
-                if self.at(&Token::Semicolon) {
-                    self.advance();
-                }
             } else {
                 let expr = self.parse_expr()?;
                 if self.at(&Token::Semicolon) {
                     self.advance();
                     stmts.push(Stmt::Expr(expr));
                 } else if self.at(&Token::RBrace) {
-                    // This is the tail expression
+                    // Tail expression — no semicolon required
                     tail = Some(Box::new(expr));
                 } else {
-                    // Expression without semicolon not at end — treat as statement
-                    stmts.push(Stmt::Expr(expr));
+                    // Expression in statement position without ';' is a parse error
+                    return Err(self.error(
+                        "expected ';' after expression statement (Spore uses Rust-style semicolons: \
+                         add ';' to discard the value, or move the expression to the end of the \
+                         block as the tail expression)".to_string(),
+                    ));
                 }
             }
         }
@@ -1601,6 +1601,7 @@ impl Parser {
         };
         self.expect(&Token::Eq)?;
         let expr = self.parse_expr()?;
+        self.expect(&Token::Semicolon)?;
         Ok(Stmt::Let(name, ty, expr))
     }
 

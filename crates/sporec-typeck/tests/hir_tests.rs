@@ -109,7 +109,7 @@ fn block_with_let_lowering() {
     let hir = lower_src(
         r#"
         fn example() -> I32 {
-            let x: I32 = 10
+            let x: I32 = 10;
             x
         }
     "#,

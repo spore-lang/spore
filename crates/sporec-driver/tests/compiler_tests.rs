@@ -662,7 +662,7 @@ fn compile_project_resolves_imports_from_path_dependency_modules() {
         import basic_cli.stdout
 
         fn main() -> () {
-            println("hello from dependency")
+            println("hello from dependency");
             return
         }
         "#,
@@ -705,7 +705,7 @@ fn compile_project_accepts_platform_dependency_console_imports() {
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,
@@ -717,7 +717,7 @@ fn compile_project_accepts_platform_dependency_console_imports() {
         import basic_cli.stdout
 
         fn main() -> () uses [Console] {
-            println("hello from imported console")
+            println("hello from imported console");
             return
         }
         "#,
@@ -744,7 +744,7 @@ fn compile_project_rejects_platform_dependency_console_imports_without_uses() {
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,
@@ -756,7 +756,7 @@ fn compile_project_rejects_platform_dependency_console_imports_without_uses() {
         import basic_cli.stdout
 
         fn main() -> () {
-            println("hello from imported console")
+            println("hello from imported console");
             return
         }
         "#,
@@ -786,7 +786,7 @@ fn compile_project_rejects_platform_dependency_bare_console_without_import() {
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,
@@ -796,7 +796,7 @@ fn compile_project_rejects_platform_dependency_bare_console_without_import() {
         "src/app.sp",
         r#"
         fn main() -> () {
-            println("missing import")
+            println("missing import");
             return
         }
         "#,
@@ -823,7 +823,7 @@ fn compile_project_rejects_startup_capabilities_outside_platform_handles() {
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,
@@ -835,7 +835,7 @@ fn compile_project_rejects_startup_capabilities_outside_platform_handles() {
         import basic_cli.stdout
 
         fn main() -> () uses [Console] {
-            println("hello from imported console")
+            println("hello from imported console");
             return
         }
         "#,
@@ -975,7 +975,7 @@ fn compile_legacy_project_resolves_transitive_path_dependency_imports() {
         import dep_a.wrapper
 
         fn main() -> () {
-            print_message()
+            print_message();
             return
         }
         "#,
@@ -997,7 +997,7 @@ fn compile_legacy_project_resolves_transitive_path_dependency_imports() {
         import dep_b.message
 
         pub fn print_message() -> () {
-            message()
+            message();
             return
         }
         "#,
@@ -1113,7 +1113,7 @@ fn compile_project_accepts_platform_dependency_startup_contract() {
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,
@@ -1245,7 +1245,7 @@ fn run_project_with_outcome_returns_basic_cli_exit_code() {
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,
@@ -1312,7 +1312,7 @@ fn run_project_rejects_unknown_package_platform_host_binding() {
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,
@@ -1339,7 +1339,7 @@ fn compile_project_rejects_missing_startup_against_platform_dependency_contract(
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,
@@ -1377,7 +1377,7 @@ fn check_project_returns_invalid_platform_contract_diagnostic_for_non_hole_start
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,

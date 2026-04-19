@@ -710,7 +710,7 @@ fn test_placeholder_single() {
         r#"
         fn add(a: Int, b: Int) -> Int { a + b }
         fn main() -> Int {
-            let add5 = add(_, 5)
+            let add5 = add(_, 5);
             add5(3)
         }
     "#,
@@ -725,7 +725,7 @@ fn test_placeholder_multi() {
         r#"
         fn sub(a: Int, b: Int) -> Int { a - b }
         fn main() -> Int {
-            let f = sub(_, _)
+            let f = sub(_, _);
             f(1, 2)
         }
     "#,
@@ -755,8 +755,8 @@ fn test_placeholder_nested_calls() {
         fn add(a: Int, b: Int) -> Int { a + b }
         fn mul(a: Int, b: Int) -> Int { a * b }
         fn main() -> Int {
-            let f = add(_, 10)
-            let g = mul(_, 3)
+            let f = add(_, 10);
+            let g = mul(_, 3);
             f(g(2))
         }
     "#,
@@ -862,7 +862,7 @@ fn test_handle_intercepts_effect() {
         r#"
         fn main() -> Int {
             handle {
-                perform StdIO.println("intercepted")
+                perform StdIO.println("intercepted");
                 42
             } with {
                 StdIO.println(msg) => 99
@@ -902,7 +902,7 @@ fn test_handler_result_becomes_perform_value() {
                 perform Math.double(21)
             } with {
                 on Math.double(x) => x + x
-            }
+            };
             doubled
         }
         "#,
@@ -946,7 +946,7 @@ fn test_named_handler_and_inline_on_can_mix_for_different_effects() {
         }
         fn main() -> Int {
             handle {
-                perform StdIO.println("hello")
+                perform StdIO.println("hello");
                 perform Math.double(21)
             } with {
                 use DoubleMath { multiplier: 2 },
@@ -1021,7 +1021,7 @@ fn test_handler_scope_does_not_escape_block() {
                 perform Math.value()
             } with {
                 Math.value() => 41
-            }
+            };
             perform Math.value()
         }
         "#,
@@ -1400,7 +1400,7 @@ fn test_fn_with_block_spec_example_parses_and_runs() {
         fn add(a: Int, b: Int) -> Int
         spec {
             example "block" {
-                let sum = add(2, 3)
+                let sum = add(2, 3);
                 sum == 5
             }
         }
@@ -1440,7 +1440,7 @@ fn test_fn_with_empty_spec() {
 fn test_task_await_executes_spawned_expression() {
     let src = r#"
         fn main() -> Int {
-            let t = spawn { 40 + 2 }
+            let t = spawn { 40 + 2 };
             t.await
         }
     "#;
@@ -1452,12 +1452,12 @@ fn test_task_await_executes_spawned_expression() {
 fn test_channel_new_send_then_select_recv_arm() {
     let src = r#"
         fn main() -> Int {
-            let pair = Channel.new[Int](buffer: 1)
+            let pair = Channel.new[Int](buffer: 1);
             match head(pair) {
                 Some(tx) => match tail(pair) {
                     Some(rest) => match head(rest) {
                         Some(rx) => {
-                            tx.send(42)
+                            tx.send(42);
                             select {
                                 value from rx => value,
                                 timeout(5) => 0
@@ -1479,7 +1479,7 @@ fn test_channel_new_send_then_select_recv_arm() {
 fn test_select_timeout_arm_runs_when_no_message_ready() {
     let src = r#"
         fn main() -> Int {
-            let pair = Channel.new[Int](buffer: 1)
+            let pair = Channel.new[Int](buffer: 1);
             match tail(pair) {
                 Some(rest) => match head(rest) {
                     Some(rx) => select {
@@ -1500,15 +1500,15 @@ fn test_select_timeout_arm_runs_when_no_message_ready() {
 fn test_parallel_scope_drains_spawned_tasks_on_exit() {
     let src = r#"
         fn main() -> Int {
-            let pair = Channel.new[Int](buffer: 1)
+            let pair = Channel.new[Int](buffer: 1);
             match head(pair) {
                 Some(tx) => match tail(pair) {
                     Some(rest) => match head(rest) {
                         Some(rx) => {
                             parallel_scope {
-                                let _task = spawn { tx.send(42) }
+                                let _task = spawn { tx.send(42) };
                                 0
-                            }
+                            };
                             select {
                                 value from rx => value,
                                 timeout(5) => -1
@@ -1531,7 +1531,7 @@ fn test_parallel_scope_cancels_pending_tasks_when_body_errors() {
     let src = r#"
         fn main() -> Int {
             parallel_scope {
-                let _task = spawn { throw 99 }
+                let _task = spawn { throw 99 };
                 throw 1
             }
         }
@@ -1544,8 +1544,8 @@ fn test_parallel_scope_cancels_pending_tasks_when_body_errors() {
 fn test_select_rotates_across_ready_recv_arms() {
     let src = r#"
         fn main() -> Int {
-            let pair1 = Channel.new[Int](buffer: 2)
-            let pair2 = Channel.new[Int](buffer: 2)
+            let pair1 = Channel.new[Int](buffer: 2);
+            let pair2 = Channel.new[Int](buffer: 2);
             match head(pair1) {
                 Some(tx1) => match tail(pair1) {
                     Some(rest1) => match head(rest1) {
@@ -1553,20 +1553,20 @@ fn test_select_rotates_across_ready_recv_arms() {
                             Some(tx2) => match tail(pair2) {
                                 Some(rest2) => match head(rest2) {
                                     Some(rx2) => {
-                                        tx1.send(10)
-                                        tx1.send(11)
-                                        tx2.send(20)
-                                        tx2.send(21)
+                                        tx1.send(10);
+                                        tx1.send(11);
+                                        tx2.send(20);
+                                        tx2.send(21);
                                         let a = select {
                                             v from rx1 => v,
                                             v from rx2 => v,
                                             timeout(1) => 0
-                                        }
+                                        };
                                         let b = select {
                                             v from rx1 => v,
                                             v from rx2 => v,
                                             timeout(1) => 0
-                                        }
+                                        };
                                         a + b
                                     },
                                     None => -6

@@ -894,7 +894,7 @@ mod tests {
             }
 
             pub fn main_for_host(app_main: () -> ()) -> () {
-                app_main()
+                app_main();
                 return
             }
             "#,

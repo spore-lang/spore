@@ -60,7 +60,7 @@ fn standalone_run_prints_only_explicit_console_output() {
         "main.sp",
         r#"
         fn main() -> () {
-            println("hello")
+            println("hello");
             return
         }
         "#,
@@ -142,7 +142,7 @@ fn project_basic_cli_exit_returns_requested_code_without_printing_value() {
         }
 
         pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main()
+            app_main();
             return
         }
         "#,

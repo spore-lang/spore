@@ -1263,7 +1263,7 @@ pub fn main() -> () {
 
 /// Platform-owned startup adapter.
 pub fn main_for_host(app_main: () -> ()) -> () {
-    app_main()
+    app_main();
     return
 }
 ";
@@ -1338,7 +1338,7 @@ spore-version = \">=0.1.0\"
         _ => (
             "main.sp",
             format!(
-                "import basic_cli.stdout\n\nfn main() -> () uses [Console] {{\n    println(\"Hello from {name}!\")\n    return\n}}\n"
+                "import basic_cli.stdout\n\nfn main() -> () uses [Console] {{\n    println(\"Hello from {name}!\");\n    return\n}}\n"
             ),
         ),
     };

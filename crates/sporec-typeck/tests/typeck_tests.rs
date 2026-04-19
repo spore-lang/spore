@@ -1731,7 +1731,7 @@ fn refinement_let_binding_satisfied() {
     check_ok(
         r#"
 fn f() -> I32 {
-    let x: I32 when self > 0 = 5
+    let x: I32 when self > 0 = 5;
     x
 }
 "#,
@@ -1744,7 +1744,7 @@ fn refinement_let_binding_violated() {
     let errs = check_err_with_codes(
         r#"
 fn f() -> I32 {
-    let x: I32 when self > 0 = -1
+    let x: I32 when self > 0 = -1;
     x
 }
 "#,
@@ -1762,7 +1762,7 @@ fn refinement_subtype_of_base() {
         r#"
 fn add(a: I32, b: I32) -> I32 { a + b }
 fn f() -> I32 {
-    let x: I32 when self > 0 = 5
+    let x: I32 when self > 0 = 5;
     add(x, 3)
 }
 "#,
@@ -1776,7 +1776,7 @@ fn refinement_alias_definition() {
         r#"
 alias Port = I32 when self >= 1 && self <= 65535
 fn get_port() -> I32 {
-    let p: Port = 80
+    let p: Port = 80;
     p
 }
 "#,
@@ -1790,7 +1790,7 @@ fn refinement_alias_violated() {
         r#"
 alias Port = I32 when self >= 1 && self <= 65535
 fn get_port() -> I32 {
-    let p: Port = 0
+    let p: Port = 0;
     p
 }
 "#,
@@ -1807,7 +1807,7 @@ fn refinement_string_len() {
     check_ok(
         r#"
 fn f() -> Str {
-    let s: Str when self.len() > 0 = "hello"
+    let s: Str when self.len() > 0 = "hello";
     s
 }
 "#,
@@ -1820,7 +1820,7 @@ fn refinement_string_len_violated() {
     let errs = check_err_with_codes(
         r#"
 fn f() -> Str {
-    let s: Str when self.len() > 0 = ""
+    let s: Str when self.len() > 0 = "";
     s
 }
 "#,
@@ -1916,14 +1916,14 @@ fn builtin_program_using_builtins() {
     check_ok(
         r#"
         fn greet(name: Str) -> Str {
-            let upper = to_upper(name)
-            let len = string_length(upper)
+            let upper = to_upper(name);
+            let len = string_length(upper);
             upper
         }
 
         fn main() {
-            println("start")
-            let result = greet("world")
+            println("start");
+            let result = greet("world");
             println(result)
         }
         "#,
@@ -2087,7 +2087,7 @@ fn test_handle_capability_does_not_escape_scope() {
                 perform Console.println("inside")
             } with {
                 on Console.println(msg) => 0
-            }
+            };
             perform Console.println("outside")
         }
         "#,
@@ -2145,7 +2145,7 @@ fn test_handle_result_flows_into_surrounding_expression() {
                 perform Math.double(21)
             } with {
                 Math.double(x) => x + x
-            }
+            };
             doubled + 1
         }
         "#,
@@ -2640,7 +2640,7 @@ fn if_without_else_unit_body_ok() {
     // An if-without-else whose body is Unit is fine in a ()-returning fn
     check_ok(
         r#"fn side_effect(x: Bool) -> () {
-            if x { let _ = 1 }
+            if x { let _ = 1; }
         }"#,
     );
 }
@@ -3005,7 +3005,7 @@ fn spec_block_example_type_checks() {
         fn add(a: I32, b: I32) -> I32
         spec {
             example "block" {
-                let sum = add(2, 3)
+                let sum = add(2, 3);
                 sum == 5
             }
         }
