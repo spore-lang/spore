@@ -205,7 +205,7 @@ impl Value {
 
     pub fn type_name(&self) -> &str {
         match self {
-            Value::Int(_) => "I32",
+            Value::Int(_) => "I64",
             Value::Float(_) => "F64",
             Value::Bool(_) => "Bool",
             Value::Str(_) => "Str",

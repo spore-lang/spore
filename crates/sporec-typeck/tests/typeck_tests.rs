@@ -377,7 +377,7 @@ fn test_hole_report_basic() {
     let result = type_check(&module).unwrap();
     assert_eq!(result.hole_report.holes.len(), 1);
     assert_eq!(result.hole_report.holes[0].name, "todo");
-    assert_eq!(result.hole_report.holes[0].expected_type, Ty::Int);
+    assert_eq!(result.hole_report.holes[0].expected_type, Ty::I32);
     assert_eq!(result.hole_report.holes[0].function, "f");
 }
 
@@ -445,7 +445,7 @@ fn test_hole_report_allows_can_refine_signature_hole() {
     .unwrap();
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
-    assert_eq!(hole.expected_type, Ty::Int);
+    assert_eq!(hole.expected_type, Ty::I32);
     assert_eq!(
         hole.type_inferred_from.as_deref(),
         Some("`@allows[...]` candidates")
@@ -462,7 +462,7 @@ fn test_signature_hole_inference_propagates_to_later_body_hole() {
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
     assert_eq!(hole.function, "later");
-    assert_eq!(hole.expected_type, Ty::Int);
+    assert_eq!(hole.expected_type, Ty::I32);
 }
 
 #[test]
@@ -1229,7 +1229,7 @@ fn hole_info_v03_has_all_fields() {
     let info = HoleInfo {
         name: "impl".into(),
         location: None,
-        expected_type: Ty::Int,
+        expected_type: Ty::I32,
         type_inferred_from: Some("return type".into()),
         function: "foo".into(),
         enclosing_signature: Some("fn foo() -> I32".into()),
@@ -1244,7 +1244,7 @@ fn hole_info_v03_has_all_fields() {
         error_clusters: vec![],
     };
     assert_eq!(info.name, "impl");
-    assert_eq!(info.expected_type, Ty::Int);
+    assert_eq!(info.expected_type, Ty::I32);
     assert!(info.location.is_none());
     assert_eq!(info.type_inferred_from.as_deref(), Some("return type"));
     assert_eq!(info.enclosing_signature.as_deref(), Some("fn foo() -> I32"));
@@ -1835,7 +1835,7 @@ fn f() -> Str {
 fn refinement_type_display() {
     // Verify Display impl shows "I32 when <predicate>"
     let ty = Ty::Refined(
-        Box::new(Ty::Int),
+        Box::new(Ty::I32),
         "self".into(),
         Box::new(sporec_parser::ast::Expr::BoolLit(true)),
     );
@@ -2336,7 +2336,7 @@ fn test_or_pattern_no_bindings() {
 #[test]
 fn test_fn_type_with_error_set() {
     let errors: ErrorSet = ["MyError".to_string()].into_iter().collect();
-    let ty = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), errors.clone());
+    let ty = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), errors.clone());
     match &ty {
         Ty::Fn(_, _, _, err_set) => assert_eq!(*err_set, errors),
         _ => panic!("expected Ty::Fn"),
@@ -2345,7 +2345,7 @@ fn test_fn_type_with_error_set() {
 
 #[test]
 fn test_fn_type_empty_error_set() {
-    let ty = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), ErrorSet::new());
+    let ty = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), ErrorSet::new());
     match &ty {
         Ty::Fn(_, _, _, err_set) => assert!(err_set.is_empty()),
         _ => panic!("expected Ty::Fn"),
@@ -2355,7 +2355,7 @@ fn test_fn_type_empty_error_set() {
 #[test]
 fn test_error_set_display_empty() {
     let ty = Ty::Fn(
-        vec![Ty::Int],
+        vec![Ty::I32],
         Box::new(Ty::Str),
         CapSet::new(),
         ErrorSet::new(),
@@ -2402,7 +2402,7 @@ fn refined_types_different_predicates_not_equal() {
     use sporec_parser::ast::{BinOp, Expr};
 
     let pos = Ty::Refined(
-        Box::new(Ty::Int),
+        Box::new(Ty::I32),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2411,7 +2411,7 @@ fn refined_types_different_predicates_not_equal() {
         )),
     );
     let bounded = Ty::Refined(
-        Box::new(Ty::Int),
+        Box::new(Ty::I32),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2491,7 +2491,7 @@ fn refined_types_identical_are_equal() {
     use sporec_parser::ast::{BinOp, Expr};
 
     let a = Ty::Refined(
-        Box::new(Ty::Int),
+        Box::new(Ty::I32),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2500,7 +2500,7 @@ fn refined_types_identical_are_equal() {
         )),
     );
     let b = Ty::Refined(
-        Box::new(Ty::Int),
+        Box::new(Ty::I32),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2518,9 +2518,9 @@ fn refined_types_identical_are_equal() {
 fn test_fn_type_equality_with_error_set() {
     let mut errors = ErrorSet::new();
     errors.insert("E1".to_string());
-    let ty1 = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), errors.clone());
-    let ty2 = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), errors);
-    let ty3 = Ty::Fn(vec![], Box::new(Ty::Int), CapSet::new(), ErrorSet::new());
+    let ty1 = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), errors.clone());
+    let ty2 = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), errors);
+    let ty3 = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), ErrorSet::new());
     assert_eq!(ty1, ty2);
     assert_ne!(ty1, ty3);
 }
@@ -2530,7 +2530,7 @@ fn refined_types_different_var_names_not_equal() {
     use sporec_parser::ast::{BinOp, Expr};
 
     let a = Ty::Refined(
-        Box::new(Ty::Int),
+        Box::new(Ty::I32),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2539,7 +2539,7 @@ fn refined_types_different_var_names_not_equal() {
         )),
     );
     let b = Ty::Refined(
-        Box::new(Ty::Int),
+        Box::new(Ty::I32),
         "y".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("y".into())),
@@ -2558,13 +2558,13 @@ fn refined_types_different_var_names_not_equal() {
 fn ty_fold_replaces_int_with_float_in_nested_type() {
     // Fn([Int, Tuple([Int, Bool])], Int, {}, {}) → Fn([Float, Tuple([Float, Bool])], Float, {}, {})
     let ty = Ty::Fn(
-        vec![Ty::Int, Ty::Tuple(vec![Ty::Int, Ty::Bool])],
-        Box::new(Ty::Int),
+        vec![Ty::I32, Ty::Tuple(vec![Ty::I32, Ty::Bool])],
+        Box::new(Ty::I32),
         CapSet::new(),
         ErrorSet::new(),
     );
     let folded = ty.fold(&mut |t| match t {
-        Ty::Int => Ty::F64,
+        Ty::I32 => Ty::F64,
         other => other,
     });
     let expected = Ty::Fn(
@@ -2578,9 +2578,9 @@ fn ty_fold_replaces_int_with_float_in_nested_type() {
 
 #[test]
 fn ty_fold_replaces_in_record() {
-    let ty = Ty::Record(vec![("x".into(), Ty::Int), ("y".into(), Ty::Bool)]);
+    let ty = Ty::Record(vec![("x".into(), Ty::I32), ("y".into(), Ty::Bool)]);
     let folded = ty.fold(&mut |t| match t {
-        Ty::Int => Ty::Str,
+        Ty::I32 => Ty::Str,
         other => other,
     });
     assert_eq!(
@@ -2594,7 +2594,7 @@ fn ty_visit_collects_named_types() {
     let ty = Ty::Fn(
         vec![
             Ty::Named("Foo".into()),
-            Ty::Tuple(vec![Ty::Named("Bar".into()), Ty::Int]),
+            Ty::Tuple(vec![Ty::Named("Bar".into()), Ty::I32]),
         ],
         Box::new(Ty::App(
             "Result".into(),
@@ -2616,10 +2616,10 @@ fn ty_visit_collects_named_types() {
 fn ty_fold_ref_maps_vars() {
     let ty = Ty::App("List".into(), vec![Ty::Var(0)]);
     let mapped = ty.fold_ref(&mut |t| match t {
-        Ty::Var(0) => Some(Ty::Int),
+        Ty::Var(0) => Some(Ty::I32),
         _ => None,
     });
-    assert_eq!(mapped, Ty::App("List".into(), vec![Ty::Int]));
+    assert_eq!(mapped, Ty::App("List".into(), vec![Ty::I32]));
 }
 
 // ── Type soundness regression tests ─────────────────────────────────────

@@ -24,7 +24,7 @@ fn make_math_module() -> ModuleInterface {
     let mut m = ModuleInterface::new(vec!["Math".into()]);
     m.functions.insert("sqrt".into(), (vec![Ty::F64], Ty::F64));
     m.set_visibility("sqrt", SymbolVisibility::Pub);
-    m.functions.insert("abs".into(), (vec![Ty::Int], Ty::Int));
+    m.functions.insert("abs".into(), (vec![Ty::I32], Ty::I32));
     m.set_visibility("abs", SymbolVisibility::Pub);
     m
 }
@@ -159,7 +159,7 @@ fn multi_file_type_checking_with_manual_registry() {
     let mut utils = ModuleInterface::new(vec!["Utils".into()]);
     utils
         .functions
-        .insert("double".into(), (vec![Ty::Int], Ty::Int));
+        .insert("double".into(), (vec![Ty::I32], Ty::I32));
     utils.set_visibility("double", SymbolVisibility::Pub);
 
     let mut registry = ModuleRegistry::new();
@@ -257,7 +257,7 @@ fn build_module_interface_extracts_types_and_structs() {
     iface.set_visibility("Color", SymbolVisibility::Pub);
     iface.structs.insert(
         "Point".into(),
-        vec![("x".into(), Ty::Int), ("y".into(), Ty::Int)],
+        vec![("x".into(), Ty::I32), ("y".into(), Ty::I32)],
     );
     iface.set_visibility("Point", SymbolVisibility::Pub);
 
@@ -303,7 +303,7 @@ fn imported_struct_preserves_field_types() {
     let mut iface = ModuleInterface::new(vec!["Shapes".into()]);
     iface.structs.insert(
         "Point".into(),
-        vec![("x".into(), Ty::Int), ("y".into(), Ty::F64)],
+        vec![("x".into(), Ty::I32), ("y".into(), Ty::F64)],
     );
     iface.set_visibility("Point", SymbolVisibility::Pub);
 
@@ -359,7 +359,7 @@ fn imported_type_preserves_variant_field_types() {
         "Packet".into(),
         vec![
             ("Data".into(), vec![Ty::Str]),
-            ("Ack".into(), vec![Ty::Int]),
+            ("Ack".into(), vec![Ty::I32]),
             ("Close".into(), vec![]),
         ],
     );
@@ -375,7 +375,7 @@ fn imported_type_preserves_variant_field_types() {
     assert_eq!(variants[0].0, "Data");
     assert_eq!(variants[0].1, vec![Ty::Str]);
     assert_eq!(variants[1].0, "Ack");
-    assert_eq!(variants[1].1, vec![Ty::Int]);
+    assert_eq!(variants[1].1, vec![Ty::I32]);
     assert_eq!(variants[2].0, "Close");
     assert!(variants[2].1.is_empty());
 }
@@ -390,7 +390,7 @@ fn ambiguous_import_same_name_different_modules() {
     let mut mod_a = ModuleInterface::new(vec!["ModA".into()]);
     mod_a
         .functions
-        .insert("compute".into(), (vec![Ty::Int], Ty::Int));
+        .insert("compute".into(), (vec![Ty::I32], Ty::I32));
     mod_a.set_visibility("compute", SymbolVisibility::Pub);
     registry.register(mod_a);
 
@@ -432,7 +432,7 @@ fn ambiguous_import_same_effect_different_modules() {
     mod_b.capabilities.insert("Console".into());
     mod_b.capability_methods.insert(
         "Console".into(),
-        (vec![], vec![("println".into(), vec![Ty::Int], Ty::Unit)]),
+        (vec![], vec![("println".into(), vec![Ty::I32], Ty::Unit)]),
     );
     mod_b.set_visibility("Console", SymbolVisibility::Pub);
     registry.register(mod_b);

@@ -204,7 +204,7 @@ mod tests {
     fn same_signature_same_hash() {
         let h1 = SigHash::compute(
             "foo",
-            &[Ty::Int],
+            &[Ty::I32],
             &Ty::Bool,
             &BTreeSet::new(),
             &BTreeSet::new(),
@@ -212,7 +212,7 @@ mod tests {
         );
         let h2 = SigHash::compute(
             "foo",
-            &[Ty::Int],
+            &[Ty::I32],
             &Ty::Bool,
             &BTreeSet::new(),
             &BTreeSet::new(),
@@ -225,7 +225,7 @@ mod tests {
     fn different_param_different_hash() {
         let h1 = SigHash::compute(
             "foo",
-            &[Ty::Int],
+            &[Ty::I32],
             &Ty::Bool,
             &BTreeSet::new(),
             &BTreeSet::new(),
@@ -257,7 +257,7 @@ mod tests {
         let hash_b = SigHash::compute("b", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
         let hash_c = SigHash::compute("c", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
         let hash_b2 =
-            SigHash::compute("b2", &[], &Ty::Int, &BTreeSet::new(), &BTreeSet::new(), &[]);
+            SigHash::compute("b2", &[], &Ty::I32, &BTreeSet::new(), &BTreeSet::new(), &[]);
 
         let mut old = SigHashMap::new();
         old.insert("foo".into(), hash_a);
