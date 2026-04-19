@@ -1,7 +1,8 @@
 use serde_json::json;
 use spore_lsp::server::{
-    LspServer, build_diagnostics, build_diagnostics_for_document, build_hover_for_symbol,
-    collect_document_symbols, find_definition_in_source, word_at_position,
+    LspServer, build_diagnostics, build_diagnostics_for_document, build_hover_for_position,
+    build_hover_for_symbol, collect_document_symbols, find_definition_in_source, hole_at_position,
+    word_at_position,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -283,6 +284,54 @@ fn test_hover_with_doc_comment() {
     );
 }
 
+#[test]
+fn test_hover_returns_hole_information() {
+    let source = "fn fill() -> Int { ?todo }\n";
+    let server = server_with_doc("file:///test.sp", source);
+    let params = json!({
+        "textDocument": { "uri": "file:///test.sp" },
+        "position": { "line": 0, "character": 20 }
+    });
+
+    let result = server.handle_hover(&params).expect("hover result");
+    let text = result["contents"]["value"]
+        .as_str()
+        .expect("hover markdown text");
+
+    assert!(
+        text.contains("Typed hole"),
+        "expected hole hover, got: {text}"
+    );
+    assert!(
+        text.contains("?todo : Int"),
+        "expected hole type, got: {text}"
+    );
+    assert!(
+        text.contains("fill"),
+        "expected function context, got: {text}"
+    );
+}
+
+#[test]
+fn test_hover_prefers_hole_in_current_function() {
+    let source = "\
+fn first() -> Int { ?todo }
+fn second() -> String { ?todo }
+";
+
+    let first = build_hover_for_position(source, 0, 20).expect("first hole hover");
+    let second = build_hover_for_position(source, 1, 26).expect("second hole hover");
+
+    assert!(
+        first.contains("?todo : Int"),
+        "expected first hole type, got: {first}"
+    );
+    assert!(
+        second.contains("?todo : String"),
+        "expected second hole type, got: {second}"
+    );
+}
+
 // ── word_at_position tests ───────────────────────────────────────────
 
 #[test]
@@ -297,6 +346,22 @@ fn test_word_at_position_basic() {
 fn test_word_at_position_out_of_bounds() {
     let source = "fn test() {}";
     assert_eq!(word_at_position(source, 99, 0), "");
+}
+
+#[test]
+fn test_hole_at_position_named_hole() {
+    let source = "fn fill() -> Int { ?todo }";
+    let hole = hole_at_position(source, 0, 20).expect("hole at position");
+    assert_eq!(hole.display_name, "?todo");
+    assert_eq!(hole.name.as_deref(), Some("todo"));
+}
+
+#[test]
+fn test_hole_at_position_unnamed_hole() {
+    let source = "fn fill() -> Int { ? }";
+    let hole = hole_at_position(source, 0, 20).expect("hole at position");
+    assert_eq!(hole.display_name, "?");
+    assert_eq!(hole.name, None);
 }
 
 // ── Safety tests (no panics on malformed input) ──────────────────────
