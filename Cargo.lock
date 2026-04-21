@@ -456,7 +456,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "spore"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "bpaf",
  "notify",
@@ -470,7 +470,7 @@ dependencies = [
 
 [[package]]
 name = "spore-lsp"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "serde_json",
  "sporec-driver",
@@ -479,14 +479,14 @@ dependencies = [
 
 [[package]]
 name = "sporec-codegen"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "sporec-parser",
 ]
 
 [[package]]
 name = "sporec-diagnostics"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "ariadne",
  "serde",
@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "sporec-driver"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "bpaf",
  "serde_json",
@@ -509,14 +509,14 @@ dependencies = [
 
 [[package]]
 name = "sporec-parser"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "sporec-typeck",
 ]
 
 [[package]]
 name = "sporec-typeck"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "blake3",
  "sporec-parser",
