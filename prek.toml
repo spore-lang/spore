@@ -16,10 +16,10 @@ hooks = [
 
 [[repos]]
 repo = "https://github.com/tombi-toml/tombi-pre-commit"
-rev = "v0.7.27"
+rev = "v0.9.20"
 hooks = [
   { id = "tombi-format", exclude = "^Cargo\\.lock$" },
-  { id = "tombi-lint" },
+  { id = "tombi-lint", args = ["--error-on-warnings"] },
 ]
 
 [[repos]]
