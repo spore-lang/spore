@@ -33,7 +33,6 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
             "F64" => Ty::F64,
             "Bool" => Ty::Bool,
             "Str" => Ty::Str,
-            "Char" => Ty::Char,
             "Never" => Ty::Never,
             _ => mapping
                 .get(name)

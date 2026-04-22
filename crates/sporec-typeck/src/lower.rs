@@ -239,7 +239,6 @@ impl Lowering {
                 "F64" => HirTypeRef::Primitive(PrimitiveTy::F64),
                 "Bool" => HirTypeRef::Primitive(PrimitiveTy::Bool),
                 "Str" => HirTypeRef::Primitive(PrimitiveTy::Str),
-                "Char" => HirTypeRef::Primitive(PrimitiveTy::Char),
                 "Never" => HirTypeRef::Primitive(PrimitiveTy::Never),
                 _ => HirTypeRef::Named(name.clone(), self.resolve_name(name)),
             },
@@ -375,8 +374,6 @@ impl Lowering {
             ast::Expr::List(elems) => {
                 HirExpr::List(elems.iter().map(|e| self.lower_expr(e)).collect())
             }
-            ast::Expr::CharLit(c) => HirExpr::CharLit(*c),
-
             ast::Expr::Hole(name, _ty_hint, _) => {
                 HirExpr::Hole(name.clone().unwrap_or_else(|| "_".to_string()))
             }

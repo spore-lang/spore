@@ -79,7 +79,6 @@ pub enum PrimitiveTy {
     F64,
     Bool,
     Str,
-    Char,
     Unit,
     Never,
 }
@@ -159,8 +158,6 @@ pub enum HirExpr {
     Return(Option<Box<HirExpr>>),
     Throw(Box<HirExpr>),
     List(Vec<HirExpr>),
-    CharLit(char),
-
     // Holes (preserved for IDE support)
     Hole(String),
 }

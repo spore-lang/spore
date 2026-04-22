@@ -74,7 +74,6 @@ pub enum Token {
     Int(i64),
     Float(f64),
     Str(String),
-    Char(char),
     Bool(bool),
     /// f-string template parts: `f"Hello {name}"`
     FStr(Vec<TemplatePart>),
@@ -451,8 +450,8 @@ impl<'a> Lexer<'a> {
             // ── slash (already handled // and /* above, so this is division) ──
             b'/' => Ok(Spanned::new(Token::Slash, Span::new(start, self.pos))),
 
-            // ── char literal ──
-            b'\'' => self.read_char(start),
+            // ── invalid char literal syntax ──
+            b'\'' => self.reject_char_literal(start),
 
             // ── string literal ──
             b'"' => self.read_string(start),
@@ -674,69 +673,24 @@ impl<'a> Lexer<'a> {
         Ok(Spanned::new(Token::Str(buf), Span::new(start, self.pos)))
     }
 
-    // ── char literal ────────────────────────────────────────────────────
+    // ── rejected char literal syntax ─────────────────────────────────────
 
-    fn read_char(&mut self, start: usize) -> Result<Spanned<Token>, LexError> {
-        let ch = match self.peek() {
-            None => {
-                return Err(LexError {
-                    message: "unterminated char literal".into(),
-                    span: Span::new(start, self.pos),
-                });
-            }
-            Some(b'\\') => {
+    fn reject_char_literal(&mut self, start: usize) -> Result<Spanned<Token>, LexError> {
+        while let Some(b) = self.peek() {
+            if b == b'\'' {
                 self.pos += 1;
-                match self.peek() {
-                    Some(b'n') => {
-                        self.pos += 1;
-                        '\n'
-                    }
-                    Some(b't') => {
-                        self.pos += 1;
-                        '\t'
-                    }
-                    Some(b'\\') => {
-                        self.pos += 1;
-                        '\\'
-                    }
-                    Some(b'\'') => {
-                        self.pos += 1;
-                        '\''
-                    }
-                    Some(b'0') => {
-                        self.pos += 1;
-                        '\0'
-                    }
-                    _ => {
-                        return Err(LexError {
-                            message: "invalid escape sequence in char literal".into(),
-                            span: Span::new(self.pos - 1, self.pos + 1),
-                        });
-                    }
-                }
+                break;
             }
-            Some(b'\'') => {
-                return Err(LexError {
-                    message: "empty char literal".into(),
-                    span: Span::new(start, self.pos + 1),
-                });
+            if b == b'\n' {
+                break;
             }
-            Some(_) => {
-                let c = self.peek_char_at(self.pos);
-                self.pos += c.len_utf8();
-                c
-            }
-        };
-
-        if self.peek() != Some(b'\'') {
-            return Err(LexError {
-                message: "unterminated char literal (expected closing ')".into(),
-                span: Span::new(start, self.pos),
-            });
+            self.pos += 1;
         }
-        self.pos += 1; // closing quote
 
-        Ok(Spanned::new(Token::Char(ch), Span::new(start, self.pos)))
+        Err(LexError {
+            message: "character literals are not supported".into(),
+            span: Span::new(start, self.pos),
+        })
     }
 
     // ── raw string: r"..." ──────────────────────────────────────────────

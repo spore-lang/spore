@@ -132,17 +132,6 @@ fn escape_str(s: &str) -> String {
         .replace('\t', "\\t")
 }
 
-fn escape_char(c: char) -> String {
-    match c {
-        '\\' => "\\\\".to_string(),
-        '\'' => "\\'".to_string(),
-        '\n' => "\\n".to_string(),
-        '\r' => "\\r".to_string(),
-        '\t' => "\\t".to_string(),
-        c => c.to_string(),
-    }
-}
-
 fn binop_str(op: &BinOp) -> &'static str {
     match op {
         BinOp::Add => "+",

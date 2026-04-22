@@ -1,6 +1,6 @@
 use crate::ast::*;
 
-use super::{Formatter, binop_str, escape_char, escape_str, unaryop_str};
+use super::{Formatter, binop_str, escape_str, unaryop_str};
 
 impl<'a> Formatter<'a> {
     /// Format a function/block body. Single expressions go inline `{ expr }`,
@@ -52,11 +52,6 @@ impl<'a> Formatter<'a> {
                 self.write("\"");
                 self.write(&escape_str(s));
                 self.write("\"");
-            }
-            Expr::CharLit(c) => {
-                self.write("'");
-                self.write(&escape_char(*c));
-                self.write("'");
             }
             Expr::BoolLit(b) => self.write(if *b { "true" } else { "false" }),
             Expr::Var(v) => self.write(v),

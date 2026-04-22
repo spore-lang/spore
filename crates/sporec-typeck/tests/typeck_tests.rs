@@ -775,10 +775,10 @@ fn never_type_unifies_with_anything() {
 }
 
 #[test]
-fn char_type_basic() {
+fn str_type_basic() {
     let src = r#"
-        fn get_char() -> Char { ?todo }
-        fn use_char(c: Char) -> Char { c }
+        fn get_text() -> Str { "x" }
+        fn use_text(text: Str) -> Str { text }
     "#;
     let ast = sporec_parser::parse(src).unwrap();
     let result = sporec_typeck::type_check(&ast);

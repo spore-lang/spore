@@ -16,6 +16,15 @@ fn toks_no_eof(src: &str) -> Vec<Token> {
     v
 }
 
+fn lex_errs(src: &str) -> Vec<String> {
+    Lexer::new(src)
+        .tokenize()
+        .expect_err("expected lex error")
+        .into_iter()
+        .map(|err| err.message)
+        .collect()
+}
+
 // ── Basic ────────────────────────────────────────────────────────────────
 
 #[test]
@@ -72,6 +81,18 @@ fn test_bool_literals() {
     assert_eq!(
         toks_no_eof("true false"),
         vec![Token::Bool(true), Token::Bool(false)]
+    );
+}
+
+#[test]
+fn test_character_literals_are_rejected() {
+    assert_eq!(
+        lex_errs("'a'"),
+        vec!["character literals are not supported".to_string()]
+    );
+    assert_eq!(
+        lex_errs("'\\n'"),
+        vec!["character literals are not supported".to_string()]
     );
 }
 

@@ -299,7 +299,6 @@ impl Interpreter {
                     .collect::<Result<_>>()?;
                 Ok(Value::List(vals))
             }
-            Expr::CharLit(c) => Ok(Value::Char(*c)),
             Expr::ParallelScope { lanes, body } => {
                 if let Some(lanes_expr) = lanes {
                     let lanes_value = self.eval(lanes_expr, env)?;

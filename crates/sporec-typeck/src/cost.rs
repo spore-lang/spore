@@ -277,9 +277,7 @@ impl CostAnalyzer {
     fn analyze_expr_cost(&self, expr: &Expr) -> CostVector {
         match expr {
             // --- Leaves (zero cost) ---
-            Expr::IntLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) | Expr::CharLit(_) => {
-                CostVector::zero()
-            }
+            Expr::IntLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) => CostVector::zero(),
             Expr::Var(_) => CostVector::zero(),
 
             // String literal: alloc = ⌈len/8⌉
@@ -803,7 +801,6 @@ where
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
-        | Expr::CharLit(_)
         | Expr::Var(_)
         | Expr::Hole(_, _, _)
         | Expr::Placeholder => {}

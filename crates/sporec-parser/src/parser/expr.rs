@@ -174,10 +174,6 @@ impl Parser {
                 self.expect(&Token::RBracket)?;
                 Ok(Expr::List(elems))
             }
-            Token::Char(c) => {
-                self.advance();
-                Ok(Expr::CharLit(c))
-            }
             Token::Question => {
                 self.advance();
                 let name = if matches!(self.peek(), Token::Ident(_)) {
