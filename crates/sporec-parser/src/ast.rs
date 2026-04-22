@@ -264,7 +264,6 @@ pub enum Expr {
     Return(Option<Box<Expr>>),
     Throw(Box<Expr>),
     List(Vec<Expr>),
-    CharLit(char),
     TString(Vec<TStringPart>),
     /// `parallel_scope { body }` or `parallel_scope(lanes: N) { body }`
     ParallelScope {

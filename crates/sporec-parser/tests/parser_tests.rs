@@ -845,7 +845,7 @@ fn test_pub_const_item() {
     }
 }
 
-// ── Return / Throw / List / Char / String prefix tests ──────────────────────
+// ── Return / Throw / List / String prefix tests ─────────────────────────────
 
 use sporec_parser::ast::{Expr, FStringPart, SelectArm, TStringPart, TypeExpr};
 
@@ -906,15 +906,23 @@ fn test_empty_list() {
 }
 
 #[test]
-fn test_char_literal() {
-    let tail = get_tail("fn foo() { 'a' }");
-    assert!(matches!(tail, Expr::CharLit('a')));
+fn test_char_literal_is_rejected() {
+    let errs = parse("fn foo() { 'a' }").expect_err("character literals should be rejected");
+    assert!(
+        errs.iter()
+            .any(|e| e.message.contains("character literals are not supported")),
+        "unexpected parse errors: {errs:?}"
+    );
 }
 
 #[test]
-fn test_char_escape() {
-    let tail = get_tail("fn foo() { '\\n' }");
-    assert!(matches!(tail, Expr::CharLit('\n')));
+fn test_char_escape_is_rejected() {
+    let errs = parse("fn foo() { '\\n' }").expect_err("character literals should be rejected");
+    assert!(
+        errs.iter()
+            .any(|e| e.message.contains("character literals are not supported")),
+        "unexpected parse errors: {errs:?}"
+    );
 }
 
 #[test]

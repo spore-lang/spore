@@ -191,7 +191,7 @@ fn name(params) -> ReturnType ! Errors
 - 函数属性（pure, deterministic, total）— 从 `uses` 自动推断，无需关键字
 - `when` 子句用于细化类型谓词（`when self > 0`），不再使用 `where` / `if`
 - `where` 关键字用于单个子句内的逗号分隔泛型约束（`where T: Constraint, U: Constraint`）；不引入 `+` 多重 bound 语法
-- 基本类型（文档规范写法）: I32/I64/U32/U64/F32/F64/Int/Float/Bool/Char/Str/() + List[T]/Map[K,V]/Set[T]
+- 基本类型（文档规范写法）: I32/I64/U32/U64/F32/F64/Int/Float/Bool/Str/() + List[T]/Map[K,V]/Set[T]
 
 ## 文档治理与规范映射
 
@@ -250,7 +250,7 @@ fn name(params) -> ReturnType ! Errors
   - L0 refinement enforcement 的精确边界
 
 ### 标准库（极简）
-- **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Int/Float/Bool/Char/Str/(), Option[T], Result[T,E], 基本操作符, |>, ?
+- **Prelude（自动可用）**: I32/I64/U32/U64/F32/F64/Int/Float/Bool/Str/(), Option[T], Result[T,E], 基本操作符, |>, ?
 - **spore.list** — List[T]: map/fold/filter/zip/head/tail/len/reverse/sort/...
 - **spore.map** — Map[K,V]: insert/get/remove/keys/values/merge/...
 - **spore.set** — Set[T]: add/remove/contains/union/intersect/diff/...

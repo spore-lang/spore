@@ -90,7 +90,6 @@ impl Checker {
                 "F64" => Ty::F64,
                 "Bool" => Ty::Bool,
                 "Str" => Ty::Str,
-                "Char" => Ty::Char,
                 "Never" => Ty::Never,
                 _ => {
                     // Check type aliases (supports refined aliases like `alias Port = Int when ...`)
@@ -381,7 +380,6 @@ impl Checker {
             Ty::F64 => vec!["F64".into()],
             Ty::Bool => vec!["Bool".into()],
             Ty::Str => vec!["Str".into()],
-            Ty::Char => vec!["Char".into()],
             Ty::Unit => vec!["Unit".into()],
             Ty::Never => vec!["Never".into()],
             _ => vec![],

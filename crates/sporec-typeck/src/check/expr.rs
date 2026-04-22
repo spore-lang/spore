@@ -441,8 +441,6 @@ impl Checker {
                 }
             }
 
-            Expr::CharLit(_) => Ty::Char,
-
             Expr::ParallelScope { lanes, body } => {
                 if let Some(lanes_expr) = lanes {
                     let lanes_ty = self.check_expr(lanes_expr);
@@ -882,7 +880,6 @@ impl Checker {
             | Expr::StrLit(_)
             | Expr::BoolLit(_)
             | Expr::Var(_)
-            | Expr::CharLit(_)
             | Expr::Placeholder => 0,
             Expr::StructLit(_, fields) => fields.iter().map(|(_, e)| Self::count_spawns(e)).sum(),
             Expr::List(elems) => elems.iter().map(Self::count_spawns).sum(),

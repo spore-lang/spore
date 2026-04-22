@@ -30,7 +30,6 @@ pub enum Ty {
     F64,
     Bool,
     Str,
-    Char,
     /// Unit type (empty tuple / void)
     Unit,
     /// Bottom type — subtype of all types
@@ -202,7 +201,6 @@ impl PartialEq for Ty {
             | (Ty::F64, Ty::F64)
             | (Ty::Bool, Ty::Bool)
             | (Ty::Str, Ty::Str)
-            | (Ty::Char, Ty::Char)
             | (Ty::Unit, Ty::Unit)
             | (Ty::Never, Ty::Never)
             | (Ty::Error, Ty::Error) => true,
@@ -239,7 +237,6 @@ impl fmt::Display for Ty {
             Ty::F64 => write!(f, "F64"),
             Ty::Bool => write!(f, "Bool"),
             Ty::Str => write!(f, "Str"),
-            Ty::Char => write!(f, "Char"),
             Ty::Unit => write!(f, "()"),
             Ty::Never => write!(f, "Never"),
             Ty::Named(n) => write!(f, "{n}"),
