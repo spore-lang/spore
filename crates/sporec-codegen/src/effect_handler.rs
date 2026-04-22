@@ -1,6 +1,6 @@
-//! Runtime effect handlers for capability-gated operations.
+//! Runtime effect handlers for effect-gated operations.
 //!
-//! Effect handlers bridge the gap between the type-level capability system
+//! Effect handlers bridge the gap between the type-level effect system
 //! (checked at compile time) and actual runtime I/O operations.
 
 use crate::value::Value;
@@ -24,7 +24,7 @@ pub enum RuntimePlatform {
     BasicCli,
 }
 
-/// A runtime effect handler that provides implementations for capability-gated operations.
+/// A runtime effect handler that provides implementations for effect-gated operations.
 pub trait EffectHandler: std::fmt::Debug {
     /// Handle an effect invocation. Returns the result value.
     fn handle(&self, operation: &str, args: &[Value]) -> Result<EffectOutcome, String>;

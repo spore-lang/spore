@@ -233,14 +233,14 @@ fn test_document_symbols_types() {
 }
 
 #[test]
-fn test_build_diagnostics_removed_capability_syntax_is_reported() {
+fn test_build_diagnostics_capability_item_reports_generic_parse_error() {
     let diags = build_diagnostics("capability Display { fn show(self: Self) -> String }");
     assert!(
         diags.iter().any(|diag| diag["message"]
             .as_str()
             .unwrap_or_default()
-            .contains("legacy `capability` syntax has been removed")),
-        "expected removed capability diagnostic, got: {diags:?}"
+            .contains("expected item")),
+        "expected generic parse diagnostic, got: {diags:?}"
     );
 }
 

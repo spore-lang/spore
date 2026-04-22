@@ -641,14 +641,12 @@ fn test_import_with_alias() {
 }
 
 #[test]
-fn test_capability_keyword_is_rejected() {
+fn test_capability_keyword_is_not_reserved() {
     let errs = sporec_parser::parse("capability Display[T] { fn show(self: T) -> String }")
-        .expect_err("legacy capability syntax should be rejected");
+        .expect_err("capability-led top-level items should fail generically");
     assert!(
-        errs.iter().any(|e| e
-            .message
-            .contains("legacy `capability` syntax has been removed")),
-        "expected removal diagnostic, got {errs:?}"
+        errs.iter().any(|e| e.message.contains("expected item")),
+        "expected generic item diagnostic, got {errs:?}"
     );
 }
 
@@ -1837,12 +1835,10 @@ fn test_private_trait_still_works() {
 #[test]
 fn test_capability_alias_is_rejected() {
     let errs = sporec_parser::parse("capability IO = [FileRead, FileWrite]")
-        .expect_err("legacy capability aliases should be rejected");
+        .expect_err("capability aliases should fail as ordinary invalid items");
     assert!(
-        errs.iter().any(|e| e
-            .message
-            .contains("legacy `capability` syntax has been removed")),
-        "expected removal diagnostic, got {errs:?}"
+        errs.iter().any(|e| e.message.contains("expected item")),
+        "expected generic item diagnostic, got {errs:?}"
     );
 }
 

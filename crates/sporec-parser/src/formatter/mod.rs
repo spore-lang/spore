@@ -99,12 +99,6 @@ impl<'a> Formatter<'a> {
             Item::Const(c) => self.fmt_const(c),
             Item::StructDef(s) => self.fmt_struct_def(s),
             Item::TypeDef(t) => self.fmt_type_def(t),
-            Item::CapabilityDef(c) => self.fmt_capability_def(c),
-            Item::CapabilityAlias {
-                name, components, ..
-            } => {
-                self.fmt_capability_alias(name, components);
-            }
             Item::ImplDef(i) => self.fmt_impl_def(i),
             Item::Import(i) => self.fmt_import(i),
             Item::Alias(a) => self.fmt_alias(a),

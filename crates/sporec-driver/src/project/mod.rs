@@ -38,7 +38,7 @@ pub struct PlatformManifest {
     pub contract_module: String,
     pub startup_contract: String,
     pub adapter_function: String,
-    pub handles: Vec<String>,
+    pub handled_effects: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +48,7 @@ pub struct ResolvedPlatformContract {
     pub contract_module: String,
     pub startup_function: String,
     pub adapter_function: String,
-    pub handles: Vec<String>,
+    pub handled_effects: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,7 +167,7 @@ mod tests {
             contract-module = "platform_contract"
             startup-contract = "main"
             adapter-function = "main_for_host"
-            handles = ["Console", "Env"]
+            handled-effects = ["Console", "Env"]
             "#,
         );
         project.write(
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(contract.contract_module, "platform_contract");
         assert_eq!(contract.adapter_function, "main_for_host");
         assert_eq!(
-            contract.handles,
+            contract.handled_effects,
             vec!["Console".to_string(), "Env".to_string()]
         );
         assert_eq!(

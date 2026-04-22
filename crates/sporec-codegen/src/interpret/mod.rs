@@ -31,7 +31,7 @@ pub struct Interpreter {
     type_defs: BTreeMap<String, TypeDef>,
     /// Global named handler definitions.
     handlers: BTreeMap<String, HandlerDef>,
-    /// Effect handlers for capability-gated operations (e.g. I/O).
+    /// Effect handlers for effect-gated operations (e.g. I/O).
     effect_handlers: Vec<Box<dyn EffectHandler>>,
     /// Stack of handler frames installed by `handle ... with { ... }`.
     handler_stack: Vec<Vec<RuntimeEffectArm>>,
@@ -79,12 +79,10 @@ impl Interpreter {
                 Item::HandlerDef(h) => {
                     self.handlers.insert(h.name.clone(), h.clone());
                 }
-                Item::CapabilityDef(_)
-                | Item::ImplDef(_)
+                Item::ImplDef(_)
                 | Item::Import(_)
                 | Item::Const(_)
                 | Item::Alias(_)
-                | Item::CapabilityAlias { .. }
                 | Item::TraitDef(_)
                 | Item::EffectDef(_)
                 | Item::EffectAlias(_) => {}
@@ -135,7 +133,7 @@ impl Interpreter {
         }
     }
 
-    /// Register an effect handler for capability-gated operations.
+    /// Register an effect handler for effect-gated operations.
     pub fn register_effect_handler(&mut self, handler: Box<dyn EffectHandler>) {
         self.effect_handlers.push(handler);
     }

@@ -25,7 +25,7 @@ impl fmt::Display for Severity {
 /// Prefixes:
 ///   E0xxx — Type errors        (33 codes)
 ///   W0xxx — Warnings           (10 codes)
-///   C0xxx — Capability errors  ( 7 codes)
+///   C0xxx — Effect errors  ( 7 codes)
 ///   K0xxx — Cost errors        ( 6 codes)
 ///   R0xxx — Refinement errors  ( 1 code)
 ///   H0xxx — Hole diagnostics   ( 8 codes)
@@ -110,22 +110,22 @@ pub enum ErrorCode {
     // ── Refinement violations (R0xxx) ───────────────────────────────
     R0001, // refinement predicate violated
 
-    // ── C01xx: Undeclared capabilities ──────────────────────────────
-    C0101, // missing required capability
-    C0102, // unknown capability name
-    C0103, // capability not in scope
+    // ── C01xx: Undeclared effects ──────────────────────────────
+    C0101, // missing required effect
+    C0102, // unknown effect or trait name
+    C0103, // effect not in scope
 
-    // ── C02xx: Platform capabilities ────────────────────────────────
-    C0201, // platform-specific capability unavailable
-    C0202, // capability requires higher platform version
+    // ── C02xx: Platform effects ────────────────────────────────
+    C0201, // platform-specific effect unavailable
+    C0202, // effect requires higher platform version
 
     // ── C03xx: Purity ───────────────────────────────────────────────
     C0301, // impure call in pure context
-    C0302, // capability leak across module boundary
+    C0302, // effect leak across module boundary
 
-    // ── Legacy capability codes ─────────────────────────────────────
-    C0001, // missing capabilities (alias for C0101)
-    C0002, // unknown capability (alias for C0102)
+    // ── Legacy effect codes ─────────────────────────────────────
+    C0001, // missing effects (alias for C0101)
+    C0002, // unknown effect or trait (alias for C0102)
 
     // ── K01xx: Budget ───────────────────────────────────────────────
     K0101, // cost budget exceeded
@@ -254,7 +254,7 @@ impl ErrorCode {
             E0011 => "Pattern type mismatch",
             E0012 => "Missing error types in throws",
             E0013 => "Impl missing required method",
-            E0014 => "Extra method not in capability",
+            E0014 => "Extra method not in trait",
             E0015 => "No such field on struct",
             E0016 => "Type has no fields",
             E0017 => "Match guard must be Bool",
@@ -280,22 +280,22 @@ impl ErrorCode {
             // R0xxx — Refinement
             R0001 => "Refinement predicate violated",
 
-            // C01xx — Undeclared capabilities
-            C0101 => "Missing required capability",
-            C0102 => "Unknown capability name",
-            C0103 => "Capability not in scope",
+            // C01xx — Undeclared effects
+            C0101 => "Missing required effect",
+            C0102 => "Unknown effect or trait name",
+            C0103 => "Effect not in scope",
 
-            // C02xx — Platform capabilities
-            C0201 => "Platform-specific capability unavailable on target",
-            C0202 => "Capability requires a higher platform version",
+            // C02xx — Platform effects
+            C0201 => "Platform-specific effect unavailable on target",
+            C0202 => "Effect requires a higher platform version",
 
             // C03xx — Purity
             C0301 => "Impure call in a pure context",
-            C0302 => "Capability leaks across module boundary",
+            C0302 => "Effect leaks across module boundary",
 
-            // Legacy capability codes
-            C0001 => "Missing capabilities",
-            C0002 => "Unknown capability",
+            // Legacy effect codes
+            C0001 => "Missing effects",
+            C0002 => "Unknown effect or trait",
 
             // K01xx — Budget
             K0101 => "Cost budget exceeded",

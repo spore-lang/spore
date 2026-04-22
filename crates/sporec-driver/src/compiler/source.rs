@@ -46,7 +46,7 @@ pub fn compile_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// This is the core compiler pipeline:
 /// 1. Parse (source text → AST)
 /// 2. Type check (AST → Typed AST)
-/// 3. Code gen (Typed AST → native code)
+/// 3. Code gen (Typed AST → runtime-ready output)
 ///
 /// Returns warnings (e.g. cost budget violations) on success.
 pub fn compile(source: &str) -> Result<CompileOutput, String> {
@@ -84,7 +84,7 @@ pub fn format(source: &str) -> Result<String, String> {
 }
 
 /// Type-check with verbose output: returns detailed analysis including type
-/// inference context, capability annotations, and cost summaries.
+/// inference context, effect annotations, and cost summaries.
 pub fn check_verbose(source: &str) -> Result<String, String> {
     let ast = parse(source).map_err(join_errors)?;
     let result = type_check(&ast).map_err(|errs| {

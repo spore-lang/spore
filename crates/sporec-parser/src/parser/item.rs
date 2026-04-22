@@ -11,7 +11,6 @@ impl Parser {
             Token::Const => self.parse_const_item(),
             Token::Struct => self.parse_struct_item(),
             Token::Type => self.parse_type_item(),
-            Token::Capability => self.parse_capability_item(),
             Token::Trait => self.parse_trait_item(),
             Token::Effect => self.parse_effect_item(),
             Token::Handler => self.parse_handler_item(),
@@ -80,7 +79,6 @@ impl Parser {
             Some(Token::Alias) => self.parse_alias_item(),
             Some(Token::Struct) => self.parse_struct_item(),
             Some(Token::Type) => self.parse_type_item(),
-            Some(Token::Capability) => self.parse_capability_item(),
             Some(Token::Trait) => self.parse_trait_item(),
             Some(Token::Effect) => self.parse_effect_item(),
             Some(Token::Handler) => self.parse_handler_item(),
@@ -549,17 +547,6 @@ impl Parser {
         Ok(vec![])
     }
 
-    fn parse_capability_item(&mut self) -> Result<Item, ParseError> {
-        let _visibility = self.parse_visibility()?;
-        let span = self.peek_span();
-        self.expect(&Token::Capability)?;
-        Err(ParseError {
-            message:
-                "legacy `capability` syntax has been removed; use `trait` for interfaces and `effect` for effect declarations".into(),
-            span,
-        })
-    }
-
     fn parse_trait_item(&mut self) -> Result<Item, ParseError> {
         let visibility = self.parse_visibility()?;
         let start = self.peek_span().start;
@@ -717,7 +704,7 @@ impl Parser {
     fn parse_impl_item(&mut self) -> Result<Item, ParseError> {
         let start = self.peek_span().start;
         self.expect(&Token::Impl)?;
-        let capability = self.expect_ident()?;
+        let trait_name = self.expect_ident()?;
 
         let type_args = if self.at(&Token::LBracket) {
             self.advance();
@@ -747,7 +734,7 @@ impl Parser {
         let end = self.previous_span().end;
 
         Ok(Item::ImplDef(ImplDef {
-            capability,
+            trait_name,
             target_type,
             type_args,
             methods,

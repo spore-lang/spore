@@ -87,10 +87,10 @@ spore-version = \">=0.1.0\"
 contract-module = \"platform_contract\"
 startup-contract = \"main\"
 adapter-function = \"main_for_host\"
-handles = [\"Console\", \"FileRead\", \"FileWrite\", \"Env\", \"Spawn\"]
+handled-effects = [\"Console\", \"FileRead\", \"FileWrite\", \"Env\", \"Spawn\"]
 
-[capabilities]
-allow = [\"Compute\"]
+[effects]
+declared = [\"Compute\"]
 
 [dependencies]
 ";
@@ -162,7 +162,7 @@ spore-version = \">=0.1.0\"
         _ => "",
     };
     let toml = format!(
-        "{manifest_header}{project_config}\n[capabilities]\nallow = [\"Compute\"]\n\n[dependencies]\n{dependencies}"
+        "{manifest_header}{project_config}\n[effects]\ndeclared = [\"Compute\"]\n\n[dependencies]\n{dependencies}"
     );
     std::fs::write(dir.join("spore.toml"), toml)?;
 

@@ -61,19 +61,19 @@ path = "app.sp"
 "#;
 
 fn write_basic_cli_platform(project: &TempProject, contract_source: &str) {
-    write_basic_cli_platform_with_handles(
+    write_basic_cli_platform_with_handled_effects(
         project,
         &["Console", "FileRead", "FileWrite", "Env", "Spawn"],
         contract_source,
     );
 }
 
-fn write_basic_cli_platform_with_handles(
+fn write_basic_cli_platform_with_handled_effects(
     project: &TempProject,
-    handles: &[&str],
+    handled_effects: &[&str],
     contract_source: &str,
 ) {
-    let handles = handles
+    let handled_effects = handled_effects
         .iter()
         .map(|handle| format!("\"{handle}\""))
         .collect::<Vec<_>>()
@@ -90,7 +90,7 @@ fn write_basic_cli_platform_with_handles(
         contract-module = "platform_contract"
         startup-contract = "main"
         adapter-function = "main_for_host"
-        handles = [{handles}]
+        handled-effects = [{handled_effects}]
         "#
         ),
     );
@@ -763,14 +763,14 @@ fn compile_project_rejects_platform_dependency_console_imports_without_uses() {
     );
 
     let err = compile_project(project.root(), "app.sp")
-        .expect_err("imported platform functions should preserve capability requirements");
+        .expect_err("imported platform functions should preserve effect requirements");
     assert!(
-        err.contains("missing capabilities"),
-        "expected capability propagation error, got: {err}"
+        err.contains("missing effects"),
+        "expected effect propagation error, got: {err}"
     );
     assert!(
         err.contains("Console"),
-        "expected Console capability error, got: {err}"
+        "expected Console effect error, got: {err}"
     );
 }
 
@@ -811,10 +811,10 @@ fn compile_project_rejects_platform_dependency_bare_console_without_import() {
 }
 
 #[test]
-fn compile_project_rejects_startup_capabilities_outside_platform_handles() {
+fn compile_project_rejects_startup_effects_outside_platform_handled_effects() {
     let project = TempProject::new("project-platform-handles-mismatch");
     project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
-    write_basic_cli_platform_with_handles(
+    write_basic_cli_platform_with_handled_effects(
         &project,
         &["FileRead", "FileWrite", "Env", "Spawn", "Exit"],
         r#"
@@ -842,9 +842,9 @@ fn compile_project_rejects_startup_capabilities_outside_platform_handles() {
     );
 
     let err = compile_project(project.root(), "app.sp")
-        .expect_err("startup capabilities should be validated against [platform].handles");
+        .expect_err("startup effects should be validated against [platform].handled-effects");
     assert!(
-        err.contains("[platform].handles"),
+        err.contains("[platform].handled-effects"),
         "expected handles validation error, got: {err}"
     );
     assert!(
@@ -1236,7 +1236,7 @@ fn run_project_dispatches_basic_cli_package_foreign_functions() {
 fn run_project_with_outcome_returns_basic_cli_exit_code() {
     let project = TempProject::new("project-basic-cli-exit-outcome");
     project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
-    write_basic_cli_platform_with_handles(
+    write_basic_cli_platform_with_handled_effects(
         &project,
         &["Console", "FileRead", "FileWrite", "Env", "Spawn", "Exit"],
         r#"
@@ -1301,7 +1301,7 @@ fn run_project_rejects_unknown_package_platform_host_binding() {
         contract-module = "platform_contract"
         startup-contract = "main"
         adapter-function = "main_for_host"
-        handles = ["NetConnect"]
+        handled-effects = ["NetConnect"]
         "#,
     );
     project.write(

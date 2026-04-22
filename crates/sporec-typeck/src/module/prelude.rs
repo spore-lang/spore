@@ -6,7 +6,7 @@ use sporec_parser::{
 };
 
 use crate::env::HandlerInfo;
-use crate::types::{CapSet, ErrorSet, Ty};
+use crate::types::{EffectSet, ErrorSet, Ty};
 
 use super::{ModuleInterface, SymbolVisibility};
 
@@ -74,7 +74,7 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
                     .map(|param| resolve_prelude_type(param, mapping))
                     .collect(),
                 Box::new(resolve_prelude_type(ret, mapping)),
-                CapSet::new(),
+                EffectSet::new(),
                 errors,
             )
         }
@@ -119,9 +119,9 @@ pub(super) fn build_prelude_interface() -> ModuleInterface {
                     .map(|ty| resolve_prelude_type(ty, &mapping))
                     .unwrap_or(Ty::Unit);
                 iface.functions.insert(f.name.clone(), (param_tys, ret_ty));
-                iface.function_caps.insert(
+                iface.function_required_effects.insert(
                     f.name.clone(),
-                    checker.declared_capabilities(f.uses_clause.as_ref()),
+                    checker.declared_effects(f.uses_clause.as_ref()),
                 );
                 if !f.errors.is_empty() {
                     let error_set: ErrorSet = f
@@ -195,15 +195,10 @@ pub(super) fn build_prelude_interface() -> ModuleInterface {
                 iface.types.insert(t.name.clone(), variants);
                 iface.set_visibility(&t.name, SymbolVisibility::from(&t.visibility));
             }
-            Item::CapabilityDef(cap) => {
-                iface.capabilities.insert(cap.name.clone());
-                iface.set_visibility(&cap.name, SymbolVisibility::from(&cap.visibility));
-            }
             Item::Const(_)
             | Item::ImplDef(_)
             | Item::Import(_)
             | Item::Alias(_)
-            | Item::CapabilityAlias { .. }
             | Item::TraitDef(_)
             | Item::EffectDef(_)
             | Item::EffectAlias(_) => {}

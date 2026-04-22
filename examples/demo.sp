@@ -8,8 +8,8 @@
 //
 // For production code, prefer creating a project with
 // `cargo run --bin spore -- new app-name` from a source checkout (or
-// `spore new app-name` if the CLI is installed), which provides Platform
-// capabilities and uses `fn main() -> ()` as the entry point.
+// `spore new app-name` if the CLI is installed), which provides Platform-
+// handled effects and uses `fn main() -> ()` as the entry point.
 //
 // Run this file with: cargo run --bin spore -- run examples/demo.sp
 // (or `spore run examples/demo.sp` if the CLI is installed)

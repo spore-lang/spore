@@ -23,7 +23,7 @@ impl SigHash {
         name: &str,
         params: &[Ty],
         ret: &Ty,
-        caps: &BTreeSet<String>,
+        effects: &crate::effect_set::EffectSet,
         errors: &BTreeSet<String>,
         type_params: &[String],
     ) -> Self {
@@ -40,9 +40,9 @@ impl SigHash {
         }
         hasher.update(b"|ret:");
         hasher.update(format!("{ret}").as_bytes());
-        for c in caps {
-            hasher.update(b"|cap:");
-            hasher.update(c.as_bytes());
+        for effect in effects.iter() {
+            hasher.update(b"|effect:");
+            hasher.update(effect.as_bytes());
         }
         for e in errors {
             hasher.update(b"|err:");
@@ -89,14 +89,14 @@ impl SigHash {
         SigHash(*hasher.finalize().as_bytes())
     }
 
-    /// Compute signature hash for a capability definition.
-    pub fn compute_capability(
+    /// Compute signature hash for a trait definition.
+    pub fn compute_trait(
         name: &str,
         type_params: &[String],
         methods: &[(String, Vec<Ty>, Ty)],
     ) -> Self {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"capability:");
+        hasher.update(b"trait:");
         hasher.update(name.as_bytes());
         for tp in type_params {
             hasher.update(b"|tp:");
@@ -196,6 +196,7 @@ impl SigHashMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::effect_set::EffectSet;
     use std::collections::BTreeSet;
 
     use crate::types::Ty;
@@ -206,7 +207,7 @@ mod tests {
             "foo",
             &[Ty::I32],
             &Ty::Bool,
-            &BTreeSet::new(),
+            &EffectSet::new(),
             &BTreeSet::new(),
             &[],
         );
@@ -214,7 +215,7 @@ mod tests {
             "foo",
             &[Ty::I32],
             &Ty::Bool,
-            &BTreeSet::new(),
+            &EffectSet::new(),
             &BTreeSet::new(),
             &[],
         );
@@ -227,7 +228,7 @@ mod tests {
             "foo",
             &[Ty::I32],
             &Ty::Bool,
-            &BTreeSet::new(),
+            &EffectSet::new(),
             &BTreeSet::new(),
             &[],
         );
@@ -235,7 +236,7 @@ mod tests {
             "foo",
             &[Ty::Str],
             &Ty::Bool,
-            &BTreeSet::new(),
+            &EffectSet::new(),
             &BTreeSet::new(),
             &[],
         );
@@ -244,7 +245,7 @@ mod tests {
 
     #[test]
     fn caps_affect_hash() {
-        let mut caps = BTreeSet::new();
+        let mut caps = EffectSet::new();
         let h1 = SigHash::compute("foo", &[], &Ty::Unit, &caps, &BTreeSet::new(), &[]);
         caps.insert("NetConnect".into());
         let h2 = SigHash::compute("foo", &[], &Ty::Unit, &caps, &BTreeSet::new(), &[]);
@@ -253,11 +254,38 @@ mod tests {
 
     #[test]
     fn hash_map_diff() {
-        let hash_a = SigHash::compute("a", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
-        let hash_b = SigHash::compute("b", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
-        let hash_c = SigHash::compute("c", &[], &Ty::Unit, &BTreeSet::new(), &BTreeSet::new(), &[]);
-        let hash_b2 =
-            SigHash::compute("b2", &[], &Ty::I32, &BTreeSet::new(), &BTreeSet::new(), &[]);
+        let hash_a = SigHash::compute(
+            "a",
+            &[],
+            &Ty::Unit,
+            &EffectSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
+        let hash_b = SigHash::compute(
+            "b",
+            &[],
+            &Ty::Unit,
+            &EffectSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
+        let hash_c = SigHash::compute(
+            "c",
+            &[],
+            &Ty::Unit,
+            &EffectSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
+        let hash_b2 = SigHash::compute(
+            "b2",
+            &[],
+            &Ty::I32,
+            &EffectSet::new(),
+            &BTreeSet::new(),
+            &[],
+        );
 
         let mut old = SigHashMap::new();
         old.insert("foo".into(), hash_a);
@@ -280,7 +308,7 @@ mod tests {
             "test",
             &[],
             &Ty::Unit,
-            &BTreeSet::new(),
+            &EffectSet::new(),
             &BTreeSet::new(),
             &[],
         );

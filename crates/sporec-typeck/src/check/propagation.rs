@@ -3,14 +3,14 @@ use super::*;
 impl Checker {
     // ── Set propagation checks ─────────────────────────────────────
 
-    /// Verify that the current function's capability set is a superset of the callee's.
-    pub(super) fn check_cap_propagation(&mut self, callee_caps: &CapSet) {
-        let missing = find_missing_set_items(callee_caps, &self.current_caps);
+    /// Verify that the current function's effect set is a superset of the callee's.
+    pub(super) fn check_effect_propagation(&mut self, callee_effects: &EffectSet) {
+        let missing = find_missing_set_items(callee_effects, &self.current_effects);
         if !missing.is_empty() {
             self.err(
                 ErrorCode::C0001,
                 format!(
-                    "missing capabilities [{}]: caller does not declare them",
+                    "missing effects [{}]: caller does not declare them",
                     missing.join(", ")
                 ),
             );
@@ -19,7 +19,11 @@ impl Checker {
 
     /// Verify that the current function's error set is a superset of the callee's.
     pub(super) fn check_error_propagation(&mut self, callee_errors: &ErrorSet) {
-        let missing = find_missing_set_items(callee_errors, &self.current_errors);
+        let missing: Vec<&str> = callee_errors
+            .iter()
+            .filter(|item| !self.current_errors.contains(*item))
+            .map(|s| s.as_str())
+            .collect();
         if !missing.is_empty() {
             self.err(
                 ErrorCode::E0012,
