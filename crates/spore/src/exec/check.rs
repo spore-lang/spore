@@ -1,0 +1,283 @@
+use std::process::ExitCode;
+
+use owo_colors::OwoColorize;
+use serde_json::json;
+
+use crate::report::{report_batch_check, report_single_file_check};
+use crate::target::find_project_target;
+use crate::util::{fail_deny_warnings, fail_human, fail_message, read_source, read_source_message};
+
+pub(crate) fn exec_check(
+    files: &[String],
+    verbose: bool,
+    json_output: bool,
+    deny_warnings: bool,
+) -> ExitCode {
+    if files.len() > 1 {
+        let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+        let success_message = format!("{} no errors ({} files)", "✓".green(), files.len());
+        report_batch_check(
+            sporec_driver::check_files(&refs),
+            json_output,
+            deny_warnings,
+            &success_message,
+        )
+    } else {
+        let path = &files[0];
+        if verbose {
+            let result = if let Some((root, entry)) = find_project_target(path) {
+                if deny_warnings {
+                    match sporec_driver::check_project(&root, &entry) {
+                        sporec_driver::CheckReport::Success { sources, warnings } => {
+                            if !warnings.is_empty() {
+                                let warning_messages =
+                                    sporec_diagnostics::diagnostic_message_lines(&warnings);
+                                sporec_diagnostics::render_diagnostics_human_with_sources(
+                                    &sources, &warnings,
+                                );
+                                return fail_deny_warnings(
+                                    &warning_messages,
+                                    Some(&warnings),
+                                    false,
+                                );
+                            }
+                        }
+                        sporec_driver::CheckReport::Failure(
+                            sporec_driver::CheckFailure::Diagnostics {
+                                sources,
+                                diagnostics,
+                            },
+                        ) => {
+                            return sporec_diagnostics::exit_with_diagnostics_error_with_sources(
+                                &sources,
+                                &diagnostics,
+                                false,
+                            );
+                        }
+                        sporec_driver::CheckReport::Failure(
+                            sporec_driver::CheckFailure::Message(message),
+                        ) => {
+                            return fail_human(&message);
+                        }
+                    }
+                }
+                sporec_driver::check_project_verbose(&root, &entry)
+            } else {
+                let source = match read_source(path) {
+                    Ok(s) => s,
+                    Err(c) => return c,
+                };
+                if deny_warnings {
+                    match sporec_driver::check_source_file(path, &source) {
+                        sporec_driver::SourceCheckReport::Success {
+                            source: canonical_source,
+                            warnings,
+                        } => {
+                            if !warnings.is_empty() {
+                                let warning_messages =
+                                    sporec_diagnostics::diagnostic_message_lines(&warnings);
+                                sporec_diagnostics::render_diagnostics_human(
+                                    &canonical_source,
+                                    &warnings,
+                                );
+                                return fail_deny_warnings(
+                                    &warning_messages,
+                                    Some(&warnings),
+                                    false,
+                                );
+                            }
+                        }
+                        sporec_driver::SourceCheckReport::Failure(
+                            sporec_driver::SourceCheckFailure::Diagnostics {
+                                source,
+                                diagnostics,
+                            },
+                        ) => {
+                            return sporec_diagnostics::exit_with_diagnostics_error(
+                                &source,
+                                &diagnostics,
+                                false,
+                            );
+                        }
+                        sporec_driver::SourceCheckReport::Failure(
+                            sporec_driver::SourceCheckFailure::Message(message),
+                        ) => return fail_human(&message),
+                    }
+                }
+                sporec_driver::check_verbose(&source)
+            };
+
+            match result {
+                Ok(detail) => {
+                    print!("{detail}");
+                    ExitCode::SUCCESS
+                }
+                Err(msg) => {
+                    if let Some((root, entry)) = find_project_target(path) {
+                        match sporec_driver::check_project(&root, &entry) {
+                            sporec_driver::CheckReport::Failure(
+                                sporec_driver::CheckFailure::Diagnostics {
+                                    sources,
+                                    diagnostics,
+                                },
+                            ) => {
+                                return sporec_diagnostics::exit_with_diagnostics_error_with_sources(
+                                    &sources,
+                                    &diagnostics,
+                                    false,
+                                );
+                            }
+                            sporec_driver::CheckReport::Failure(
+                                sporec_driver::CheckFailure::Message(message),
+                            ) => {
+                                return fail_human(&message);
+                            }
+                            sporec_driver::CheckReport::Success { .. } => {}
+                        }
+                    }
+                    fail_human(&msg)
+                }
+            }
+        } else if let Some((root, entry)) = find_project_target(path) {
+            report_batch_check(
+                sporec_driver::check_project(&root, &entry),
+                json_output,
+                deny_warnings,
+                "✓ no errors",
+            )
+        } else {
+            let source = match read_source_message(path) {
+                Ok(s) => s,
+                Err(message) => return fail_message(&message, json_output),
+            };
+            report_single_file_check(path, &source, json_output, deny_warnings, "✓ no errors")
+        }
+    }
+}
+
+pub(crate) fn exec_test(
+    files: &[String],
+    verbose: bool,
+    json_output: bool,
+    deny_warnings: bool,
+) -> ExitCode {
+    let mut total_passed = 0usize;
+    let mut total_failed = 0usize;
+
+    for path in files {
+        let source = match read_source_message(path) {
+            Ok(s) => s,
+            Err(message) => return fail_message(&message, json_output),
+        };
+
+        match sporec_driver::check_source_file(path, &source) {
+            sporec_driver::SourceCheckReport::Success {
+                source: canonical_source,
+                warnings,
+            } => {
+                let warning_messages = sporec_diagnostics::diagnostic_message_lines(&warnings);
+                if json_output {
+                    for (warning, message) in warnings.iter().zip(warning_messages.iter()) {
+                        sporec_diagnostics::print_json(
+                            &sporec_diagnostics::JsonReport::new()
+                                .with_severity(sporec_diagnostics::Severity::Warning)
+                                .with_message(message.as_str())
+                                .with_diagnostic(warning),
+                        );
+                    }
+                } else {
+                    sporec_diagnostics::render_diagnostics_human(&canonical_source, &warnings);
+                }
+
+                if !warnings.is_empty() && deny_warnings {
+                    return fail_deny_warnings(&warning_messages, Some(&warnings), json_output);
+                }
+            }
+            sporec_driver::SourceCheckReport::Failure(
+                sporec_driver::SourceCheckFailure::Diagnostics {
+                    source,
+                    diagnostics,
+                },
+            ) => {
+                return sporec_diagnostics::exit_with_diagnostics_error(
+                    &source,
+                    &diagnostics,
+                    json_output,
+                );
+            }
+            sporec_driver::SourceCheckReport::Failure(
+                sporec_driver::SourceCheckFailure::Message(message),
+            ) => {
+                return fail_message(&message, json_output);
+            }
+        }
+
+        match sporec_driver::test_specs(&source) {
+            Ok(results) => {
+                for r in &results {
+                    let kind_label = if r.kind == sporec_driver::SpecKind::Example {
+                        "example"
+                    } else {
+                        "property"
+                    };
+                    if r.passed {
+                        total_passed += 1;
+                        if !json_output && verbose {
+                            eprintln!(
+                                "  {} {} :: {} \"{}\"",
+                                "✓".green(),
+                                r.fn_name,
+                                kind_label,
+                                r.label
+                            );
+                        }
+                    } else {
+                        total_failed += 1;
+                        let msg = r.error.as_deref().unwrap_or("assertion failed");
+                        if !json_output {
+                            eprintln!(
+                                "  {} {} :: {} \"{}\" — {}",
+                                "✗".red(),
+                                r.fn_name,
+                                kind_label,
+                                r.label,
+                                msg
+                            );
+                        }
+                    }
+                }
+            }
+            Err(msg) => return fail_message(&msg, json_output),
+        }
+    }
+
+    if json_output {
+        sporec_diagnostics::print_json(&json!({
+            "status": if total_failed == 0 {
+                sporec_diagnostics::ReportStatus::Ok
+            } else {
+                sporec_diagnostics::ReportStatus::Fail
+            },
+            "passed": total_passed,
+            "failed": total_failed,
+        }));
+    } else {
+        let total = total_passed + total_failed;
+        if total == 0 {
+            eprintln!("note: no spec clauses found");
+        } else if total_failed == 0 {
+            eprintln!("\n{} {total} specs passed", "✓".green());
+        } else {
+            eprintln!(
+                "\n{}: {total_failed} of {total} specs failed",
+                "FAIL".red().bold()
+            );
+        }
+    }
+
+    if total_failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}

@@ -12,7 +12,6 @@ pub enum Value {
     Float(f64),
     Bool(bool),
     Str(String),
-    Char(char),
     Unit,
     /// Struct instance: (type name, fields)
     Struct(String, BTreeMap<String, Value>),
@@ -90,7 +89,6 @@ impl PartialEq for Value {
             (Value::Float(x), Value::Float(y)) => x == y,
             (Value::Bool(x), Value::Bool(y)) => x == y,
             (Value::Str(x), Value::Str(y)) => x == y,
-            (Value::Char(x), Value::Char(y)) => x == y,
             (Value::Unit, Value::Unit) => true,
             (Value::List(x), Value::List(y)) => x == y,
             (Value::Enum(n1, f1), Value::Enum(n2, f2)) => n1 == n2 && f1 == f2,
@@ -112,7 +110,6 @@ impl fmt::Display for Value {
             Value::Float(n) => write!(f, "{n}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Str(s) => write!(f, "{s}"),
-            Value::Char(c) => write!(f, "'{c}'"),
             Value::Unit => write!(f, "()"),
             Value::Struct(name, fields) => {
                 write!(f, "{name} {{ ")?;
@@ -209,7 +206,6 @@ impl Value {
             Value::Float(_) => "F64",
             Value::Bool(_) => "Bool",
             Value::Str(_) => "Str",
-            Value::Char(_) => "Char",
             Value::Unit => "Unit",
             Value::List(_) => "List",
             Value::Struct(name, _) => name,

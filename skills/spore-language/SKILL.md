@@ -30,9 +30,13 @@ Spore is built around one idea: **programmer intent should be explicit, verifiab
 A function signature is a complete specification of intent — types, errors, cost budget, and required capabilities. The body can be a hole; the intent is already fully expressed.
 
 ```spore
-fn fetch(url: String) -> String ! [NetError, Timeout]
-    cost ≤ 1000
-    uses [NetRead]
+effect NetConnect {
+    fn fetch(url: Str) -> Str ! NetError | Timeout
+}
+
+fn fetch(url: Str) -> Str ! NetError | Timeout
+    uses [NetConnect]
+    cost [1, 0, 1, 0]
 {
     ?todo
 }
@@ -66,16 +70,21 @@ The compiler generates a self-contained HoleReport (JSON) for each hole: expecte
 Write function signatures and types first. Use holes everywhere the implementation is not yet decided.
 
 ```spore
-struct Order { id: Int, items: List[Item], total: Int }
+struct Order { id: I32, items: List[Item], total: I32 }
 
-fn calculate_total(items: List[Item]) -> Int cost ≤ O(n) { ?total_logic }
-fn validate_order(order: Order) -> Order ! [ValidationError] { ?validation }
-fn process_payment(order: Order) -> Receipt ! [PaymentError] uses [NetWrite] { ?payment }
+fn calculate_total(items: List[Item]) -> I32 { ?total_logic }
+fn validate_order(order: Order) -> Order ! ValidationError { ?validation }
+fn process_payment(order: Order) -> Receipt ! PaymentError
+    uses [NetConnect]
+    cost [1, 0, 1, 0]
+{
+    ?payment
+}
 ```
 
 ### Step 2 — Verify the skeleton
 
-Run `spore check` — the compiler validates signatures, capabilities, and cost budgets even with holes.
+Run `spore check` — the compiler validates signatures, `uses` clauses, error contracts, and cost vectors even with holes. Hole-bearing programs are still useful for `check`/`holes`, but `run` will stop at an unfilled hole.
 
 ### Step 3 — Review hole reports
 
@@ -131,9 +140,12 @@ spore run --json <file>           # output result as JSON
 
 # Type-checking
 spore check <file...>             # type-check one or more files
-spore check --verbose <file>      # show inferred types, costs, capabilities
+spore check --verbose <file>      # show detailed compiler info
 spore check --json <file>         # output diagnostics as JSON
 spore check --deny-warnings <file> # treat warnings as errors
+
+# Spec/test validation
+spore test <file...>              # validate spec files (MVP: static checking only)
 
 # Formatting
 spore format <file>               # format source in-place (alias: spore fmt)
@@ -150,20 +162,21 @@ spore build <file>                # compile without executing (interpreter mode)
 spore watch <file>                # re-check on file changes
 spore watch --json <file>         # NDJSON events for IDE/Agent consumption
 
-# Project scaffolding (PR #26 — may not yet be on main)
+# Project scaffolding
 spore new <name>                  # create new project directory
 spore new <name> --type package   # project types: application (default), package, platform
 spore init                        # initialize project in current directory
 spore init --type package         # specify project type
 
-# Version / help
+# Version
 spore --version                   # print version
-spore help                        # show usage
 
 # Development (building the compiler itself)
 cargo build                       # build the compiler
 cargo test --all                  # run all tests
 ```
+
+The global help surface is not fully reliable yet: `spore --help` currently trips a CLI parser bug in the checked-in binary, so prefer the repo docs or `crates/spore/src/main.rs` as the source of truth for command inventory.
 
 ## Language features
 
@@ -183,11 +196,13 @@ The `spore-lsp` binary provides IDE integration:
 - **Goto definition** — jump to function/type definitions.
 - **Document symbols** — outline of structs, functions, and types in the current file.
 - **Hover** — display type signatures and documentation for symbols.
-- **Diagnostics** — real-time type errors, warnings, and cost analysis on save.
+- **Diagnostics** — compiler diagnostics on open/change/save.
+
+Current server surface is still small: no rename, references, or code actions yet.
 
 ### Cost enforcement
 
-Cost budgets declared in signatures are verified by the compiler. Functions whose cost cannot be determined structurally receive a warning. The `@unbounded` annotation opts out of cost checking (contagious to callers).
+Use `cost [compute, alloc, io, parallel]`. The old scalar `cost <= expr` form is rejected by the parser. Each slot currently accepts only integer literals, parameter variables, or linear `O(n)` terms. The `@unbounded` escape hatch still exists and is contagious to callers.
 
 ## Filling holes — checklist
 
@@ -212,6 +227,7 @@ Operators: `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`
 ## Current limitations
 
 1. No loops — use recursion or higher-order functions.
-2. Concurrency syntax-only — `spawn`/`await`/`parallel_scope` parse but do not execute.
-3. Tree-walking interpreter — no compiled native output yet.
-4. Refinement types — parsed but not enforced at type-check time.
+2. Unfilled holes are checkable/reportable, but execution stops with a runtime error if a hole is reached.
+3. Structured concurrency is only the current subset (`parallel_scope`, `spawn`, `.await`, `select`); broader async/runtime surface is still evolving.
+4. Tree-walking interpreter — no compiled native output yet.
+5. Refinement types — parsed but not enforced at type-check time.

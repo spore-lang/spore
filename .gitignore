@@ -3,6 +3,7 @@
 /dist
 .venv/
 .learnings/
+.cursor/
 
 # Rust
 **/*.rs.bk

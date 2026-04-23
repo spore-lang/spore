@@ -21,7 +21,7 @@ Spore is a compiled language where function signatures are "gravity centers" —
 - Stable generic bounds use a single comma-separated clause: `where T: Trait, U: Trait`.
 - Effect operations use explicit `effect` declarations plus `perform Effect.op(...)`; reusable unions use `effect Name = A | B`.
 - Error sets are checked contracts: `throw expr` must match the current `! E1 | E2`, calling a throwing function requires compatible caller errors, and `?` is propagation sugar.
-- Current implementation primitives are `I32`/`I64`/`U32`/`U64`/`F32`/`F64`/`Bool`/`Char`/`Str`/`()`. The locked surface also keeps `Int`/`Float` as `I64`/`F64` aliases; implementation catch-up is tracked separately.
+- Current implementation primitives are `I32`/`I64`/`U32`/`U64`/`F32`/`F64`/`Bool`/`Str`/`()`. The locked surface also keeps `Int`/`Float` as `I64`/`F64` aliases; implementation catch-up is tracked separately.
 - The live structured-concurrency surface includes `parallel_scope { ... }`, `spawn { ... }`, postfix `task.await`, `Channel.new[...]`, and `select { ... timeout(...) => ... }`.
 
 ## Quick Start

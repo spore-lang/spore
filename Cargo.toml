@@ -13,7 +13,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.95"
 repository = "https://github.com/spore-lang/spore"
 license = "MIT OR Apache-2.0"
 
@@ -40,8 +40,8 @@ blake3 = "1"
 bpaf = { version = "0.9", features = ["dull-color"] }
 # clap = { version = "4", features = ["derive"] }
 # File watching
-notify = "7"
-notify-debouncer-mini = "0.5"
+notify = "8"
+notify-debouncer-mini = "0.7"
 owo-colors = "4"
 # LSP
 # tower-lsp = "0.20"
