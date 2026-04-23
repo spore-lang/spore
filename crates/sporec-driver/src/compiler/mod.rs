@@ -8,7 +8,9 @@ pub use hole_json::{hole_summary, holes, holes_report, query_hole_report};
 pub use project::{
     check_project, check_project_verbose, compile_project, run_project, run_project_with_outcome,
 };
-pub use source::{check_verbose, compile, compile_diagnostics, format, run, test_specs};
+pub use source::{
+    call_native, check_verbose, compile, compile_diagnostics, format, run, run_native, test_specs,
+};
 
 use sporec_diagnostics::{Diagnostic as CanonicalDiagnostic, SourceFile};
 use sporec_parser::ast::{Module, Span};
