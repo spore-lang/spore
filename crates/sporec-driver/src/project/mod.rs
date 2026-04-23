@@ -211,6 +211,35 @@ mod tests {
     }
 
     #[test]
+    fn load_project_manifest_rejects_legacy_platform_handles() {
+        let project = TempProject::new(
+            "legacy-platform-handles",
+            r#"
+            [package]
+            name = "basic-cli"
+            type = "platform"
+
+            [platform]
+            contract-module = "platform_contract"
+            startup-contract = "main"
+            adapter-function = "main_for_host"
+            handles = ["Console", "Env"]
+            "#,
+        );
+
+        let err = load_project_manifest(project.root())
+            .expect_err("legacy handles key should be rejected");
+        assert!(
+            err.contains("[platform].handles"),
+            "expected legacy key error, got: {err}"
+        );
+        assert!(
+            err.contains("[platform].handled-effects"),
+            "expected canonical key guidance, got: {err}"
+        );
+    }
+
+    #[test]
     fn resolve_project_target_by_path_allows_non_entry_modules() {
         let project = TempProject::new(
             "undeclared-entry",

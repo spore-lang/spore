@@ -854,6 +854,55 @@ fn compile_project_rejects_startup_effects_outside_platform_handled_effects() {
 }
 
 #[test]
+fn compile_project_rejects_legacy_platform_handles_manifest_key() {
+    let project = TempProject::new("project-legacy-platform-handles");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    project.write(
+        "vendor/basic-cli/spore.toml",
+        r#"
+        [package]
+        name = "basic-cli"
+        type = "platform"
+
+        [platform]
+        contract-module = "platform_contract"
+        startup-contract = "main"
+        adapter-function = "main_for_host"
+        handles = ["Console", "Env"]
+        "#,
+    );
+    project.write(
+        "vendor/basic-cli/src/platform_contract.sp",
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main();
+            return
+        }
+        "#,
+    );
+    project.write("src/app.sp", "fn main() -> () { return }\n");
+
+    let err = compile_project(project.root(), "app.sp")
+        .expect_err("legacy [platform].handles should be rejected with a targeted manifest error");
+    assert!(
+        err.contains("vendor/basic-cli/spore.toml"),
+        "expected dependency manifest path in error, got: {err}"
+    );
+    assert!(
+        err.contains("[platform].handles"),
+        "expected legacy key in error, got: {err}"
+    );
+    assert!(
+        err.contains("[platform].handled-effects"),
+        "expected canonical key guidance, got: {err}"
+    );
+}
+
+#[test]
 fn compile_project_accepts_imported_effect_operations() {
     let project = TempProject::new("project-imported-effect-operations");
     project.write(
