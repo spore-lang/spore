@@ -4,8 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use sporec_codegen::value::Value;
 use sporec_driver::{
-    CheckFailure, CheckReport, check_files, check_project, check_project_verbose, check_verbose,
-    compile, compile_project, hole_summary, run_project, run_project_with_outcome,
+    CheckFailure, CheckReport, call_native, check_files, check_project, check_project_verbose,
+    check_verbose, compile, compile_project, hole_summary, run_native, run_project,
+    run_project_with_outcome,
 };
 
 struct TempProject {
@@ -360,6 +361,42 @@ fn compile_accepts_effect_and_handler_items() {
         output.warnings.is_empty(),
         "expected no warnings, got: {:?}",
         output.warnings
+    );
+}
+
+#[test]
+fn run_native_matches_interpreter_on_supported_scalar_source() {
+    let source = r#"
+        fn helper(flag: Bool) -> Bool {
+            if flag { true } else { false }
+        }
+
+        fn main() -> Bool {
+            let seed = true;
+            helper(seed)
+        }
+    "#;
+
+    let interpreted = sporec_driver::run(source).expect("interpreter should accept scalar source");
+    let native = run_native(source).expect("native backend should accept scalar source");
+    assert_eq!(interpreted, native);
+}
+
+#[test]
+fn call_native_type_checks_before_codegen() {
+    let err = call_native(
+        r#"
+        fn bad() -> Bool {
+            1
+        }
+        "#,
+        "bad",
+        vec![],
+    )
+    .expect_err("driver native wrapper should fail during type checking");
+    assert!(
+        err.contains("E0001") || err.contains("expected"),
+        "expected type-check-first failure, got: {err}"
     );
 }
 

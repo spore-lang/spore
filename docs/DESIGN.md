@@ -186,6 +186,29 @@ Source → [Lex] → Tokens → [Parse] → AST
 
 **3 层 IR + Cranelift IR 作为 LIR**，无独立 flat IR，无 MIR。
 
+#### Cranelift skeleton 里程碑（下一 backend slice）
+- 这是一条**里程碑定义**，不是“后端立刻全量替换解释器”的承诺。目标是先证明 native lowering 路径、最小 ABI 和回归比较方式成立，再逐步扩展到 richer runtime / data layout。
+- **最小可编译子集**
+  - 只覆盖 **单模块 / 单 entry** 的纯计算程序；不碰 package imports、project runtime、Platform adapter、`foreign fn`、`perform` / `handle`、并发、`Ref[T]`、spec runner。
+  - 只覆盖**单态（monomorphic）顶层函数**；不把 closure capture、运行时泛型实例化、task/channel 值放进第一阶段 backend。
+  - 表达式子集限定为：字面量、`let`、block、`if`、一元/二元算术与比较、布尔逻辑、具名函数直接调用、tail-expression 返回。
+  - 第一阶段跨 backend 边界只接受**固定大小标量值**；`Str`、`List`、`Struct`、`Enum`、`Map`、`Option`、`Result` 以及任何 HostValue 映射都继续留在解释器路径，等数据布局 / 跨边界语义冻结后再扩展。
+- **runtime hook 假设**
+  - `sporec-codegen` 继续保持“统一执行 crate”；Cranelift skeleton 先作为其内部 backend 选项存在，而不是立即拆出新的公开运行时产品面。
+  - `spore run`、manifest project runtime、package-backed Platform execution、spec 测试、watch 与 hole 相关执行路径在 skeleton 阶段继续默认走解释器；backend 先只服务内部 parity 测试与最小 native smoke。
+  - skeleton backend 遇到 effect / foreign / package runtime / unsupported aggregate 时必须**显式报错**，不做静默回退或半支持。
+  - 仍坚持“无独立 MIR”的方向：第一阶段可以从 checked IR/HIR 直接 lower 到极小的 backend-local function lowering，或直接 lower 到 Cranelift IR，但不要先为 backend 引入一层失控的新中间表示。
+- **interpreter vs backend 对照里程碑**
+  1. **M0 — scalar parity**：同一组纯函数 fixture 在解释器与 Cranelift skeleton 下得到相同结果 / 相同失败形状；覆盖整数 / 布尔 / unit、局部绑定、分支、直接调用。
+  2. **M1 — multi-function parity**：加入多函数调用链、递归或等价控制流 fixture，确认 lowering 后的调用约定与返回约定稳定。
+  3. **M2 — data-layout gate**：等 `HostValue` / ADT / `Option` / `Result` 边界冻结后，再引入结构体、枚举和更丰富返回值；这一步才允许讨论 backend ↔ host ABI。
+  4. **M3 — platform gate**：等 package-backed Platform host model 不再只特判 `basic-cli` 后，再讨论 `foreign fn` / effect lowering，而不是把这些问题挤进 skeleton 阶段。
+- **验收口径**
+  - skeleton backend 不是默认执行路径；
+  - 纯标量 fixture 的 parity 测试稳定通过；
+  - 当前 package / Platform / diagnostics / watch 工作流不因 backend 原型而被迫改协议。
+  - 当前已落地的最小 slice 是 `sporec-codegen` / `sporec-driver` 内部 opt-in Cranelift 标量 backend：只覆盖单模块、纯、标量程序与 parity 测试，CLI 默认执行路径仍保持解释器。
+
 ### AST
 - 与源码 1:1 对应，节点带 `Span`；保留所有语法糖（`|>` / `?` / `f"..."`）。
 - 用途：错误报告、IDE 语法高亮。

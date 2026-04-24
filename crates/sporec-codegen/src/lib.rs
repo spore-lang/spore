@@ -4,6 +4,7 @@
 /// Future native backends can be added without exposing unused scaffolding today.
 pub mod effect_handler;
 pub mod interpret;
+pub mod native;
 pub mod value;
 
 use effect_handler::{BasicCliPlatformHandler, CliPlatformHandler, RuntimeSignal};
@@ -12,6 +13,7 @@ use sporec_parser::ast::{Module, SpecItem, TypeExpr};
 use value::Value;
 
 pub use effect_handler::{RuntimePlatform, RuntimeSignal as ProjectRuntimeSignal};
+pub use native::{NativeError, NativeProgram, call_native, compile_native, run_native};
 
 /// Result of evaluating a single spec clause.
 #[derive(Debug, Clone)]
