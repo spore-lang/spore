@@ -289,7 +289,7 @@ pub struct HoleCandidateJson {
     pub name: String,
     pub type_match: f64,
     pub cost_fit: f64,
-    pub capability_fit: f64,
+    pub required_effects_fit: f64,
     pub error_coverage: f64,
     pub overall: f64,
 }
@@ -359,7 +359,7 @@ pub struct HoleInfoJson {
     pub enclosing_signature: Option<String>,
     pub bindings: BTreeMap<String, String>,
     pub binding_dependencies: BTreeMap<String, Vec<String>>,
-    pub capabilities: Vec<String>,
+    pub available_effects: Vec<String>,
     pub errors_to_handle: Vec<String>,
     pub cost_budget: Option<HoleCostBudgetJson>,
     pub candidates: Vec<HoleCandidateJson>,

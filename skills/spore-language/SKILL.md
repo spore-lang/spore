@@ -11,14 +11,14 @@ description: >
 ## Mission
 
 Spore is a language where **programmer intent is explicit, verifiable, and collaborative**.
-Every function signature is a complete specification — types, errors, cost budget, and capabilities —
+Every function signature is a complete specification — types, errors, cost budget, and required effects —
 so humans and AI agents can collaborate through typed holes without ambiguity.
 
 ### Goals
 
 - **Intent-first**: Signatures before implementations. Holes are first-class collaboration points.
-- **Verifiable by construction**: Capabilities, costs, and effects are checked at compile time.
-- **Supply-chain security**: Capability isolation ensures downloaded packages cannot access IO they don't declare.
+- **Verifiable by construction**: Required effects, costs, and error contracts are checked at compile time.
+- **Supply-chain security**: Effect isolation ensures downloaded packages cannot access IO they don't declare.
 - **AI-native workflow**: HoleReports provide self-contained context for AI code generation.
 
 ## Design philosophy — intent programming
@@ -27,7 +27,7 @@ Spore is built around one idea: **programmer intent should be explicit, verifiab
 
 ### Signatures are gravity centers
 
-A function signature is a complete specification of intent — types, errors, cost budget, and required capabilities. The body can be a hole; the intent is already fully expressed.
+A function signature is a complete specification of intent — types, errors, cost budget, and required effects. The body can be a hole; the intent is already fully expressed.
 
 ```spore
 effect NetConnect {
@@ -49,7 +49,7 @@ A program with holes compiles successfully. Holes are how humans and Agents coll
 - **Human to Agent**: "Here is my intent (the signature). Fill this hole."
 - **Agent to Human**: "Here is my proposal. Does it meet your intent?"
 
-The compiler generates a self-contained HoleReport (JSON) for each hole: expected type, bindings, capabilities, cost budget, and candidate functions. No additional context is needed.
+The compiler generates a self-contained HoleReport (JSON) for each hole: expected type, bindings, available effects, cost budget, and candidate functions. No additional context is needed.
 
 ### Five-language heritage
 
@@ -210,7 +210,7 @@ When filling a `?name` hole:
 
 1. Match the **expected_type** from the HoleReport.
 2. Only use **bindings** listed in the report.
-3. Stay within declared **capabilities** (`uses` clause).
+3. Stay within declared **required effects** (`uses` clause).
 4. Handle all **errors** in `errors_to_handle`.
 5. Respect the **cost budget** if declared.
 6. Follow the dependency graph: fill leaf holes first, then work upward.

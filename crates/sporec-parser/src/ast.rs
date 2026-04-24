@@ -21,16 +21,6 @@ pub enum Item {
     Const(ConstDef),
     StructDef(StructDef),
     TypeDef(TypeDef),
-    /// Legacy `capability` definition kept for compatibility. Formatter and
-    /// tooling present it using the canonical `trait` spelling.
-    CapabilityDef(CapabilityDef),
-    /// Legacy `capability IO = [FileRead, FileWrite]` alias. Formatter rewrites
-    /// this to the canonical `effect IO = FileRead | FileWrite` spelling.
-    CapabilityAlias {
-        name: String,
-        components: Vec<String>,
-        span: Option<Span>,
-    },
     ImplDef(ImplDef),
     Import(ImportDecl),
     Alias(AliasDef),
@@ -48,8 +38,6 @@ impl Item {
             Item::Const(c) => c.span,
             Item::StructDef(s) => s.span,
             Item::TypeDef(t) => t.span,
-            Item::CapabilityDef(c) => c.span,
-            Item::CapabilityAlias { span, .. } => *span,
             Item::ImplDef(i) => i.span,
             Item::Import(i) => match i {
                 ImportDecl::Import { span, .. } | ImportDecl::Alias { span, .. } => *span,
@@ -436,27 +424,7 @@ pub struct AssocType {
     pub bounds: Vec<TypeExpr>,
 }
 
-#[derive(Debug, Clone)]
-pub struct CapabilityDef {
-    pub name: String,
-    pub visibility: Visibility,
-    pub type_params: Vec<String>,
-    pub methods: Vec<FnDef>,
-    pub assoc_types: Vec<AssocType>,
-    pub span: Option<Span>,
-}
-
-impl CapabilityDef {
-    pub fn canonical_keyword(&self) -> &'static str {
-        "trait"
-    }
-
-    pub fn completion_detail(&self) -> &'static str {
-        "trait"
-    }
-}
-
-/// Trait definition (preferred alias for `capability` when defining type interfaces).
+/// Trait definition for type interfaces.
 #[derive(Debug, Clone)]
 pub struct TraitDef {
     pub name: String,
@@ -495,10 +463,10 @@ pub struct HandlerDef {
     pub span: Option<Span>,
 }
 
-/// Top-level impl block: `impl Capability for Type { ... }`
+/// Top-level impl block: `impl Trait for Type { ... }`
 #[derive(Debug, Clone)]
 pub struct ImplDef {
-    pub capability: String,
+    pub trait_name: String,
     pub target_type: String,
     pub type_args: Vec<TypeExpr>,
     pub methods: Vec<FnDef>,
@@ -507,7 +475,7 @@ pub struct ImplDef {
 
 #[derive(Debug, Clone)]
 pub struct ImplBlock {
-    pub capability: String,
+    pub trait_name: String,
     pub methods: Vec<(String, Expr)>,
 }
 

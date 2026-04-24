@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::env::HandlerInfo;
-use crate::types::{CapSet, ErrorSet, Ty};
+use crate::types::{EffectSet, ErrorSet, Ty};
 
 use super::SymbolVisibility;
 
@@ -12,8 +12,8 @@ pub struct ModuleInterface {
     pub path: Vec<String>,
     /// Exported functions: name → (param types, return type)
     pub functions: HashMap<String, (Vec<Ty>, Ty)>,
-    /// Exported function capabilities: name → declared/normalized `uses [...]`
-    pub function_caps: HashMap<String, CapSet>,
+    /// Exported function required effects: name → declared/normalized `uses [...]`
+    pub function_required_effects: HashMap<String, EffectSet>,
     /// Exported function error sets: name → declared `! E1 | E2`
     pub function_errors: HashMap<String, ErrorSet>,
     /// Exported generic function type parameters.
@@ -26,11 +26,11 @@ pub struct ModuleInterface {
     pub structs: HashMap<String, Vec<(String, Ty)>>,
     /// Exported generic struct parameters: name → ordered type parameter names
     pub struct_type_params: HashMap<String, Vec<String>>,
-    /// Exported capabilities
-    pub capabilities: HashSet<String>,
-    /// Exported capability/effect method signatures.
+    /// Exported interfaces (traits and effects).
+    pub interfaces: HashSet<String>,
+    /// Exported trait/effect member signatures.
     #[allow(clippy::type_complexity)]
-    pub capability_methods: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
+    pub interface_members: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
     /// Exported named handlers
     pub handlers: HashMap<String, HandlerInfo>,
     /// Visibility of each symbol
@@ -67,7 +67,7 @@ impl ModuleInterface {
         self.functions.contains_key(name)
             || self.types.contains_key(name)
             || self.structs.contains_key(name)
-            || self.capabilities.contains(name)
+            || self.interfaces.contains(name)
             || self.handlers.contains_key(name)
     }
 
@@ -78,7 +78,7 @@ impl ModuleInterface {
             .keys()
             .chain(self.types.keys())
             .chain(self.structs.keys())
-            .chain(self.capabilities.iter())
+            .chain(self.interfaces.iter())
             .chain(self.handlers.keys())
             .cloned()
             .collect();

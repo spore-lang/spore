@@ -2,12 +2,12 @@
 
 **A general-purpose programming language optimized for Agent-human intent interaction.**
 
-Spore is a compiled language where function signatures are "gravity centers" — complete specifications carrying type, error, effect, cost, and capability information. The compiler serves as a documentation assistant, and the hole system enables Agent-driven collaborative development.
+Spore is a compiled language where function signatures are "gravity centers" — complete specifications carrying type, error, required effect, and cost information. The compiler serves as a documentation assistant, and the hole system enables Agent-driven collaborative development.
 
 ## Key Features
 
 - **Hole System**: `?name` partial functions as first-class collaboration protocol with Agents
-- **Capability System**: IO effects gated by capabilities, verified at compile time
+- **Effect System**: IO effects gated by required effects, verified at compile time
 - **Cost Model**: 4-dimension cost analysis (compute, alloc, io, parallel) with compile-time budgets
 - **Content-Addressed**: Dual hash (sig + impl) for modules — no semver, pure hash addressing
 - **Effect Handlers**: All IO through Platform-provided effect handlers, application code stays pure
@@ -17,7 +17,7 @@ Spore is a compiled language where function signatures are "gravity centers" —
 ## Canonical Surface Syntax
 
 - Modules come only from file paths; there is no `module ...` header.
-- Capability checks live on function signatures and package/Platform boundaries only; source files have no module-level `uses` carrier.
+- Effect checks live on function signatures and package/Platform boundaries only; source files have no module-level `uses` carrier.
 - Stable generic bounds use a single comma-separated clause: `where T: Trait, U: Trait`.
 - Effect operations use explicit `effect` declarations plus `perform Effect.op(...)`; reusable unions use `effect Name = A | B`.
 - Error sets are checked contracts: `throw expr` must match the current `! E1 | E2`, calling a throwing function requires compatible caller errors, and `?` is propagation sugar.
@@ -64,7 +64,7 @@ fn main() -> () uses [Console] {
 }
 ```
 
-Applications declare `fn main() -> ()` and use Platform-provided capabilities.
+Applications declare `fn main() -> ()` and require effects that are handled by the Platform.
 The `basic-cli` Platform handles effect operations like `Console` for terminal IO.
 
 ### Standalone File Mode
@@ -89,7 +89,7 @@ but completion values have no default CLI host semantics: `spore run` does not p
 them automatically and does not treat them as process exit codes.
 Compatibility paths like `fn main() -> I32` still compile, but the CLI canon is
 explicit output plus `fn main() -> ()`.
-Real applications should prefer `spore new` / project mode with Platform capabilities.
+Real applications should prefer `spore new` / project mode with an explicit Platform effect boundary.
 See [`examples/demo.sp`](examples/demo.sp) for a standalone example file.
 
 ### Structs and Pattern Matching
@@ -121,10 +121,10 @@ fn compute() -> I32 {
 }
 ```
 
-### Capabilities, Costs, and Error Sets
+### Required Effects, Costs, and Error Sets
 
 These annotations are part of the function signature — the compiler verifies
-capabilities, cost budgets, checked error contracts, and explicit effect
+required effects, cost budgets, checked error contracts, and explicit effect
 surfaces at call boundaries. `throw expr` must be covered by the current
 function's `! E1 | E2`, calling a throwing function requires a compatible
 caller signature, and `?` is sugar for
@@ -173,7 +173,7 @@ fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! NetError | Timeout
 > The same active-docs target also uses `Channel.new[...]` and
 > `select { msg from rx => ..., timeout(5.seconds) => ... }`.
 
-### Capabilities and Implementations
+### Traits and Implementations
 
 ```spore
 trait Display[T] {
@@ -191,9 +191,9 @@ impl Display for Point {
 sporec (stateless compiler CLI / product)
 └── sporec-driver    Host-side compiler driver crate
     ├── sporec-parser     Source text -> AST
-    ├── sporec-typeck     Type checking, capability & cost analysis
+    ├── sporec-typeck     Type checking, effect & cost analysis
     │   ├── hir          HIR with pipe desugaring
-    │   ├── capability   Capability algebra (∪/∩/hierarchy)
+    │   ├── effect sets  Effect-set algebra (∪/∩/hierarchy)
     │   ├── cost         4D cost vectors + cost checker
     │   ├── hole         Hole dependency graph + topological ordering
     │   ├── sig_hash     BLAKE3 256-bit signature hashing
@@ -265,7 +265,7 @@ Detailed topic proposals now live in the sibling `spore-evolution/seps/` repo:
 
 - `SEP-0001-core-syntax.md`
 - `SEP-0002-type-system.md`
-- `SEP-0003-effect-capability-system.md`
+- `SEP-0003-effect-system.md`
 - `SEP-0004-cost-analysis.md`
 - `SEP-0005-hole-system.md`
 - `SEP-0006-compiler-architecture.md`

@@ -50,7 +50,7 @@ pub enum ImportedSymbol {
     Type,
     Struct,
     Handler,
-    Capability,
+    Interface,
 }
 
 /// Module resolution errors.

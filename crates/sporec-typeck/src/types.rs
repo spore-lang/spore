@@ -5,8 +5,7 @@ use std::fmt;
 
 use crate::is_synthetic_hole_name;
 
-/// A set of capabilities (effects) required by a function.
-pub type CapSet = BTreeSet<String>;
+pub use crate::effect_set::EffectSet;
 
 /// A set of error types that a function may throw.
 pub type ErrorSet = BTreeSet<String>;
@@ -45,7 +44,7 @@ pub enum Ty {
     Tuple(Vec<Ty>),
 
     /// Function type: `(params) -> return [uses caps] [! errors]`
-    Fn(Vec<Ty>, Box<Ty>, CapSet, ErrorSet),
+    Fn(Vec<Ty>, Box<Ty>, EffectSet, ErrorSet),
 
     /// Type variable (for future inference / generics)
     Var(u32),

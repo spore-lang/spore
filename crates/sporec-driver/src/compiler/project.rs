@@ -267,7 +267,7 @@ fn startup_error_to_diagnostic(
     let code = match error.kind {
         PlatformStartupErrorKind::MissingStartupFunction => "missing-startup-function",
         PlatformStartupErrorKind::WrongStartupSignature => "wrong-startup-signature",
-        PlatformStartupErrorKind::UnsupportedCapability => "unsupported-platform-capability",
+        PlatformStartupErrorKind::UnsupportedEffect => "unsupported-platform-effect",
         PlatformStartupErrorKind::InvalidPlatformContract => "invalid-platform-contract",
     };
     CanonicalDiagnostic::new(code, Severity::Error, error.message)
@@ -536,24 +536,24 @@ fn validate_platform_contract_entry_startup(
         });
     }
 
-    let allowed_handles: BTreeSet<String> = contract.handles.iter().cloned().collect();
-    let required_caps = entry_iface
-        .function_caps
+    let handled_effects: BTreeSet<String> = contract.handled_effects.iter().cloned().collect();
+    let required_effects = entry_iface
+        .function_required_effects
         .get(&contract.startup_function)
         .cloned()
         .unwrap_or_default();
-    let missing_handles: Vec<String> = required_caps
+    let missing_effects: Vec<String> = required_effects
         .iter()
-        .filter(|cap| !allowed_handles.contains(*cap))
+        .filter(|effect| !handled_effects.contains(*effect))
         .cloned()
         .collect();
-    if !missing_handles.is_empty() {
+    if !missing_effects.is_empty() {
         return Err(PlatformStartupError {
-            kind: PlatformStartupErrorKind::UnsupportedCapability,
+            kind: PlatformStartupErrorKind::UnsupportedEffect,
             message: format!(
-                "startup function `{}` in entry module `{module_name}` requires capabilities [{}] not listed in `[platform].handles` for platform `{}`",
+                "startup function `{}` in entry module `{module_name}` requires effects [{}] not listed in `[platform].handled-effects` for platform `{}`",
                 contract.startup_function,
-                missing_handles.join(", "),
+                missing_effects.join(", "),
                 contract.name
             ),
         });

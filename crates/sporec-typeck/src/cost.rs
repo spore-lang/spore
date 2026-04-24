@@ -61,7 +61,7 @@ pub enum CostResult {
     Unknown(String),
 }
 
-/// Known I/O (capability-gated) function names.
+/// Known I/O (effect-gated) function names.
 const IO_FUNCTIONS: &[&str] = &[
     "print",
     "println",

@@ -131,7 +131,7 @@ fn project_basic_cli_exit_returns_requested_code_without_printing_value() {
         contract-module = "platform_contract"
         startup-contract = "main"
         adapter-function = "main_for_host"
-        handles = ["Exit"]
+        handled-effects = ["Exit"]
         "#,
     );
     project.write(
