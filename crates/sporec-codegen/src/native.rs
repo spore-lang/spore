@@ -216,9 +216,7 @@ pub fn compile_native(module: &AstModule) -> Result<NativeProgram, NativeError> 
     trap_sig.params.push(AbiParam::new(types::I64));
     let trap_func_id = jit
         .declare_function("__spore_arith_trap", Linkage::Import, &trap_sig)
-        .map_err(|error| {
-            NativeError::new(format!("failed to declare trap callback: {error}"))
-        })?;
+        .map_err(|error| NativeError::new(format!("failed to declare trap callback: {error}")))?;
 
     let mut func_ids = BTreeMap::new();
     for (name, info) in &plan.functions {
@@ -701,6 +699,7 @@ fn define_function(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_expr(
     builder: &mut FunctionBuilder<'_>,
     module: &mut JITModule,
@@ -873,7 +872,15 @@ fn compile_expr(
                 rhs,
                 scopes,
             )?;
-            compile_binop(builder, module, trap_func_id, lhs, op, rhs, current_function)
+            compile_binop(
+                builder,
+                module,
+                trap_func_id,
+                lhs,
+                op,
+                rhs,
+                current_function,
+            )
         }
         Expr::Call(callee, args) => {
             let Expr::Var(name) = callee.as_ref() else {
@@ -915,6 +922,7 @@ fn compile_expr(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_if(
     builder: &mut FunctionBuilder<'_>,
     module: &mut JITModule,
@@ -983,6 +991,7 @@ fn compile_if(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn compile_logical(
     builder: &mut FunctionBuilder<'_>,
     module: &mut JITModule,
@@ -1061,15 +1070,39 @@ fn compile_binop(
     let value = match op {
         BinOp::Add => {
             let (result, overflow) = builder.ins().sadd_overflow(lhs.value, rhs.value);
-            emit_arith_guard(builder, module, trap_func_id, overflow, TRAP_OVERFLOW, result, NativeType::I64)
+            emit_arith_guard(
+                builder,
+                module,
+                trap_func_id,
+                overflow,
+                TRAP_OVERFLOW,
+                result,
+                NativeType::I64,
+            )
         }
         BinOp::Sub => {
             let (result, overflow) = builder.ins().ssub_overflow(lhs.value, rhs.value);
-            emit_arith_guard(builder, module, trap_func_id, overflow, TRAP_OVERFLOW, result, NativeType::I64)
+            emit_arith_guard(
+                builder,
+                module,
+                trap_func_id,
+                overflow,
+                TRAP_OVERFLOW,
+                result,
+                NativeType::I64,
+            )
         }
         BinOp::Mul => {
             let (result, overflow) = builder.ins().smul_overflow(lhs.value, rhs.value);
-            emit_arith_guard(builder, module, trap_func_id, overflow, TRAP_OVERFLOW, result, NativeType::I64)
+            emit_arith_guard(
+                builder,
+                module,
+                trap_func_id,
+                overflow,
+                TRAP_OVERFLOW,
+                result,
+                NativeType::I64,
+            )
         }
         BinOp::Div => {
             // Check divisor == 0.
@@ -1253,7 +1286,9 @@ fn emit_arith_guard(
     let merge_block = builder.create_block();
     builder.append_block_param(merge_block, types::I64);
 
-    builder.ins().brif(condition, trap_block, &[], ok_block, &[]);
+    builder
+        .ins()
+        .brif(condition, trap_block, &[], ok_block, &[]);
 
     builder.switch_to_block(trap_block);
     builder.seal_block(trap_block);

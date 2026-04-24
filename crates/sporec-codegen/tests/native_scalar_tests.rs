@@ -25,10 +25,8 @@ fn assert_call_parity(source: &str, name: &str, args: Vec<Value>) {
 /// containing `expected_fragment`.
 fn assert_call_errors_with(source: &str, name: &str, args: Vec<Value>, expected_fragment: &str) {
     let module = parse_module(source);
-    let interp_err = call(&module, name, args.clone())
-        .expect_err("expected interpreter error");
-    let native_err = call_native(&module, name, args)
-        .expect_err("expected native error");
+    let interp_err = call(&module, name, args.clone()).expect_err("expected interpreter error");
+    let native_err = call_native(&module, name, args).expect_err("expected native error");
     assert!(
         interp_err.to_string().contains(expected_fragment),
         "interpreter error {interp_err:?} did not contain {expected_fragment:?}"
@@ -188,12 +186,7 @@ fn native_mul_overflow_returns_error_not_trap() {
 
 #[test]
 fn native_neg_overflow_returns_error_not_trap() {
-    assert_call_errors_with(
-        NEG_FN,
-        "neg",
-        vec![Value::Int(i64::MIN)],
-        "overflow",
-    );
+    assert_call_errors_with(NEG_FN, "neg", vec![Value::Int(i64::MIN)], "overflow");
 }
 
 #[test]
