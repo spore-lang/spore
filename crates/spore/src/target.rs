@@ -51,6 +51,46 @@ pub(crate) fn resolve_cli_path(path: &str, cwd: &Path) -> PathBuf {
     }
 }
 
+/// Recursively collect all `.sp` files under a directory.
+fn collect_sp_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("cannot read directory `{}`: {e}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("directory read error: {e}"))?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_sp_recursive(&path, out)?;
+        } else if path.extension().is_some_and(|ext| ext == "sp") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Resolve a list of CLI path arguments to `.sp` file paths.
+///
+/// - Empty `paths` defaults to `cwd` (ruff-style: operate on the current directory).
+/// - Directories are recursed to find all `.sp` files.
+/// - File paths are used as-is.
+pub(crate) fn resolve_sp_targets(paths: &[String], cwd: &Path) -> Result<Vec<PathBuf>, String> {
+    let roots: Vec<PathBuf> = if paths.is_empty() {
+        vec![cwd.to_path_buf()]
+    } else {
+        paths.iter().map(|p| resolve_cli_path(p, cwd)).collect()
+    };
+
+    let mut result = Vec::new();
+    for root in roots {
+        if root.is_dir() {
+            collect_sp_recursive(&root, &mut result)?;
+        } else {
+            result.push(root);
+        }
+    }
+    result.sort();
+    Ok(result)
+}
+
 pub(crate) fn resolve_build_target(file: Option<&str>, cwd: &Path) -> Result<BuildTarget, String> {
     match file {
         Some(path) => {

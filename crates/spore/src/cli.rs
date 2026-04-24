@@ -65,9 +65,9 @@ fn cmd_check_parser() -> impl Parser<Cmd> {
     let deny_warnings = long("deny-warnings")
         .help("Treat warnings as errors")
         .switch();
-    let files = positional::<String>("FILE")
-        .help(".sp file(s) to check")
-        .some("expected at least one file");
+    let files = positional::<String>("PATH")
+        .help(".sp file(s) or director(ies) to check (default: current directory)")
+        .many();
     construct!(Cmd::Check {
         verbose,
         json,
@@ -75,7 +75,7 @@ fn cmd_check_parser() -> impl Parser<Cmd> {
         files,
     })
     .to_options()
-    .descr("Type-check one or more .sp files")
+    .descr("Type-check .sp files. Accepts files, directories, or no args (uses current directory).")
     .command("check")
 }
 
@@ -87,9 +87,9 @@ fn cmd_test_parser() -> impl Parser<Cmd> {
     let deny_warnings = long("deny-warnings")
         .help("Treat warnings as errors")
         .switch();
-    let files = positional::<String>("FILE")
-        .help(".sp file(s) to validate as tests")
-        .some("expected at least one file");
+    let files = positional::<String>("PATH")
+        .help(".sp file(s) or director(ies) to test (default: current directory)")
+        .many();
     construct!(Cmd::Test {
         verbose,
         json,
@@ -97,7 +97,7 @@ fn cmd_test_parser() -> impl Parser<Cmd> {
         files,
     })
     .to_options()
-    .descr("Validate test/spec files (MVP: static checking only)")
+    .descr("Execute spec examples and properties in .sp files. Accepts files, directories, or no args (uses current directory).")
     .command("test")
 }
 
@@ -107,20 +107,20 @@ fn cmd_format_parser() -> impl Parser<Cmd> {
             .help("Check if files are formatted (no changes)")
             .switch();
         let diff = long("diff").help("Show diff instead of rewriting").switch();
-        let files = positional::<String>("FILE")
-            .help(".sp file(s) to format")
-            .some("expected at least one file");
+        let files = positional::<String>("PATH")
+            .help(".sp file(s) or director(ies) to format (default: current directory)")
+            .many();
         construct!(Cmd::Format { check, diff, files })
     };
 
     let format_cmd = fmt_inner()
         .to_options()
-        .descr("Format .sp files")
+        .descr("Format .sp files. Accepts files, directories, or no args (uses current directory).")
         .command("format");
 
     let fmt_cmd = fmt_inner()
         .to_options()
-        .descr("Format .sp files (alias for format)")
+        .descr("Format .sp files (alias for format). Accepts files, directories, or no args (uses current directory).")
         .command("fmt");
 
     construct!([format_cmd, fmt_cmd])

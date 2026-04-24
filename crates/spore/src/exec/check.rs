@@ -4,7 +4,7 @@ use owo_colors::OwoColorize;
 use serde_json::json;
 
 use crate::report::{report_batch_check, report_single_file_check};
-use crate::target::find_project_target;
+use crate::target::{find_project_target, resolve_sp_targets};
 use crate::util::{fail_deny_warnings, fail_human, fail_message, read_source, read_source_message};
 
 pub(crate) fn exec_check(
@@ -13,6 +13,23 @@ pub(crate) fn exec_check(
     json_output: bool,
     deny_warnings: bool,
 ) -> ExitCode {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let resolved = match resolve_sp_targets(files, &cwd) {
+        Ok(p) => p,
+        Err(e) => return fail_human(&e),
+    };
+    if resolved.is_empty() {
+        if !json_output {
+            eprintln!("note: no .sp files found");
+        }
+        return ExitCode::SUCCESS;
+    }
+    let files: Vec<String> = resolved
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    let files = files.as_slice();
+
     if files.len() > 1 {
         let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
         let success_message = format!("{} no errors ({} files)", "✓".green(), files.len());
@@ -161,10 +178,26 @@ pub(crate) fn exec_test(
     json_output: bool,
     deny_warnings: bool,
 ) -> ExitCode {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let resolved = match resolve_sp_targets(files, &cwd) {
+        Ok(p) => p,
+        Err(e) => return fail_message(&e, json_output),
+    };
+    if resolved.is_empty() {
+        if !json_output {
+            eprintln!("note: no .sp files found");
+        }
+        return ExitCode::SUCCESS;
+    }
+    let resolved_files: Vec<String> = resolved
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+
     let mut total_passed = 0usize;
     let mut total_failed = 0usize;
 
-    for path in files {
+    for path in &resolved_files {
         let source = match read_source_message(path) {
             Ok(s) => s,
             Err(message) => return fail_message(&message, json_output),

@@ -2,11 +2,28 @@ use std::process::ExitCode;
 
 use owo_colors::OwoColorize;
 
+use crate::target::resolve_sp_targets;
 use crate::util::read_source;
 
 pub(crate) fn exec_format(files: &[String], check_mode: bool, diff_mode: bool) -> ExitCode {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let paths = match resolve_sp_targets(files, &cwd) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{}: {e}", "error".red().bold());
+            return ExitCode::FAILURE;
+        }
+    };
+
+    if paths.is_empty() {
+        eprintln!("note: no .sp files found");
+        return ExitCode::SUCCESS;
+    }
+
     let mut exit = ExitCode::SUCCESS;
-    for path in files {
+    for path_buf in &paths {
+        let path = path_buf.to_string_lossy();
+        let path = path.as_ref();
         let source = match read_source(path) {
             Ok(s) => s,
             Err(c) => {
