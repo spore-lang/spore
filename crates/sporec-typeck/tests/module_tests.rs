@@ -420,8 +420,8 @@ fn ambiguous_import_same_effect_different_modules() {
     let mut registry = ModuleRegistry::new();
 
     let mut mod_a = ModuleInterface::new(vec!["ModA".into()]);
-    mod_a.capabilities.insert("Console".into());
-    mod_a.capability_methods.insert(
+    mod_a.interfaces.insert("Console".into());
+    mod_a.interface_members.insert(
         "Console".into(),
         (vec![], vec![("println".into(), vec![Ty::Str], Ty::Unit)]),
     );
@@ -429,8 +429,8 @@ fn ambiguous_import_same_effect_different_modules() {
     registry.register(mod_a);
 
     let mut mod_b = ModuleInterface::new(vec!["ModB".into()]);
-    mod_b.capabilities.insert("Console".into());
-    mod_b.capability_methods.insert(
+    mod_b.interfaces.insert("Console".into());
+    mod_b.interface_members.insert(
         "Console".into(),
         (vec![], vec![("println".into(), vec![Ty::I32], Ty::Unit)]),
     );

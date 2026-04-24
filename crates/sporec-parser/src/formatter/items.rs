@@ -248,7 +248,7 @@ impl<'a> Formatter<'a> {
     }
 
     pub(super) fn fmt_impl_block(&mut self, imp: &ImplBlock) {
-        self.writeln(&format!("impl {} {{", imp.capability));
+        self.writeln(&format!("impl {} {{", imp.trait_name));
         self.indent += 1;
         for (name, expr) in &imp.methods {
             self.write_indent();
@@ -260,59 +260,6 @@ impl<'a> Formatter<'a> {
         }
         self.indent -= 1;
         self.writeln("}");
-    }
-
-    pub(super) fn fmt_capability_def(&mut self, c: &CapabilityDef) {
-        self.write_indent();
-        self.fmt_visibility(&c.visibility);
-        self.write(c.canonical_keyword());
-        self.write(" ");
-        self.write(&c.name);
-
-        if !c.type_params.is_empty() {
-            self.write("[");
-            self.write(&c.type_params.join(", "));
-            self.write("]");
-        }
-
-        self.write(" {");
-        self.newline();
-        self.indent += 1;
-
-        for at in &c.assoc_types {
-            self.write_indent();
-            self.write("type ");
-            self.write(&at.name);
-            if !at.bounds.is_empty() {
-                self.write(": ");
-                for (i, b) in at.bounds.iter().enumerate() {
-                    if i > 0 {
-                        self.write(" + ");
-                    }
-                    self.fmt_type_expr(b);
-                }
-            }
-            self.newline();
-        }
-
-        for method in &c.methods {
-            self.fmt_fn_def(method);
-        }
-
-        self.indent -= 1;
-        self.write_indent();
-        self.write("}");
-        self.newline();
-    }
-
-    pub(super) fn fmt_capability_alias(&mut self, name: &str, components: &[String]) {
-        self.write_indent();
-        self.write("effect");
-        self.write(" ");
-        self.write(name);
-        self.write(" = ");
-        self.write(&components.join(" | "));
-        self.newline();
     }
 
     pub(super) fn fmt_trait_def(&mut self, t: &TraitDef) {
@@ -418,7 +365,7 @@ impl<'a> Formatter<'a> {
     pub(super) fn fmt_impl_def(&mut self, i: &ImplDef) {
         self.write_indent();
         self.write("impl ");
-        self.write(&i.capability);
+        self.write(&i.trait_name);
 
         if !i.type_args.is_empty() {
             self.write("[");

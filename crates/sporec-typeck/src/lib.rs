@@ -1,10 +1,10 @@
-/// sporec-typeck — Spore type checker and analysis
-///
-/// Performs type checking, capability verification, and cost analysis.
-pub mod capability;
 pub mod check;
 pub mod concurrency;
 pub mod cost;
+/// sporec-typeck — Spore type checker and analysis
+///
+/// Performs type checking, effect verification, and cost analysis.
+pub mod effect_set;
 pub mod env;
 pub mod error;
 pub mod hir;
@@ -161,9 +161,9 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     .map(|t| checker.resolve_type(t))
                     .unwrap_or(types::Ty::Unit);
                 iface.functions.insert(f.name.clone(), (param_tys, ret_ty));
-                iface.function_caps.insert(
+                iface.function_required_effects.insert(
                     f.name.clone(),
-                    checker.declared_capabilities(f.uses_clause.as_ref()),
+                    checker.declared_effects(f.uses_clause.as_ref()),
                 );
                 if !f.errors.is_empty() {
                     let error_set: types::ErrorSet = f
@@ -225,35 +225,9 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                 iface.types.insert(t.name.clone(), variants);
                 iface.set_visibility(&t.name, SymbolVisibility::from(&t.visibility));
             }
-            Item::CapabilityDef(cap) => {
-                iface.capabilities.insert(cap.name.clone());
-                iface.capability_methods.insert(
-                    cap.name.clone(),
-                    (
-                        cap.type_params.clone(),
-                        cap.methods
-                            .iter()
-                            .map(|method| {
-                                let param_tys = method
-                                    .params
-                                    .iter()
-                                    .map(|param| checker.resolve_type(&param.ty))
-                                    .collect();
-                                let ret_ty = method
-                                    .return_type
-                                    .as_ref()
-                                    .map(|ty| checker.resolve_type(ty))
-                                    .unwrap_or(types::Ty::Unit);
-                                (method.name.clone(), param_tys, ret_ty)
-                            })
-                            .collect(),
-                    ),
-                );
-                iface.set_visibility(&cap.name, SymbolVisibility::from(&cap.visibility));
-            }
             Item::TraitDef(trait_def) => {
-                iface.capabilities.insert(trait_def.name.clone());
-                iface.capability_methods.insert(
+                iface.interfaces.insert(trait_def.name.clone());
+                iface.interface_members.insert(
                     trait_def.name.clone(),
                     (
                         trait_def.type_params.clone(),
@@ -282,8 +256,8 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                 );
             }
             Item::EffectDef(effect) => {
-                iface.capabilities.insert(effect.name.clone());
-                iface.capability_methods.insert(
+                iface.interfaces.insert(effect.name.clone());
+                iface.interface_members.insert(
                     effect.name.clone(),
                     (
                         vec![],

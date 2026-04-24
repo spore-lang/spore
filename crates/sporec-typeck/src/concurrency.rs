@@ -11,8 +11,8 @@ use std::collections::HashMap;
 pub struct TaskType {
     /// The result type of the task.
     pub result_type: String,
-    /// Capabilities required by the task.
-    pub capabilities: Vec<String>,
+    /// Required effects for the task.
+    pub required_effects: Vec<String>,
     /// Error types the task may produce.
     pub errors: Vec<String>,
 }
@@ -88,7 +88,7 @@ impl ConcurrencyAnalyzer {
         &mut self,
         function: &str,
         result_type: &str,
-        capabilities: Vec<String>,
+        required_effects: Vec<String>,
     ) -> u32 {
         let id = self.next_task_id;
         self.next_task_id += 1;
@@ -97,7 +97,7 @@ impl ConcurrencyAnalyzer {
             id,
             task_type: TaskType {
                 result_type: result_type.to_string(),
-                capabilities,
+                required_effects,
                 errors: Vec::new(),
             },
             spawn_site: function.to_string(),
@@ -196,7 +196,7 @@ mod tests {
     fn basic_task_type() {
         let t = TaskType {
             result_type: "I32".into(),
-            capabilities: vec!["NetConnect".into()],
+            required_effects: vec!["NetConnect".into()],
             errors: vec![],
         };
         assert_eq!(t.result_type, "I32");
@@ -247,7 +247,7 @@ mod tests {
                 id: i,
                 task_type: TaskType {
                     result_type: "()".into(),
-                    capabilities: vec![],
+                    required_effects: vec![],
                     errors: vec![],
                 },
                 spawn_site: "heavy".into(),

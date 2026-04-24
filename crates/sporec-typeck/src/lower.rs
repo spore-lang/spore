@@ -55,9 +55,6 @@ impl Lowering {
                 ast::Item::TypeDef(t) => {
                     self.register_name(&t.name);
                 }
-                ast::Item::CapabilityDef(c) => {
-                    self.register_name(&c.name);
-                }
                 ast::Item::TraitDef(t) => {
                     self.register_name(&t.name);
                 }
@@ -70,7 +67,6 @@ impl Lowering {
                 ast::Item::ImplDef(_)
                 | ast::Item::Import(_)
                 | ast::Item::Alias(_)
-                | ast::Item::CapabilityAlias { .. }
                 | ast::Item::EffectAlias(_)
                 | ast::Item::HandlerDef(_) => {}
             }
@@ -90,25 +86,11 @@ impl Lowering {
             ast::Item::Function(f) => Some(HirItem::Function(self.lower_fn_def(f))),
             ast::Item::StructDef(s) => Some(HirItem::StructDef(self.lower_struct_def(s))),
             ast::Item::TypeDef(t) => Some(HirItem::TypeDef(self.lower_type_def(t))),
-            ast::Item::CapabilityDef(c) => {
-                Some(HirItem::CapabilityDef(self.lower_capability_def(c)))
-            }
-            ast::Item::TraitDef(t) => {
-                let cap = ast::CapabilityDef {
-                    name: t.name.clone(),
-                    visibility: t.visibility.clone(),
-                    type_params: t.type_params.clone(),
-                    methods: t.methods.clone(),
-                    assoc_types: t.assoc_types.clone(),
-                    span: t.span,
-                };
-                Some(HirItem::CapabilityDef(self.lower_capability_def(&cap)))
-            }
+            ast::Item::TraitDef(t) => Some(HirItem::TraitDef(self.lower_trait_def(t))),
             ast::Item::ImplDef(i) => Some(HirItem::ImplDef(self.lower_impl_def(i))),
             ast::Item::Import(_)
             | ast::Item::Const(_)
             | ast::Item::Alias(_)
-            | ast::Item::CapabilityAlias { .. }
             | ast::Item::EffectDef(_)
             | ast::Item::EffectAlias(_)
             | ast::Item::HandlerDef(_) => None,
@@ -204,13 +186,13 @@ impl Lowering {
         }
     }
 
-    fn lower_capability_def(&mut self, c: &ast::CapabilityDef) -> HirCapabilityDef {
-        let def_id = self.resolve_name(&c.name);
-        let methods = c.methods.iter().map(|m| self.lower_fn_def(m)).collect();
-        HirCapabilityDef {
-            name: c.name.clone(),
+    fn lower_trait_def(&mut self, t: &ast::TraitDef) -> HirTraitDef {
+        let def_id = self.resolve_name(&t.name);
+        let methods = t.methods.iter().map(|m| self.lower_fn_def(m)).collect();
+        HirTraitDef {
+            name: t.name.clone(),
             def_id,
-            type_params: c.type_params.clone(),
+            type_params: t.type_params.clone(),
             methods,
         }
     }
@@ -218,7 +200,7 @@ impl Lowering {
     fn lower_impl_def(&mut self, i: &ast::ImplDef) -> HirImplDef {
         let methods = i.methods.iter().map(|m| self.lower_fn_def(m)).collect();
         HirImplDef {
-            capability: i.capability.clone(),
+            trait_name: i.trait_name.clone(),
             target_type: i.target_type.clone(),
             methods,
         }

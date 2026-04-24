@@ -23,7 +23,7 @@ pub enum HirItem {
     Function(HirFnDef),
     StructDef(HirStructDef),
     TypeDef(HirTypeDef),
-    CapabilityDef(HirCapabilityDef),
+    TraitDef(HirTraitDef),
     ImplDef(HirImplDef),
 }
 
@@ -106,7 +106,7 @@ pub struct HirVariant {
 }
 
 #[derive(Debug, Clone)]
-pub struct HirCapabilityDef {
+pub struct HirTraitDef {
     pub name: String,
     pub def_id: DefId,
     pub type_params: Vec<String>,
@@ -115,7 +115,7 @@ pub struct HirCapabilityDef {
 
 #[derive(Debug, Clone)]
 pub struct HirImplDef {
-    pub capability: String,
+    pub trait_name: String,
     pub target_type: String,
     pub methods: Vec<HirFnDef>,
 }

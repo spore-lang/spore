@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use sporec_parser::ast::{ImportDecl, Item};
 
-use crate::types::{CapSet, ErrorSet, Ty};
+use crate::types::{EffectSet, ErrorSet, Ty};
 
 use super::loader::ModuleLoader;
 use super::prelude::build_prelude_interface;
@@ -132,7 +132,7 @@ impl ModuleRegistry {
             } else if module.handlers.contains_key(name) {
                 ImportedSymbol::Handler
             } else {
-                ImportedSymbol::Capability
+                ImportedSymbol::Interface
             };
 
             resolved.push((name.clone(), kind));
@@ -249,7 +249,7 @@ impl ModuleRegistry {
                     Ty::Fn(
                         vec![Ty::Var(0)],
                         Box::new(Ty::Var(1)),
-                        CapSet::new(),
+                        EffectSet::new(),
                         ErrorSet::new(),
                     ),
                 ],
@@ -264,7 +264,7 @@ impl ModuleRegistry {
                     Ty::Fn(
                         vec![Ty::Var(0)],
                         Box::new(Ty::Bool),
-                        CapSet::new(),
+                        EffectSet::new(),
                         ErrorSet::new(),
                     ),
                 ],
@@ -280,7 +280,7 @@ impl ModuleRegistry {
                     Ty::Fn(
                         vec![Ty::Var(1), Ty::Var(0)],
                         Box::new(Ty::Var(1)),
-                        CapSet::new(),
+                        EffectSet::new(),
                         ErrorSet::new(),
                     ),
                 ],
@@ -295,7 +295,7 @@ impl ModuleRegistry {
                     Ty::Fn(
                         vec![Ty::Var(0)],
                         Box::new(Ty::Unit),
-                        CapSet::new(),
+                        EffectSet::new(),
                         ErrorSet::new(),
                     ),
                 ],
