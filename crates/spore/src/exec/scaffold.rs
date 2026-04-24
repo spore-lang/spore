@@ -89,9 +89,6 @@ startup-contract = \"main\"
 adapter-function = \"main_for_host\"
 handled-effects = [\"Console\", \"FileRead\", \"FileWrite\", \"Env\", \"Spawn\"]
 
-[effects]
-declared = [\"Compute\"]
-
 [dependencies]
 ";
 
@@ -161,9 +158,7 @@ spore-version = \">=0.1.0\"
         "application" => "basic-cli = { path = \"vendor/basic-cli\" }\n",
         _ => "",
     };
-    let toml = format!(
-        "{manifest_header}{project_config}\n[effects]\ndeclared = [\"Compute\"]\n\n[dependencies]\n{dependencies}"
-    );
+    let toml = format!("{manifest_header}{project_config}\n[dependencies]\n{dependencies}");
     std::fs::write(dir.join("spore.toml"), toml)?;
 
     let (filename, content) = match project_type {
