@@ -154,7 +154,8 @@ pub struct UsesClause {
 /// ```text
 /// spec {
 ///     example "identity": add(0, x) == x
-///     property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+///     property "identity": |x: Int| x
+///     property "non_negative_identity": |x: I32 when self >= 0| x
 /// }
 /// ```
 ///

@@ -201,10 +201,13 @@ fn project_run_outcome(
 }
 
 /// Generate test input values for a given type.
-fn test_values_for_type(ty: &TypeExpr) -> Vec<Value> {
+///
+/// Refinement types reuse the base type's sample values and keep only those
+/// that satisfy the `when` predicate.
+fn test_values_for_type(interp: &mut Interpreter, ty: &TypeExpr) -> Vec<Value> {
     match ty {
         TypeExpr::Named(name) => match name.as_str() {
-            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" => vec![
+            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "Int" => vec![
                 Value::Int(0),
                 Value::Int(1),
                 Value::Int(-1),
@@ -213,9 +216,23 @@ fn test_values_for_type(ty: &TypeExpr) -> Vec<Value> {
             ],
             "Bool" => vec![Value::Bool(true), Value::Bool(false)],
             "Str" => vec![Value::Str(String::new()), Value::Str("hello".into())],
-            "F32" | "F64" => vec![Value::Float(0.0), Value::Float(1.0), Value::Float(-1.0)],
+            "F32" | "F64" | "Float" => {
+                vec![Value::Float(0.0), Value::Float(1.0), Value::Float(-1.0)]
+            }
             _ => vec![],
         },
+        TypeExpr::Refinement(base, binding, predicate) => test_values_for_type(interp, base)
+            .into_iter()
+            .filter(|candidate| {
+                matches!(
+                    interp.eval_expr_with_bindings(
+                        predicate,
+                        &[(binding.clone(), candidate.clone())],
+                    ),
+                    Ok(Value::Bool(true))
+                )
+            })
+            .collect(),
         _ => vec![],
     }
 }
@@ -244,8 +261,9 @@ fn cartesian_product(param_values: &[Vec<Value>]) -> Vec<Vec<Value>> {
 ///
 /// For each function with a `spec` block:
 /// - Examples: evaluate the body expression; pass if result is `Bool(true)`
-/// - Properties: evaluate the lambda to get a closure, then call it with
-///   hardcoded test values based on parameter types; pass if ALL return `Bool(true)`
+/// - Properties: evaluate the lambda to get a closure, call both the property
+///   and the function under test with generated inputs, and require the
+///   returned values to match for every sampled input
 pub fn test_specs(module: &Module) -> Result<Vec<SpecResult>, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
@@ -291,10 +309,10 @@ pub fn test_specs(module: &Module) -> Result<Vec<SpecResult>, RuntimeError> {
                                     vec![]
                                 };
 
-                            let param_value_lists: Vec<Vec<Value>> = param_types
-                                .iter()
-                                .map(|ty| test_values_for_type(ty))
-                                .collect();
+                            let mut param_value_lists = Vec::with_capacity(param_types.len());
+                            for ty in &param_types {
+                                param_value_lists.push(test_values_for_type(&mut interp, ty));
+                            }
 
                             let combos = cartesian_product(&param_value_lists);
 
@@ -313,25 +331,32 @@ pub fn test_specs(module: &Module) -> Result<Vec<SpecResult>, RuntimeError> {
                             let mut first_error = None;
 
                             for combo in &combos {
-                                let call_result = interp.call_value_pub(
+                                let expected_result = interp.call_value_pub(
                                     &Value::Closure(closure.clone()),
                                     combo.clone(),
                                 );
-                                match call_result {
-                                    Ok(Value::Bool(true)) => {}
-                                    Ok(Value::Bool(false)) => {
+
+                                let expected = match expected_result {
+                                    Ok(value) => value,
+                                    Err(e) => {
+                                        all_passed = false;
+                                        first_error = Some(e.message.clone());
+                                        break;
+                                    }
+                                };
+
+                                let actual_result = interp.call_function(fn_name, combo.clone());
+                                match actual_result {
+                                    Ok(actual) if actual == expected => {}
+                                    Ok(actual) => {
                                         all_passed = false;
                                         let args_str: Vec<String> =
                                             combo.iter().map(|v| format!("{v}")).collect();
-                                        first_error =
-                                            Some(format!("failed for ({})", args_str.join(", ")));
-                                        break;
-                                    }
-                                    Ok(other) => {
-                                        all_passed = false;
                                         first_error = Some(format!(
-                                            "expected Bool, got {}: {other}",
-                                            other.type_name()
+                                            "failed for ({}) : expected {}, got {}",
+                                            args_str.join(", "),
+                                            expected,
+                                            actual
                                         ));
                                         break;
                                     }

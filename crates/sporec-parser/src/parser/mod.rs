@@ -7,6 +7,8 @@ mod item;
 mod pattern;
 mod ty;
 
+use std::mem::{Discriminant, discriminant};
+
 use crate::ast::*;
 use crate::error::ParseError;
 use crate::lexer::{Comment, Span, Spanned, Token};
@@ -105,11 +107,16 @@ fn desugar_placeholder_call(callee: Box<Expr>, args: Vec<Expr>) -> Expr {
 pub struct Parser {
     tokens: Vec<Spanned<Token>>,
     pos: usize,
+    expr_terminators: Vec<Discriminant<Token>>,
 }
 
 impl Parser {
     pub fn new(tokens: Vec<Spanned<Token>>) -> Self {
-        Self { tokens, pos: 0 }
+        Self {
+            tokens,
+            pos: 0,
+            expr_terminators: Vec::new(),
+        }
     }
 
     fn peek(&self) -> &Token {
@@ -142,6 +149,22 @@ impl Parser {
 
     fn at_eof(&self) -> bool {
         matches!(self.peek(), Token::Eof)
+    }
+
+    fn at_expr_terminator(&self) -> bool {
+        let current = discriminant(self.peek());
+        self.expr_terminators.contains(&current)
+    }
+
+    fn with_expr_terminator<T>(
+        &mut self,
+        end: &Token,
+        f: impl FnOnce(&mut Self) -> Result<T, ParseError>,
+    ) -> Result<T, ParseError> {
+        self.expr_terminators.push(discriminant(end));
+        let result = f(self);
+        self.expr_terminators.pop();
+        result
     }
 
     fn expect(&mut self, expected: &Token) -> Result<Span, ParseError> {

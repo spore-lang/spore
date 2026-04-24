@@ -185,6 +185,19 @@ impl Interpreter {
         self.eval(expr, &mut env)
     }
 
+    /// Evaluate an expression in a fresh environment with explicit bindings.
+    pub fn eval_expr_with_bindings(
+        &mut self,
+        expr: &Expr,
+        bindings: &[(String, Value)],
+    ) -> Result<Value> {
+        let mut env = Env::new();
+        for (name, value) in bindings {
+            env.define(name.clone(), value.clone());
+        }
+        self.eval(expr, &mut env)
+    }
+
     /// Return all functions that have a spec clause, paired with their name.
     pub fn functions_with_specs(&self) -> Vec<(String, FnDef)> {
         self.functions

@@ -28,6 +28,7 @@ fn name(params) -> ReturnType ! Errors
     cost [compute, alloc, io, parallel]
     spec {
         example "name": expr
+        property "law": |x: I32 when self >= 0| x
     }
 { body }
 ```
@@ -35,6 +36,7 @@ fn name(params) -> ReturnType ! Errors
 - 四个子句 `where` / `uses` / `cost` / `spec` 可以任意顺序出现；文档与 formatter 统一推荐这一顺序。
 - `where` 用于 trait 约束，单一 `where` 子句内以逗号分隔多条约束。
 - 函数属性（pure / deterministic / total）**从 `uses` 自动推断**，无需手动声明：`uses []` 即纯函数；非空 `uses` 依赖对应 effect 边界。
+- `spec` 里 `example` 是具体断言，`property` 是“受限输入上的返回值规范”lambda；其参数必须与函数输入逐一对应，但可以把某个参数收窄成细化后的**输入子集**，lambda 本身直接返回该子集上的期望结果。例如 `fn abs(x: I32) -> I32` 可写 `property "law": |x: I32 when self >= 0| x`，表示在非负输入上 `abs` 应直接返回 `x`，由测试基础设施对比函数实际返回值。
 - 细化类型谓词用 `when self > 0`，隐式 `self` 绑定。
 - 错误集写作 `! E1 | E2`，管道符分隔。
 - 代价固定为四维向量 `cost [compute, alloc, io, parallel]`。

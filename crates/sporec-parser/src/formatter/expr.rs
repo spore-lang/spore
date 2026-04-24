@@ -505,14 +505,10 @@ impl<'a> Formatter<'a> {
                     }
                 }
             }
-            TypeExpr::Refinement(base, binding, pred) => {
-                self.write("{ ");
-                self.write(binding);
-                self.write(": ");
+            TypeExpr::Refinement(base, _binding, pred) => {
                 self.fmt_type_expr(base);
                 self.write(" when ");
                 self.fmt_expr(pred);
-                self.write(" }");
             }
             TypeExpr::Record(fields) => {
                 self.write("{ ");
