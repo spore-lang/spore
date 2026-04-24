@@ -89,7 +89,11 @@ impl Checker {
             match kind {
                 ImportedSymbol::Function => {
                     if let Some((params, ret)) = module.functions.get(name) {
-                        let caps = module.function_caps.get(name).cloned().unwrap_or_default();
+                        let required_effects = module
+                            .function_required_effects
+                            .get(name)
+                            .cloned()
+                            .unwrap_or_default();
                         let errors = module
                             .function_errors
                             .get(name)
@@ -126,7 +130,7 @@ impl Checker {
                                 .unwrap_or_default();
                             if existing.0 != *params
                                 || existing.1 != *ret
-                                || existing.2 != caps
+                                || existing.2 != required_effects
                                 || existing_errors != errors
                                 || existing_type_params != type_params
                                 || existing_where_bounds != where_bounds
@@ -140,9 +144,10 @@ impl Checker {
                                 continue;
                             }
                         }
-                        self.registry
-                            .functions
-                            .insert(name.clone(), (params.clone(), ret.clone(), caps));
+                        self.registry.functions.insert(
+                            name.clone(),
+                            (params.clone(), ret.clone(), required_effects),
+                        );
                         if !errors.is_empty() {
                             self.registry.fn_errors.insert(name.clone(), errors);
                         }
@@ -189,14 +194,14 @@ impl Checker {
                         self.registry.handlers.insert(name.clone(), handler.clone());
                     }
                 }
-                ImportedSymbol::Capability => {
-                    if module.capabilities.contains(name) {
+                ImportedSymbol::Interface => {
+                    if module.interfaces.contains(name) {
                         let methods = module
-                            .capability_methods
+                            .interface_members
                             .get(name)
                             .cloned()
                             .unwrap_or((Vec::new(), Vec::new()));
-                        if let Some(existing) = self.registry.capabilities.get(name)
+                        if let Some(existing) = self.registry.interfaces.get(name)
                             && existing != &methods
                         {
                             self.err(
@@ -207,7 +212,7 @@ impl Checker {
                             );
                             continue;
                         }
-                        self.registry.capabilities.insert(name.clone(), methods);
+                        self.registry.interfaces.insert(name.clone(), methods);
                     }
                 }
             }

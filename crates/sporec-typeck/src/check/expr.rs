@@ -80,7 +80,12 @@ impl Checker {
                     .collect();
                 let ret_ty = self.check_expr(body);
                 self.env.pop_scope();
-                Ty::Fn(param_tys, Box::new(ret_ty), CapSet::new(), ErrorSet::new())
+                Ty::Fn(
+                    param_tys,
+                    Box::new(ret_ty),
+                    EffectSet::new(),
+                    ErrorSet::new(),
+                )
             }
 
             Expr::If(cond, then_branch, else_branch) => {
@@ -188,7 +193,7 @@ impl Checker {
                         } else {
                             self.unify(&params[0], &arg_ty, "pipe argument");
                         }
-                        self.check_cap_propagation(&caps);
+                        self.check_effect_propagation(&caps);
                         self.check_error_propagation(&errors);
                         *ret
                     }
@@ -332,13 +337,13 @@ impl Checker {
                         name: s,
                         type_match: 1.0,
                         cost_fit: 0.5,
-                        capability_fit: 1.0,
+                        required_effects_fit: 1.0,
                         error_coverage: 0.5,
                     })
                     .collect();
 
-                // Collect capabilities and errors in scope
-                let capabilities = self.current_caps.clone();
+                // Collect available effects and errors in scope
+                let available_effects = self.current_effects.clone();
                 let errors_to_handle: Vec<String> = self.current_errors.iter().cloned().collect();
 
                 self.hole_report.holes.push(HoleInfo {
@@ -350,7 +355,7 @@ impl Checker {
                     enclosing_signature: None,
                     bindings,
                     binding_dependencies: std::collections::BTreeMap::new(),
-                    capabilities,
+                    available_effects,
                     errors_to_handle,
                     cost_budget: None,
                     candidates,
@@ -363,10 +368,10 @@ impl Checker {
             }
 
             Expr::Spawn(expr) => {
-                if !self.current_caps.contains("Spawn") {
+                if !self.current_effects.contains("Spawn") {
                     self.err(
                         ErrorCode::C0001,
-                        "spawn requires capability `Spawn`; add `uses [Spawn]`".to_string(),
+                        "spawn requires effect `Spawn`; add `uses [Spawn]`".to_string(),
                     );
                 }
                 if !self.concurrency.in_parallel_scope(&self.current_function) {
@@ -379,7 +384,7 @@ impl Checker {
                 self.concurrency.record_spawn(
                     &self.current_function,
                     &inner.to_string(),
-                    self.current_caps.iter().cloned().collect(),
+                    self.current_effects.iter().cloned().collect(),
                 );
                 Ty::App("Task".into(), vec![inner])
             }
@@ -536,16 +541,16 @@ impl Checker {
                 operation,
                 args,
             } => {
-                // Verify the effect capability is in the current function's uses set
-                if !self.current_caps.contains(effect) {
+                // Verify the required effect is in the current function's uses set.
+                if !self.current_effects.contains(effect) {
                     self.err(
                         ErrorCode::C0001,
                         format!(
-                            "perform requires capability `{effect}` but current function does not declare it"
+                            "perform requires effect `{effect}` but current function does not declare it"
                         ),
                     );
                 }
-                if !self.registry.capabilities.contains_key(effect) {
+                if !self.registry.interfaces.contains_key(effect) {
                     for arg in args {
                         let _ = self.check_expr(arg);
                     }
@@ -586,20 +591,20 @@ impl Checker {
             }
 
             Expr::Handle { body, handlers } => {
-                let mut provided_caps: CapSet = std::collections::BTreeSet::new();
+                let mut provided_effects = EffectSet::new();
                 let mut seen_operations: HashSet<(String, String)> = HashSet::new();
 
                 for binding in handlers {
                     match binding {
                         HandleBinding::On(arm) => {
-                            if !self.registry.capabilities.contains_key(&arm.effect) {
+                            if !self.registry.interfaces.contains_key(&arm.effect) {
                                 self.err(
                                     ErrorCode::C0002,
                                     format!("unknown effect `{}`", arm.effect),
                                 );
                                 continue;
                             }
-                            provided_caps.insert(arm.effect.clone());
+                            provided_effects.insert(arm.effect.clone());
                             let key = (arm.effect.clone(), arm.operation.clone());
                             if !seen_operations.insert(key.clone()) {
                                 self.err(
@@ -622,7 +627,7 @@ impl Checker {
                                 continue;
                             };
 
-                            provided_caps.insert(info.effect.clone());
+                            provided_effects.insert(info.effect.clone());
                             for (operation, _, _) in &info.methods {
                                 let key = (info.effect.clone(), operation.clone());
                                 if !seen_operations.insert(key.clone()) {
@@ -699,8 +704,8 @@ impl Checker {
                     }
                 }
 
-                let prev_caps = self.current_caps.clone();
-                self.current_caps.extend(provided_caps);
+                let prev_effects = self.current_effects.clone();
+                self.current_effects = self.current_effects.union(&provided_effects);
 
                 let body_ty = self.check_expr(body);
 
@@ -710,7 +715,7 @@ impl Checker {
                     };
 
                     self.env.push_scope();
-                    if self.registry.capabilities.contains_key(&arm.effect) {
+                    if self.registry.interfaces.contains_key(&arm.effect) {
                         if let Some((param_tys, ret_ty)) =
                             self.lookup_registered_effect_operation(&arm.effect, &arm.operation)
                         {
@@ -758,7 +763,7 @@ impl Checker {
                     self.env.pop_scope();
                 }
 
-                self.current_caps = prev_caps;
+                self.current_effects = prev_effects;
                 body_ty
             }
         }
@@ -969,7 +974,7 @@ impl Checker {
                 );
             }
             self.check_where_bounds(name, &type_mapping);
-            self.check_cap_propagation(&callee_caps);
+            self.check_effect_propagation(&callee_caps);
             if let Some(callee_errors) = self.registry.fn_errors.get(name).cloned() {
                 self.check_error_propagation(&callee_errors);
             }
@@ -999,7 +1004,7 @@ impl Checker {
                     &format!("argument {} of `{name}`", i + 1),
                 );
             }
-            self.check_cap_propagation(&caps);
+            self.check_effect_propagation(&caps);
             return ret_ty;
         }
         // Could be a variable holding a function
@@ -1024,7 +1029,7 @@ impl Checker {
                         self.unify(expected, &arg_ty, &format!("argument {}", i + 1));
                     }
                 }
-                self.check_cap_propagation(&caps);
+                self.check_effect_propagation(&caps);
                 self.check_error_propagation(&errors);
                 *ret_ty
             }
@@ -1075,7 +1080,7 @@ impl Checker {
         effect: &str,
         operation: &str,
     ) -> Option<(Vec<Ty>, Ty)> {
-        let (type_params, methods) = self.registry.capabilities.get(effect).cloned()?;
+        let (type_params, methods) = self.registry.interfaces.get(effect).cloned()?;
         let Some((_name, param_tys, ret_ty)) =
             methods.into_iter().find(|(name, _, _)| name == operation)
         else {
@@ -1097,14 +1102,21 @@ impl Checker {
     /// Look up a function in the module registry (e.g. prelude builtins).
     /// Instantiates fresh type variables for each `Ty::Var` in the signature
     /// to avoid collisions with the checker's own variable counter.
-    pub(super) fn lookup_module_function(&mut self, name: &str) -> Option<(Vec<Ty>, Ty, CapSet)> {
+    pub(super) fn lookup_module_function(
+        &mut self,
+        name: &str,
+    ) -> Option<(Vec<Ty>, Ty, EffectSet)> {
         // First pass: find the signature (immutable borrow of module_registry)
         let found = self.module_registry.all_interfaces().find_map(|module| {
             module.functions.get(name).map(|(params, ret)| {
                 (
                     params.clone(),
                     ret.clone(),
-                    module.function_caps.get(name).cloned().unwrap_or_default(),
+                    module
+                        .function_required_effects
+                        .get(name)
+                        .cloned()
+                        .unwrap_or_default(),
                 )
             })
         });

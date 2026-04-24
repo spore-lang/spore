@@ -14,7 +14,7 @@ pub fn load_project_manifest(root: &Path) -> Result<ProjectManifest, String> {
     let mut platform_contract_module = None;
     let mut platform_startup_contract = None;
     let mut platform_adapter_function = None;
-    let mut platform_handles = Vec::new();
+    let mut platform_handled_effects = None;
     let mut dependencies = BTreeMap::new();
     let mut entries = BTreeMap::new();
     let mut current_section = Section::Other;
@@ -102,8 +102,14 @@ pub fn load_project_manifest(root: &Path) -> Result<ProjectManifest, String> {
                     platform_adapter_function = Some(value);
                 }
             }
+            Section::Platform if key == "handled-effects" => {
+                platform_handled_effects = Some(parse_toml_string_array(raw_value));
+            }
             Section::Platform if key == "handles" => {
-                platform_handles = parse_toml_string_array(raw_value);
+                return Err(format!(
+                    "unsupported legacy key `[platform].handles` in `{}`; rename it to `[platform].handled-effects`",
+                    manifest_path.display()
+                ));
             }
             Section::Dependencies => {
                 dependencies.insert(key.to_string(), parse_dependency_spec(raw_value));
@@ -135,7 +141,7 @@ pub fn load_project_manifest(root: &Path) -> Result<ProjectManifest, String> {
             contract_module: platform_contract_module.unwrap_or_default(),
             startup_contract: platform_startup_contract.unwrap_or_default(),
             adapter_function: platform_adapter_function.unwrap_or_default(),
-            handles: platform_handles,
+            handled_effects: platform_handled_effects.unwrap_or_default(),
         })
     } else {
         None

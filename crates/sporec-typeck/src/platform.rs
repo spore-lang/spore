@@ -1,12 +1,12 @@
-//! Platform system — capability grants and startup contract validation.
+//! Platform system — handled effects and startup contract validation.
 //!
 //! Platforms define the runtime environment for Spore programs.
-//! They grant capabilities and define the startup contract for the selected
+//! They declare handled effects and define the startup contract for the selected
 //! entry module.
 
 use std::collections::HashMap;
 
-use crate::capability::CapabilitySet;
+use crate::effect_set::EffectSet;
 use crate::module::ModuleInterface;
 
 /// A platform definition.
@@ -14,8 +14,8 @@ use crate::module::ModuleInterface;
 pub struct Platform {
     /// Platform name (e.g., "cli", "web", "embedded").
     pub name: String,
-    /// Capabilities this platform provides.
-    pub capabilities: CapabilitySet,
+    /// Handled effects this platform provides.
+    pub handled_effects: EffectSet,
     /// Required startup function name inside the selected entry module.
     pub startup_function: String,
     /// Expected parameter types for the startup function.
@@ -42,7 +42,7 @@ impl Platform {
     ///
     /// Grants the built-in intent-oriented effects for full CLI access.
     pub fn cli() -> Self {
-        let capabilities = CapabilitySet::from_names([
+        let handled_effects = EffectSet::from_names([
             // ── Built-in effects ──
             "Console".into(),
             "FileRead".into(),
@@ -58,7 +58,7 @@ impl Platform {
 
         Self {
             name: "cli".into(),
-            capabilities,
+            handled_effects,
             startup_function: "main".into(),
             startup_params: vec![],
             startup_return: "()".into(),
@@ -75,7 +75,7 @@ impl Platform {
     /// Grants a subset of built-in effects appropriate for sandboxed web
     /// environments.
     pub fn web() -> Self {
-        let capabilities = CapabilitySet::from_names([
+        let handled_effects = EffectSet::from_names([
             // ── Built-in effects ──
             "Console".into(),
             "NetConnect".into(),
@@ -85,7 +85,7 @@ impl Platform {
 
         Self {
             name: "web".into(),
-            capabilities,
+            handled_effects,
             startup_function: "main".into(),
             startup_params: vec![],
             startup_return: "()".into(),
@@ -101,7 +101,7 @@ impl Platform {
     pub fn embedded() -> Self {
         Self {
             name: "embedded".into(),
-            capabilities: CapabilitySet::new(),
+            handled_effects: EffectSet::new(),
             startup_function: "main".into(),
             startup_params: vec![],
             startup_return: "()".into(),
@@ -113,14 +113,14 @@ impl Platform {
         }
     }
 
-    /// Check if this platform grants a specific capability.
-    pub fn grants(&self, capability: &str) -> bool {
-        self.capabilities.contains(capability)
+    /// Check if this platform handles a specific effect.
+    pub fn handles(&self, effect: &str) -> bool {
+        self.handled_effects.contains(effect)
     }
 
-    /// Validate that a function's required capabilities are granted by this platform.
-    pub fn validate_capabilities(&self, required: &CapabilitySet) -> Result<(), Vec<String>> {
-        let missing = self.capabilities.missing_from(required);
+    /// Validate that a function's required effects are handled by this platform.
+    pub fn validate_required_effects(&self, required: &EffectSet) -> Result<(), Vec<String>> {
+        let missing = self.handled_effects.missing_from(required);
         if missing.is_empty() {
             Ok(())
         } else {
@@ -227,7 +227,7 @@ pub struct PlatformStartupError {
 pub enum PlatformStartupErrorKind {
     MissingStartupFunction,
     WrongStartupSignature,
-    UnsupportedCapability,
+    UnsupportedEffect,
     InvalidPlatformContract,
 }
 
@@ -242,7 +242,7 @@ pub struct PlatformWarning {
 pub enum PlatformWarningKind {
     MissingStartupFunction,
     WrongStartupSignature,
-    UnsupportedCapability,
+    UnsupportedEffect,
 }
 
 /// Registry of available platforms.
@@ -285,42 +285,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cli_platform_has_capabilities() {
+    fn cli_platform_has_handled_effects() {
         let p = Platform::cli();
         // Built-in effects
-        assert!(p.grants("Console"));
-        assert!(p.grants("FileRead"));
-        assert!(p.grants("FileWrite"));
-        assert!(p.grants("NetConnect"));
-        assert!(p.grants("NetListen"));
-        assert!(p.grants("Env"));
-        assert!(p.grants("Spawn"));
-        assert!(p.grants("Clock"));
-        assert!(p.grants("Random"));
-        assert!(p.grants("Exit"));
+        assert!(p.handles("Console"));
+        assert!(p.handles("FileRead"));
+        assert!(p.handles("FileWrite"));
+        assert!(p.handles("NetConnect"));
+        assert!(p.handles("NetListen"));
+        assert!(p.handles("Env"));
+        assert!(p.handles("Spawn"));
+        assert!(p.handles("Clock"));
+        assert!(p.handles("Random"));
+        assert!(p.handles("Exit"));
         // Not granted
-        assert!(!p.grants("Gpu"));
+        assert!(!p.handles("Gpu"));
     }
 
     #[test]
-    fn embedded_platform_has_no_capabilities() {
+    fn embedded_platform_has_no_handled_effects() {
         let p = Platform::embedded();
-        assert!(!p.grants("Console"));
-        assert!(!p.grants("FileRead"));
+        assert!(!p.handles("Console"));
+        assert!(!p.handles("FileRead"));
     }
 
     #[test]
-    fn validate_capabilities_ok() {
+    fn validate_required_effects_ok() {
         let p = Platform::cli();
-        let required = CapabilitySet::from_names(["Console".into(), "FileRead".into()]);
-        assert!(p.validate_capabilities(&required).is_ok());
+        let required = EffectSet::from_names(["Console".into(), "FileRead".into()]);
+        assert!(p.validate_required_effects(&required).is_ok());
     }
 
     #[test]
-    fn validate_capabilities_missing() {
+    fn validate_required_effects_missing() {
         let p = Platform::embedded();
-        let required = CapabilitySet::from_names(["NetConnect".into()]);
-        let result = p.validate_capabilities(&required);
+        let required = EffectSet::from_names(["NetConnect".into()]);
+        let result = p.validate_required_effects(&required);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains(&"NetConnect".to_string()));
     }

@@ -299,7 +299,7 @@ fn resolve_platform_dependency(
         contract_module,
         startup_function: platform.startup_contract.clone(),
         adapter_function: platform.adapter_function.clone(),
-        handles: platform.handles.clone(),
+        handled_effects: platform.handled_effects.clone(),
     })
 }
 

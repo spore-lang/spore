@@ -8,8 +8,8 @@
 //
 // For production code, prefer creating a project with
 // `cargo run --bin spore -- new app-name` from a source checkout (or
-// `spore new app-name` if the CLI is installed), which provides Platform
-// capabilities and uses `fn main() -> ()` as the entry point.
+// `spore new app-name` if the CLI is installed), which provides Platform-
+// handled effects and uses `fn main() -> ()` as the entry point.
 //
 // Run this file with: cargo run --bin spore -- run examples/demo.sp
 // (or `spore run examples/demo.sp` if the CLI is installed)
@@ -18,17 +18,18 @@ fn add(a: I32, b: I32) -> I32
 spec {
     example "identity": add(0, 42) == 42
     example "basic": add(20, 22) == 42
-    property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
+    property "left_identity": |a: I32, b: I32 when self == 0| a
 }
 { a + b }
 
-fn negate(x: I32) -> I32
+fn abs(x: I32) -> I32
 spec {
-    example "zero": negate(0) == 0
-    example "positive": negate(5) == 0 - 5
-    property "double_negate": |x: I32| negate(negate(x)) == x
+    example "positive": abs(5) == 5
+    example "negative": abs(0 - 5) == 5
+    example "zero": abs(0) == 0
+    property "non_negative_identity": |x: I32 when self >= 0| x
 }
-{ 0 - x }
+{ if x < 0 { 0 - x } else { x } }
 
 struct Point {
     x: I32,

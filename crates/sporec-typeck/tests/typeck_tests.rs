@@ -2,7 +2,7 @@ use sporec_parser::parse;
 use sporec_typeck::cost::CostResult;
 use sporec_typeck::error::ErrorCode;
 use sporec_typeck::type_check;
-use sporec_typeck::types::{CapSet, ErrorSet, Ty};
+use sporec_typeck::types::{EffectSet, ErrorSet, Ty};
 
 fn check_ok(src: &str) {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
@@ -485,7 +485,7 @@ fn test_multiple_holes() {
     assert_eq!(result.hole_report.holes.len(), 2);
 }
 
-// ── Capabilities / Effects ──────────────────────────────────────────────
+// ── Effects ─────────────────────────────────────────────────────────────
 
 #[test]
 fn test_pure_function() {
@@ -493,23 +493,23 @@ fn test_pure_function() {
 }
 
 #[test]
-fn test_function_with_capability() {
+fn test_function_with_effect() {
     check_ok(r#"fn fetch(url: Str) -> Str uses [NetConnect] { "data" }"#);
 }
 
 #[test]
-fn test_capability_propagation_error() {
-    // A function calling a capability-requiring function must also declare those capabilities
+fn test_effect_propagation_error() {
+    // A function calling an effect-requiring function must also declare those effects
     let errs = check_err(
         r#"fn fetch(url: Str) -> Str uses [NetConnect] { "data" }
            fn process() -> Str { fetch("http://example.com") }"#,
     );
-    assert!(errs.iter().any(|e| e.contains("missing capabilities")));
+    assert!(errs.iter().any(|e| e.contains("missing effects")));
     assert!(errs.iter().any(|e| e.contains("NetConnect")));
 }
 
 #[test]
-fn test_capability_superset_ok() {
+fn test_effect_superset_ok() {
     check_ok(
         r#"fn fetch(url: Str) -> Str uses [NetConnect] { "data" }
            fn process() -> Str uses [NetConnect] { fetch("http://example.com") }"#,
@@ -517,7 +517,7 @@ fn test_capability_superset_ok() {
 }
 
 #[test]
-fn test_capability_superset_multiple() {
+fn test_effect_superset_multiple() {
     check_ok(
         r#"fn fetch(url: Str) -> Str uses [NetConnect] { "data" }
            fn process() -> Str uses [NetConnect, FileWrite] { fetch("http://example.com") }"#,
@@ -1063,7 +1063,7 @@ fn width_specific_primitives_and_unit_type_work() {
 // ── Trait definition and impl ───────────────────────────────────────────
 
 #[test]
-fn capability_definition_and_impl() {
+fn trait_definition_and_impl() {
     check_ok(
         r#"
         trait Display[T] {
@@ -1106,11 +1106,11 @@ fn impl_extra_method_error() {
         }
     "#,
     );
-    assert!(errs.iter().any(|e| e.contains("not defined in capability")));
+    assert!(errs.iter().any(|e| e.contains("not defined in trait")));
 }
 
 #[test]
-fn impl_unknown_capability_error() {
+fn impl_unknown_trait_error() {
     let errs = check_err(
         r#"
         struct Point { x: I32, y: I32 }
@@ -1119,7 +1119,7 @@ fn impl_unknown_capability_error() {
         }
     "#,
     );
-    assert!(errs.iter().any(|e| e.contains("unknown capability")));
+    assert!(errs.iter().any(|e| e.contains("unknown trait")));
 }
 
 // ── Error code tests ─────────────────────────────────────────────────
@@ -1165,7 +1165,7 @@ fn error_code_cannot_call_non_function() {
 }
 
 #[test]
-fn error_code_missing_capabilities() {
+fn error_code_missing_effects() {
     let errs = check_err_with_codes(
         r#"
         fn fetch(url: Str) -> Str uses [NetConnect] { "data" }
@@ -1207,7 +1207,7 @@ fn record_width_subtyping() {
 // ── Batch 4 Item 2: Associated types in traits ─────────────────────────
 
 #[test]
-fn capability_with_assoc_type() {
+fn trait_with_assoc_type() {
     check_ok(
         r#"
         trait Iterator[T] {
@@ -1224,7 +1224,7 @@ fn capability_with_assoc_type() {
 fn hole_info_v03_has_all_fields() {
     use sporec_typeck::hole::HoleInfo;
     use sporec_typeck::types::Ty;
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
 
     let info = HoleInfo {
         name: "impl".into(),
@@ -1235,7 +1235,7 @@ fn hole_info_v03_has_all_fields() {
         enclosing_signature: Some("fn foo() -> I32".into()),
         bindings: BTreeMap::new(),
         binding_dependencies: BTreeMap::new(),
-        capabilities: BTreeSet::new(),
+        available_effects: EffectSet::new(),
         errors_to_handle: vec![],
         cost_budget: None,
         candidates: vec![],
@@ -1258,7 +1258,7 @@ fn candidate_score_overall_formula() {
         name: "foo".into(),
         type_match: 1.0,
         cost_fit: 1.0,
-        capability_fit: 1.0,
+        required_effects_fit: 1.0,
         error_coverage: 1.0,
     };
     assert!((cs.overall() - 1.0).abs() < 1e-9);
@@ -1267,7 +1267,7 @@ fn candidate_score_overall_formula() {
         name: "bar".into(),
         type_match: 0.0,
         cost_fit: 0.0,
-        capability_fit: 0.0,
+        required_effects_fit: 0.0,
         error_coverage: 0.0,
     };
     assert!((cs2.overall() - 0.0).abs() < 1e-9);
@@ -1277,7 +1277,7 @@ fn candidate_score_overall_formula() {
         name: "baz".into(),
         type_match: 0.5,
         cost_fit: 0.8,
-        capability_fit: 1.0,
+        required_effects_fit: 1.0,
         error_coverage: 0.6,
     };
     let expected = 0.40 * 0.5 + 0.20 * 0.8 + 0.25 * 1.0 + 0.15 * 0.6;
@@ -1416,7 +1416,7 @@ fn hole_report_json_v03_fields() {
 }
 
 #[test]
-fn hole_collects_capabilities_and_errors() {
+fn hole_collects_available_effects_and_errors() {
     let module = parse(
         r#"
         fn helper() -> I32 ! ParseError uses [IO] {
@@ -1427,7 +1427,7 @@ fn hole_collects_capabilities_and_errors() {
     .unwrap();
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
-    assert!(hole.capabilities.contains("IO"));
+    assert!(hole.available_effects.contains("IO"));
     assert!(hole.errors_to_handle.contains(&"ParseError".to_string()));
 }
 
@@ -1558,7 +1558,7 @@ fn spawn_wraps_in_task() {
 }
 
 #[test]
-fn spawn_requires_spawn_capability() {
+fn spawn_requires_spawn_effect() {
     let errs = check_err(
         r#"
         fn work() -> I32 { 42 }
@@ -1572,7 +1572,7 @@ fn spawn_requires_spawn_capability() {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("spawn requires capability `Spawn`"))
+            .any(|e| e.contains("spawn requires effect `Spawn`"))
     );
 }
 
@@ -1688,8 +1688,8 @@ fn sep0006_type_errors_use_e0xxx() {
 }
 
 #[test]
-fn sep0006_capability_violations_use_c0xxx() {
-    // Missing capabilities → C0001
+fn sep0006_effect_violations_use_c0xxx() {
+    // Missing effects → C0001
     let errs = check_err_with_codes(
         r#"
         fn fetch(url: Str) -> Str uses [NetConnect] { "data" }
@@ -2005,10 +2005,10 @@ fn test_foreign_fn_callable_signature() {
     );
 }
 
-// ── Perform / Handle capability checking ────────────────────────────────
+// ── Perform / Handle effect checking ────────────────────────────────────
 
 #[test]
-fn test_perform_requires_capability() {
+fn test_perform_requires_effect() {
     let errs = check_err(
         r#"
         effect Console {
@@ -2021,13 +2021,13 @@ fn test_perform_requires_capability() {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("capability") && e.contains("Console")),
-        "expected capability error, got: {errs:?}"
+            .any(|e| e.contains("effect") && e.contains("Console")),
+        "expected effect error, got: {errs:?}"
     );
 }
 
 #[test]
-fn test_perform_with_capability_ok() {
+fn test_perform_with_effect_ok() {
     check_ok(
         r#"
         effect Console {
@@ -2041,8 +2041,8 @@ fn test_perform_with_capability_ok() {
 }
 
 #[test]
-fn test_handle_provides_capability() {
-    // The handle expression provides Console capability to its body,
+fn test_handle_provides_effect() {
+    // The handle expression provides Console effect to its body,
     // so perform Console.println should be allowed even without `uses [Console]`.
     check_ok(
         r#"
@@ -2076,7 +2076,7 @@ fn test_perform_requires_declared_effect_interface() {
 }
 
 #[test]
-fn test_handle_capability_does_not_escape_scope() {
+fn test_handle_effect_does_not_escape_scope() {
     let errs = check_err(
         r#"
         effect Console {
@@ -2094,8 +2094,8 @@ fn test_handle_capability_does_not_escape_scope() {
     );
     assert!(
         errs.iter()
-            .any(|e| e.contains("capability") && e.contains("Console")),
-        "expected capability error after handle scope ends, got: {errs:?}"
+            .any(|e| e.contains("effect") && e.contains("Console")),
+        "expected effect error after handle scope ends, got: {errs:?}"
     );
 }
 
@@ -2336,7 +2336,7 @@ fn test_or_pattern_no_bindings() {
 #[test]
 fn test_fn_type_with_error_set() {
     let errors: ErrorSet = ["MyError".to_string()].into_iter().collect();
-    let ty = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), errors.clone());
+    let ty = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), errors.clone());
     match &ty {
         Ty::Fn(_, _, _, err_set) => assert_eq!(*err_set, errors),
         _ => panic!("expected Ty::Fn"),
@@ -2345,7 +2345,7 @@ fn test_fn_type_with_error_set() {
 
 #[test]
 fn test_fn_type_empty_error_set() {
-    let ty = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), ErrorSet::new());
+    let ty = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), ErrorSet::new());
     match &ty {
         Ty::Fn(_, _, _, err_set) => assert!(err_set.is_empty()),
         _ => panic!("expected Ty::Fn"),
@@ -2357,7 +2357,7 @@ fn test_error_set_display_empty() {
     let ty = Ty::Fn(
         vec![Ty::I32],
         Box::new(Ty::Str),
-        CapSet::new(),
+        EffectSet::new(),
         ErrorSet::new(),
     );
     let display = format!("{ty}");
@@ -2370,7 +2370,7 @@ fn test_error_set_display_with_errors() {
     let mut errors = ErrorSet::new();
     errors.insert("FileNotFound".to_string());
     errors.insert("PermissionDenied".to_string());
-    let ty = Ty::Fn(vec![Ty::Str], Box::new(Ty::Str), CapSet::new(), errors);
+    let ty = Ty::Fn(vec![Ty::Str], Box::new(Ty::Str), EffectSet::new(), errors);
     let display = format!("{ty}");
     // BTreeSet sorts alphabetically
     assert!(display.contains("! FileNotFound | PermissionDenied"));
@@ -2518,9 +2518,9 @@ fn refined_types_identical_are_equal() {
 fn test_fn_type_equality_with_error_set() {
     let mut errors = ErrorSet::new();
     errors.insert("E1".to_string());
-    let ty1 = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), errors.clone());
-    let ty2 = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), errors);
-    let ty3 = Ty::Fn(vec![], Box::new(Ty::I32), CapSet::new(), ErrorSet::new());
+    let ty1 = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), errors.clone());
+    let ty2 = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), errors);
+    let ty3 = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), ErrorSet::new());
     assert_eq!(ty1, ty2);
     assert_ne!(ty1, ty3);
 }
@@ -2560,7 +2560,7 @@ fn ty_fold_replaces_int_with_float_in_nested_type() {
     let ty = Ty::Fn(
         vec![Ty::I32, Ty::Tuple(vec![Ty::I32, Ty::Bool])],
         Box::new(Ty::I32),
-        CapSet::new(),
+        EffectSet::new(),
         ErrorSet::new(),
     );
     let folded = ty.fold(&mut |t| match t {
@@ -2570,7 +2570,7 @@ fn ty_fold_replaces_int_with_float_in_nested_type() {
     let expected = Ty::Fn(
         vec![Ty::F64, Ty::Tuple(vec![Ty::F64, Ty::Bool])],
         Box::new(Ty::F64),
-        CapSet::new(),
+        EffectSet::new(),
         ErrorSet::new(),
     );
     assert_eq!(folded, expected);
@@ -2600,7 +2600,7 @@ fn ty_visit_collects_named_types() {
             "Result".into(),
             vec![Ty::Named("Baz".into()), Ty::Str],
         )),
-        CapSet::new(),
+        EffectSet::new(),
         ErrorSet::new(),
     );
     let mut names = Vec::new();
@@ -2875,7 +2875,7 @@ fn effect_alias_parses() {
 #[test]
 fn effect_alias_same_module_expands() {
     // `uses [MyIO]` should expand to the Console + FileRead components defined
-    // by the alias in the same module — no capability errors expected.
+    // by the alias in the same module — no effect errors expected.
     check_ok(
         r#"
         effect Console {
@@ -3022,10 +3022,25 @@ fn spec_property_type_checks() {
         r#"
         fn add(a: I32, b: I32) -> I32
         spec {
-            property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
+            property "left_identity": |a: I32, b: I32 when self == 0| a
         }
         {
             a + b
+        }
+    "#,
+    );
+}
+
+#[test]
+fn spec_property_refinement_param_type_checks() {
+    check_ok(
+        r#"
+        fn abs(x: I32) -> I32
+        spec {
+            property "non_negative_identity": |x: I32 when self >= 0| x
+        }
+        {
+            if x < 0 { 0 - x } else { x }
         }
     "#,
     );
@@ -3038,7 +3053,7 @@ fn spec_full_clause_type_checks() {
         fn add(a: I32, b: I32) -> I32
         spec {
             example "identity":     add(0, 42) == 42
-            property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
+            property "left_identity": |a: I32, b: I32 when self == 0| a
         }
         {
             a + b
@@ -3087,12 +3102,12 @@ fn spec_property_must_be_lambda() {
 }
 
 #[test]
-fn spec_property_lambda_must_return_bool() {
+fn spec_property_lambda_must_return_function_result_type() {
     let errs = check_err(
         r#"
         fn add(a: I32, b: I32) -> I32
         spec {
-            property "bad": |x: I32| x + 1
+            property "bad": |a: I32, b: I32| true
         }
         {
             a + b
@@ -3102,6 +3117,45 @@ fn spec_property_lambda_must_return_bool() {
     assert!(
         errs.iter().any(|e| e.contains("spec property")),
         "expected spec property return-type error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn spec_property_lambda_must_match_function_arity() {
+    let errs = check_err(
+        r#"
+        fn add(a: I32, b: I32) -> I32
+        spec {
+            property "bad": |a: I32| a
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("spec property") && e.contains("parameter")),
+        "expected spec property arity error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn spec_property_param_must_match_input_or_subset() {
+    let errs = check_err(
+        r#"
+        fn abs(x: I32) -> I32
+        spec {
+            property "bad": |x: Bool| x
+        }
+        {
+            if x < 0 { 0 - x } else { x }
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("refinement subset")),
+        "expected spec property input compatibility error, got: {errs:?}"
     );
 }
 

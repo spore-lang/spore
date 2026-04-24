@@ -379,10 +379,10 @@ fn render_hole(hole: &HoleInfo) -> String {
         }
     }
 
-    if !hole.capabilities.is_empty() {
+    if !hole.available_effects.is_empty() {
         lines.push(format!(
-            "  capabilities: {}",
-            hole.capabilities
+            "  available effects: {}",
+            hole.available_effects
                 .iter()
                 .cloned()
                 .collect::<Vec<_>>()
@@ -416,12 +416,12 @@ fn render_hole(hole: &HoleInfo) -> String {
         lines.push("  candidates:".to_string());
         for candidate in &hole.candidates {
             lines.push(format!(
-                "    - {} (overall {:.2}, type {:.2}, cost {:.2}, capability {:.2}, error {:.2})",
+                "    - {} (overall {:.2}, type {:.2}, cost {:.2}, required effects {:.2}, error {:.2})",
                 candidate.name,
                 candidate.overall(),
                 candidate.type_match,
                 candidate.cost_fit,
-                candidate.capability_fit,
+                candidate.required_effects_fit,
                 candidate.error_coverage
             ));
         }

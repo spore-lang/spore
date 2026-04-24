@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::types::{CapSet, ErrorSet, Ty};
+use crate::types::{EffectSet, ErrorSet, Ty};
 
 /// A scoped type environment (symbol table).
 ///
@@ -75,8 +75,8 @@ pub struct HandlerInfo {
 /// Top-level type registry — struct definitions, type defs, function signatures.
 #[derive(Debug, Clone, Default)]
 pub struct TypeRegistry {
-    /// Function signatures: name → (param types, return type, capabilities)
-    pub functions: HashMap<String, (Vec<Ty>, Ty, CapSet)>,
+    /// Function signatures: name → (param types, return type, required effects)
+    pub functions: HashMap<String, (Vec<Ty>, Ty, EffectSet)>,
     /// Error sets declared by functions: name → set of error type names
     pub fn_errors: HashMap<String, ErrorSet>,
     /// Struct definitions: name → field list (name, type)
@@ -89,10 +89,10 @@ pub struct TypeRegistry {
     pub fn_type_params: HashMap<String, Vec<String>>,
     /// `where` trait bounds for functions: name → [(type_var, trait_name)]
     pub fn_where_bounds: HashMap<String, Vec<(String, String)>>,
-    /// Capability (trait) definitions: name → (type_params, methods: [(method_name, param_types, return_type)])
+    /// Interface (trait) definitions: name → (type_params, methods: [(method_name, param_types, return_type)])
     #[allow(clippy::type_complexity)]
-    pub capabilities: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
-    /// Trait implementations: (capability_name, type_name) → method impls: [(method_name, param_types, return_type)]
+    pub interfaces: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
+    /// Trait implementations: (trait_name, type_name) → method impls: [(method_name, param_types, return_type)]
     #[allow(clippy::type_complexity)]
     pub impls: HashMap<(String, String), Vec<(String, Vec<Ty>, Ty)>>,
     /// Type aliases: name → resolved Ty (supports refinement aliases like `alias Port = Int when ...`)

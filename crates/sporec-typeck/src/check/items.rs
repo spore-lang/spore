@@ -15,14 +15,14 @@ impl Checker {
                     .as_ref()
                     .map(|t| self.resolve_signature_type(t, &mut signature_holes))
                     .unwrap_or(Ty::Unit);
-                let caps: CapSet = f
+                let effects: EffectSet = f
                     .uses_clause
                     .as_ref()
-                    .map(|uc| self.declared_capabilities(Some(uc)))
+                    .map(|uc| self.declared_effects(Some(uc)))
                     .unwrap_or_default();
                 self.registry
                     .functions
-                    .insert(f.name.clone(), (param_tys, ret_ty, caps));
+                    .insert(f.name.clone(), (param_tys, ret_ty, effects));
                 if !f.errors.is_empty() {
                     let error_set: ErrorSet = f
                         .errors
@@ -98,9 +98,10 @@ impl Checker {
                         if t.type_params.is_empty() {
                             self.env.define(vname.clone(), ret_ty.clone());
                         } else {
-                            self.registry
-                                .functions
-                                .insert(vname.clone(), (Vec::new(), ret_ty.clone(), CapSet::new()));
+                            self.registry.functions.insert(
+                                vname.clone(),
+                                (Vec::new(), ret_ty.clone(), EffectSet::new()),
+                            );
                             self.registry
                                 .fn_type_params
                                 .insert(vname.clone(), t.type_params.clone());
@@ -108,7 +109,7 @@ impl Checker {
                     } else {
                         self.registry.functions.insert(
                             vname.clone(),
-                            (field_tys.clone(), ret_ty.clone(), CapSet::new()),
+                            (field_tys.clone(), ret_ty.clone(), EffectSet::new()),
                         );
                         if !t.type_params.is_empty() {
                             self.registry
@@ -118,34 +119,11 @@ impl Checker {
                     }
                 }
             }
-            Item::CapabilityDef(cap) => {
-                let methods: Vec<(String, Vec<Ty>, Ty)> = cap
-                    .methods
-                    .iter()
-                    .map(|m| {
-                        let param_tys: Vec<Ty> =
-                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
-                        let ret_ty = m
-                            .return_type
-                            .as_ref()
-                            .map(|t| self.resolve_type(t))
-                            .unwrap_or(Ty::Unit);
-                        (m.name.clone(), param_tys, ret_ty)
-                    })
-                    .collect();
-                self.registry
-                    .capabilities
-                    .insert(cap.name.clone(), (cap.type_params.clone(), methods));
-            }
             Item::ImplDef(impl_def) => {
-                if !self
-                    .registry
-                    .capabilities
-                    .contains_key(&impl_def.capability)
-                {
+                if !self.registry.interfaces.contains_key(&impl_def.trait_name) {
                     self.err(
                         ErrorCode::C0002,
-                        format!("unknown capability `{}`", impl_def.capability),
+                        format!("unknown trait `{}`", impl_def.trait_name),
                     );
                     return;
                 }
@@ -164,11 +142,11 @@ impl Checker {
                     })
                     .collect();
                 self.registry.impls.insert(
-                    (impl_def.capability.clone(), impl_def.target_type.clone()),
+                    (impl_def.trait_name.clone(), impl_def.target_type.clone()),
                     methods,
                 );
             }
-            Item::Import(_) | Item::Const(_) | Item::CapabilityAlias { .. } => {}
+            Item::Import(_) | Item::Const(_) => {}
             Item::EffectAlias(ea) => {
                 for component in &ea.effects {
                     self.hierarchy
@@ -191,7 +169,7 @@ impl Checker {
                     })
                     .collect();
                 self.registry
-                    .capabilities
+                    .interfaces
                     .insert(td.name.clone(), (td.type_params.clone(), methods));
             }
             Item::EffectDef(ed) => {
@@ -210,11 +188,11 @@ impl Checker {
                     })
                     .collect();
                 self.registry
-                    .capabilities
+                    .interfaces
                     .insert(ed.name.clone(), (vec![], methods));
             }
             Item::HandlerDef(hd) => {
-                if !self.registry.capabilities.contains_key(&hd.effect) {
+                if !self.registry.interfaces.contains_key(&hd.effect) {
                     self.err(ErrorCode::C0002, format!("unknown effect `{}`", hd.effect));
                     return;
                 }
@@ -261,15 +239,11 @@ impl Checker {
         }
     }
 
-    pub(crate) fn declared_capabilities(
-        &self,
-        uses_clause: Option<&UsesClause>,
-    ) -> BTreeSet<String> {
+    pub(crate) fn declared_effects(&self, uses_clause: Option<&UsesClause>) -> EffectSet {
         uses_clause
             .map(|uc| {
-                let raw =
-                    crate::capability::CapabilitySet::from_names(uc.resources.iter().cloned());
-                self.hierarchy.expand(&raw).to_btreeset()
+                let raw = crate::effect_set::EffectSet::from_names(uc.resources.iter().cloned());
+                self.hierarchy.expand(&raw)
             })
             .unwrap_or_default()
     }
@@ -283,7 +257,7 @@ impl Checker {
             Item::HandlerDef(handler_def) => self.check_handler(handler_def),
             Item::EffectAlias(ea) => {
                 for component in &ea.effects {
-                    if !self.registry.capabilities.contains_key(component) {
+                    if !self.registry.interfaces.contains_key(component) {
                         self.err(
                             ErrorCode::C0002,
                             format!(
@@ -401,28 +375,25 @@ impl Checker {
     }
 
     pub(super) fn check_impl(&mut self, impl_def: &ImplDef) {
-        let Some((_cap_type_params, cap_methods)) = self
-            .registry
-            .capabilities
-            .get(&impl_def.capability)
-            .cloned()
+        let Some((_trait_type_params, trait_methods)) =
+            self.registry.interfaces.get(&impl_def.trait_name).cloned()
         else {
             return;
         };
 
-        let cap_type_params = _cap_type_params;
-        let type_mapping: HashMap<String, Ty> = if cap_type_params.is_empty() {
+        let trait_type_params = _trait_type_params;
+        let type_mapping: HashMap<String, Ty> = if trait_type_params.is_empty() {
             HashMap::new()
         } else if !impl_def.type_args.is_empty() {
-            cap_type_params
+            trait_type_params
                 .iter()
                 .zip(impl_def.type_args.iter())
                 .map(|(param, arg)| (param.clone(), self.resolve_type(arg)))
                 .collect()
-        } else if cap_type_params.len() == 1 {
+        } else if trait_type_params.len() == 1 {
             let mut m = HashMap::new();
             m.insert(
-                cap_type_params[0].clone(),
+                trait_type_params[0].clone(),
                 self.resolve_type(&TypeExpr::Named(impl_def.target_type.clone())),
             );
             m
@@ -432,15 +403,15 @@ impl Checker {
 
         let impl_label = format!(
             "impl `{}` for `{}`",
-            impl_def.capability, impl_def.target_type
+            impl_def.trait_name, impl_def.target_type
         );
         self.check_contract_impl(
-            &impl_def.capability,
-            &cap_methods,
+            &impl_def.trait_name,
+            &trait_methods,
             &impl_def.methods,
             &impl_label,
             "method",
-            "capability",
+            "trait",
             impl_def.span,
             &type_mapping,
             &[],
@@ -449,7 +420,7 @@ impl Checker {
 
     pub(super) fn check_handler(&mut self, handler_def: &HandlerDef) {
         let Some((_effect_type_params, effect_methods)) =
-            self.registry.capabilities.get(&handler_def.effect).cloned()
+            self.registry.interfaces.get(&handler_def.effect).cloned()
         else {
             return;
         };
@@ -483,8 +454,8 @@ impl Checker {
         extra_bindings: &[(String, Ty)],
     ) {
         self.concurrency.enter_function(&f.name);
-        let declared_caps = self.declared_capabilities(f.uses_clause.as_ref());
-        let prev_caps = std::mem::replace(&mut self.current_caps, declared_caps);
+        let declared_effects = self.declared_effects(f.uses_clause.as_ref());
+        let prev_effects = std::mem::replace(&mut self.current_effects, declared_effects);
 
         let prev_errors = std::mem::replace(
             &mut self.current_errors,
@@ -522,7 +493,7 @@ impl Checker {
 
         self.env.push_scope();
 
-        for (param, ty) in f.params.iter().zip(declared_param_tys) {
+        for (param, ty) in f.params.iter().zip(declared_param_tys.iter().cloned()) {
             self.env.define(param.name.clone(), ty);
         }
         for (name, ty) in extra_bindings {
@@ -538,11 +509,11 @@ impl Checker {
         }
 
         if let Some(spec) = &f.spec_clause {
-            self.check_spec_clause(spec, &f.name);
+            self.check_spec_clause(spec, &f.name, &declared_param_tys, &declared_ret);
         }
 
         self.env.pop_scope();
-        self.current_caps = prev_caps;
+        self.current_effects = prev_effects;
         self.current_errors = prev_errors;
         self.current_function = prev_function;
         self.expected_return_type = prev_expected;
@@ -551,7 +522,33 @@ impl Checker {
     }
 
     /// Type-check a `spec { ... }` clause attached to a function.
-    pub(super) fn check_spec_clause(&mut self, spec: &SpecClause, fn_name: &str) {
+    fn spec_property_param_compatible(&self, property_param: &Ty, function_param: &Ty) -> bool {
+        let property_param = self.apply_subst(property_param);
+        let function_param = self.apply_subst(function_param);
+
+        if property_param == function_param {
+            return true;
+        }
+
+        match (&property_param, &function_param) {
+            // A property may narrow an unrefined function parameter into a
+            // refinement-based input subset that shares the same base type.
+            (Ty::Refined(property_base, _, _), function_param)
+                if !matches!(function_param, Ty::Refined(_, _, _)) =>
+            {
+                self.apply_subst(property_base.as_ref()) == function_param.clone()
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn check_spec_clause(
+        &mut self,
+        spec: &SpecClause,
+        fn_name: &str,
+        fn_params: &[Ty],
+        fn_ret: &Ty,
+    ) {
         use crate::types::Ty;
 
         for item in &spec.items {
@@ -569,9 +566,39 @@ impl Checker {
                     let ty = self.check_expr(&prop.predicate);
                     let ty = self.apply_subst(&ty);
                     match &ty {
-                        Ty::Fn(_, ret, _, _) => {
+                        Ty::Fn(params, ret, _, _) => {
+                            if params.len() != fn_params.len() {
+                                self.err(
+                                    ErrorCode::E0001,
+                                    format!(
+                                        "spec property \"{}\" in `{fn_name}` must take {} parameter(s), got {}",
+                                        prop.label,
+                                        fn_params.len(),
+                                        params.len()
+                                    ),
+                                );
+                                continue;
+                            }
+
+                            for (idx, (prop_param, fn_param)) in
+                                params.iter().zip(fn_params.iter()).enumerate()
+                            {
+                                if !self.spec_property_param_compatible(prop_param, fn_param) {
+                                    self.err(
+                                        ErrorCode::E0001,
+                                        format!(
+                                            "spec property \"{}\" in `{fn_name}` parameter {} must match the function input type or a refinement subset of it; expected `{}`, got `{}`",
+                                            prop.label,
+                                            idx + 1,
+                                            fn_param,
+                                            prop_param
+                                        ),
+                                    );
+                                }
+                            }
+
                             self.unify(
-                                &Ty::Bool,
+                                fn_ret,
                                 ret,
                                 &format!("spec property \"{}\" in `{fn_name}`", prop.label),
                             );

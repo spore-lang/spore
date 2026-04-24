@@ -5,6 +5,7 @@ spec {
     example "positive": abs(5) == 5
     example "negative": abs(0 - 5) == 5
     example "zero": abs(0) == 0
+    property "non_negative_identity": |x: I32 when self >= 0| x
 }
 { if x < 0 { 0 - x } else { x } }
 

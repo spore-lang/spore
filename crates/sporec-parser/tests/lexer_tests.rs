@@ -137,7 +137,7 @@ fn test_more_keywords() {
             Token::Pub,
             Token::Struct,
             Token::Type,
-            Token::Capability,
+            Token::Ident("capability".into()),
             Token::Import,
             Token::As,
         ]

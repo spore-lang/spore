@@ -15,24 +15,21 @@ mod unify;
 
 use sporec_parser::ast::*;
 
-use crate::capability::{CapabilityHierarchy, default_hierarchy};
 use crate::concurrency::ConcurrencyAnalyzer;
+use crate::effect_set::{EffectHierarchy, default_effect_hierarchy};
 use crate::env::{Env, HandlerInfo, TypeRegistry};
 use crate::error::{ErrorCode, TypeError};
 use crate::hole::{HoleDependencyGraph, HoleInfo, HoleReport};
 use crate::module::{ImportedSymbol, ModuleError, ModuleRegistry};
-use crate::types::{CapSet, ErrorSet, Ty};
+use crate::types::{EffectSet, ErrorSet, Ty};
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// Return items present in `callee_set` but absent from `current_set`.
-fn find_missing_set_items<'a>(
-    callee_set: &'a BTreeSet<String>,
-    current_set: &BTreeSet<String>,
-) -> Vec<&'a str> {
+fn find_missing_set_items<'a>(callee_set: &'a EffectSet, current_set: &EffectSet) -> Vec<&'a str> {
     callee_set
         .iter()
-        .filter(|item| !current_set.contains(*item))
+        .filter(|item| !current_set.contains(item))
         .map(|s| s.as_str())
         .collect()
 }
@@ -47,8 +44,8 @@ pub struct Checker {
     pub hole_report: HoleReport,
     pub module_registry: ModuleRegistry,
     env: Env,
-    /// Capabilities of the function currently being checked.
-    current_caps: CapSet,
+    /// Required effects of the function currently being checked.
+    current_effects: EffectSet,
     /// Error set of the function currently being checked.
     current_errors: ErrorSet,
     /// Name of the function currently being checked.
@@ -65,8 +62,8 @@ pub struct Checker {
     next_unnamed_hole_id: u32,
     /// Substitution map: type variable ID → resolved type.
     substitution: HashMap<u32, Ty>,
-    /// Capability hierarchy for expanding parent caps (e.g. IO → 4 leaves).
-    hierarchy: CapabilityHierarchy,
+    /// Effect hierarchy for expanding parent effects (e.g. IO → 4 leaves).
+    hierarchy: EffectHierarchy,
     /// Structured concurrency analyzer (parallel scopes + spawn sites).
     concurrency: ConcurrencyAnalyzer,
 }
@@ -79,7 +76,7 @@ impl Checker {
             hole_report: HoleReport::new(),
             module_registry: ModuleRegistry::new(),
             env: Env::new(),
-            current_caps: CapSet::new(),
+            current_effects: EffectSet::new(),
             current_errors: ErrorSet::new(),
             current_function: String::new(),
             current_module_name: String::new(),
@@ -88,7 +85,7 @@ impl Checker {
             next_var_id: 0,
             next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
-            hierarchy: default_hierarchy(),
+            hierarchy: default_effect_hierarchy(),
             concurrency: ConcurrencyAnalyzer::new(),
         }
     }
@@ -101,7 +98,7 @@ impl Checker {
             hole_report: HoleReport::new(),
             module_registry,
             env: Env::new(),
-            current_caps: CapSet::new(),
+            current_effects: EffectSet::new(),
             current_errors: ErrorSet::new(),
             current_function: String::new(),
             current_module_name: String::new(),
@@ -110,7 +107,7 @@ impl Checker {
             next_var_id: 0,
             next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
-            hierarchy: default_hierarchy(),
+            hierarchy: default_effect_hierarchy(),
             concurrency: ConcurrencyAnalyzer::new(),
         }
     }

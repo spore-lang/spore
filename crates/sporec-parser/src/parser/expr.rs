@@ -15,7 +15,13 @@ impl Parser {
         let mut lhs = self.parse_prefix()?;
 
         loop {
+            if self.at_expr_terminator() {
+                break;
+            }
             loop {
+                if self.at_expr_terminator() {
+                    break;
+                }
                 match self.peek() {
                     Token::Question => {
                         self.advance();
@@ -61,6 +67,10 @@ impl Parser {
                     }
                     _ => break,
                 }
+            }
+
+            if self.at_expr_terminator() {
+                break;
             }
 
             if let Token::PipeArrow = self.peek() {
@@ -317,7 +327,7 @@ impl Parser {
                 let name = p.expect_ident()?;
                 let ty = if p.at(&Token::Colon) {
                     p.advance();
-                    p.parse_type_expr()?
+                    p.with_expr_terminator(&Token::Pipe, |p| p.parse_type_expr())?
                 } else {
                     TypeExpr::Named("_".into())
                 };

@@ -2,7 +2,7 @@
 //!
 //! Implements the v0.3 hole info model from SEP-0005 §4.2.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use crate::types::Ty;
 
@@ -26,8 +26,8 @@ pub struct CandidateScore {
     pub type_match: f64,
     /// Cost fit quality [0,1]
     pub cost_fit: f64,
-    /// Capability fit {0,1}
-    pub capability_fit: f64,
+    /// Required-effects fit {0,1}
+    pub required_effects_fit: f64,
     /// Error coverage [0,1]
     pub error_coverage: f64,
 }
@@ -36,7 +36,7 @@ impl CandidateScore {
     pub fn overall(&self) -> f64 {
         0.40 * self.type_match
             + 0.20 * self.cost_fit
-            + 0.25 * self.capability_fit
+            + 0.25 * self.required_effects_fit
             + 0.15 * self.error_coverage
     }
 }
@@ -107,8 +107,8 @@ pub struct HoleInfo {
     pub bindings: BTreeMap<String, Ty>,
     /// Dependency edges between bindings (Extension B)
     pub binding_dependencies: BTreeMap<String, Vec<String>>,
-    /// Capabilities in scope
-    pub capabilities: BTreeSet<String>,
+    /// Available effects in scope
+    pub available_effects: crate::effect_set::EffectSet,
     /// Error types that must be handled
     pub errors_to_handle: Vec<String>,
     /// Cost budget information
@@ -213,9 +213,9 @@ impl HoleReport {
             }
             out.push_str("},\n");
 
-            // capabilities
-            out.push_str("      \"capabilities\": [");
-            for (j, c) in h.capabilities.iter().enumerate() {
+            // available_effects
+            out.push_str("      \"available_effects\": [");
+            for (j, c) in h.available_effects.iter().enumerate() {
                 if j > 0 {
                     out.push_str(", ");
                 }
@@ -257,11 +257,11 @@ impl HoleReport {
                     out.push_str(", ");
                 }
                 out.push_str(&format!(
-                    "{{\"name\": {}, \"type_match\": {:.2}, \"cost_fit\": {:.2}, \"capability_fit\": {:.2}, \"error_coverage\": {:.2}, \"overall\": {:.2}}}",
+                    "{{\"name\": {}, \"type_match\": {:.2}, \"cost_fit\": {:.2}, \"required_effects_fit\": {:.2}, \"error_coverage\": {:.2}, \"overall\": {:.2}}}",
                     json_escape(&cs.name),
                     cs.type_match,
                     cs.cost_fit,
-                    cs.capability_fit,
+                    cs.required_effects_fit,
                     cs.error_coverage,
                     cs.overall(),
                 ));

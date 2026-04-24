@@ -152,6 +152,18 @@ fn test_spec_clause_normalizes_clause_order_and_preserves_item_order() {
 }
 
 #[test]
+fn test_refinement_type_roundtrips_in_property_params() {
+    let src = concat!(
+        "fn abs(x: I32) -> I32\n",
+        "spec {\n",
+        "    property \"non_negative_identity\": |x: I32 when self >= 0| x\n",
+        "}\n",
+        "{ if x < 0 { 0 - x } else { x } }\n",
+    );
+    assert_eq!(roundtrip(src), src);
+}
+
+#[test]
 fn test_blank_line_between_items() {
     let src = concat!("fn a() -> Int { 1 }\n", "\n", "fn b() -> Int { 2 }\n",);
     assert_eq!(roundtrip(src), src);

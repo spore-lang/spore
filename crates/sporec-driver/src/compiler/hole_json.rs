@@ -78,7 +78,7 @@ fn hole_info_json(hole: &TypeckHoleInfo) -> HoleInfoJson {
             .map(|(name, ty)| (name.clone(), ty.to_string()))
             .collect(),
         binding_dependencies: hole.binding_dependencies.clone(),
-        capabilities: hole.capabilities.iter().cloned().collect(),
+        available_effects: hole.available_effects.iter().cloned().collect(),
         errors_to_handle: hole.errors_to_handle.clone(),
         cost_budget: hole.cost_budget.as_ref().map(|budget| HoleCostBudgetJson {
             budget_total: budget.budget_total,
@@ -92,7 +92,7 @@ fn hole_info_json(hole: &TypeckHoleInfo) -> HoleInfoJson {
                 name: candidate.name.clone(),
                 type_match: candidate.type_match,
                 cost_fit: candidate.cost_fit,
-                capability_fit: candidate.capability_fit,
+                required_effects_fit: candidate.required_effects_fit,
                 error_coverage: candidate.error_coverage,
                 overall: candidate.overall(),
             })

@@ -51,7 +51,7 @@ impl Checker {
                 Ty::Fn(
                     ptys,
                     Box::new(self.resolve_signature_type(ret, signature_holes)),
-                    CapSet::new(),
+                    EffectSet::new(),
                     errors,
                 )
             }
@@ -127,7 +127,7 @@ impl Checker {
                 Ty::Fn(
                     ptys,
                     Box::new(self.resolve_type(ret)),
-                    CapSet::new(),
+                    EffectSet::new(),
                     errors,
                 )
             }
@@ -315,7 +315,7 @@ impl Checker {
             return;
         };
         for (type_var, bound) in constraints {
-            if !self.registry.capabilities.contains_key(&bound) {
+            if !self.registry.interfaces.contains_key(&bound) {
                 self.err(
                     ErrorCode::E0403,
                     format!("unknown trait bound `{bound}` in where clause of `{fn_name}`"),
