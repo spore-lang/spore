@@ -522,7 +522,7 @@ impl Checker {
 
         self.env.push_scope();
 
-        for (param, ty) in f.params.iter().zip(declared_param_tys) {
+        for (param, ty) in f.params.iter().zip(declared_param_tys.iter().cloned()) {
             self.env.define(param.name.clone(), ty);
         }
         for (name, ty) in extra_bindings {
@@ -538,7 +538,7 @@ impl Checker {
         }
 
         if let Some(spec) = &f.spec_clause {
-            self.check_spec_clause(spec, &f.name);
+            self.check_spec_clause(spec, &f.name, &declared_param_tys, &declared_ret);
         }
 
         self.env.pop_scope();
@@ -551,7 +551,33 @@ impl Checker {
     }
 
     /// Type-check a `spec { ... }` clause attached to a function.
-    pub(super) fn check_spec_clause(&mut self, spec: &SpecClause, fn_name: &str) {
+    fn spec_property_param_compatible(&self, property_param: &Ty, function_param: &Ty) -> bool {
+        let property_param = self.apply_subst(property_param);
+        let function_param = self.apply_subst(function_param);
+
+        if property_param == function_param {
+            return true;
+        }
+
+        match (&property_param, &function_param) {
+            // A property may narrow an unrefined function parameter into a
+            // refinement-based input subset that shares the same base type.
+            (Ty::Refined(property_base, _, _), function_param)
+                if !matches!(function_param, Ty::Refined(_, _, _)) =>
+            {
+                self.apply_subst(property_base.as_ref()) == function_param.clone()
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn check_spec_clause(
+        &mut self,
+        spec: &SpecClause,
+        fn_name: &str,
+        fn_params: &[Ty],
+        fn_ret: &Ty,
+    ) {
         use crate::types::Ty;
 
         for item in &spec.items {
@@ -569,9 +595,39 @@ impl Checker {
                     let ty = self.check_expr(&prop.predicate);
                     let ty = self.apply_subst(&ty);
                     match &ty {
-                        Ty::Fn(_, ret, _, _) => {
+                        Ty::Fn(params, ret, _, _) => {
+                            if params.len() != fn_params.len() {
+                                self.err(
+                                    ErrorCode::E0001,
+                                    format!(
+                                        "spec property \"{}\" in `{fn_name}` must take {} parameter(s), got {}",
+                                        prop.label,
+                                        fn_params.len(),
+                                        params.len()
+                                    ),
+                                );
+                                continue;
+                            }
+
+                            for (idx, (prop_param, fn_param)) in
+                                params.iter().zip(fn_params.iter()).enumerate()
+                            {
+                                if !self.spec_property_param_compatible(prop_param, fn_param) {
+                                    self.err(
+                                        ErrorCode::E0001,
+                                        format!(
+                                            "spec property \"{}\" in `{fn_name}` parameter {} must match the function input type or a refinement subset of it; expected `{}`, got `{}`",
+                                            prop.label,
+                                            idx + 1,
+                                            fn_param,
+                                            prop_param
+                                        ),
+                                    );
+                                }
+                            }
+
                             self.unify(
-                                &Ty::Bool,
+                                fn_ret,
                                 ret,
                                 &format!("spec property \"{}\" in `{fn_name}`", prop.label),
                             );

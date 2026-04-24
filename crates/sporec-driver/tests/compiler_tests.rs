@@ -327,7 +327,7 @@ fn compile_accepts_spec_clause_syntax() {
         fn add(a: I32, b: I32) -> I32
         spec {
             example "basic": add(2, 3) == 5
-            property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
+            property "left_identity": |a: I32, b: I32 when self == 0| a
         }
         {
             a + b

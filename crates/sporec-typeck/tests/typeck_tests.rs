@@ -3022,10 +3022,25 @@ fn spec_property_type_checks() {
         r#"
         fn add(a: I32, b: I32) -> I32
         spec {
-            property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
+            property "left_identity": |a: I32, b: I32 when self == 0| a
         }
         {
             a + b
+        }
+    "#,
+    );
+}
+
+#[test]
+fn spec_property_refinement_param_type_checks() {
+    check_ok(
+        r#"
+        fn abs(x: I32) -> I32
+        spec {
+            property "non_negative_identity": |x: I32 when self >= 0| x
+        }
+        {
+            if x < 0 { 0 - x } else { x }
         }
     "#,
     );
@@ -3038,7 +3053,7 @@ fn spec_full_clause_type_checks() {
         fn add(a: I32, b: I32) -> I32
         spec {
             example "identity":     add(0, 42) == 42
-            property "commutative": |a: I32, b: I32| add(a, b) == add(b, a)
+            property "left_identity": |a: I32, b: I32 when self == 0| a
         }
         {
             a + b
@@ -3087,12 +3102,12 @@ fn spec_property_must_be_lambda() {
 }
 
 #[test]
-fn spec_property_lambda_must_return_bool() {
+fn spec_property_lambda_must_return_function_result_type() {
     let errs = check_err(
         r#"
         fn add(a: I32, b: I32) -> I32
         spec {
-            property "bad": |x: I32| x + 1
+            property "bad": |a: I32, b: I32| true
         }
         {
             a + b
@@ -3102,6 +3117,45 @@ fn spec_property_lambda_must_return_bool() {
     assert!(
         errs.iter().any(|e| e.contains("spec property")),
         "expected spec property return-type error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn spec_property_lambda_must_match_function_arity() {
+    let errs = check_err(
+        r#"
+        fn add(a: I32, b: I32) -> I32
+        spec {
+            property "bad": |a: I32| a
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("spec property") && e.contains("parameter")),
+        "expected spec property arity error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn spec_property_param_must_match_input_or_subset() {
+    let errs = check_err(
+        r#"
+        fn abs(x: I32) -> I32
+        spec {
+            property "bad": |x: Bool| x
+        }
+        {
+            if x < 0 { 0 - x } else { x }
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("refinement subset")),
+        "expected spec property input compatibility error, got: {errs:?}"
     );
 }
 

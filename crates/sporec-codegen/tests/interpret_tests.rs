@@ -1350,7 +1350,7 @@ fn test_fn_with_spec_clause_parses_and_runs() {
         spec {
             example "positive inputs": add(2, 3) == 5
             example "identity":        add(0, 42) == 42
-            property "commutative":    |a: Int, b: Int| add(a, b) == add(b, a)
+            property "left_identity":  |a: Int, b: Int when self == 0| a
         }
         {
             a + b
@@ -1383,7 +1383,7 @@ fn test_fn_with_spec_properties_only() {
     let src = r#"
         fn id(x: Int) -> Int
         spec {
-            property "idempotent": |x: Int| id(id(x)) == id(x)
+            property "identity": |x: Int| x
         }
         {
             x
@@ -1392,6 +1392,29 @@ fn test_fn_with_spec_properties_only() {
     "#;
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(42));
+}
+
+#[test]
+fn test_refined_property_uses_filtered_inputs() {
+    let src = r#"
+        fn abs(x: I32) -> I32
+        spec {
+            property "non_negative_identity": |x: I32 when self >= 0| x
+        }
+        {
+            if x < 0 { 0 - x } else { x }
+        }
+    "#;
+    let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    let results = sporec_codegen::test_specs(&module)
+        .unwrap_or_else(|e| panic!("runtime error while evaluating specs: {e}"));
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].kind, sporec_codegen::SpecKind::Property);
+    assert!(
+        results[0].passed,
+        "expected refined property to pass: {results:?}"
+    );
+    assert_eq!(results[0].error, None, "property should not be skipped");
 }
 
 #[test]

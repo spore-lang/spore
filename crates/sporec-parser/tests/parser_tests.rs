@@ -135,7 +135,7 @@ fn test_fn_with_spec_clause_preserves_item_order() {
         r#"
         fn add(a: Int, b: Int) -> Int
         spec {
-            property "commutative": |a: Int, b: Int| add(a, b) == add(b, a)
+            property "left_identity": |a: Int, b: Int when self == 0| a
             example "identity": add(0, 42) == 42
         }
         { a + b }
@@ -147,7 +147,7 @@ fn test_fn_with_spec_clause_preserves_item_order() {
             assert_eq!(spec.items.len(), 2);
             assert!(matches!(
                 &spec.items[0],
-                sporec_parser::ast::SpecItem::Property(prop) if prop.label == "commutative"
+                sporec_parser::ast::SpecItem::Property(prop) if prop.label == "left_identity"
             ));
             assert!(matches!(
                 &spec.items[1],
@@ -180,6 +180,46 @@ fn test_fn_with_block_spec_example() {
                 sporec_parser::ast::SpecItem::Example(ex)
                     if matches!(ex.body.as_ref(), sporec_parser::ast::Expr::Block(_, Some(_)))
             ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_fn_with_refined_spec_property_param() {
+    let m = parse_ok(
+        r#"
+        fn abs(x: I32) -> I32
+        spec {
+            property "non_negative_identity": |x: I32 when self >= 0| x
+        }
+        {
+            if x < 0 { 0 - x } else { x }
+        }
+    "#,
+    );
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            let spec = f.spec_clause.as_ref().unwrap();
+            match &spec.items[0] {
+                sporec_parser::ast::SpecItem::Property(prop) => match prop.predicate.as_ref() {
+                    sporec_parser::ast::Expr::Lambda(params, _) => {
+                        assert_eq!(params.len(), 1);
+                        match &params[0].ty {
+                            sporec_parser::ast::TypeExpr::Refinement(base, binding, _) => {
+                                assert!(matches!(
+                                    base.as_ref(),
+                                    sporec_parser::ast::TypeExpr::Named(name) if name == "I32"
+                                ));
+                                assert_eq!(binding, "self");
+                            }
+                            other => panic!("expected refinement type, got: {other:?}"),
+                        }
+                    }
+                    other => panic!("expected lambda, got: {other:?}"),
+                },
+                other => panic!("expected property, got: {other:?}"),
+            }
         }
         _ => panic!("expected function"),
     }
