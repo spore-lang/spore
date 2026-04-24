@@ -21,6 +21,24 @@ fn assert_call_parity(source: &str, name: &str, args: Vec<Value>) {
     assert_eq!(interpreted, native, "source:\n{source}");
 }
 
+/// Expect both interpreter and native backend to return an Err with a message
+/// containing `expected_fragment`.
+fn assert_call_errors_with(source: &str, name: &str, args: Vec<Value>, expected_fragment: &str) {
+    let module = parse_module(source);
+    let interp_err = call(&module, name, args.clone())
+        .expect_err("expected interpreter error");
+    let native_err = call_native(&module, name, args)
+        .expect_err("expected native error");
+    assert!(
+        interp_err.to_string().contains(expected_fragment),
+        "interpreter error {interp_err:?} did not contain {expected_fragment:?}"
+    );
+    assert!(
+        native_err.to_string().contains(expected_fragment),
+        "native error {native_err:?} did not contain {expected_fragment:?}"
+    );
+}
+
 #[test]
 fn native_backend_matches_interpreter_for_scalar_main_programs() {
     for source in [
@@ -127,4 +145,100 @@ fn native_backend_rejects_indirect_calls_explicitly() {
             .contains("unsupported native backend feature"),
         "expected explicit unsupported error, got: {error}"
     );
+}
+
+// ── Arithmetic error parity tests ────────────────────────────────────────────
+
+const ADD_FN: &str = "fn add(a: I64, b: I64) -> I64 { a + b }";
+const SUB_FN: &str = "fn sub(a: I64, b: I64) -> I64 { a - b }";
+const MUL_FN: &str = "fn mul(a: I64, b: I64) -> I64 { a * b }";
+const NEG_FN: &str = "fn neg(a: I64) -> I64 { -a }";
+const DIV_FN: &str = "fn div(a: I64, b: I64) -> I64 { a / b }";
+const MOD_FN: &str = "fn mod_(a: I64, b: I64) -> I64 { a % b }";
+
+#[test]
+fn native_add_overflow_returns_error_not_trap() {
+    assert_call_errors_with(
+        ADD_FN,
+        "add",
+        vec![Value::Int(i64::MAX), Value::Int(1)],
+        "overflow",
+    );
+}
+
+#[test]
+fn native_sub_overflow_returns_error_not_trap() {
+    assert_call_errors_with(
+        SUB_FN,
+        "sub",
+        vec![Value::Int(i64::MIN), Value::Int(1)],
+        "overflow",
+    );
+}
+
+#[test]
+fn native_mul_overflow_returns_error_not_trap() {
+    assert_call_errors_with(
+        MUL_FN,
+        "mul",
+        vec![Value::Int(i64::MAX), Value::Int(2)],
+        "overflow",
+    );
+}
+
+#[test]
+fn native_neg_overflow_returns_error_not_trap() {
+    assert_call_errors_with(
+        NEG_FN,
+        "neg",
+        vec![Value::Int(i64::MIN)],
+        "overflow",
+    );
+}
+
+#[test]
+fn native_div_by_zero_returns_error_not_trap() {
+    assert_call_errors_with(
+        DIV_FN,
+        "div",
+        vec![Value::Int(42), Value::Int(0)],
+        "division by zero",
+    );
+}
+
+#[test]
+fn native_div_i64_min_neg_one_returns_error_not_trap() {
+    // i64::MIN / -1 overflows; must not crash the process.
+    let module = parse_module(DIV_FN);
+    let native_err = call_native(&module, "div", vec![Value::Int(i64::MIN), Value::Int(-1)])
+        .expect_err("expected native error for i64::MIN / -1");
+    assert!(
+        native_err.to_string().contains("overflow"),
+        "expected overflow error, got: {native_err}"
+    );
+}
+
+#[test]
+fn native_mod_by_zero_returns_error_not_trap() {
+    assert_call_errors_with(
+        MOD_FN,
+        "mod_",
+        vec![Value::Int(42), Value::Int(0)],
+        "modulo by zero",
+    );
+}
+
+#[test]
+fn native_normal_arithmetic_still_correct() {
+    // Verify non-error arithmetic is unaffected by the guards.
+    for (src, name, args) in [
+        (ADD_FN, "add", vec![Value::Int(10), Value::Int(20)]),
+        (SUB_FN, "sub", vec![Value::Int(50), Value::Int(8)]),
+        (MUL_FN, "mul", vec![Value::Int(6), Value::Int(7)]),
+        (NEG_FN, "neg", vec![Value::Int(99)]),
+        (DIV_FN, "div", vec![Value::Int(100), Value::Int(4)]),
+        (MOD_FN, "mod_", vec![Value::Int(17), Value::Int(5)]),
+    ] {
+        assert_call_parity(src, name, args);
+    }
 }

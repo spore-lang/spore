@@ -1,7 +1,8 @@
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use cranelift_codegen::ir::{AbiParam, InstBuilder, TrapCode, condcodes::IntCC, types};
+use cranelift_codegen::ir::{AbiParam, InstBuilder, condcodes::IntCC, types};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -11,6 +12,23 @@ use sporec_parser::ast::{BinOp, Expr, FnDef, Item, Module as AstModule, Stmt, Ty
 use crate::value::Value;
 
 const MAX_ENTRY_ARGS: usize = 8;
+
+// Trap codes communicated from JIT code to Rust via a thread-local.
+const TRAP_OVERFLOW: i64 = 1;
+const TRAP_DIV_ZERO: i64 = 2;
+const TRAP_MOD_ZERO: i64 = 3;
+const TRAP_DIV_OVERFLOW: i64 = 4;
+
+thread_local! {
+    /// Set by JIT code when a recoverable arithmetic error occurs.
+    static ARITH_TRAP: Cell<i64> = const { Cell::new(0) };
+}
+
+/// C-callable function that JIT code invokes to signal an arithmetic error.
+/// The `code` is one of the `TRAP_*` constants above.
+unsafe extern "C" fn spore_arith_trap(code: i64) {
+    ARITH_TRAP.with(|cell| cell.set(code));
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NativeType {
@@ -188,8 +206,19 @@ pub fn compile_native(module: &AstModule) -> Result<NativeProgram, NativeError> 
     let isa = isa_builder
         .finish(settings::Flags::new(flags))
         .map_err(|error| NativeError::new(format!("failed to finish host ISA: {error}")))?;
-    let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
-    let mut jit = JITModule::new(builder);
+    let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+    // Register the Rust-side trap callback so JIT code can signal arithmetic errors.
+    jit_builder.symbol("__spore_arith_trap", spore_arith_trap as *const u8);
+    let mut jit = JITModule::new(jit_builder);
+
+    // Declare the trap callback as an imported function.
+    let mut trap_sig = jit.make_signature();
+    trap_sig.params.push(AbiParam::new(types::I64));
+    let trap_func_id = jit
+        .declare_function("__spore_arith_trap", Linkage::Import, &trap_sig)
+        .map_err(|error| {
+            NativeError::new(format!("failed to declare trap callback: {error}"))
+        })?;
 
     let mut func_ids = BTreeMap::new();
     for (name, info) in &plan.functions {
@@ -201,7 +230,7 @@ pub fn compile_native(module: &AstModule) -> Result<NativeProgram, NativeError> 
     }
 
     for (name, info) in &plan.functions {
-        define_function(&mut jit, name, info, &plan, &func_ids)?;
+        define_function(&mut jit, name, info, &plan, &func_ids, trap_func_id)?;
     }
     jit.finalize_definitions()
         .map_err(|error| NativeError::new(format!("failed to finalize native module: {error}")))?;
@@ -624,6 +653,7 @@ fn define_function(
     info: &FunctionInfo<'_>,
     plan: &ModulePlan<'_>,
     func_ids: &BTreeMap<String, FuncId>,
+    trap_func_id: FuncId,
 ) -> Result<(), NativeError> {
     let func_id = *func_ids
         .get(name)
@@ -658,6 +688,7 @@ fn define_function(
         module,
         plan,
         func_ids,
+        trap_func_id,
         name,
         info.def.body.as_ref().unwrap(),
         &mut scopes,
@@ -675,6 +706,7 @@ fn compile_expr(
     module: &mut JITModule,
     plan: &ModulePlan<'_>,
     func_ids: &BTreeMap<String, FuncId>,
+    trap_func_id: FuncId,
     current_function: &str,
     expr: &Expr,
     scopes: &mut Vec<BTreeMap<String, BoundValue>>,
@@ -705,6 +737,7 @@ fn compile_expr(
                             module,
                             plan,
                             func_ids,
+                            trap_func_id,
                             current_function,
                             value,
                             scopes,
@@ -717,6 +750,7 @@ fn compile_expr(
                             module,
                             plan,
                             func_ids,
+                            trap_func_id,
                             current_function,
                             value,
                             scopes,
@@ -730,6 +764,7 @@ fn compile_expr(
                     module,
                     plan,
                     func_ids,
+                    trap_func_id,
                     current_function,
                     value,
                     scopes,
@@ -744,6 +779,7 @@ fn compile_expr(
             module,
             plan,
             func_ids,
+            trap_func_id,
             current_function,
             condition,
             then_branch,
@@ -756,18 +792,24 @@ fn compile_expr(
                 module,
                 plan,
                 func_ids,
+                trap_func_id,
                 current_function,
                 value,
                 scopes,
             )?;
-            // Negating i64::MIN overflows; trap to match interpreter behavior.
+            // Negating i64::MIN overflows; surface as a recoverable error.
             let min_val = builder.ins().iconst(types::I64, i64::MIN);
             let is_min = builder.ins().icmp(IntCC::Equal, value.value, min_val);
-            builder.ins().trapnz(is_min, TrapCode::INTEGER_OVERFLOW);
-            Ok(BoundValue {
-                value: builder.ins().ineg(value.value),
-                ty: NativeType::I64,
-            })
+            let neg_result = builder.ins().ineg(value.value);
+            Ok(emit_arith_guard(
+                builder,
+                module,
+                trap_func_id,
+                is_min,
+                TRAP_OVERFLOW,
+                neg_result,
+                NativeType::I64,
+            ))
         }
         Expr::UnaryOp(UnaryOp::Not, value) => {
             let value = compile_expr(
@@ -775,6 +817,7 @@ fn compile_expr(
                 module,
                 plan,
                 func_ids,
+                trap_func_id,
                 current_function,
                 value,
                 scopes,
@@ -790,6 +833,7 @@ fn compile_expr(
             module,
             plan,
             func_ids,
+            trap_func_id,
             current_function,
             lhs,
             rhs,
@@ -801,6 +845,7 @@ fn compile_expr(
             module,
             plan,
             func_ids,
+            trap_func_id,
             current_function,
             lhs,
             rhs,
@@ -813,6 +858,7 @@ fn compile_expr(
                 module,
                 plan,
                 func_ids,
+                trap_func_id,
                 current_function,
                 lhs,
                 scopes,
@@ -822,11 +868,12 @@ fn compile_expr(
                 module,
                 plan,
                 func_ids,
+                trap_func_id,
                 current_function,
                 rhs,
                 scopes,
             )?;
-            compile_binop(builder, lhs, op, rhs, current_function)
+            compile_binop(builder, module, trap_func_id, lhs, op, rhs, current_function)
         }
         Expr::Call(callee, args) => {
             let Expr::Var(name) = callee.as_ref() else {
@@ -846,6 +893,7 @@ fn compile_expr(
                         module,
                         plan,
                         func_ids,
+                        trap_func_id,
                         current_function,
                         arg,
                         scopes,
@@ -872,6 +920,7 @@ fn compile_if(
     module: &mut JITModule,
     plan: &ModulePlan<'_>,
     func_ids: &BTreeMap<String, FuncId>,
+    trap_func_id: FuncId,
     current_function: &str,
     condition: &Expr,
     then_branch: &Expr,
@@ -883,6 +932,7 @@ fn compile_if(
         module,
         plan,
         func_ids,
+        trap_func_id,
         current_function,
         condition,
         scopes,
@@ -900,6 +950,7 @@ fn compile_if(
         module,
         plan,
         func_ids,
+        trap_func_id,
         current_function,
         then_branch,
         scopes,
@@ -914,6 +965,7 @@ fn compile_if(
             module,
             plan,
             func_ids,
+            trap_func_id,
             current_function,
             value,
             scopes,
@@ -936,6 +988,7 @@ fn compile_logical(
     module: &mut JITModule,
     plan: &ModulePlan<'_>,
     func_ids: &BTreeMap<String, FuncId>,
+    trap_func_id: FuncId,
     current_function: &str,
     lhs: &Expr,
     rhs: &Expr,
@@ -947,6 +1000,7 @@ fn compile_logical(
         module,
         plan,
         func_ids,
+        trap_func_id,
         current_function,
         lhs,
         scopes,
@@ -979,6 +1033,7 @@ fn compile_logical(
         module,
         plan,
         func_ids,
+        trap_func_id,
         current_function,
         rhs,
         scopes,
@@ -996,6 +1051,8 @@ fn compile_logical(
 
 fn compile_binop(
     builder: &mut FunctionBuilder<'_>,
+    module: &mut JITModule,
+    trap_func_id: FuncId,
     lhs: BoundValue,
     op: &BinOp,
     rhs: BoundValue,
@@ -1004,40 +1061,99 @@ fn compile_binop(
     let value = match op {
         BinOp::Add => {
             let (result, overflow) = builder.ins().sadd_overflow(lhs.value, rhs.value);
-            builder.ins().trapnz(overflow, TrapCode::INTEGER_OVERFLOW);
-            BoundValue {
-                value: result,
-                ty: NativeType::I64,
-            }
+            emit_arith_guard(builder, module, trap_func_id, overflow, TRAP_OVERFLOW, result, NativeType::I64)
         }
         BinOp::Sub => {
             let (result, overflow) = builder.ins().ssub_overflow(lhs.value, rhs.value);
-            builder.ins().trapnz(overflow, TrapCode::INTEGER_OVERFLOW);
-            BoundValue {
-                value: result,
-                ty: NativeType::I64,
-            }
+            emit_arith_guard(builder, module, trap_func_id, overflow, TRAP_OVERFLOW, result, NativeType::I64)
         }
         BinOp::Mul => {
             let (result, overflow) = builder.ins().smul_overflow(lhs.value, rhs.value);
-            builder.ins().trapnz(overflow, TrapCode::INTEGER_OVERFLOW);
-            BoundValue {
-                value: result,
-                ty: NativeType::I64,
-            }
+            emit_arith_guard(builder, module, trap_func_id, overflow, TRAP_OVERFLOW, result, NativeType::I64)
         }
         BinOp::Div => {
-            // sdiv already traps with INTEGER_DIVISION_BY_ZERO on zero divisor
-            // and with INTEGER_OVERFLOW for i64::MIN / -1.
+            // Check divisor == 0.
+            let is_zero = builder.ins().icmp_imm(IntCC::Equal, rhs.value, 0);
+            let safe_block = builder.create_block();
+            let div_block = builder.create_block();
+            let merge_block = builder.create_block();
+            builder.append_block_param(merge_block, types::I64);
+
+            builder.ins().brif(is_zero, safe_block, &[], div_block, &[]);
+
+            // div_zero error path.
+            builder.switch_to_block(safe_block);
+            builder.seal_block(safe_block);
+            let trap_ref = module.declare_func_in_func(trap_func_id, builder.func);
+            let code = builder.ins().iconst(types::I64, TRAP_DIV_ZERO);
+            builder.ins().call(trap_ref, &[code]);
+            let zero = builder.ins().iconst(types::I64, 0);
+            builder.ins().jump(merge_block, &[zero]);
+
+            // Check i64::MIN / -1 overflow.
+            builder.switch_to_block(div_block);
+            builder.seal_block(div_block);
+            let i64_min = builder.ins().iconst(types::I64, i64::MIN);
+            let lhs_is_min = builder.ins().icmp(IntCC::Equal, lhs.value, i64_min);
+            let rhs_is_neg_one = builder.ins().icmp_imm(IntCC::Equal, rhs.value, -1);
+            let is_div_overflow = builder.ins().band(lhs_is_min, rhs_is_neg_one);
+            let ok_block = builder.create_block();
+            let overflow_block = builder.create_block();
+            builder
+                .ins()
+                .brif(is_div_overflow, overflow_block, &[], ok_block, &[]);
+
+            // div overflow error path.
+            builder.switch_to_block(overflow_block);
+            builder.seal_block(overflow_block);
+            let trap_ref2 = module.declare_func_in_func(trap_func_id, builder.func);
+            let code2 = builder.ins().iconst(types::I64, TRAP_DIV_OVERFLOW);
+            builder.ins().call(trap_ref2, &[code2]);
+            let zero2 = builder.ins().iconst(types::I64, 0);
+            builder.ins().jump(merge_block, &[zero2]);
+
+            // Safe division.
+            builder.switch_to_block(ok_block);
+            builder.seal_block(ok_block);
+            let result = builder.ins().sdiv(lhs.value, rhs.value);
+            builder.ins().jump(merge_block, &[result]);
+
+            builder.switch_to_block(merge_block);
+            builder.seal_block(merge_block);
             BoundValue {
-                value: builder.ins().sdiv(lhs.value, rhs.value),
+                value: builder.block_params(merge_block)[0],
                 ty: NativeType::I64,
             }
         }
         BinOp::Mod => {
-            // srem already traps with INTEGER_DIVISION_BY_ZERO on zero divisor.
+            // Check divisor == 0.
+            let is_zero = builder.ins().icmp_imm(IntCC::Equal, rhs.value, 0);
+            let error_block = builder.create_block();
+            let ok_block = builder.create_block();
+            let merge_block = builder.create_block();
+            builder.append_block_param(merge_block, types::I64);
+
+            builder.ins().brif(is_zero, error_block, &[], ok_block, &[]);
+
+            // mod_zero error path.
+            builder.switch_to_block(error_block);
+            builder.seal_block(error_block);
+            let trap_ref = module.declare_func_in_func(trap_func_id, builder.func);
+            let code = builder.ins().iconst(types::I64, TRAP_MOD_ZERO);
+            builder.ins().call(trap_ref, &[code]);
+            let zero = builder.ins().iconst(types::I64, 0);
+            builder.ins().jump(merge_block, &[zero]);
+
+            // Safe modulo.
+            builder.switch_to_block(ok_block);
+            builder.seal_block(ok_block);
+            let result = builder.ins().srem(lhs.value, rhs.value);
+            builder.ins().jump(merge_block, &[result]);
+
+            builder.switch_to_block(merge_block);
+            builder.seal_block(merge_block);
             BoundValue {
-                value: builder.ins().srem(lhs.value, rhs.value),
+                value: builder.block_params(merge_block)[0],
                 ty: NativeType::I64,
             }
         }
@@ -1117,54 +1233,99 @@ fn unit_value(builder: &mut FunctionBuilder<'_>) -> BoundValue {
     }
 }
 
+/// Emit a conditional arithmetic error guard in JIT IR.
+///
+/// If `condition` is non-zero, calls `spore_arith_trap(trap_code)` and
+/// continues with 0 as the placeholder result. Otherwise continues with
+/// `ok_result`. The caller checks the thread-local after the JIT call
+/// returns and converts any set trap code into `Err(NativeError)`.
+fn emit_arith_guard(
+    builder: &mut FunctionBuilder<'_>,
+    module: &mut JITModule,
+    trap_func_id: FuncId,
+    condition: cranelift_codegen::ir::Value,
+    trap_code: i64,
+    ok_result: cranelift_codegen::ir::Value,
+    ty: NativeType,
+) -> BoundValue {
+    let trap_block = builder.create_block();
+    let ok_block = builder.create_block();
+    let merge_block = builder.create_block();
+    builder.append_block_param(merge_block, types::I64);
+
+    builder.ins().brif(condition, trap_block, &[], ok_block, &[]);
+
+    builder.switch_to_block(trap_block);
+    builder.seal_block(trap_block);
+    let trap_ref = module.declare_func_in_func(trap_func_id, builder.func);
+    let code_val = builder.ins().iconst(types::I64, trap_code);
+    builder.ins().call(trap_ref, &[code_val]);
+    let zero = builder.ins().iconst(types::I64, 0);
+    builder.ins().jump(merge_block, &[zero]);
+
+    builder.switch_to_block(ok_block);
+    builder.seal_block(ok_block);
+    builder.ins().jump(merge_block, &[ok_result]);
+
+    builder.switch_to_block(merge_block);
+    builder.seal_block(merge_block);
+    BoundValue {
+        value: builder.block_params(merge_block)[0],
+        ty,
+    }
+}
+
 fn invoke_compiled_function(ptr: *const u8, args: &[i64]) -> Result<i64, NativeError> {
     macro_rules! call {
         ($ptr:expr, []) => {{
             let function: unsafe extern "C" fn() -> i64 = unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function() })
+            unsafe { function() }
         }};
         ($ptr:expr, [$a0:expr]) => {{
             let function: unsafe extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function($a0) })
+            unsafe { function($a0) }
         }};
         ($ptr:expr, [$a0:expr, $a1:expr]) => {{
             let function: unsafe extern "C" fn(i64, i64) -> i64 =
                 unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function($a0, $a1) })
+            unsafe { function($a0, $a1) }
         }};
         ($ptr:expr, [$a0:expr, $a1:expr, $a2:expr]) => {{
             let function: unsafe extern "C" fn(i64, i64, i64) -> i64 =
                 unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function($a0, $a1, $a2) })
+            unsafe { function($a0, $a1, $a2) }
         }};
         ($ptr:expr, [$a0:expr, $a1:expr, $a2:expr, $a3:expr]) => {{
             let function: unsafe extern "C" fn(i64, i64, i64, i64) -> i64 =
                 unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function($a0, $a1, $a2, $a3) })
+            unsafe { function($a0, $a1, $a2, $a3) }
         }};
         ($ptr:expr, [$a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr]) => {{
             let function: unsafe extern "C" fn(i64, i64, i64, i64, i64) -> i64 =
                 unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function($a0, $a1, $a2, $a3, $a4) })
+            unsafe { function($a0, $a1, $a2, $a3, $a4) }
         }};
         ($ptr:expr, [$a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr]) => {{
             let function: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64 =
                 unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function($a0, $a1, $a2, $a3, $a4, $a5) })
+            unsafe { function($a0, $a1, $a2, $a3, $a4, $a5) }
         }};
         ($ptr:expr, [$a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr]) => {{
             let function: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64 =
                 unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function($a0, $a1, $a2, $a3, $a4, $a5, $a6) })
+            unsafe { function($a0, $a1, $a2, $a3, $a4, $a5, $a6) }
         }};
         ($ptr:expr, [$a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr, $a5:expr, $a6:expr, $a7:expr]) => {{
             let function: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 =
                 unsafe { std::mem::transmute($ptr) };
-            Ok(unsafe { function($a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7) })
+            unsafe { function($a0, $a1, $a2, $a3, $a4, $a5, $a6, $a7) }
         }};
     }
 
-    match args {
+    // Clear any trap flag left by a previous call on this thread.
+    ARITH_TRAP.with(|cell| cell.set(0));
+
+    let raw = match args {
         [] => call!(ptr, []),
         [a0] => call!(ptr, [*a0]),
         [a0, a1] => call!(ptr, [*a0, *a1]),
@@ -1176,8 +1337,25 @@ fn invoke_compiled_function(ptr: *const u8, args: &[i64]) -> Result<i64, NativeE
         [a0, a1, a2, a3, a4, a5, a6, a7] => {
             call!(ptr, [*a0, *a1, *a2, *a3, *a4, *a5, *a6, *a7])
         }
-        _ => Err(NativeError::unsupported(format!(
-            "entry invocation supports at most {MAX_ENTRY_ARGS} scalar arguments"
-        ))),
+        _ => {
+            return Err(NativeError::unsupported(format!(
+                "entry invocation supports at most {MAX_ENTRY_ARGS} scalar arguments"
+            )));
+        }
+    };
+
+    // Check whether JIT code signalled a recoverable arithmetic error.
+    let trap_code = ARITH_TRAP.with(|cell| cell.get());
+    if trap_code != 0 {
+        ARITH_TRAP.with(|cell| cell.set(0));
+        return Err(NativeError::new(match trap_code {
+            TRAP_OVERFLOW => "integer overflow".to_string(),
+            TRAP_DIV_ZERO => "division by zero".to_string(),
+            TRAP_MOD_ZERO => "modulo by zero".to_string(),
+            TRAP_DIV_OVERFLOW => "integer overflow in division (i64::MIN / -1)".to_string(),
+            other => format!("arithmetic error (code {other})"),
+        }));
     }
+
+    Ok(raw)
 }
