@@ -14,6 +14,28 @@ Spore is a compiled language where function signatures are "gravity centers" —
 - **Structured Concurrency**: Task trees with cancellation propagation, channels for communication
 - **Expression-Based**: Everything is an expression, no loops (recursion + higher-order functions)
 
+## Install
+
+The distributable CLI package on PyPI will be named `spore-cli`.
+Tagged `v*` releases are set up to publish platform wheels to both
+[GitHub Releases](https://github.com/spore-lang/spore/releases) and PyPI.
+Until the first tagged release lands, use the source-based quick start below.
+
+After the first public package is live, install it with:
+
+```bash
+uv tool install spore-cli
+spore --help
+```
+
+If you prefer `pipx`, use:
+
+```bash
+pipx install spore-cli
+```
+
+If you need unreleased changes, keep using the source-based quick start below.
+
 ## Canonical Surface Syntax
 
 - Modules come only from file paths; there is no `module ...` header.
@@ -218,7 +240,11 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. 
 
 ## Packaging
 
-The `spore` CLI is packaged from `crates/spore` via `maturin` so it can be built and published as a PyPI binary package.
+The `spore` executable is packaged from `crates/spore` via `maturin` and will
+be published to PyPI as `spore-cli`.
+Tagged `v*` pushes run `.github/workflows/release-cli.yml`, which builds
+release artifacts for Linux, Windows, and macOS, uploads them to GitHub
+Releases, and publishes the same artifacts to PyPI.
 
 ```bash
 just package-cli        # build a wheel into dist/
