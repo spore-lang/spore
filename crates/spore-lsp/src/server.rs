@@ -89,6 +89,22 @@ pub struct HoleSurface {
     pub display_name: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PositionedHoleSurface {
+    surface: HoleSurface,
+    line: u32,
+    start_col: u32,
+    end_col: u32,
+    start_offset: usize,
+}
+
+#[derive(Debug, Clone)]
+struct EnclosingCallable {
+    name: String,
+    span_start: usize,
+    span_end: usize,
+}
+
 pub struct LspServer {
     pub documents: HashMap<String, String>,
 }
@@ -561,58 +577,71 @@ fn is_hole_ident_char(b: u8) -> bool {
     is_ident_char(b)
 }
 
-pub fn hole_at_position(source: &str, line: u32, col: u32) -> Option<HoleSurface> {
-    let line_text = source.lines().nth(line as usize)?;
-    let bytes = line_text.as_bytes();
-    if bytes.is_empty() {
-        return None;
-    }
+fn collect_hole_surfaces(source: &str) -> Vec<PositionedHoleSurface> {
+    let mut holes = Vec::new();
+    let mut line_start_offset = 0usize;
 
-    let candidates = [
-        col as usize,
-        (col as usize).saturating_sub(1),
-        (col as usize).saturating_add(1),
-    ];
+    for (line_idx, line_text) in source.lines().enumerate() {
+        let bytes = line_text.as_bytes();
+        let mut col = 0usize;
 
-    for col in candidates {
-        let Some(&current) = bytes.get(col) else {
-            continue;
-        };
-
-        let start = if current == b'?' {
-            col
-        } else if is_hole_ident_char(current) {
-            let mut start = col;
-            while start > 0 && is_hole_ident_char(bytes[start - 1]) {
-                start -= 1;
-            }
-            if start > 0 && bytes[start - 1] == b'?' {
-                start - 1
-            } else {
+        while col < bytes.len() {
+            if bytes[col] != b'?' {
+                col += 1;
                 continue;
             }
-        } else {
-            continue;
-        };
 
-        let mut end = start + 1;
-        while end < bytes.len() && is_hole_ident_char(bytes[end]) {
-            end += 1;
+            let start = col;
+            let mut end = start + 1;
+            while end < bytes.len() && is_hole_ident_char(bytes[end]) {
+                end += 1;
+            }
+
+            let display_name = line_text[start..end].to_string();
+            let name = display_name.strip_prefix('?').and_then(|suffix| {
+                if suffix.is_empty() {
+                    None
+                } else {
+                    Some(suffix.to_string())
+                }
+            });
+
+            holes.push(PositionedHoleSurface {
+                surface: HoleSurface { name, display_name },
+                line: line_idx as u32,
+                start_col: start as u32,
+                end_col: end as u32,
+                start_offset: line_start_offset + start,
+            });
+
+            col = end;
         }
 
-        let display_name = line_text[start..end].to_string();
-        let name = display_name.strip_prefix('?').and_then(|suffix| {
-            if suffix.is_empty() {
-                None
-            } else {
-                Some(suffix.to_string())
-            }
-        });
-
-        return Some(HoleSurface { name, display_name });
+        line_start_offset += line_text.len() + 1;
     }
 
-    None
+    holes
+}
+
+pub fn hole_at_position(source: &str, line: u32, col: u32) -> Option<HoleSurface> {
+    collect_hole_surfaces(source)
+        .into_iter()
+        .find(|hole| hole.line == line && hole.start_col <= col && col <= hole.end_col)
+        .map(|hole| hole.surface)
+}
+
+fn hole_matches_surface(candidate: &sporec_driver::HoleInfoJson, hole: &HoleSurface) -> bool {
+    match hole.name.as_deref() {
+        Some(name) => candidate.name == name,
+        None => candidate.display_name == hole.display_name,
+    }
+}
+
+fn same_hole_surface(candidate: &HoleSurface, hole: &HoleSurface) -> bool {
+    match hole.name.as_deref() {
+        Some(name) => candidate.name.as_deref() == Some(name),
+        None => candidate.display_name == hole.display_name,
+    }
 }
 
 fn byte_offset_at_position(source: &str, line: u32, col: u32) -> Option<usize> {
@@ -623,7 +652,7 @@ fn byte_offset_at_position(source: &str, line: u32, col: u32) -> Option<usize> {
     })
 }
 
-fn enclosing_function_at_position(source: &str, line: u32, col: u32) -> Option<String> {
+fn enclosing_callable_at_position(source: &str, line: u32, col: u32) -> Option<EnclosingCallable> {
     let byte_offset = byte_offset_at_position(source, line, col)?;
     let module = sporec_parser::parse(source).ok()?;
 
@@ -634,27 +663,75 @@ fn enclosing_function_at_position(source: &str, line: u32, col: u32) -> Option<S
         }
 
         match item {
-            Item::Function(function) => Some(function.name.clone()),
-            Item::HandlerDef(handler) => Some(handler.name.clone()),
+            Item::Function(function) => Some(EnclosingCallable {
+                name: function.name.clone(),
+                span_start: span.start,
+                span_end: span.end,
+            }),
+            Item::HandlerDef(handler) => Some(EnclosingCallable {
+                name: handler.name.clone(),
+                span_start: span.start,
+                span_end: span.end,
+            }),
             _ => None,
         }
     })
 }
 
+fn hole_location_matches(
+    candidate: &sporec_driver::HoleInfoJson,
+    line: u32,
+    col: u32,
+    hole: &HoleSurface,
+) -> bool {
+    let Some(location) = &candidate.location else {
+        return false;
+    };
+
+    let location_line = location.line.saturating_sub(1);
+    let location_col = location.column.saturating_sub(1);
+    let end_col = location_col + hole.display_name.len() as u32;
+
+    location_line == line && location_col <= col && col <= end_col
+}
+
+fn hovered_hole_ordinal(
+    source: &str,
+    scope: Option<&EnclosingCallable>,
+    hole: &HoleSurface,
+    line: u32,
+    col: u32,
+) -> Option<usize> {
+    collect_hole_surfaces(source)
+        .into_iter()
+        .filter(|candidate| same_hole_surface(&candidate.surface, hole))
+        .filter(|candidate| {
+            scope.is_none_or(|scope| {
+                scope.span_start <= candidate.start_offset
+                    && candidate.start_offset <= scope.span_end
+            })
+        })
+        .enumerate()
+        .find_map(|(idx, candidate)| {
+            (candidate.line == line && candidate.start_col <= col && col <= candidate.end_col)
+                .then_some(idx)
+        })
+}
+
 fn build_hover_for_hole(source: &str, line: u32, col: u32, hole: &HoleSurface) -> Option<String> {
     let report = sporec_driver::holes_report(source).ok()?;
-    let enclosing_function = enclosing_function_at_position(source, line, col);
+    let enclosing_callable = enclosing_callable_at_position(source, line, col);
 
     let mut matches: Vec<&sporec_driver::HoleInfoJson> = report
         .holes
         .iter()
-        .filter(|candidate| match hole.name.as_deref() {
-            Some(name) => candidate.name == name,
-            None => candidate.display_name == hole.display_name,
-        })
+        .filter(|candidate| hole_matches_surface(candidate, hole))
         .collect();
 
-    if let Some(function) = enclosing_function.as_deref() {
+    if let Some(function) = enclosing_callable
+        .as_ref()
+        .map(|callable| callable.name.as_str())
+    {
         let scoped: Vec<_> = matches
             .iter()
             .copied()
@@ -666,6 +743,22 @@ fn build_hover_for_hole(source: &str, line: u32, col: u32, hole: &HoleSurface) -
         if !scoped.is_empty() {
             matches = scoped;
         }
+    }
+
+    if let Some(exact_match) = matches
+        .iter()
+        .copied()
+        .find(|candidate| hole_location_matches(candidate, line, col, hole))
+    {
+        return Some(format_hole_hover(exact_match));
+    }
+
+    if matches.len() > 1
+        && let Some(index) =
+            hovered_hole_ordinal(source, enclosing_callable.as_ref(), hole, line, col)
+        && let Some(candidate) = matches.get(index)
+    {
+        return Some(format_hole_hover(candidate));
     }
 
     if matches.len() == 1 {

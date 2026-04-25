@@ -332,6 +332,69 @@ fn second() -> String { ?todo }
     );
 }
 
+#[test]
+fn test_hover_distinguishes_named_holes_in_same_function() {
+    let source = "fn pair() -> Int { let lhs = ?todo; let rhs = ?todo; lhs }\n";
+    let positions: Vec<(u32, u32)> = source
+        .lines()
+        .enumerate()
+        .flat_map(|(line, text)| {
+            text.match_indices("?todo")
+                .map(move |(col, _)| (line as u32, col as u32))
+        })
+        .collect();
+
+    let first =
+        build_hover_for_position(source, positions[0].0, positions[0].1).expect("first named hole");
+    let second = build_hover_for_position(source, positions[1].0, positions[1].1)
+        .expect("second named hole");
+
+    assert!(
+        !first.contains("lhs: Int"),
+        "first named hole should not include later binding, got: {first}"
+    );
+    assert!(
+        second.contains("lhs: Int"),
+        "second named hole should include prior binding, got: {second}"
+    );
+}
+
+#[test]
+fn test_hover_distinguishes_unnamed_holes_in_same_function() {
+    let source = "fn pair() -> Int { let a = ?; let b = ?; a }\n";
+
+    let hole_lines: Vec<(u32, u32)> = source
+        .lines()
+        .enumerate()
+        .flat_map(|(line, text)| {
+            text.match_indices('?')
+                .map(move |(col, _)| (line as u32, col as u32))
+        })
+        .collect();
+
+    let first = build_hover_for_position(source, hole_lines[0].0, hole_lines[0].1)
+        .expect("first unnamed hole hover");
+    let second = build_hover_for_position(source, hole_lines[1].0, hole_lines[1].1)
+        .expect("second unnamed hole hover");
+
+    assert!(
+        first.contains("? : Int"),
+        "expected first hole hover, got: {first}"
+    );
+    assert!(
+        second.contains("? : Int"),
+        "expected second hole hover, got: {second}"
+    );
+    assert!(
+        !first.contains("a: Int"),
+        "first hole should not include later binding, got: {first}"
+    );
+    assert!(
+        second.contains("a: Int"),
+        "second hole should include prior binding, got: {second}"
+    );
+}
+
 // ── word_at_position tests ───────────────────────────────────────────
 
 #[test]
@@ -362,6 +425,13 @@ fn test_hole_at_position_unnamed_hole() {
     let hole = hole_at_position(source, 0, 20).expect("hole at position");
     assert_eq!(hole.display_name, "?");
     assert_eq!(hole.name, None);
+}
+
+#[test]
+fn test_hole_at_position_before_hole_returns_none() {
+    let source = "fn fill() -> Int {  ?todo }";
+    let hole_col = source.find("?todo").expect("hole start") as u32;
+    assert!(hole_at_position(source, 0, hole_col - 1).is_none());
 }
 
 // ── Safety tests (no panics on malformed input) ──────────────────────
