@@ -67,7 +67,7 @@ pub(super) fn named_function_closure(name: &str, func: &FnDef) -> Value {
         body: func
             .body
             .clone()
-            .unwrap_or(Expr::Hole(Some(name.to_string()), None, None)),
+            .unwrap_or(Expr::Hole(Some(name.to_string()), None, None, None)),
         env: BTreeMap::new(),
     })
 }

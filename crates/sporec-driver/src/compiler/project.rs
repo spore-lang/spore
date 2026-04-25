@@ -473,7 +473,7 @@ fn runtime_platform_for_target(target: &ResolvedProjectTarget) -> Result<Runtime
 
 fn is_hole_backed_contract_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Hole(_, _, _) => true,
+        Expr::Hole(_, _, _, _) => true,
         Expr::Block(stmts, Some(expr)) if stmts.is_empty() => is_hole_backed_contract_expr(expr),
         Expr::Block(stmts, None) => match stmts.as_slice() {
             [Stmt::Expr(expr)] => is_hole_backed_contract_expr(expr),

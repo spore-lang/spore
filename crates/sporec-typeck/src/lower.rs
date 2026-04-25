@@ -356,7 +356,7 @@ impl Lowering {
             ast::Expr::List(elems) => {
                 HirExpr::List(elems.iter().map(|e| self.lower_expr(e)).collect())
             }
-            ast::Expr::Hole(name, _ty_hint, _) => {
+            ast::Expr::Hole(name, _ty_hint, _, _) => {
                 HirExpr::Hole(name.clone().unwrap_or_else(|| "_".to_string()))
             }
 

@@ -559,7 +559,9 @@ fn test_hole() {
             let body = f.body.as_ref().unwrap();
             match body {
                 sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    sporec_parser::ast::Expr::Hole(Some(name), _, _) => assert_eq!(name, "todo"),
+                    sporec_parser::ast::Expr::Hole(Some(name), _, _, _) => {
+                        assert_eq!(name, "todo")
+                    }
                     _ => panic!("expected hole, got {:?}", tail),
                 },
                 _ => panic!("expected block"),
@@ -577,7 +579,7 @@ fn test_unnamed_hole() {
             let body = f.body.as_ref().unwrap();
             match body {
                 sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    sporec_parser::ast::Expr::Hole(None, None, None) => {}
+                    sporec_parser::ast::Expr::Hole(None, None, None, _) => {}
                     _ => panic!("expected unnamed hole, got {:?}", tail),
                 },
                 _ => panic!("expected block"),

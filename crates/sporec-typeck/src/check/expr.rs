@@ -286,7 +286,7 @@ impl Checker {
 
             Expr::Try(expr) => self.check_expr(expr),
 
-            Expr::Hole(name, ty_hint, allows) => {
+            Expr::Hole(name, ty_hint, allows, span) => {
                 let hole_name = name
                     .clone()
                     .unwrap_or_else(|| self.fresh_unnamed_hole_name());
@@ -349,6 +349,7 @@ impl Checker {
                 self.hole_report.holes.push(HoleInfo {
                     name: hole_name,
                     location: None,
+                    span: *span,
                     expected_type: expected,
                     type_inferred_from,
                     function: self.current_function.clone(),
@@ -879,7 +880,7 @@ impl Checker {
                     .sum();
                 stmt_spawns + tail.as_ref().map_or(0, |e| Self::count_spawns(e))
             }
-            Expr::Hole(_, _, _)
+            Expr::Hole(_, _, _, _)
             | Expr::IntLit(_)
             | Expr::FloatLit(_)
             | Expr::StrLit(_)

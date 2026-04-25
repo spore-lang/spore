@@ -139,7 +139,7 @@ impl<'a> Formatter<'a> {
                 self.write("try ");
                 self.fmt_expr(expr);
             }
-            Expr::Hole(name, ty, allows) => {
+            Expr::Hole(name, ty, allows, _) => {
                 self.write("?");
                 if let Some(name) = name {
                     self.write(name);

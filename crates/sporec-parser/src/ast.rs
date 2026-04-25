@@ -241,7 +241,12 @@ pub enum Expr {
     Match(Box<Expr>, Vec<MatchArm>),
     Block(Vec<Stmt>, Option<Box<Expr>>),
     Try(Box<Expr>),
-    Hole(Option<String>, Option<Box<TypeExpr>>, Option<Vec<String>>),
+    Hole(
+        Option<String>,
+        Option<Box<TypeExpr>>,
+        Option<Vec<String>>,
+        Option<Span>,
+    ),
     StructLit(String, Vec<(String, Expr)>),
     Spawn(Box<Expr>),
     Await(Box<Expr>),

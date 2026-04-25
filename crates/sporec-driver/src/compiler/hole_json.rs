@@ -1,9 +1,10 @@
+use crate::diagnostics::source_file;
 use std::collections::BTreeMap;
 
 use sporec_diagnostics::{
     HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson, HoleCostBudgetJson,
     HoleDependencyEdgeJson, HoleDependencyGraphJson, HoleDependencyKind, HoleErrorClusterJson,
-    HoleInfoJson, HoleLocationJson, HoleReportJson, HoleSummary, HoleTypeInferenceJson,
+    HoleInfoJson, HoleLocationJson, HoleReportJson, HoleSummary, HoleTypeInferenceJson, SourceFile,
 };
 use sporec_typeck::hole::{
     CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
@@ -59,15 +60,31 @@ fn hole_dependency_kind_rank(kind: &HoleDependencyKind) -> u8 {
     }
 }
 
-fn hole_info_json(hole: &TypeckHoleInfo) -> HoleInfoJson {
-    HoleInfoJson {
-        name: hole.name.clone(),
-        display_name: display_hole_name(&hole.name),
-        location: hole.location.as_ref().map(|location| HoleLocationJson {
+fn hole_location_json(source: &SourceFile, hole: &TypeckHoleInfo) -> Option<HoleLocationJson> {
+    hole.location
+        .as_ref()
+        .map(|location| HoleLocationJson {
             file: location.file.clone(),
             line: location.line,
             column: location.column,
-        }),
+        })
+        .or_else(|| {
+            hole.span.map(|span| {
+                let position = source.position(span.start);
+                HoleLocationJson {
+                    file: source.name().to_string(),
+                    line: position.line as u32,
+                    column: position.col as u32,
+                }
+            })
+        })
+}
+
+fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
+    HoleInfoJson {
+        name: hole.name.clone(),
+        display_name: display_hole_name(&hole.name),
+        location: hole_location_json(source, hole),
         expected_type: hole.expected_type.to_string(),
         type_inferred_from: hole.type_inferred_from.clone(),
         function: hole.function.clone(),
@@ -162,8 +179,13 @@ fn hole_dependency_graph_json(
 /// Analyze holes in Spore source and return the shared JSON report payload.
 pub fn holes_report(source: &str) -> Result<HoleReportJson, String> {
     let report = load_hole_report(source)?;
+    let source_file = source_file("file:///buffer.sp", source);
     Ok(HoleReportJson {
-        holes: report.holes.iter().map(hole_info_json).collect(),
+        holes: report
+            .holes
+            .iter()
+            .map(|hole| hole_info_json(&source_file, hole))
+            .collect(),
         dependency_graph: hole_dependency_graph_json(&report.dependency_graph),
     })
 }
@@ -177,6 +199,7 @@ pub fn holes(source: &str) -> Result<String, String> {
 /// Inspect a named hole and return the shared JSON payload used by `query-hole`.
 pub fn query_hole_report(file: &str, source: &str, hole: &str) -> Result<HoleInfoJson, String> {
     let report = load_hole_report(source)?;
+    let source_file = source_file(file.replace('\\', "/"), source);
     let needle = hole.strip_prefix('?').unwrap_or(hole);
     let matches: Vec<&TypeckHoleInfo> = report
         .holes
@@ -185,16 +208,22 @@ pub fn query_hole_report(file: &str, source: &str, hole: &str) -> Result<HoleInf
         .collect();
 
     match matches.as_slice() {
-        [hole] => Ok(hole_info_json(hole)),
+        [hole] => Ok(hole_info_json(&source_file, hole)),
         [] => Err(format!("hole `?{needle}` not found in `{file}`")),
         _ => {
             let locations = matches
                 .iter()
-                .map(|candidate| candidate.function.as_str())
+                .map(|candidate| {
+                    hole_location_json(&source_file, candidate)
+                        .map(|location| {
+                            format!("{}:{}:{}", location.file, location.line, location.column)
+                        })
+                        .unwrap_or_else(|| candidate.function.clone())
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             Err(format!(
-                "hole `?{needle}` is ambiguous in `{file}`; matching functions: {locations}"
+                "hole `?{needle}` is ambiguous in `{file}`; matching locations: {locations}"
             ))
         }
     }
