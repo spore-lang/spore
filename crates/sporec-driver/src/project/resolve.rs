@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use sporec_typeck::platform::PlatformRegistry;
 
 use super::toml_parse::{
-    ensure_entry_exists, load_project_manifest, normalize_entry_path, normalize_module_path,
-    path_stem,
+    load_project_manifest, normalize_entry_path, normalize_module_path, path_stem,
+    resolve_entry_source_root,
 };
 use super::{DependencySpec, ProjectManifest, ResolvedPlatformContract, ResolvedProjectTarget};
 
@@ -38,7 +38,7 @@ pub fn resolve_project_target_by_path(
                 .map(|path| path == normalized)
                 .unwrap_or(false)
         }) else {
-            return module_only_target(root, &normalized, dependency_roots(root, &manifest));
+            return module_only_target(root, &normalized, dependency_source_roots(root, &manifest));
         };
         return resolve_declared_entry(root, &manifest, entry_name);
     }
@@ -64,8 +64,9 @@ fn resolve_declared_entry(
         )
     })?;
     let entry_path = normalize_entry_path(&entry.path)?;
-    ensure_entry_exists(root, &entry_path)?;
-    let dependency_roots = dependency_roots(root, manifest);
+    let source_roots = manifest.source_roots();
+    let entry_source_root = resolve_entry_source_root(root, &source_roots, &entry_path)?;
+    let dependency_source_roots = dependency_source_roots(root, manifest);
 
     let (startup_function, platform_contract) =
         resolve_platform_binding(root, manifest, &project.platform)?;
@@ -73,10 +74,12 @@ fn resolve_declared_entry(
     Ok(ResolvedProjectTarget {
         entry_name: entry_name.to_string(),
         entry_path,
+        entry_source_root,
+        source_roots,
         platform_name: Some(project.platform.clone()),
         startup_function: Some(startup_function),
         platform_contract,
-        dependency_roots,
+        dependency_source_roots,
     })
 }
 
@@ -84,16 +87,26 @@ fn legacy_default_target(
     root: &Path,
     manifest: &ProjectManifest,
 ) -> Result<ResolvedProjectTarget, String> {
-    let dependency_roots = dependency_roots(root, manifest);
+    let dependency_source_roots = dependency_source_roots(root, manifest);
     match manifest.package_type.as_deref() {
-        Some("application") => legacy_named_target(root, "app", "main.sp", true, dependency_roots),
-        Some("platform") => legacy_named_target(root, "host", "host.sp", true, dependency_roots),
-        Some("package") => legacy_named_target(root, "lib", "lib.sp", false, dependency_roots),
+        Some("application") => legacy_named_target(
+            root,
+            "app",
+            "main.sp",
+            Some(("cli", "main")),
+            dependency_source_roots,
+        ),
+        Some("platform") => {
+            legacy_named_target(root, "host", "host.sp", None, dependency_source_roots)
+        }
+        Some("package") => {
+            legacy_named_target(root, "lib", "lib.sp", None, dependency_source_roots)
+        }
         Some(other) => Err(format!(
             "unsupported legacy `[package].type = \"{other}\"` in `{}`",
             root.join("spore.toml").display()
         )),
-        None => infer_single_default_target(root, dependency_roots),
+        None => infer_single_default_target(root, dependency_source_roots),
     }
 }
 
@@ -102,30 +115,44 @@ fn legacy_target_for_path(
     manifest: &ProjectManifest,
     entry_path: &str,
 ) -> Result<ResolvedProjectTarget, String> {
-    ensure_entry_exists(root, entry_path)?;
-    let dependency_roots = dependency_roots(root, manifest);
+    resolve_entry_source_root(root, &["src".to_string()], entry_path)?;
+    let dependency_source_roots = dependency_source_roots(root, manifest);
 
     match manifest.package_type.as_deref() {
-        Some("application") if entry_path == "main.sp" => {
-            legacy_named_target(root, "app", "main.sp", true, dependency_roots)
-        }
+        Some("application") if entry_path == "main.sp" => legacy_named_target(
+            root,
+            "app",
+            "main.sp",
+            Some(("cli", "main")),
+            dependency_source_roots,
+        ),
         Some("platform") if entry_path == "host.sp" => {
-            legacy_named_target(root, "host", "host.sp", true, dependency_roots)
+            legacy_named_target(root, "host", "host.sp", None, dependency_source_roots)
         }
-        None if entry_path == "main.sp" => {
-            legacy_named_target(root, "app", "main.sp", true, dependency_roots)
-        }
-        None if entry_path == "host.sp" => {
-            legacy_named_target(root, "host", "host.sp", true, dependency_roots)
-        }
+        None if entry_path == "main.sp" => legacy_named_target(
+            root,
+            "app",
+            "main.sp",
+            Some(("cli", "main")),
+            dependency_source_roots,
+        ),
+        None if entry_path == "host.sp" => legacy_named_target(
+            root,
+            "host",
+            "host.sp",
+            Some(("cli", "main")),
+            dependency_source_roots,
+        ),
         Some("package") | Some("application") | Some("platform") | None => {
             Ok(ResolvedProjectTarget {
                 entry_name: path_stem(entry_path),
                 entry_path: entry_path.to_string(),
+                entry_source_root: "src".to_string(),
+                source_roots: vec!["src".to_string()],
                 platform_name: None,
                 startup_function: None,
                 platform_contract: None,
-                dependency_roots,
+                dependency_source_roots,
             })
         }
         Some(other) => Err(format!(
@@ -137,7 +164,7 @@ fn legacy_target_for_path(
 
 fn infer_single_default_target(
     root: &Path,
-    dependency_roots: Vec<PathBuf>,
+    dependency_source_roots: Vec<PathBuf>,
 ) -> Result<ResolvedProjectTarget, String> {
     let mut candidates = Vec::new();
     for (entry_name, path, runnable) in [
@@ -152,7 +179,14 @@ fn infer_single_default_target(
 
     match candidates.as_slice() {
         [(entry_name, path, runnable)] => {
-            legacy_named_target(root, entry_name, path, *runnable, dependency_roots)
+            let startup_binding = runnable.then_some(("cli", "main"));
+            legacy_named_target(
+                root,
+                entry_name,
+                path,
+                startup_binding,
+                dependency_source_roots,
+            )
         }
         [] => Err(format!(
             "could not infer a project default entry path from `{}`; add `[project]` and `[entries]`, set legacy `[package].type`, or pass FILE explicitly",
@@ -174,33 +208,38 @@ fn legacy_named_target(
     root: &Path,
     entry_name: &str,
     entry_path: &str,
-    runnable: bool,
-    dependency_roots: Vec<PathBuf>,
+    startup_binding: Option<(&str, &str)>,
+    dependency_source_roots: Vec<PathBuf>,
 ) -> Result<ResolvedProjectTarget, String> {
-    ensure_entry_exists(root, entry_path)?;
+    resolve_entry_source_root(root, &["src".to_string()], entry_path)?;
     Ok(ResolvedProjectTarget {
         entry_name: entry_name.to_string(),
         entry_path: entry_path.to_string(),
-        platform_name: runnable.then(|| "cli".to_string()),
-        startup_function: runnable.then(|| "main".to_string()),
+        entry_source_root: "src".to_string(),
+        source_roots: vec!["src".to_string()],
+        platform_name: startup_binding.map(|(platform_name, _)| platform_name.to_string()),
+        startup_function: startup_binding.map(|(_, startup_function)| startup_function.to_string()),
         platform_contract: None,
-        dependency_roots,
+        dependency_source_roots,
     })
 }
 
 fn module_only_target(
     root: &Path,
     entry_path: &str,
-    dependency_roots: Vec<PathBuf>,
+    dependency_source_roots: Vec<PathBuf>,
 ) -> Result<ResolvedProjectTarget, String> {
-    ensure_entry_exists(root, entry_path)?;
+    let source_roots = load_project_manifest(root)?.source_roots();
+    let entry_source_root = resolve_entry_source_root(root, &source_roots, entry_path)?;
     Ok(ResolvedProjectTarget {
         entry_name: path_stem(entry_path),
         entry_path: entry_path.to_string(),
+        entry_source_root,
+        source_roots,
         platform_name: None,
         startup_function: None,
         platform_contract: None,
-        dependency_roots,
+        dependency_source_roots,
     })
 }
 
@@ -282,14 +321,21 @@ fn resolve_platform_dependency(
         ));
     }
 
-    let contract_path = dep_root
-        .join("src")
-        .join(contract_module.replace('.', "/"))
-        .with_extension("sp");
-    if !contract_path.is_file() {
+    let contract_rel_path = PathBuf::from(contract_module.replace('.', "/")).with_extension("sp");
+    let mut contract_paths = project_source_roots(&dep_manifest)
+        .into_iter()
+        .map(|source_root| dep_root.join(source_root).join(&contract_rel_path))
+        .filter(|path| path.is_file());
+    let Some(_contract_path) = contract_paths.next() else {
         return Err(format!(
-            "platform dependency `{platform_name}` expects contract module `{contract_module}` at `{}`",
-            contract_path.display()
+            "platform dependency `{platform_name}` expects contract module `{contract_module}` under one of the configured source roots in `{}`",
+            dep_root.join("spore.toml").display()
+        ));
+    };
+    if contract_paths.next().is_some() {
+        return Err(format!(
+            "platform dependency `{platform_name}` resolves contract module `{contract_module}` ambiguously across multiple configured source roots in `{}`",
+            dep_root.join("spore.toml").display()
         ));
     }
 
@@ -312,14 +358,18 @@ fn resolve_dependency_root(root: &Path, dep_path: &str) -> PathBuf {
     }
 }
 
-fn dependency_roots(root: &Path, manifest: &ProjectManifest) -> Vec<PathBuf> {
+fn project_source_roots(manifest: &ProjectManifest) -> Vec<String> {
+    manifest.source_roots()
+}
+
+fn dependency_source_roots(root: &Path, manifest: &ProjectManifest) -> Vec<PathBuf> {
     let mut roots = Vec::new();
     let mut seen = HashSet::new();
-    collect_dependency_roots(root, manifest, &mut roots, &mut seen);
+    collect_dependency_source_roots(root, manifest, &mut roots, &mut seen);
     roots
 }
 
-fn collect_dependency_roots(
+fn collect_dependency_source_roots(
     root: &Path,
     manifest: &ProjectManifest,
     roots: &mut Vec<PathBuf>,
@@ -338,9 +388,11 @@ fn collect_dependency_roots(
         if !seen.insert(normalized_root.clone()) {
             continue;
         }
-        roots.push(normalized_root.clone());
         if let Ok(dep_manifest) = load_project_manifest(&normalized_root) {
-            collect_dependency_roots(&normalized_root, &dep_manifest, roots, seen);
+            for source_root in dep_manifest.source_roots() {
+                roots.push(normalized_root.join(source_root));
+            }
+            collect_dependency_source_roots(&normalized_root, &dep_manifest, roots, seen);
         }
     }
 }

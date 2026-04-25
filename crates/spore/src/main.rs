@@ -288,6 +288,44 @@ mod tests {
     }
 
     #[test]
+    fn test_find_project_target_for_custom_source_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("proj");
+        fs::create_dir_all(project_dir.join("host/lib")).unwrap();
+        fs::write(
+            project_dir.join("spore.toml"),
+            r#"
+            [package]
+            name = "proj"
+
+            [project]
+            platform = "cli"
+            default-entry = "app"
+            source-roots = ["host"]
+
+            [entries.app]
+            path = "main.sp"
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            project_dir.join("host/main.sp"),
+            "fn main() -> () { return }\n",
+        )
+        .unwrap();
+        fs::write(
+            project_dir.join("host/lib/util.sp"),
+            "pub fn x() -> I32 { 1 }\n",
+        )
+        .unwrap();
+
+        let target =
+            find_project_target(project_dir.join("host/lib/util.sp").to_str().unwrap()).unwrap();
+        assert_eq!(target.0, std::fs::canonicalize(&project_dir).unwrap());
+        assert_eq!(target.1, "lib/util.sp");
+    }
+
+    #[test]
     fn test_find_project_target_ignores_files_outside_src() {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("proj");
@@ -402,6 +440,92 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_sp_targets_empty_paths_use_src_root_by_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(
+            dir.join("spore.toml"),
+            r#"
+            [package]
+            name = "demo"
+
+            [project]
+            platform = "cli"
+            default-entry = "app"
+
+            [entries.app]
+            path = "main.sp"
+            "#,
+        )
+        .unwrap();
+        fs::write(dir.join("src/main.sp"), "fn main() -> () { return }\n").unwrap();
+        fs::write(dir.join("notes.sp"), "fn scratch() -> I32 { 1 }\n").unwrap();
+
+        let result = resolve_sp_targets(&[], dir).unwrap();
+        assert_eq!(
+            result,
+            vec![std::fs::canonicalize(dir.join("src/main.sp")).unwrap()]
+        );
+    }
+
+    #[test]
+    fn test_resolve_sp_targets_empty_paths_use_configured_root_and_nested_projects() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::create_dir_all(dir.join("host")).unwrap();
+        fs::create_dir_all(dir.join("examples/hello-app/src")).unwrap();
+        fs::write(
+            dir.join("spore.toml"),
+            r#"
+            [package]
+            name = "basic-cli"
+
+            [project]
+            platform = "cli"
+            default-entry = "host"
+            source-roots = ["host"]
+
+            [entries.host]
+            path = "main.sp"
+            "#,
+        )
+        .unwrap();
+        fs::write(dir.join("host/main.sp"), "fn main() -> () { return }\n").unwrap();
+        fs::write(dir.join("notes.sp"), "fn scratch() -> I32 { 1 }\n").unwrap();
+        fs::write(dir.join("examples/hello.sp"), "fn stray() -> I32 { 1 }\n").unwrap();
+        fs::write(
+            dir.join("examples/hello-app/spore.toml"),
+            r#"
+            [package]
+            name = "hello-app"
+
+            [project]
+            platform = "basic-cli"
+            default-entry = "app"
+
+            [entries.app]
+            path = "main.sp"
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("examples/hello-app/src/main.sp"),
+            "fn main() -> () { return }\n",
+        )
+        .unwrap();
+
+        let result = resolve_sp_targets(&[], dir).unwrap();
+        assert_eq!(
+            result,
+            vec![
+                std::fs::canonicalize(dir.join("examples/hello-app/src/main.sp")).unwrap(),
+                std::fs::canonicalize(dir.join("host/main.sp")).unwrap()
+            ]
+        );
+    }
+
+    #[test]
     fn test_resolve_sp_targets_directory_recurses() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
@@ -457,6 +581,51 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         fs::write(dir.join("ok.sp"), "fn x() -> I32 { 1 }\n").unwrap();
+
+        let dir_arg = vec![dir.to_string_lossy().into_owned()];
+        let code = exec_check(&dir_arg, false, false, false);
+        assert_eq!(code, ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn test_exec_check_legacy_platform_directory_skips_bogus_cli_startup() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(
+            dir.join("spore.toml"),
+            r#"
+            [package]
+            name = "basic-cli"
+            type = "platform"
+
+            [platform]
+            contract-module = "platform_contract"
+            startup-contract = "main"
+            adapter-function = "main_for_host"
+            handled-effects = ["Console", "Env"]
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("src/host.sp"),
+            r#"
+            pub fn main_for_host(app_main: () -> ()) -> () {
+                app_main();
+                return
+            }
+            "#,
+        )
+        .unwrap();
+        fs::write(
+            dir.join("src/platform_contract.sp"),
+            r#"
+            pub fn main() -> () {
+                ?platform_startup_contract
+            }
+            "#,
+        )
+        .unwrap();
 
         let dir_arg = vec![dir.to_string_lossy().into_owned()];
         let code = exec_check(&dir_arg, false, false, false);

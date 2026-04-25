@@ -5,7 +5,10 @@ mod loader;
 mod prelude;
 mod registry;
 
-use sporec_parser::{ast::Visibility, error::ParseError};
+use sporec_parser::{
+    ast::{Span, Visibility},
+    error::ParseError,
+};
 
 pub use interface::ModuleInterface;
 pub use loader::ModuleLoader;
@@ -74,6 +77,37 @@ pub enum ModuleError {
         module: String,
         errors: Vec<ParseError>,
     },
+}
+
+/// An import-resolution failure annotated with the import site that triggered it.
+#[derive(Debug, Clone)]
+pub struct ImportResolutionError {
+    pub importing_module: String,
+    pub imported_module: String,
+    pub import_span: Option<Span>,
+    pub error: ModuleError,
+}
+
+impl ImportResolutionError {
+    pub fn new(
+        importing_module: impl Into<String>,
+        imported_module: impl Into<String>,
+        import_span: Option<Span>,
+        error: ModuleError,
+    ) -> Self {
+        Self {
+            importing_module: importing_module.into(),
+            imported_module: imported_module.into(),
+            import_span,
+            error,
+        }
+    }
+}
+
+impl std::fmt::Display for ImportResolutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.error.fmt(f)
+    }
 }
 
 impl std::fmt::Display for ModuleError {
@@ -319,6 +353,27 @@ mod tests {
     }
 
     #[test]
+    fn test_load_module_from_custom_source_root() {
+        let dir = tempfile::tempdir().unwrap();
+        let host = dir.path().join("host").join("utils");
+        std::fs::create_dir_all(&host).unwrap();
+        std::fs::write(
+            host.join("math.sp"),
+            "pub fn add(a: Int, b: Int) -> Int { a + b }",
+        )
+        .unwrap();
+
+        let mut loader = ModuleLoader::with_source_roots(
+            dir.path().to_path_buf(),
+            vec![dir.path().join("host")],
+            Vec::new(),
+        );
+        let iface = loader.load_module("utils.math").unwrap();
+        assert!(iface.exports("add"));
+        assert_eq!(iface.qualified_name(), "utils.math");
+    }
+
+    #[test]
     fn test_import_resolution_chain() {
         let dir = tempfile::tempdir().unwrap();
         let src_b = dir.path().join("src").join("b");
@@ -373,7 +428,7 @@ mod tests {
         let errs = result.unwrap_err();
         assert!(
             errs.iter()
-                .any(|e| matches!(e, ModuleError::CircularDependency(_))),
+                .any(|e| matches!(e.error, ModuleError::CircularDependency(_))),
             "expected circular dependency error, got: {errs:?}"
         );
     }

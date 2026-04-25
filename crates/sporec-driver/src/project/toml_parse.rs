@@ -11,6 +11,7 @@ pub fn load_project_manifest(root: &Path) -> Result<ProjectManifest, String> {
     let mut package_type = None;
     let mut project_platform = None;
     let mut project_default_entry = None;
+    let mut project_source_roots = None;
     let mut platform_contract_module = None;
     let mut platform_startup_contract = None;
     let mut platform_adapter_function = None;
@@ -84,6 +85,9 @@ pub fn load_project_manifest(root: &Path) -> Result<ProjectManifest, String> {
                     project_default_entry = Some(value);
                 }
             }
+            Section::Project if key == "source-roots" => {
+                project_source_roots = Some(parse_toml_string_array(raw_value));
+            }
             Section::Platform if key == "contract-module" => {
                 let value = parse_toml_string(raw_value);
                 if !value.is_empty() {
@@ -129,9 +133,19 @@ pub fn load_project_manifest(root: &Path) -> Result<ProjectManifest, String> {
     }
 
     let project = if saw_project_section {
+        let source_roots = match project_source_roots {
+            Some(source_roots) => normalize_source_roots(&source_roots).map_err(|error| {
+                format!(
+                    "invalid `[project].source-roots` in `{}`: {error}",
+                    manifest_path.display()
+                )
+            })?,
+            None => vec!["src".to_string()],
+        };
         Some(ProjectConfig {
             platform: project_platform.unwrap_or_default(),
             default_entry: project_default_entry,
+            source_roots,
         })
     } else {
         None
@@ -163,35 +177,53 @@ pub(super) fn normalize_entry_path(path: &str) -> Result<String, String> {
         return Err("entry path cannot be empty".to_string());
     }
     if normalized.starts_with('/') {
-        return Err(format!("entry path `{path}` must be relative to `src/`"));
+        return Err(format!(
+            "entry path `{path}` must be relative to a configured source root"
+        ));
     }
     let mut parts = Vec::new();
     for part in normalized.split('/') {
         match part {
             "" | "." => continue,
-            ".." => return Err(format!("entry path `{path}` must stay within `src/`")),
+            ".." => {
+                return Err(format!(
+                    "entry path `{path}` must stay within a configured source root"
+                ));
+            }
             _ => parts.push(part),
         }
     }
 
     if parts.is_empty() {
-        return Err(format!("entry path `{path}` must name a file under `src/`"));
+        return Err(format!(
+            "entry path `{path}` must name a file under a configured source root"
+        ));
     }
 
     Ok(parts.join("/"))
 }
 
-pub(super) fn ensure_entry_exists(root: &Path, entry_path: &str) -> Result<(), String> {
-    let full_path = root.join("src").join(entry_path);
-    if full_path.is_file() {
-        Ok(())
-    } else {
-        Err(format!(
-            "expected entry path `{}` to exist at `{}`",
-            entry_path,
-            full_path.display()
-        ))
+pub(super) fn resolve_entry_source_root(
+    root: &Path,
+    source_roots: &[String],
+    entry_path: &str,
+) -> Result<String, String> {
+    let mut matches = source_roots
+        .iter()
+        .filter(|source_root| root.join(source_root).join(entry_path).is_file());
+    let Some(source_root) = matches.next() else {
+        return Err(format!(
+            "expected entry path `{entry_path}` to exist under one of the configured source roots: {}",
+            source_roots.join(", ")
+        ));
+    };
+    if matches.next().is_some() {
+        return Err(format!(
+            "entry path `{entry_path}` is ambiguous because it exists under multiple configured source roots: {}",
+            source_roots.join(", ")
+        ));
     }
+    Ok(source_root.clone())
 }
 
 pub(super) fn path_stem(path: &str) -> String {
@@ -200,6 +232,51 @@ pub(super) fn path_stem(path: &str) -> String {
         .unwrap_or(path)
         .trim_end_matches(".sp")
         .to_string()
+}
+
+pub(super) fn normalize_source_root(path: &str) -> Result<String, String> {
+    let normalized = path.trim().replace('\\', "/");
+    if normalized.is_empty() {
+        return Err("source root cannot be empty".to_string());
+    }
+    if normalized.starts_with('/') {
+        return Err(format!(
+            "source root `{path}` must be relative to the project root"
+        ));
+    }
+
+    let mut parts = Vec::new();
+    for part in normalized.split('/') {
+        match part {
+            "" | "." => continue,
+            ".." => {
+                return Err(format!(
+                    "source root `{path}` must stay within the project root"
+                ));
+            }
+            _ => parts.push(part),
+        }
+    }
+
+    if parts.is_empty() {
+        return Err(format!("source root `{path}` must name a directory"));
+    }
+
+    Ok(parts.join("/"))
+}
+
+pub(super) fn normalize_source_roots(paths: &[String]) -> Result<Vec<String>, String> {
+    let mut normalized = Vec::new();
+    for path in paths {
+        let path = normalize_source_root(path)?;
+        if !normalized.contains(&path) {
+            normalized.push(path);
+        }
+    }
+    if normalized.is_empty() {
+        return Err("source-roots must list at least one directory".to_string());
+    }
+    Ok(normalized)
 }
 
 enum Section {
@@ -370,7 +447,9 @@ pub(super) fn normalize_module_path(module: &str) -> Result<String, String> {
         return Err("module path cannot be empty".to_string());
     }
     if normalized.starts_with('/') {
-        return Err(format!("module path `{module}` must be relative to `src/`"));
+        return Err(format!(
+            "module path `{module}` must be relative to a configured source root"
+        ));
     }
 
     let mut parts = Vec::new();
@@ -378,7 +457,11 @@ pub(super) fn normalize_module_path(module: &str) -> Result<String, String> {
         for part in segment.split('.') {
             match part {
                 "" | "." => continue,
-                ".." => return Err(format!("module path `{module}` must stay within `src/`")),
+                ".." => {
+                    return Err(format!(
+                        "module path `{module}` must stay within a configured source root"
+                    ));
+                }
                 _ => parts.push(part.to_string()),
             }
         }
@@ -386,7 +469,7 @@ pub(super) fn normalize_module_path(module: &str) -> Result<String, String> {
 
     if parts.is_empty() {
         return Err(format!(
-            "module path `{module}` must name a module under `src/`"
+            "module path `{module}` must name a module under a configured source root"
         ));
     }
 

@@ -21,6 +21,7 @@ pub struct ProjectManifest {
 pub struct ProjectConfig {
     pub platform: String,
     pub default_entry: Option<String>,
+    pub source_roots: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,10 +56,21 @@ pub struct ResolvedPlatformContract {
 pub struct ResolvedProjectTarget {
     pub entry_name: String,
     pub entry_path: String,
+    pub entry_source_root: String,
+    pub source_roots: Vec<String>,
     pub platform_name: Option<String>,
     pub startup_function: Option<String>,
     pub platform_contract: Option<ResolvedPlatformContract>,
-    pub dependency_roots: Vec<PathBuf>,
+    pub dependency_source_roots: Vec<PathBuf>,
+}
+
+impl ProjectManifest {
+    pub fn source_roots(&self) -> Vec<String> {
+        self.project
+            .as_ref()
+            .map(|project| project.source_roots.clone())
+            .unwrap_or_else(|| vec!["src".to_string()])
+    }
 }
 
 #[cfg(test)]
@@ -129,10 +141,12 @@ mod tests {
         let target = resolve_default_project_target(project.root()).expect("resolved target");
         assert_eq!(target.entry_name, "app");
         assert_eq!(target.entry_path, "main.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
-        assert!(target.dependency_roots.is_empty());
+        assert!(target.dependency_source_roots.is_empty());
     }
 
     #[test]
@@ -187,6 +201,8 @@ mod tests {
         let target = resolve_default_project_target(project.root()).expect("resolved target");
         assert_eq!(target.entry_name, "app");
         assert_eq!(target.entry_path, "app.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
         assert_eq!(target.platform_name.as_deref(), Some("basic-cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         let contract = target
@@ -199,13 +215,14 @@ mod tests {
             vec!["Console".to_string(), "Env".to_string()]
         );
         assert_eq!(
-            target.dependency_roots,
+            target.dependency_source_roots,
             vec![
                 project
                     .root()
                     .join("vendor/basic-cli")
+                    .join("src")
                     .canonicalize()
-                    .expect("canonical dependency root")
+                    .expect("canonical dependency source root")
             ]
         );
     }
@@ -262,10 +279,12 @@ mod tests {
             .expect("non-entry module should still resolve for build/check flows");
         assert_eq!(target.entry_name, "repl");
         assert_eq!(target.entry_path, "tools/repl.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
         assert!(target.platform_name.is_none());
         assert!(target.startup_function.is_none());
         assert!(target.platform_contract.is_none());
-        assert!(target.dependency_roots.is_empty());
+        assert!(target.dependency_source_roots.is_empty());
     }
 
     #[test]
@@ -290,10 +309,12 @@ mod tests {
             .expect("normalized declared entry should resolve");
         assert_eq!(target.entry_name, "tool");
         assert_eq!(target.entry_path, "tools/tool.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
-        assert!(target.dependency_roots.is_empty());
+        assert!(target.dependency_source_roots.is_empty());
     }
 
     #[test]
@@ -318,10 +339,65 @@ mod tests {
             .expect("quoted # in entry path should parse correctly");
         assert_eq!(target.entry_name, "hash");
         assert_eq!(target.entry_path, "tools/#cli.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
-        assert!(target.dependency_roots.is_empty());
+        assert!(target.dependency_source_roots.is_empty());
+    }
+
+    #[test]
+    fn load_project_manifest_defaults_source_roots_to_src() {
+        let project = TempProject::new(
+            "default-source-roots",
+            r#"
+            [package]
+            name = "demo"
+
+            [project]
+            platform = "cli"
+            default-entry = "app"
+
+            [entries.app]
+            path = "main.sp"
+            "#,
+        );
+
+        let manifest = load_project_manifest(project.root()).expect("manifest should load");
+        assert_eq!(manifest.source_roots(), vec!["src".to_string()]);
+    }
+
+    #[test]
+    fn resolve_project_target_by_path_supports_custom_source_root() {
+        let project = TempProject::new(
+            "custom-source-root",
+            r#"
+            [package]
+            name = "demo"
+
+            [project]
+            platform = "cli"
+            default-entry = "app"
+            source-roots = ["host"]
+
+            [entries.app]
+            path = "main.sp"
+            "#,
+        );
+        project.write("host/main.sp", "fn main() -> () { return }\n");
+        project.write("host/tools/repl.sp", "fn main() -> () { return }\n");
+
+        let target =
+            resolve_project_target_by_path(project.root(), "tools/repl.sp").expect("custom source");
+        assert_eq!(target.entry_name, "repl");
+        assert_eq!(target.entry_path, "tools/repl.sp");
+        assert_eq!(target.entry_source_root, "host");
+        assert_eq!(target.source_roots, vec!["host".to_string()]);
+        assert!(target.platform_name.is_none());
+        assert!(target.startup_function.is_none());
+        assert!(target.platform_contract.is_none());
+        assert!(target.dependency_source_roots.is_empty());
     }
 
     #[test]
@@ -338,10 +414,12 @@ mod tests {
 
         let target = resolve_default_project_target(project.root()).expect("legacy app target");
         assert_eq!(target.entry_path, "main.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
-        assert!(target.dependency_roots.is_empty());
+        assert!(target.dependency_source_roots.is_empty());
     }
 
     #[test]
@@ -380,24 +458,93 @@ mod tests {
 
         let target = resolve_default_project_target(project.root()).expect("legacy app target");
         assert_eq!(target.entry_path, "main.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
         assert_eq!(target.platform_name.as_deref(), Some("cli"));
         assert_eq!(target.startup_function.as_deref(), Some("main"));
         assert!(target.platform_contract.is_none());
         assert_eq!(
-            target.dependency_roots,
+            target.dependency_source_roots,
             vec![
                 project
                     .root()
                     .join("vendor/dep-a")
                     .canonicalize()
-                    .expect("canonical dep-a root"),
+                    .expect("canonical dep-a root")
+                    .join("src"),
                 project
                     .root()
                     .join("vendor/dep-b")
                     .canonicalize()
                     .expect("canonical dep-b root")
+                    .join("src")
             ]
         );
+    }
+
+    #[test]
+    fn resolve_default_target_legacy_platform_is_non_runnable() {
+        let project = TempProject::new(
+            "legacy-platform",
+            r#"
+            [package]
+            name = "basic-cli"
+            type = "platform"
+
+            [platform]
+            contract-module = "platform_contract"
+            startup-contract = "main"
+            adapter-function = "main_for_host"
+            handled-effects = ["Console"]
+            "#,
+        );
+        project.write(
+            "src/host.sp",
+            "pub fn main_for_host(app_main: () -> ()) -> () { app_main(); return }\n",
+        );
+
+        let target =
+            resolve_default_project_target(project.root()).expect("legacy platform target");
+        assert_eq!(target.entry_path, "host.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
+        assert!(target.platform_name.is_none());
+        assert!(target.startup_function.is_none());
+        assert!(target.platform_contract.is_none());
+        assert!(target.dependency_source_roots.is_empty());
+    }
+
+    #[test]
+    fn resolve_project_target_by_path_legacy_platform_host_is_non_runnable() {
+        let project = TempProject::new(
+            "legacy-platform-host",
+            r#"
+            [package]
+            name = "basic-cli"
+            type = "platform"
+
+            [platform]
+            contract-module = "platform_contract"
+            startup-contract = "main"
+            adapter-function = "main_for_host"
+            handled-effects = ["Console"]
+            "#,
+        );
+        project.write(
+            "src/host.sp",
+            "pub fn main_for_host(app_main: () -> ()) -> () { app_main(); return }\n",
+        );
+
+        let target =
+            resolve_project_target_by_path(project.root(), "host.sp").expect("legacy host target");
+        assert_eq!(target.entry_name, "host");
+        assert_eq!(target.entry_path, "host.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
+        assert!(target.platform_name.is_none());
+        assert!(target.startup_function.is_none());
+        assert!(target.platform_contract.is_none());
+        assert!(target.dependency_source_roots.is_empty());
     }
 
     #[test]
@@ -417,9 +564,11 @@ mod tests {
 
         let target = resolve_default_project_target(project.root()).expect("legacy package target");
         assert_eq!(target.entry_path, "lib.sp");
+        assert_eq!(target.entry_source_root, "src");
+        assert_eq!(target.source_roots, vec!["src".to_string()]);
         assert!(target.platform_name.is_none());
         assert!(target.startup_function.is_none());
         assert!(target.platform_contract.is_none());
-        assert!(target.dependency_roots.is_empty());
+        assert!(target.dependency_source_roots.is_empty());
     }
 }

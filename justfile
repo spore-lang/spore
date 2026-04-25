@@ -2,6 +2,11 @@
 default:
     @just --list
 
+# Install
+install:
+    uvx prek install --install-hooks --hook-type pre-commit --hook-type commit-msg
+    uvx maturin develop
+
 # Format all code
 format:
     just --fmt --unstable
@@ -11,10 +16,6 @@ format:
 check:
     cargo fmt --all -- --check
     cargo clippy --all-targets -- -D warnings
-
-# Run tests
-test *ARGS:
-    cargo test {{ARGS}}
 
 # Run tests with coverage (requires cargo-llvm-cov)
 cov:
@@ -27,35 +28,19 @@ cov-open:
 
 # MSRV check
 msrv:
-    cargo +1.90 check --all-targets
+    cargo +1.95 check --all-targets
 
 # Clean build artifacts
 clean:
-    rm -rf target/
+    cargo clean
     rm -f lcov.info
-
-# Full CI check (format check + clippy + test)
-ci: check test
 
 # Run pre-commit on all files
 pre-commit:
     uvx prek run --all-files
 
-# Install local git hooks via prek
-pre-commit-install:
-    uvx prek install --install-hooks --hook-type pre-commit --hook-type commit-msg
-
-# Remove local git hooks installed by prek
-pre-commit-uninstall:
-    uvx prek uninstall
-
-# Build a PyPI wheel for spore-cli
-package-cli:
-    uvx maturin build --release --locked --out dist
-
-# Build a source distribution for spore-cli
-package-cli-sdist:
-    uvx maturin sdist --out dist
+# Full CI check
+ci: check test pre-commit
 
 # Display project information
 info:

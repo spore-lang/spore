@@ -31,10 +31,79 @@ pub(crate) fn exec_check(
     let files = files.as_slice();
 
     if files.len() > 1 {
-        let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+        // When the CLI recurses a tree (e.g. `spore check` at a repo root), we see many
+        // `.sp` files. The flat `check_files` path only maps paths to a synthetic module
+        // tree; it does not read `spore.toml` or apply `[dependencies]`, so project-mode
+        // imports (path deps) fail. For any file that lives under a `spore.toml` project source
+        // root, use `check_project` (same as single-file) so path dependencies resolve.
+        use std::collections::BTreeSet;
+        use std::path::PathBuf;
+
+        let mut project_targets: BTreeSet<(String, String)> = BTreeSet::new();
+        let mut standalone: Vec<String> = Vec::new();
+        for path in files {
+            if let Some((root, entry)) = find_project_target(path) {
+                project_targets.insert((root.to_string_lossy().to_string(), entry));
+            } else {
+                standalone.push(path.clone());
+            }
+        }
+
+        if project_targets.is_empty() {
+            let refs: Vec<&str> = files.iter().map(|s| s.as_str()).collect();
+            let success_message = format!("{} no errors ({} files)", "✓".green(), files.len());
+            return report_batch_check(
+                sporec_driver::check_files(&refs),
+                json_output,
+                deny_warnings,
+                &success_message,
+            );
+        }
+
+        let mut merged_sources = Vec::new();
+        let mut merged_warnings = Vec::new();
+        for (root, entry) in &project_targets {
+            let root = PathBuf::from(root);
+            match sporec_driver::check_project(&root, entry) {
+                sporec_driver::CheckReport::Success { sources, warnings } => {
+                    merged_sources.extend(sources);
+                    merged_warnings.extend(warnings);
+                }
+                sporec_driver::CheckReport::Failure(failure) => {
+                    return report_batch_check(
+                        sporec_driver::CheckReport::Failure(failure),
+                        json_output,
+                        deny_warnings,
+                        "",
+                    );
+                }
+            }
+        }
+
+        if !standalone.is_empty() {
+            let refs: Vec<&str> = standalone.iter().map(|s| s.as_str()).collect();
+            match sporec_driver::check_files(&refs) {
+                sporec_driver::CheckReport::Success { sources, warnings } => {
+                    merged_sources.extend(sources);
+                    merged_warnings.extend(warnings);
+                }
+                sporec_driver::CheckReport::Failure(failure) => {
+                    return report_batch_check(
+                        sporec_driver::CheckReport::Failure(failure),
+                        json_output,
+                        deny_warnings,
+                        "",
+                    );
+                }
+            }
+        }
+
         let success_message = format!("{} no errors ({} files)", "✓".green(), files.len());
         report_batch_check(
-            sporec_driver::check_files(&refs),
+            sporec_driver::CheckReport::Success {
+                sources: merged_sources,
+                warnings: merged_warnings,
+            },
             json_output,
             deny_warnings,
             &success_message,

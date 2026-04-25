@@ -1,19 +1,28 @@
 use std::collections::{HashMap, HashSet};
 
-use sporec_parser::ast::{ImportDecl, Item};
+use sporec_parser::ast::{ImportDecl, Item, Span};
 
 use crate::types::{EffectSet, ErrorSet, Ty};
 
 use super::loader::ModuleLoader;
 use super::prelude::build_prelude_interface;
-use super::{ImportedSymbol, ModuleError, ModuleInterface, PreludeOptions, SymbolVisibility};
+use super::{
+    ImportResolutionError, ImportedSymbol, ModuleError, ModuleInterface, PreludeOptions,
+    SymbolVisibility,
+};
+
+#[derive(Debug, Clone)]
+struct DependencyEdge {
+    module: String,
+    span: Option<Span>,
+}
 
 /// Module registry — stores all known modules and their interfaces.
 #[derive(Debug, Clone, Default)]
 pub struct ModuleRegistry {
     modules: HashMap<String, ModuleInterface>,
     /// Track module dependencies for cycle detection: module → [modules it imports from].
-    dependencies: HashMap<String, Vec<String>>,
+    dependencies: HashMap<String, Vec<DependencyEdge>>,
 }
 
 impl ModuleRegistry {
@@ -29,19 +38,42 @@ impl ModuleRegistry {
 
     /// Record that `importing_module` depends on `imported_module`.
     pub fn record_dependency(&mut self, importing_module: &str, imported_module: &str) {
+        self.record_dependency_with_span(importing_module, imported_module, None);
+    }
+
+    /// Record that `importing_module` depends on `imported_module` at `span`.
+    pub fn record_dependency_with_span(
+        &mut self,
+        importing_module: &str,
+        imported_module: &str,
+        span: Option<Span>,
+    ) {
         self.dependencies
             .entry(importing_module.to_string())
             .or_default()
-            .push(imported_module.to_string());
+            .push(DependencyEdge {
+                module: imported_module.to_string(),
+                span,
+            });
     }
 
     /// Check for circular dependencies and return any cycles found.
     ///
     /// Uses DFS with temporary (in-stack) and permanent (visited) marks.
     pub fn detect_cycles(&self) -> Vec<Vec<String>> {
+        self.detect_cycle_errors()
+            .into_iter()
+            .map(|error| match error.error {
+                ModuleError::CircularDependency(cycle) => cycle,
+                _ => unreachable!(),
+            })
+            .collect()
+    }
+
+    fn detect_cycle_errors(&self) -> Vec<ImportResolutionError> {
         let mut visited: HashSet<String> = HashSet::new();
         let mut in_stack: HashSet<String> = HashSet::new();
-        let mut cycles: Vec<Vec<String>> = Vec::new();
+        let mut cycles = Vec::new();
         let mut stack: Vec<String> = Vec::new();
 
         let mut all_modules: Vec<&String> = self.dependencies.keys().collect();
@@ -60,7 +92,7 @@ impl ModuleRegistry {
         visited: &mut HashSet<String>,
         in_stack: &mut HashSet<String>,
         stack: &mut Vec<String>,
-        cycles: &mut Vec<Vec<String>>,
+        cycles: &mut Vec<ImportResolutionError>,
     ) {
         visited.insert(node.to_string());
         in_stack.insert(node.to_string());
@@ -68,14 +100,19 @@ impl ModuleRegistry {
 
         if let Some(deps) = self.dependencies.get(node) {
             for dep in deps {
-                if !visited.contains(dep.as_str()) {
-                    self.dfs_detect(dep, visited, in_stack, stack, cycles);
-                } else if in_stack.contains(dep.as_str())
-                    && let Some(pos) = stack.iter().position(|n| n == dep)
+                if !visited.contains(dep.module.as_str()) {
+                    self.dfs_detect(&dep.module, visited, in_stack, stack, cycles);
+                } else if in_stack.contains(dep.module.as_str())
+                    && let Some(pos) = stack.iter().position(|n| n == &dep.module)
                 {
                     let mut cycle: Vec<String> = stack[pos..].to_vec();
-                    cycle.push(dep.clone());
-                    cycles.push(cycle);
+                    cycle.push(dep.module.clone());
+                    cycles.push(ImportResolutionError::new(
+                        node,
+                        &dep.module,
+                        dep.span,
+                        ModuleError::CircularDependency(cycle),
+                    ));
                 }
             }
         }
@@ -357,14 +394,11 @@ impl ModuleRegistry {
         loader: &mut ModuleLoader,
         importing_module: &str,
         imports: &[ImportDecl],
-    ) -> Result<(), Vec<ModuleError>> {
+    ) -> Result<(), Vec<ImportResolutionError>> {
         let mut errors = Vec::new();
         self.resolve_imports_inner(loader, importing_module, imports, &mut errors);
 
-        let cycles = self.detect_cycles();
-        for cycle in cycles {
-            errors.push(ModuleError::CircularDependency(cycle));
-        }
+        errors.extend(self.detect_cycle_errors());
 
         if errors.is_empty() {
             Ok(())
@@ -378,14 +412,16 @@ impl ModuleRegistry {
         loader: &mut ModuleLoader,
         importing_module: &str,
         imports: &[ImportDecl],
-        errors: &mut Vec<ModuleError>,
+        errors: &mut Vec<ImportResolutionError>,
     ) {
         for decl in imports {
-            let path = match decl {
-                ImportDecl::Import { path, .. } | ImportDecl::Alias { path, .. } => path.clone(),
+            let (path, span) = match decl {
+                ImportDecl::Import { path, span, .. } | ImportDecl::Alias { path, span, .. } => {
+                    (path.clone(), *span)
+                }
             };
 
-            self.record_dependency(importing_module, &path);
+            self.record_dependency_with_span(importing_module, &path, span);
 
             if self.get_by_path(&path).is_some() {
                 continue;
@@ -397,7 +433,7 @@ impl ModuleRegistry {
                     self.register(iface);
                 }
                 Err(e) => {
-                    errors.push(e);
+                    errors.push(ImportResolutionError::new(importing_module, &path, span, e));
                     continue;
                 }
             }
