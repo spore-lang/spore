@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
 use crate::types::Ty;
+use sporec_parser::ast::Span;
 
 // ── Source location ─────────────────────────────────────────────────
 
@@ -95,6 +96,8 @@ pub struct HoleInfo {
     pub name: String,
     /// Location in source
     pub location: Option<SourceLocation>,
+    /// Source span for tools that can map offsets to file positions later.
+    pub span: Option<Span>,
     /// Inferred/expected type
     pub expected_type: Ty,
     /// What the type was inferred from (e.g. "return type of `foo`")

@@ -239,7 +239,7 @@ impl Interpreter {
                     _ => Ok(val),
                 }
             }
-            Expr::Hole(name, _, _) => {
+            Expr::Hole(name, _, _, _) => {
                 let label = name.as_deref().unwrap_or("_");
                 Err(RuntimeError::new(format!("hit unfilled hole `?{label}`")))
             }

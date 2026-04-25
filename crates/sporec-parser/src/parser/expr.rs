@@ -185,6 +185,7 @@ impl Parser {
                 Ok(Expr::List(elems))
             }
             Token::Question => {
+                let question_span = self.peek_span();
                 self.advance();
                 let name = if matches!(self.peek(), Token::Ident(_)) {
                     Some(self.expect_ident()?)
@@ -212,7 +213,17 @@ impl Parser {
                 } else {
                     None
                 };
-                Ok(Expr::Hole(name, ty, allows))
+                let hole_end = if name.is_some() {
+                    self.previous_span().end
+                } else {
+                    question_span.end
+                };
+                Ok(Expr::Hole(
+                    name,
+                    ty,
+                    allows,
+                    Some(Span::new(question_span.start, hole_end)),
+                ))
             }
             Token::Pipe => self.parse_lambda(),
             Token::ParallelScope => {

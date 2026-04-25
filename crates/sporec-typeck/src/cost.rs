@@ -457,7 +457,7 @@ impl CostAnalyzer {
                 max_arm
             }
 
-            Expr::Hole(_, _, _) => CostVector::constant(1, 0, 0, 0),
+            Expr::Hole(_, _, _, _) => CostVector::constant(1, 0, 0, 0),
 
             // Placeholder is desugared to Lambda by the parser; should never reach here
             Expr::Placeholder => {
@@ -802,7 +802,7 @@ where
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
         | Expr::Var(_)
-        | Expr::Hole(_, _, _)
+        | Expr::Hole(_, _, _, _)
         | Expr::Placeholder => {}
     }
 }

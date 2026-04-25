@@ -1229,6 +1229,7 @@ fn hole_info_v03_has_all_fields() {
     let info = HoleInfo {
         name: "impl".into(),
         location: None,
+        span: None,
         expected_type: Ty::I32,
         type_inferred_from: Some("return type".into()),
         function: "foo".into(),
