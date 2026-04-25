@@ -214,7 +214,7 @@ spore (stateful codebase manager — handles IO / project workflow)
 
 **Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, cost analysis, and the current structured-concurrency subset. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, try-operator support, and the current structured-concurrency runtime.
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. Topic-level normative proposals live in the sibling `spore-evolution/seps/` repo.
+See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. Topic-level normative proposals live in the sibling [`spore-evolution`](https://github.com/spore-lang/spore-evolution/tree/main/seps) repo under `seps/`.
 
 ## Packaging
 
@@ -261,17 +261,17 @@ Until a dedicated thin mirror repo exists, installing these hooks from the sourc
 | [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts |
 
 ### SEP mapping
-Detailed topic proposals now live in the sibling `spore-evolution/seps/` repo:
+Detailed topic proposals now live in [`spore-evolution/seps/`](https://github.com/spore-lang/spore-evolution/tree/main/seps):
 
-- `SEP-0001-core-syntax.md`
-- `SEP-0002-type-system.md`
-- `SEP-0003-effect-system.md`
-- `SEP-0004-cost-analysis.md`
-- `SEP-0005-hole-system.md`
-- `SEP-0006-compiler-architecture.md`
-- `SEP-0007-concurrency-model.md`
-- `SEP-0008-module-package-system.md`
-- `SEP-0009-standard-library.md`
+- [`SEP-0001-core-syntax.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0001-core-syntax.md)
+- [`SEP-0002-type-system.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0002-type-system.md)
+- [`SEP-0003-effect-system.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0003-effect-system.md)
+- [`SEP-0004-cost-analysis.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0004-cost-analysis.md)
+- [`SEP-0005-hole-system.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0005-hole-system.md)
+- [`SEP-0006-compiler-architecture.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0006-compiler-architecture.md)
+- [`SEP-0007-concurrency-model.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0007-concurrency-model.md)
+- [`SEP-0008-module-package-system.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0008-module-package-system.md)
+- [`SEP-0009-standard-library.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0009-standard-library.md)
 
 ## License
 
