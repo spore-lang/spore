@@ -110,8 +110,8 @@ pub(crate) fn report_single_file_check(
 
 pub(crate) fn check_and_report(path: &str, source: &str, json_output: bool) {
     let ts = timestamp();
-    if let Some((root, entry)) = find_project_target(path) {
-        match sporec_driver::check_project(&root, &entry) {
+    match find_project_target(path) {
+        Ok(Some((root, entry))) => match sporec_driver::check_project(&root, &entry) {
             sporec_driver::CheckReport::Success { sources, warnings } => {
                 for warning in &warnings {
                     if json_output {
@@ -184,9 +184,8 @@ pub(crate) fn check_and_report(path: &str, source: &str, json_output: bool) {
                     eprintln!("{message}");
                 }
             }
-        }
-    } else {
-        match sporec_driver::check_source_file(path, source) {
+        },
+        Ok(None) => match sporec_driver::check_source_file(path, source) {
             sporec_driver::SourceCheckReport::Success { source, warnings } => {
                 if json_output {
                     for warning in warnings {
@@ -255,6 +254,21 @@ pub(crate) fn check_and_report(path: &str, source: &str, json_output: bool) {
                     eprintln!("[{ts}] {} `{path}`:", "✗".red());
                     eprintln!("{message}");
                 }
+            }
+        },
+        Err(message) => {
+            if json_output {
+                sporec_diagnostics::print_json(
+                    &sporec_diagnostics::JsonReport::new()
+                        .with_event("compile_result")
+                        .with_file(path)
+                        .with_status(sporec_diagnostics::ReportStatus::Error)
+                        .with_message(message)
+                        .with_timestamp(ts),
+                );
+            } else {
+                eprintln!("[{ts}] {} `{path}`:", "✗".red());
+                eprintln!("{message}");
             }
         }
     }

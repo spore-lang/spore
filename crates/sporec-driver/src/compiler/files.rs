@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::diagnostics::{diagnostics_for_parse_errors, diagnostics_for_type_errors, source_file};
 use sporec_diagnostics::{Diagnostic as CanonicalDiagnostic, Severity, SourceFile};
+use sporec_parser::ast::Span;
 use sporec_typeck::module::{ModuleError, ModuleLoader, ModuleRegistry};
 use sporec_typeck::type_check_with_registry;
 
@@ -49,6 +50,7 @@ pub(super) fn anchor_diagnostics_to_source(
 pub(super) fn module_error_to_diagnostics(
     loader: &ModuleLoader,
     error: ModuleError,
+    anchor: Option<(&SourceFile, Span)>,
 ) -> (SourceFile, Vec<CanonicalDiagnostic>) {
     match error {
         ModuleError::ParseErrors { module, errors } => {
@@ -79,8 +81,15 @@ pub(super) fn module_error_to_diagnostics(
                 ModuleError::IoError { .. } => "module-io-error",
                 ModuleError::ParseErrors { .. } => unreachable!(),
             };
-            let source = batch_error_source();
-            let diagnostic = CanonicalDiagnostic::new(code, Severity::Error, other.to_string());
+            let source = anchor
+                .map(|(source, _)| source.clone())
+                .unwrap_or_else(batch_error_source);
+            let diagnostic = if let Some((source, span)) = anchor {
+                CanonicalDiagnostic::new(code, Severity::Error, other.to_string())
+                    .with_primary_span(source.span(span.start..span.end))
+            } else {
+                CanonicalDiagnostic::new(code, Severity::Error, other.to_string())
+            };
             (source, vec![diagnostic])
         }
     }

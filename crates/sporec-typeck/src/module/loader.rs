@@ -12,7 +12,9 @@ use super::{ModuleError, ModuleInterface};
 pub struct ModuleLoader {
     /// Project root directory.
     root: PathBuf,
-    /// Additional dependency roots searched after the project root.
+    /// Configured source roots for the current project.
+    source_roots: Vec<PathBuf>,
+    /// Additional dependency source roots searched after the project root.
     dependency_roots: Vec<PathBuf>,
     /// Cache of already-loaded module interfaces.
     loaded: HashMap<String, ModuleInterface>,
@@ -24,12 +26,21 @@ pub struct ModuleLoader {
 
 impl ModuleLoader {
     pub fn new(root: PathBuf) -> Self {
-        Self::with_dependency_roots(root, Vec::new())
+        Self::with_source_roots(root.clone(), vec![root.join("src")], Vec::new())
     }
 
     pub fn with_dependency_roots(root: PathBuf, dependency_roots: Vec<PathBuf>) -> Self {
+        Self::with_source_roots(root.clone(), vec![root.join("src")], dependency_roots)
+    }
+
+    pub fn with_source_roots(
+        root: PathBuf,
+        source_roots: Vec<PathBuf>,
+        dependency_roots: Vec<PathBuf>,
+    ) -> Self {
         Self {
             root,
+            source_roots,
             dependency_roots,
             loaded: HashMap::new(),
             asts: HashMap::new(),
@@ -39,11 +50,11 @@ impl ModuleLoader {
 
     /// Resolve a dot-separated module path to a filesystem path.
     ///
-    /// `"billing.invoice"` → `{root}/src/billing/invoice.sp`
+    /// `"billing.invoice"` → `{source_root}/billing/invoice.sp`
     pub fn resolve_path(&self, module_path: &str) -> Option<PathBuf> {
         let rel = module_path.replace('.', "/");
-        for root in std::iter::once(&self.root).chain(self.dependency_roots.iter()) {
-            let path = root.join("src").join(&rel).with_extension("sp");
+        for root in self.source_roots.iter().chain(self.dependency_roots.iter()) {
+            let path = root.join(&rel).with_extension("sp");
             if path.exists() {
                 return Some(path);
             }

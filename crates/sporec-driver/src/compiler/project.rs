@@ -45,10 +45,17 @@ fn project_prelude_options(target: &ResolvedProjectTarget) -> PreludeOptions {
 fn prepare_project(root: &Path, target: &ResolvedProjectTarget) -> Result<PreparedProject, String> {
     let entry = &target.entry_path;
     let prelude_options = project_prelude_options(target);
-    let mut loader =
-        ModuleLoader::with_dependency_roots(root.to_path_buf(), target.dependency_roots.clone());
+    let mut loader = ModuleLoader::with_source_roots(
+        root.to_path_buf(),
+        target
+            .source_roots
+            .iter()
+            .map(|source_root| root.join(source_root))
+            .collect(),
+        target.dependency_source_roots.clone(),
+    );
 
-    let entry_path = root.join("src").join(entry);
+    let entry_path = root.join(&target.entry_source_root).join(entry);
     let source = std::fs::read_to_string(&entry_path)
         .map_err(|e| format!("cannot read `{}`: {e}", entry_path.display()))?;
     let ast = sporec_parser::parse(&source).map_err(join_errors)?;
@@ -83,10 +90,17 @@ fn prepare_project_for_report(
 ) -> Result<PreparedProject, CheckFailure> {
     let entry = &target.entry_path;
     let prelude_options = project_prelude_options(target);
-    let mut loader =
-        ModuleLoader::with_dependency_roots(root.to_path_buf(), target.dependency_roots.clone());
+    let mut loader = ModuleLoader::with_source_roots(
+        root.to_path_buf(),
+        target
+            .source_roots
+            .iter()
+            .map(|source_root| root.join(source_root))
+            .collect(),
+        target.dependency_source_roots.clone(),
+    );
 
-    let entry_path = root.join("src").join(entry);
+    let entry_path = root.join(&target.entry_source_root).join(entry);
     let source = match std::fs::read_to_string(&entry_path)
         .map_err(|e| format!("cannot read `{}`: {e}", entry_path.display()))
     {
@@ -118,7 +132,16 @@ fn prepare_project_for_report(
         let mut sources = vec![entry_source.clone()];
         let mut diagnostics = Vec::new();
         for error in errors {
-            let (source, module_diagnostics) = module_error_to_diagnostics(&loader, error);
+            let anchor_source = if error.importing_module == module_name {
+                Some(entry_source.clone())
+            } else {
+                module_error_source(&error.importing_module, &loader)
+            };
+            let anchor = error
+                .import_span
+                .and_then(|span| anchor_source.as_ref().map(|source| (source, span)));
+            let (source, module_diagnostics) =
+                module_error_to_diagnostics(&loader, error.error, anchor);
             push_source_if_missing(&mut sources, &source);
             diagnostics.extend(module_diagnostics);
         }
@@ -287,10 +310,22 @@ fn invalid_platform_contract_error(message: impl Into<String>) -> PlatformStartu
     }
 }
 
+fn platform_contract_loader(contract: &ResolvedPlatformContract) -> ModuleLoader {
+    ModuleLoader::with_source_roots(
+        contract.root.clone(),
+        contract
+            .source_roots
+            .iter()
+            .map(|source_root| contract.root.join(source_root))
+            .collect(),
+        Vec::new(),
+    )
+}
+
 fn load_platform_contract(
     contract: &ResolvedPlatformContract,
 ) -> Result<LoadedPlatformContract, PlatformStartupError> {
-    let mut loader = ModuleLoader::new(contract.root.clone());
+    let mut loader = platform_contract_loader(contract);
     let contract_iface = loader
         .load_module(&contract.contract_module)
         .map_err(|error| {
@@ -388,7 +423,7 @@ fn module_imports(module: &Module) -> Vec<ImportDecl> {
 fn load_platform_runtime_modules(
     contract: &ResolvedPlatformContract,
 ) -> Result<Vec<(String, Module)>, String> {
-    let mut loader = ModuleLoader::new(contract.root.clone());
+    let mut loader = platform_contract_loader(contract);
     let contract_iface = loader
         .load_module(&contract.contract_module)
         .map_err(|error| {
@@ -626,7 +661,7 @@ pub fn check_project(root: &Path, entry: &str) -> CheckReport {
 /// Compile a Spore project rooted at `root`, starting from `entry`.
 ///
 /// 1. Creates a [`ModuleLoader`] from the project root
-/// 2. Parses the entry module file at `{root}/src/{entry}`
+/// 2. Parses the entry module file under the configured source root for `{entry}`
 /// 3. Recursively resolves all imports from disk
 /// 4. Type-checks with a shared [`ModuleRegistry`]
 ///

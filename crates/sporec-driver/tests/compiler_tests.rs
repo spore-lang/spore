@@ -501,6 +501,81 @@ fn check_project_returns_canonical_parse_diagnostics_for_imported_module() {
 }
 
 #[test]
+fn check_project_anchors_missing_module_diagnostic_to_entry_import() {
+    let project = TempProject::new("project-report-import-missing-module");
+    project.write(
+        "src/main.sp",
+        "fn helper() -> I32 { 1 }\nimport missing.absent\nfn main() -> () { return }\n",
+    );
+
+    match check_project(project.root(), "main.sp") {
+        CheckReport::Failure(CheckFailure::Diagnostics { diagnostics, .. }) => {
+            let diagnostic = diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.code == "module-not-found")
+                .expect("expected missing-module diagnostic");
+            let span = diagnostic
+                .primary_span
+                .as_ref()
+                .expect("missing-module diagnostic should have an import span");
+            assert_eq!(span.file, "main.sp");
+            assert_eq!(span.range.start.line, 2);
+        }
+        other => panic!("expected import-resolution diagnostics, got: {other:?}"),
+    }
+}
+
+#[test]
+fn check_project_anchors_transitive_missing_module_diagnostic_to_import_site() {
+    let project = TempProject::new("project-report-transitive-missing-module");
+    project.write("src/main.sp", "import utils\nfn main() -> () { return }\n");
+    project.write(
+        "src/utils.sp",
+        "\nimport missing.absent\npub fn util() -> I32 { 1 }\n",
+    );
+
+    match check_project(project.root(), "main.sp") {
+        CheckReport::Failure(CheckFailure::Diagnostics { diagnostics, .. }) => {
+            let diagnostic = diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.code == "module-not-found")
+                .expect("expected missing-module diagnostic");
+            let span = diagnostic
+                .primary_span
+                .as_ref()
+                .expect("missing-module diagnostic should have an import span");
+            assert_eq!(span.file, "utils.sp");
+            assert_eq!(span.range.start.line, 2);
+        }
+        other => panic!("expected import-resolution diagnostics, got: {other:?}"),
+    }
+}
+
+#[test]
+fn check_project_anchors_circular_dependency_diagnostic_to_cycle_edge_import() {
+    let project = TempProject::new("project-report-circular-import");
+    project.write("src/main.sp", "import a\nfn main() -> () { return }\n");
+    project.write("src/a.sp", "\nimport b\npub fn fa() -> I32 { 1 }\n");
+    project.write("src/b.sp", "\nimport a\npub fn fb() -> I32 { 2 }\n");
+
+    match check_project(project.root(), "main.sp") {
+        CheckReport::Failure(CheckFailure::Diagnostics { diagnostics, .. }) => {
+            let diagnostic = diagnostics
+                .iter()
+                .find(|diagnostic| diagnostic.code == "circular-module-dependency")
+                .expect("expected circular dependency diagnostic");
+            let span = diagnostic
+                .primary_span
+                .as_ref()
+                .expect("circular dependency diagnostic should have an import span");
+            assert_eq!(span.file, "b.sp");
+            assert_eq!(span.range.start.line, 2);
+        }
+        other => panic!("expected circular dependency diagnostics, got: {other:?}"),
+    }
+}
+
+#[test]
 fn check_project_returns_startup_diagnostic_for_missing_entry_function() {
     let project = TempProject::new("project-report-missing-startup");
     project.write(
@@ -1452,6 +1527,54 @@ fn compile_project_rejects_missing_startup_against_platform_dependency_contract(
 }
 
 #[test]
+fn compile_project_allows_platform_dependency_contract_outside_src() {
+    let project = TempProject::new("project-path-platform-custom-source-root");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    project.write(
+        "vendor/basic-cli/spore.toml",
+        r#"
+        [package]
+        name = "basic-cli"
+        type = "platform"
+
+        [project]
+        platform = "cli"
+        default-entry = "host"
+        source-roots = ["platform"]
+
+        [platform]
+        contract-module = "platform_contract"
+        startup-contract = "main"
+        adapter-function = "main_for_host"
+        handled-effects = ["Console", "FileRead", "FileWrite", "Env", "Spawn"]
+
+        [entries.host]
+        path = "host.sp"
+        "#,
+    );
+    project.write(
+        "vendor/basic-cli/platform/platform_contract.sp",
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main();
+            return
+        }
+        "#,
+    );
+    project.write("src/app.sp", "fn main() -> () { return }\n");
+
+    let result = compile_project(project.root(), "app.sp");
+    assert!(
+        result.is_ok(),
+        "expected compile to succeed for platform contract outside src: {result:?}"
+    );
+}
+
+#[test]
 fn check_project_returns_invalid_platform_contract_diagnostic_for_non_hole_startup() {
     let project = TempProject::new("project-path-platform-invalid-contract");
     project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
@@ -1480,6 +1603,52 @@ fn check_project_returns_invalid_platform_contract_diagnostic_for_non_hole_start
             );
         }
         other => panic!("expected invalid platform contract diagnostic, got: {other:?}"),
+    }
+}
+
+#[test]
+fn check_project_allows_legacy_platform_host_entry_without_cli_startup() {
+    let project = TempProject::new("legacy-platform-check");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "basic-cli"
+        type = "platform"
+
+        [platform]
+        contract-module = "platform_contract"
+        startup-contract = "main"
+        adapter-function = "main_for_host"
+        handled-effects = ["Console", "Env"]
+        "#,
+    );
+    project.write(
+        "src/host.sp",
+        r#"
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main();
+            return
+        }
+        "#,
+    );
+    project.write(
+        "src/platform_contract.sp",
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+        "#,
+    );
+
+    match check_project(project.root(), "host.sp") {
+        CheckReport::Success { warnings, .. } => {
+            assert!(
+                warnings.is_empty(),
+                "expected no warnings, got: {warnings:?}"
+            );
+        }
+        other => panic!("expected legacy platform host check to succeed, got: {other:?}"),
     }
 }
 
@@ -1514,6 +1683,47 @@ fn compile_project_allows_non_entry_module_in_manifest_project() {
 }
 
 #[test]
+fn compile_project_supports_custom_source_root() {
+    let project = TempProject::new("custom-source-root");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+        source-roots = ["host"]
+
+        [entries.app]
+        path = "main.sp"
+        "#,
+    );
+    project.write(
+        "host/main.sp",
+        r#"
+        import support.util
+
+        fn main() -> () {
+            helper();
+            return
+        }
+        "#,
+    );
+    project.write("host/support/util.sp", "pub fn helper() -> I32 { 42 }\n");
+
+    let output =
+        compile_project(project.root(), "main.sp").expect("custom source root should compile");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
 fn run_project_rejects_non_entry_module_in_manifest_project() {
     let project = TempProject::new("project-non-entry-run");
     project.write(
@@ -1539,6 +1749,36 @@ fn run_project_rejects_non_entry_module_in_manifest_project() {
     assert!(
         err.contains("not runnable"),
         "expected non-runnable project module error, got: {err}"
+    );
+}
+
+#[test]
+fn run_project_rejects_non_runnable_legacy_platform_entry() {
+    let project = TempProject::new("legacy-platform-run");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "basic-cli"
+        type = "platform"
+
+        [platform]
+        contract-module = "platform_contract"
+        startup-contract = "main"
+        adapter-function = "main_for_host"
+        handled-effects = ["Console"]
+        "#,
+    );
+    project.write(
+        "src/host.sp",
+        "pub fn main_for_host(app_main: () -> ()) -> () { app_main(); return }\n",
+    );
+
+    let err = run_project(project.root(), "host.sp")
+        .expect_err("legacy platform host entry should not be runnable");
+    assert!(
+        err.contains("not runnable"),
+        "expected non-runnable platform error, got: {err}"
     );
 }
 
