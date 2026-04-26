@@ -59,7 +59,7 @@ fn standalone_run_prints_only_explicit_console_output() {
     let file = project.write(
         "main.sp",
         r#"
-        fn main() -> () {
+        fn main() -> () uses [Console] {
             println("hello");
             return
         }

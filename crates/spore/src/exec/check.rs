@@ -271,8 +271,12 @@ pub(crate) fn exec_test(
     let mut total_failed = 0usize;
 
     for target in &targets {
-        let path = match target {
-            ResolvedSpTarget::Project { path, root, entry } => {
+        let spec_results = match target {
+            ResolvedSpTarget::Project {
+                path: _,
+                root,
+                entry,
+            } => {
                 match sporec_driver::check_project(root, entry) {
                     sporec_driver::CheckReport::Success { sources, warnings } => {
                         let warning_messages =
@@ -316,7 +320,10 @@ pub(crate) fn exec_test(
                         message,
                     )) => return fail_message(&message, json_output),
                 }
-                path
+                match sporec_driver::test_specs_project(root, entry) {
+                    Ok(r) => r,
+                    Err(msg) => return fail_message(&msg, json_output),
+                }
             }
             ResolvedSpTarget::Standalone { path } => {
                 let source = match read_source_message(path) {
@@ -374,51 +381,44 @@ pub(crate) fn exec_test(
                     }
                 }
 
-                path
-            }
-        };
-
-        let source = match read_source_message(path) {
-            Ok(s) => s,
-            Err(message) => return fail_message(&message, json_output),
-        };
-
-        match sporec_driver::test_specs(&source) {
-            Ok(results) => {
-                for r in &results {
-                    let kind_label = if r.kind == sporec_driver::SpecKind::Example {
-                        "example"
-                    } else {
-                        "property"
-                    };
-                    if r.passed {
-                        total_passed += 1;
-                        if !json_output && verbose {
-                            eprintln!(
-                                "  {} {} :: {} \"{}\"",
-                                "✓".green(),
-                                r.fn_name,
-                                kind_label,
-                                r.label
-                            );
-                        }
-                    } else {
-                        total_failed += 1;
-                        let msg = r.error.as_deref().unwrap_or("assertion failed");
-                        if !json_output {
-                            eprintln!(
-                                "  {} {} :: {} \"{}\" — {}",
-                                "✗".red(),
-                                r.fn_name,
-                                kind_label,
-                                r.label,
-                                msg
-                            );
-                        }
-                    }
+                match sporec_driver::test_specs(&source) {
+                    Ok(r) => r,
+                    Err(msg) => return fail_message(&msg, json_output),
                 }
             }
-            Err(msg) => return fail_message(&msg, json_output),
+        };
+
+        for r in &spec_results {
+            let kind_label = if r.kind == sporec_driver::SpecKind::Example {
+                "example"
+            } else {
+                "property"
+            };
+            if r.passed {
+                total_passed += 1;
+                if !json_output && verbose {
+                    eprintln!(
+                        "  {} {} :: {} \"{}\"",
+                        "✓".green(),
+                        r.fn_name,
+                        kind_label,
+                        r.label
+                    );
+                }
+            } else {
+                total_failed += 1;
+                let msg = r.error.as_deref().unwrap_or("assertion failed");
+                if !json_output {
+                    eprintln!(
+                        "  {} {} :: {} \"{}\" — {}",
+                        "✗".red(),
+                        r.fn_name,
+                        kind_label,
+                        r.label,
+                        msg
+                    );
+                }
+            }
         }
     }
 

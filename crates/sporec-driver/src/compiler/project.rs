@@ -758,3 +758,24 @@ fn format_project_verbose_results(results: &[(String, CheckResult)]) -> String {
     }
     out
 }
+
+/// Run spec clauses in a project module's entry file, with all imported modules
+/// available to spec bodies.
+///
+/// This is the project-aware counterpart of `sporec_driver::test_specs`: it
+/// type-checks the project (resolving imports), then executes spec clauses with
+/// the imported modules pre-loaded in the interpreter so helpers defined in
+/// those modules are callable from spec bodies.
+///
+/// Returns `Ok(specs)` on success or a human-readable error string on failure.
+pub fn test_specs_project(
+    root: &Path,
+    entry: &str,
+) -> Result<Vec<sporec_codegen::SpecResult>, String> {
+    let target = resolve_project_target_by_path(root, entry)?;
+    let prep = prepare_project(root, &target)?;
+    let _results = collect_prepared_project_results(&prep, &target.entry_path)?;
+
+    let imported = collect_runtime_import_modules(&prep, &target)?;
+    sporec_codegen::test_specs_with_imports(&prep.ast, &imported).map_err(|e| e.to_string())
+}

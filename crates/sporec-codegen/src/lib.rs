@@ -267,11 +267,36 @@ fn cartesian_product(param_values: &[Vec<Value>]) -> Vec<Vec<Value>> {
 ///   and the function under test with generated inputs, and require the
 ///   returned values to match for every sampled input
 pub fn test_specs(module: &Module) -> Result<Vec<SpecResult>, RuntimeError> {
+    test_specs_with_imports(module, &[])
+}
+
+/// Run all spec clauses in a project module's entry file, with imported modules
+/// pre-loaded so that spec bodies can call helper functions defined in those
+/// modules.
+///
+/// This is the project-aware counterpart of [`test_specs`]: callers provide the
+/// parsed entry module together with all of its imported modules (as returned by
+/// `collect_runtime_import_modules`), and the interpreter loads them in the same
+/// order that `run_project_with_outcome_on_platform` uses.
+pub fn test_specs_with_imports(
+    module: &Module,
+    imports: &[(String, Module)],
+) -> Result<Vec<SpecResult>, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
     interp.load_prelude();
+    // Load imported helper modules first so their public symbols are visible to
+    // spec bodies in the entry module.
+    for (path, import_module) in imports {
+        interp.load_module_functions(path, import_module);
+    }
     interp.load_module(module);
 
+    run_specs_on_interpreter(&mut interp)
+}
+
+/// Execute all spec clauses on a fully-set-up interpreter, collecting results.
+fn run_specs_on_interpreter(interp: &mut Interpreter) -> Result<Vec<SpecResult>, RuntimeError> {
     let specs = interp.functions_with_specs();
     let mut results = Vec::new();
 
@@ -313,7 +338,7 @@ pub fn test_specs(module: &Module) -> Result<Vec<SpecResult>, RuntimeError> {
 
                             let mut param_value_lists = Vec::with_capacity(param_types.len());
                             for ty in &param_types {
-                                param_value_lists.push(test_values_for_type(&mut interp, ty));
+                                param_value_lists.push(test_values_for_type(interp, ty));
                             }
 
                             let combos = cartesian_product(&param_value_lists);

@@ -1,11 +1,11 @@
 [project]
-name = "spore"
-description = "CLI and reference compiler for the Spore language."
+name = "spore-lang"
+description = "Spore language toolkit"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT OR Apache-2.0"
 authors = [{ name = "Zhan Rongrui" }]
-keywords = ["cli", "compiler", "language", "spore"]
+keywords = ["compiler", "language", "spore"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
