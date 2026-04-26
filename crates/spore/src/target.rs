@@ -1,5 +1,17 @@
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ResolvedSpTarget {
+    Project {
+        path: String,
+        root: PathBuf,
+        entry: String,
+    },
+    Standalone {
+        path: String,
+    },
+}
+
 fn project_source_roots(root: &Path) -> Result<Option<Vec<PathBuf>>, String> {
     let manifest_path = root.join("spore.toml");
     if !manifest_path.is_file() {
@@ -181,6 +193,23 @@ pub(crate) fn resolve_sp_targets(paths: &[String], cwd: &Path) -> Result<Vec<Pat
     result.sort();
     result.dedup();
     Ok(result)
+}
+
+pub(crate) fn resolve_project_aware_sp_targets(
+    paths: &[String],
+    cwd: &Path,
+) -> Result<Vec<ResolvedSpTarget>, String> {
+    resolve_sp_targets(paths, cwd)?
+        .into_iter()
+        .map(|path| {
+            let path = path.to_string_lossy().into_owned();
+            Ok(if let Some((root, entry)) = find_project_target(&path)? {
+                ResolvedSpTarget::Project { path, root, entry }
+            } else {
+                ResolvedSpTarget::Standalone { path }
+            })
+        })
+        .collect()
 }
 
 pub(crate) fn resolve_build_target(file: Option<&str>, cwd: &Path) -> Result<BuildTarget, String> {
