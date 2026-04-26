@@ -266,8 +266,9 @@ mod tests {
         let project_dir = tmp.path().join("proj");
         create_project(&project_dir, "proj", "application").unwrap();
 
-        let target =
-            find_project_target(project_dir.join("src/main.sp").to_str().unwrap()).unwrap();
+        let target = find_project_target(project_dir.join("src/main.sp").to_str().unwrap())
+            .unwrap()
+            .unwrap();
         assert_eq!(target.0, std::fs::canonicalize(&project_dir).unwrap());
         assert_eq!(target.1, "main.sp");
     }
@@ -281,8 +282,9 @@ mod tests {
         fs::create_dir_all(&nested_dir).unwrap();
         fs::write(nested_dir.join("util.sp"), "pub fn x() -> I32 { 1 }\n").unwrap();
 
-        let target =
-            find_project_target(project_dir.join("src/lib/util.sp").to_str().unwrap()).unwrap();
+        let target = find_project_target(project_dir.join("src/lib/util.sp").to_str().unwrap())
+            .unwrap()
+            .unwrap();
         assert_eq!(target.0, std::fs::canonicalize(&project_dir).unwrap());
         assert_eq!(target.1, "lib/util.sp");
     }
@@ -319,8 +321,9 @@ mod tests {
         )
         .unwrap();
 
-        let target =
-            find_project_target(project_dir.join("host/lib/util.sp").to_str().unwrap()).unwrap();
+        let target = find_project_target(project_dir.join("host/lib/util.sp").to_str().unwrap())
+            .unwrap()
+            .unwrap();
         assert_eq!(target.0, std::fs::canonicalize(&project_dir).unwrap());
         assert_eq!(target.1, "lib/util.sp");
     }
@@ -332,7 +335,11 @@ mod tests {
         create_project(&project_dir, "proj", "application").unwrap();
         fs::write(project_dir.join("notes.sp"), "fn scratch() -> I32 { 1 }\n").unwrap();
 
-        assert!(find_project_target(project_dir.join("notes.sp").to_str().unwrap()).is_none());
+        assert!(
+            find_project_target(project_dir.join("notes.sp").to_str().unwrap())
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
@@ -522,6 +529,68 @@ mod tests {
                 std::fs::canonicalize(dir.join("examples/hello-app/src/main.sp")).unwrap(),
                 std::fs::canonicalize(dir.join("host/main.sp")).unwrap()
             ]
+        );
+    }
+
+    #[test]
+    fn test_resolve_sp_targets_empty_paths_rejects_invalid_source_roots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(
+            dir.join("spore.toml"),
+            r#"
+            [package]
+            name = "demo"
+
+            [project]
+            platform = "cli"
+            default-entry = "app"
+            source-roots = ["/absolute"]
+
+            [entries.app]
+            path = "main.sp"
+            "#,
+        )
+        .unwrap();
+        fs::write(dir.join("src/main.sp"), "fn main() -> () { return }\n").unwrap();
+
+        let error =
+            resolve_sp_targets(&[], dir).expect_err("invalid source-roots should be surfaced");
+        assert!(
+            error.contains("invalid `[project].source-roots`"),
+            "expected invalid source roots error, got: {error}"
+        );
+    }
+
+    #[test]
+    fn test_find_project_target_surfaces_invalid_source_roots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(
+            dir.join("spore.toml"),
+            r#"
+            [package]
+            name = "demo"
+
+            [project]
+            platform = "cli"
+            default-entry = "app"
+            source-roots = ["/absolute"]
+
+            [entries.app]
+            path = "main.sp"
+            "#,
+        )
+        .unwrap();
+        fs::write(dir.join("src/main.sp"), "fn main() -> () { return }\n").unwrap();
+
+        let error = find_project_target(dir.join("src/main.sp").to_str().unwrap())
+            .expect_err("invalid source-roots should be surfaced for project files");
+        assert!(
+            error.contains("invalid `[project].source-roots`"),
+            "expected invalid source roots error, got: {error}"
         );
     }
 

@@ -1527,6 +1527,54 @@ fn compile_project_rejects_missing_startup_against_platform_dependency_contract(
 }
 
 #[test]
+fn compile_project_allows_platform_dependency_contract_outside_src() {
+    let project = TempProject::new("project-path-platform-custom-source-root");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    project.write(
+        "vendor/basic-cli/spore.toml",
+        r#"
+        [package]
+        name = "basic-cli"
+        type = "platform"
+
+        [project]
+        platform = "cli"
+        default-entry = "host"
+        source-roots = ["platform"]
+
+        [platform]
+        contract-module = "platform_contract"
+        startup-contract = "main"
+        adapter-function = "main_for_host"
+        handled-effects = ["Console", "FileRead", "FileWrite", "Env", "Spawn"]
+
+        [entries.host]
+        path = "host.sp"
+        "#,
+    );
+    project.write(
+        "vendor/basic-cli/platform/platform_contract.sp",
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main();
+            return
+        }
+        "#,
+    );
+    project.write("src/app.sp", "fn main() -> () { return }\n");
+
+    let result = compile_project(project.root(), "app.sp");
+    assert!(
+        result.is_ok(),
+        "expected compile to succeed for platform contract outside src: {result:?}"
+    );
+}
+
+#[test]
 fn check_project_returns_invalid_platform_contract_diagnostic_for_non_hole_startup() {
     let project = TempProject::new("project-path-platform-invalid-contract");
     project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);

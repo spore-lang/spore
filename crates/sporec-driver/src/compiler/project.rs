@@ -310,10 +310,22 @@ fn invalid_platform_contract_error(message: impl Into<String>) -> PlatformStartu
     }
 }
 
+fn platform_contract_loader(contract: &ResolvedPlatformContract) -> ModuleLoader {
+    ModuleLoader::with_source_roots(
+        contract.root.clone(),
+        contract
+            .source_roots
+            .iter()
+            .map(|source_root| contract.root.join(source_root))
+            .collect(),
+        Vec::new(),
+    )
+}
+
 fn load_platform_contract(
     contract: &ResolvedPlatformContract,
 ) -> Result<LoadedPlatformContract, PlatformStartupError> {
-    let mut loader = ModuleLoader::new(contract.root.clone());
+    let mut loader = platform_contract_loader(contract);
     let contract_iface = loader
         .load_module(&contract.contract_module)
         .map_err(|error| {
@@ -411,7 +423,7 @@ fn module_imports(module: &Module) -> Vec<ImportDecl> {
 fn load_platform_runtime_modules(
     contract: &ResolvedPlatformContract,
 ) -> Result<Vec<(String, Module)>, String> {
-    let mut loader = ModuleLoader::new(contract.root.clone());
+    let mut loader = platform_contract_loader(contract);
     let contract_iface = loader
         .load_module(&contract.contract_module)
         .map_err(|error| {

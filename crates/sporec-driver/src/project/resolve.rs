@@ -342,6 +342,7 @@ fn resolve_platform_dependency(
     Ok(ResolvedPlatformContract {
         name: platform_name.to_string(),
         root: dep_root,
+        source_roots: project_source_roots(&dep_manifest),
         contract_module,
         startup_function: platform.startup_contract.clone(),
         adapter_function: platform.adapter_function.clone(),

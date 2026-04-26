@@ -42,7 +42,11 @@ pub(crate) fn exec_check(
         let mut project_targets: BTreeSet<(String, String)> = BTreeSet::new();
         let mut standalone: Vec<String> = Vec::new();
         for path in files {
-            if let Some((root, entry)) = find_project_target(path) {
+            let project_target = match find_project_target(path) {
+                Ok(project_target) => project_target,
+                Err(error) => return fail_human(&error),
+            };
+            if let Some((root, entry)) = project_target {
                 project_targets.insert((root.to_string_lossy().to_string(), entry));
             } else {
                 standalone.push(path.clone());
@@ -110,10 +114,14 @@ pub(crate) fn exec_check(
         )
     } else {
         let path = &files[0];
+        let project_target = match find_project_target(path) {
+            Ok(project_target) => project_target,
+            Err(error) => return fail_human(&error),
+        };
         if verbose {
-            let result = if let Some((root, entry)) = find_project_target(path) {
+            let result = if let Some((root, entry)) = project_target.as_ref() {
                 if deny_warnings {
-                    match sporec_driver::check_project(&root, &entry) {
+                    match sporec_driver::check_project(root, entry) {
                         sporec_driver::CheckReport::Success { sources, warnings } => {
                             if !warnings.is_empty() {
                                 let warning_messages =
@@ -147,7 +155,7 @@ pub(crate) fn exec_check(
                         }
                     }
                 }
-                sporec_driver::check_project_verbose(&root, &entry)
+                sporec_driver::check_project_verbose(root, entry)
             } else {
                 let source = match read_source(path) {
                     Ok(s) => s,
@@ -199,8 +207,8 @@ pub(crate) fn exec_check(
                     ExitCode::SUCCESS
                 }
                 Err(msg) => {
-                    if let Some((root, entry)) = find_project_target(path) {
-                        match sporec_driver::check_project(&root, &entry) {
+                    if let Some((root, entry)) = project_target.as_ref() {
+                        match sporec_driver::check_project(root, entry) {
                             sporec_driver::CheckReport::Failure(
                                 sporec_driver::CheckFailure::Diagnostics {
                                     sources,
@@ -224,9 +232,9 @@ pub(crate) fn exec_check(
                     fail_human(&msg)
                 }
             }
-        } else if let Some((root, entry)) = find_project_target(path) {
+        } else if let Some((root, entry)) = project_target.as_ref() {
             report_batch_check(
-                sporec_driver::check_project(&root, &entry),
+                sporec_driver::check_project(root, entry),
                 json_output,
                 deny_warnings,
                 "✓ no errors",

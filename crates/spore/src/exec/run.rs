@@ -8,7 +8,11 @@ use crate::target::{BuildTarget, find_project_target, resolve_build_target};
 use crate::util::{fail_human, fail_message, project_exit_code, read_source_message};
 
 pub(crate) fn exec_run(file: &str, json_output: bool) -> ExitCode {
-    let result = if let Some((root, entry)) = find_project_target(file) {
+    let project_target = match find_project_target(file) {
+        Ok(project_target) => project_target,
+        Err(message) => return fail_message(&message, json_output),
+    };
+    let result = if let Some((root, entry)) = project_target {
         sporec_driver::run_project_with_outcome(&root, &entry)
     } else {
         let source = match read_source_message(file) {

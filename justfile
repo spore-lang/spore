@@ -39,9 +39,6 @@ clean:
 pre-commit:
     uvx prek run --all-files
 
-# Full CI check
-ci: check test pre-commit
-
 # Display project information
 info:
     @echo "=== Spore ==="

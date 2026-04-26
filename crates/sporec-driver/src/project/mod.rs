@@ -46,6 +46,7 @@ pub struct PlatformManifest {
 pub struct ResolvedPlatformContract {
     pub name: String,
     pub root: PathBuf,
+    pub source_roots: Vec<String>,
     pub contract_module: String,
     pub startup_function: String,
     pub adapter_function: String,
@@ -210,6 +211,7 @@ mod tests {
             .expect("expected resolved platform package contract");
         assert_eq!(contract.contract_module, "platform_contract");
         assert_eq!(contract.adapter_function, "main_for_host");
+        assert_eq!(contract.source_roots, vec!["src".to_string()]);
         assert_eq!(
             contract.handled_effects,
             vec!["Console".to_string(), "Env".to_string()]
@@ -545,6 +547,68 @@ mod tests {
         assert!(target.startup_function.is_none());
         assert!(target.platform_contract.is_none());
         assert!(target.dependency_source_roots.is_empty());
+    }
+
+    #[test]
+    fn resolve_default_target_from_path_dependency_platform_contract_with_custom_source_root() {
+        let project = TempProject::new(
+            "path-platform-custom-source-root",
+            r#"
+            [package]
+            name = "demo"
+            type = "application"
+
+            [project]
+            platform = "basic-cli"
+            default-entry = "app"
+
+            [dependencies]
+            basic-cli = { path = "vendor/basic-cli" }
+
+            [entries.app]
+            path = "app.sp"
+            "#,
+        );
+        project.write("src/app.sp", "fn main() -> () { return }\n");
+        project.write(
+            "vendor/basic-cli/spore.toml",
+            r#"
+            [package]
+            name = "basic-cli"
+            type = "platform"
+
+            [project]
+            platform = "cli"
+            default-entry = "host"
+            source-roots = ["platform", "core"]
+
+            [platform]
+            contract-module = "platform_contract"
+            startup-contract = "main"
+            adapter-function = "main_for_host"
+            handled-effects = ["Console", "Env"]
+
+            [entries.host]
+            path = "host.sp"
+            "#,
+        );
+        project.write(
+            "vendor/basic-cli/platform/platform_contract.sp",
+            r#"
+            pub fn main() -> () { ?platform_startup_contract }
+            pub fn main_for_host(app_main: () -> ()) -> () { app_main(); return }
+            "#,
+        );
+
+        let target = resolve_default_project_target(project.root()).expect("resolved target");
+        let contract = target
+            .platform_contract
+            .expect("expected resolved platform package contract");
+        assert_eq!(contract.contract_module, "platform_contract");
+        assert_eq!(
+            contract.source_roots,
+            vec!["platform".to_string(), "core".to_string()]
+        );
     }
 
     #[test]
