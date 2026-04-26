@@ -1,10 +1,9 @@
 [project]
 name = "spore-cli"
-dynamic = ["version"]
 description = "CLI and reference compiler for the Spore language."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT OR Apache-2.0" }
+license = "MIT OR Apache-2.0"
 authors = [{ name = "Spore contributors" }]
 keywords = ["cli", "compiler", "language", "spore"]
 classifiers = [
@@ -19,12 +18,13 @@ classifiers = [
   "Programming Language :: Rust",
   "Topic :: Software Development :: Compilers",
 ]
+dynamic = ["version"]
 
 [project.urls]
 Documentation = "https://github.com/spore-lang/spore#readme"
 Homepage = "https://github.com/spore-lang/spore"
-Repository = "https://github.com/spore-lang/spore"
 Releases = "https://github.com/spore-lang/spore/releases"
+Repository = "https://github.com/spore-lang/spore"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
