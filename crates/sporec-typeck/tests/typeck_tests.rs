@@ -1858,25 +1858,26 @@ fn f() -> I32 { positive(5) }
 
 #[test]
 fn builtin_println_type_checks() {
-    check_ok(r#"fn main() uses [Console] { println("hello") }"#);
+    // `println` is no longer injected in standalone/source mode; it is an undefined variable.
+    let errs = check_err(r#"fn main() uses [Console] { println("hello") }"#);
+    assert!(
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone println, got: {errs:?}"
+    );
 }
 
-// ── Regression: console builtins require uses [Console] (effect-validation fix) ──
-// Calling `println`, `print`, or `read_line` without declaring `uses [Console]`
-// must be a type error (C0001 — missing effects).  Previously the synthetic
-// prelude injected these functions without registering their effect requirement,
-// so check_call saw an empty required-caps set and skipped validation entirely.
+// ── Console builtins are no longer available in standalone/source mode ──
+// `println`, `print`, and `read_line` are only available inside a project
+// with an explicit platform contract (e.g. basic-cli).  In standalone mode
+// they are undefined, producing an "undefined variable" error rather than a
+// missing-effect error.
 
 #[test]
 fn console_builtin_println_requires_console_effect() {
     let errs = check_err(r#"fn f() { println("hello") }"#);
     assert!(
-        errs.iter().any(|e| e.contains("Console")),
-        "expected missing Console effect error, got: {errs:?}"
-    );
-    assert!(
-        errs.iter().any(|e| e.contains("missing effects")),
-        "expected missing effects message, got: {errs:?}"
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone println, got: {errs:?}"
     );
 }
 
@@ -1884,8 +1885,8 @@ fn console_builtin_println_requires_console_effect() {
 fn console_builtin_print_requires_console_effect() {
     let errs = check_err(r#"fn f() { print("hi") }"#);
     assert!(
-        errs.iter().any(|e| e.contains("Console")),
-        "expected missing Console effect error for print, got: {errs:?}"
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone print, got: {errs:?}"
     );
 }
 
@@ -1893,19 +1894,24 @@ fn console_builtin_print_requires_console_effect() {
 fn console_builtin_read_line_requires_console_effect() {
     let errs = check_err(r#"fn f() -> Str { read_line() }"#);
     assert!(
-        errs.iter().any(|e| e.contains("Console")),
-        "expected missing Console effect error for read_line, got: {errs:?}"
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone read_line, got: {errs:?}"
     );
 }
 
 #[test]
 fn console_builtin_println_accepted_with_console_effect() {
-    check_ok(r#"fn greet(name: Str) -> () uses [Console] { println(name) }"#);
+    // Even with `uses [Console]`, `println` is undefined in standalone mode.
+    let errs = check_err(r#"fn greet(name: Str) -> () uses [Console] { println(name) }"#);
+    assert!(
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone println, got: {errs:?}"
+    );
 }
 
 #[test]
 fn console_builtin_caller_must_propagate_console_effect() {
-    // A caller of a function that uses println must also declare uses [Console].
+    // Both callee and caller fail because `println` is undefined in standalone mode.
     let errs = check_err(
         r#"
         fn log_msg(msg: Str) -> () uses [Console] { println(msg) }
@@ -1913,33 +1919,44 @@ fn console_builtin_caller_must_propagate_console_effect() {
         "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("Console")),
-        "expected Console propagation error, got: {errs:?}"
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone println, got: {errs:?}"
     );
 }
 
 #[test]
 fn console_builtin_callee_console_propagates_to_caller() {
-    check_ok(
+    // Both functions fail because `println` is undefined in standalone mode.
+    let errs = check_err(
         r#"
         fn log_msg(msg: Str) -> () uses [Console] { println(msg) }
         fn process() -> () uses [Console] { log_msg("data") }
         "#,
     );
+    assert!(
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone println, got: {errs:?}"
+    );
 }
 
 #[test]
 fn builtin_println_wrong_arg_type() {
+    // `println` is undefined in standalone mode; the error is "undefined variable".
     let errs = check_err(r#"fn main() { println(42) }"#);
     assert!(
-        errs.iter().any(|e| e.contains("argument")),
-        "expected argument type mismatch for println(I32), got: {errs:?}"
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone println, got: {errs:?}"
     );
 }
 
 #[test]
 fn builtin_read_line_type_checks() {
-    check_ok(r#"fn main() -> Str uses [Console] { read_line() }"#);
+    // `read_line` is no longer available in standalone mode.
+    let errs = check_err(r#"fn main() -> Str uses [Console] { read_line() }"#);
+    assert!(
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone read_line, got: {errs:?}"
+    );
 }
 
 #[test]
@@ -1949,7 +1966,12 @@ fn builtin_string_length_type_checks() {
 
 #[test]
 fn builtin_print_still_works() {
-    check_ok(r#"fn main() uses [Console] { print("hi") }"#);
+    // `print` is no longer available in standalone mode.
+    let errs = check_err(r#"fn main() uses [Console] { print("hi") }"#);
+    assert!(
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined variable error for standalone print, got: {errs:?}"
+    );
 }
 
 #[test]
@@ -1980,7 +2002,7 @@ fn builtin_starts_with_type_checks() {
 
 #[test]
 fn builtin_program_using_builtins() {
-    // End-to-end: a program that uses multiple builtins should type check
+    // End-to-end: a program that uses multiple non-console builtins should type check
     check_ok(
         r#"
         fn greet(name: Str) -> Str {
@@ -1989,10 +2011,8 @@ fn builtin_program_using_builtins() {
             upper
         }
 
-        fn main() uses [Console] {
-            println("start");
-            let result = greet("world");
-            println(result)
+        fn main() -> Str {
+            greet("world")
         }
         "#,
     );

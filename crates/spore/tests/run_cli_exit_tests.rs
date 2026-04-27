@@ -54,7 +54,8 @@ fn standalone_run_ignores_return_value_by_default() {
 }
 
 #[test]
-fn standalone_run_prints_only_explicit_console_output() {
+fn standalone_run_rejects_console_builtins() {
+    // `println` is not available in standalone mode; it must be rejected at type-check time.
     let project = TempProject::new();
     let file = project.write(
         "main.sp",
@@ -72,11 +73,9 @@ fn standalone_run_prints_only_explicit_console_output() {
         .expect("run spore");
 
     assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
+        !output.status.success(),
+        "expected failure because println is undefined in standalone mode"
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
 }
 
 #[test]

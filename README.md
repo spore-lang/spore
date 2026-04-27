@@ -77,19 +77,14 @@ fn demo() -> I32 {
     x * 2
 }
 
-fn main() -> () {
-    println(to_string(demo()))
-    return
+fn main() -> I32 {
+    demo()
 }
 ```
 
-Standalone mode does not participate in a package-backed Platform contract.
-It still runs through legacy built-in CLI behavior today (e.g., bare `println` works),
-but completion values have no default CLI host semantics: `spore run` does not print
-them automatically and does not treat them as process exit codes.
-Compatibility paths like `fn main() -> I32` still compile, but the CLI canon is
-explicit output plus `fn main() -> ()`.
-Real applications should prefer `spore new` / project mode with an explicit Platform effect boundary.
+Standalone mode does not participate in a package-backed Platform contract and does
+not have access to platform builtins such as `println`.  Console I/O requires a
+project with an explicit Platform effect boundary (e.g. `basic-cli`).
 See [`examples/demo.sp`](examples/demo.sp) for a standalone example file.
 
 ### Structs and Pattern Matching

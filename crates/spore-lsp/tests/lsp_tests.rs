@@ -139,7 +139,7 @@ fn test_completion_returns_builtins() {
     let result = server.handle_completion(&params).unwrap();
     let items = result.as_array().unwrap();
     let labels: Vec<&str> = items.iter().filter_map(|i| i["label"].as_str()).collect();
-    for b in &["print", "println", "map", "filter", "fold", "len"] {
+    for b in &["map", "filter", "fold", "len"] {
         assert!(labels.contains(b), "missing builtin: {b}");
     }
 }
