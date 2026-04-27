@@ -71,6 +71,13 @@ pub fn run_native(source: &str) -> Result<Value, String> {
     sporec_codegen::run_native(&ast).map_err(|e| e.to_string())
 }
 
+/// Compile a pure scalar Spore program into a native object artifact.
+pub fn build_native_object(source: &str) -> Result<Vec<u8>, String> {
+    let ast = parse(source).map_err(join_errors)?;
+    let _result = type_check(&ast).map_err(join_errors)?;
+    sporec_codegen::emit_native_object(&ast).map_err(|e| e.to_string())
+}
+
 /// Call a named pure scalar function through the experimental native backend.
 pub fn call_native(source: &str, name: &str, args: Vec<Value>) -> Result<Value, String> {
     let ast = parse(source).map_err(join_errors)?;

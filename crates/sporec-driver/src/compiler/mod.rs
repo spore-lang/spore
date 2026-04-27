@@ -10,7 +10,8 @@ pub use project::{
     test_specs_project,
 };
 pub use source::{
-    call_native, check_verbose, compile, compile_diagnostics, format, run, run_native, test_specs,
+    build_native_object, call_native, check_verbose, compile, compile_diagnostics, format, run,
+    run_native, test_specs,
 };
 
 use sporec_diagnostics::{Diagnostic as CanonicalDiagnostic, SourceFile};

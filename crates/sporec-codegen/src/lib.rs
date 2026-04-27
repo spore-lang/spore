@@ -13,7 +13,9 @@ use sporec_parser::ast::{Module, SpecItem, TypeExpr};
 use value::Value;
 
 pub use effect_handler::{RuntimePlatform, RuntimeSignal as ProjectRuntimeSignal};
-pub use native::{NativeError, NativeProgram, call_native, compile_native, run_native};
+pub use native::{
+    NativeError, NativeProgram, call_native, compile_native, emit_native_object, run_native,
+};
 
 /// Result of evaluating a single spec clause.
 #[derive(Debug, Clone)]

@@ -136,11 +136,11 @@ fn cmd_holes_parser() -> impl Parser<Cmd> {
 
 fn cmd_build_parser() -> impl Parser<Cmd> {
     let file = positional::<String>("FILE")
-        .help("A .sp file or project directory to compile")
+        .help("A standalone .sp file to compile to a native object file")
         .optional();
     construct!(Cmd::Build { file })
         .to_options()
-        .descr("Compile a .sp file or current project (interpreter mode)")
+        .descr("Compile a standalone .sp file to a native .o object file (projects unsupported)")
         .command("build")
 }
 

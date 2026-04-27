@@ -4,9 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use sporec_codegen::value::Value;
 use sporec_driver::{
-    CheckFailure, CheckReport, call_native, check_files, check_project, check_project_verbose,
-    check_verbose, compile, compile_project, hole_summary, run_native, run_project,
-    run_project_with_outcome,
+    CheckFailure, CheckReport, build_native_object, call_native, check_files, check_project,
+    check_project_verbose, check_verbose, compile, compile_project, hole_summary, run_native,
+    run_project, run_project_with_outcome,
 };
 
 struct TempProject {
@@ -397,6 +397,26 @@ fn call_native_type_checks_before_codegen() {
     assert!(
         err.contains("E0001") || err.contains("expected"),
         "expected type-check-first failure, got: {err}"
+    );
+}
+
+#[test]
+fn build_native_object_emits_bytes_for_supported_scalar_source() {
+    let artifact = build_native_object(
+        r#"
+        fn choose(flag: Bool) -> Bool {
+            if flag { true } else { false }
+        }
+
+        fn main() -> Bool {
+            choose(true)
+        }
+        "#,
+    )
+    .expect("native object build should succeed for scalar standalone source");
+    assert!(
+        !artifact.is_empty(),
+        "native object artifact should not be empty"
     );
 }
 

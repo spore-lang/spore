@@ -3,7 +3,6 @@ use std::process::ExitCode;
 use owo_colors::OwoColorize;
 use serde_json::json;
 
-use crate::report::{report_batch_check, report_single_file_check};
 use crate::target::{BuildTarget, find_project_target, resolve_build_target};
 use crate::util::{fail_human, fail_message, project_exit_code, read_source_message};
 
@@ -51,28 +50,58 @@ pub(crate) fn exec_build(file: Option<&str>) -> ExitCode {
     };
 
     match &target {
-        BuildTarget::Project { root, entry } => {
-            let success_message = format!(
-                "{} compiled entry path `{entry}` successfully (interpreter mode — no binary output yet)",
-                "✓".green(),
-            );
-            report_batch_check(
-                sporec_driver::check_project(root, entry),
-                false,
-                false,
-                &success_message,
-            )
-        }
+        BuildTarget::Project { root, entry } => fail_human(&format!(
+            "native build is currently only available for standalone `.sp` files in the experimental scalar subset; project builds are not supported yet (`{}`, entry `{entry}`)",
+            root.display()
+        )),
         BuildTarget::File(path) => {
             let source = match read_source_message(path) {
                 Ok(s) => s,
                 Err(message) => return fail_human(&message),
             };
-            let success_message = format!(
-                "{} compiled `{path}` successfully (interpreter mode — no binary output yet)",
+            match sporec_driver::check_source_file(path, &source) {
+                sporec_driver::SourceCheckReport::Success { source, warnings } => {
+                    sporec_diagnostics::render_diagnostics_human(&source, &warnings);
+                }
+                sporec_driver::SourceCheckReport::Failure(
+                    sporec_driver::SourceCheckFailure::Diagnostics {
+                        source,
+                        diagnostics,
+                    },
+                ) => {
+                    return sporec_diagnostics::exit_with_diagnostics_error(
+                        &source,
+                        &diagnostics,
+                        false,
+                    );
+                }
+                sporec_driver::SourceCheckReport::Failure(
+                    sporec_driver::SourceCheckFailure::Message(message),
+                ) => return fail_human(&message),
+            }
+
+            let artifact_path = std::path::Path::new(path).with_extension("o");
+            let artifact = match sporec_driver::build_native_object(&source) {
+                Ok(artifact) => artifact,
+                Err(message) => {
+                    return fail_human(&format!(
+                        "native build unavailable for `{path}`: {message}"
+                    ));
+                }
+            };
+            if let Err(error) = std::fs::write(&artifact_path, artifact) {
+                return fail_human(&format!(
+                    "cannot write native artifact `{}`: {error}",
+                    artifact_path.display()
+                ));
+            }
+
+            println!(
+                "{} built native object `{}`",
                 "✓".green(),
+                artifact_path.display()
             );
-            report_single_file_check(path, &source, false, false, &success_message)
+            ExitCode::SUCCESS
         }
     }
 }

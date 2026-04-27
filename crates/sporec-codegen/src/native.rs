@@ -2,11 +2,22 @@ use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+use cranelift_codegen::binemit::Reloc;
 use cranelift_codegen::ir::{AbiParam, InstBuilder, condcodes::IntCC, types};
+use cranelift_codegen::isa::OwnedTargetIsa;
 use cranelift_codegen::settings::{self, Configurable};
+use cranelift_control::ControlPlane;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{FuncId, Linkage, Module};
+use cranelift_module::{
+    DataDescription, DataId, FuncId, Linkage, Module, ModuleDeclarations, ModuleError, ModuleReloc,
+    ModuleRelocTarget, ModuleResult,
+};
+use object::write::{Object, Relocation, StandardSection, Symbol, SymbolSection};
+use object::{
+    Architecture, BinaryFormat, Endianness, RelocationEncoding, RelocationFlags, RelocationKind,
+    SymbolFlags, SymbolKind, SymbolScope,
+};
 use sporec_parser::ast::{BinOp, Expr, FnDef, Item, Module as AstModule, Stmt, TypeExpr, UnaryOp};
 
 use crate::value::Value;
@@ -160,6 +171,18 @@ pub struct NativeProgram {
     signatures: BTreeMap<String, FunctionSignature>,
 }
 
+struct EmittedFunction {
+    bytes: Vec<u8>,
+    relocs: Vec<ModuleReloc>,
+    alignment: u64,
+}
+
+struct ObjectEmitModule {
+    isa: OwnedTargetIsa,
+    declarations: ModuleDeclarations,
+    functions: BTreeMap<FuncId, EmittedFunction>,
+}
+
 impl NativeProgram {
     pub fn call_function(&self, name: &str, args: Vec<Value>) -> Result<Value, NativeError> {
         let signature = self
@@ -195,41 +218,214 @@ impl NativeProgram {
     }
 }
 
+impl ObjectEmitModule {
+    fn new(isa: OwnedTargetIsa) -> Self {
+        Self {
+            isa,
+            declarations: ModuleDeclarations::default(),
+            functions: BTreeMap::new(),
+        }
+    }
+
+    fn record_defined(
+        &mut self,
+        func_id: FuncId,
+        bytes: Vec<u8>,
+        relocs: Vec<ModuleReloc>,
+        alignment: u64,
+    ) -> ModuleResult<()> {
+        let decl = self.declarations.get_function_decl(func_id);
+        let name = decl.linkage_name(func_id).into_owned();
+        if !decl.linkage.is_definable() {
+            return Err(ModuleError::InvalidImportDefinition(name));
+        }
+        if self.functions.contains_key(&func_id) {
+            return Err(ModuleError::DuplicateDefinition(name));
+        }
+        self.functions.insert(
+            func_id,
+            EmittedFunction {
+                bytes,
+                relocs,
+                alignment,
+            },
+        );
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Vec<u8>, NativeError> {
+        let mut object = Object::new(host_binary_format(), host_architecture(), host_endianness());
+        object.add_file_symbol(b"spore_native_build".to_vec());
+        if matches!(host_binary_format(), BinaryFormat::MachO) {
+            object.set_subsections_via_symbols();
+        }
+        let text_section = object.section_id(StandardSection::Text);
+
+        let mut symbol_ids = BTreeMap::new();
+        for (func_id, decl) in self.declarations.get_functions() {
+            let name = decl.linkage_name(func_id).into_owned().into_bytes();
+            let symbol = if decl.linkage == Linkage::Import {
+                Symbol {
+                    name,
+                    value: 0,
+                    size: 0,
+                    kind: SymbolKind::Text,
+                    scope: SymbolScope::Dynamic,
+                    weak: false,
+                    section: SymbolSection::Undefined,
+                    flags: SymbolFlags::None,
+                }
+            } else {
+                let scope = if decl.name.as_deref() == Some("main") {
+                    SymbolScope::Linkage
+                } else {
+                    symbol_scope_for_linkage(decl.linkage)
+                };
+                Symbol {
+                    name,
+                    value: 0,
+                    size: 0,
+                    kind: SymbolKind::Text,
+                    scope,
+                    weak: false,
+                    section: SymbolSection::Undefined,
+                    flags: SymbolFlags::None,
+                }
+            };
+            let symbol_id = object.add_symbol(symbol);
+            symbol_ids.insert(func_id, symbol_id);
+        }
+
+        for (func_id, emitted) in &self.functions {
+            let Some(&symbol_id) = symbol_ids.get(func_id) else {
+                return Err(NativeError::new(format!(
+                    "missing object symbol for function `{func_id}`"
+                )));
+            };
+            let section_offset =
+                object.add_symbol_data(symbol_id, text_section, &emitted.bytes, emitted.alignment);
+            for reloc in &emitted.relocs {
+                let (symbol, addend) = relocation_target_symbol(reloc, &symbol_ids)?;
+                object
+                    .add_relocation(
+                        text_section,
+                        Relocation {
+                            offset: section_offset + u64::from(reloc.offset),
+                            symbol,
+                            addend,
+                            flags: relocation_flags(reloc.kind)?,
+                        },
+                    )
+                    .map_err(|error| {
+                        NativeError::new(format!(
+                            "failed to record relocation for `{}`: {error}",
+                            self.declarations
+                                .get_function_decl(*func_id)
+                                .linkage_name(*func_id)
+                        ))
+                    })?;
+            }
+        }
+
+        object
+            .write()
+            .map_err(|error| NativeError::new(format!("failed to emit native object: {error}")))
+    }
+}
+
+impl Module for ObjectEmitModule {
+    fn isa(&self) -> &dyn cranelift_codegen::isa::TargetIsa {
+        self.isa.as_ref()
+    }
+
+    fn declarations(&self) -> &ModuleDeclarations {
+        &self.declarations
+    }
+
+    fn declare_function(
+        &mut self,
+        name: &str,
+        linkage: Linkage,
+        signature: &cranelift_codegen::ir::Signature,
+    ) -> ModuleResult<FuncId> {
+        self.declarations
+            .declare_function(name, linkage, signature)
+            .map(|(func_id, _)| func_id)
+    }
+
+    fn declare_anonymous_function(
+        &mut self,
+        signature: &cranelift_codegen::ir::Signature,
+    ) -> ModuleResult<FuncId> {
+        self.declarations.declare_anonymous_function(signature)
+    }
+
+    fn declare_data(
+        &mut self,
+        name: &str,
+        linkage: Linkage,
+        writable: bool,
+        tls: bool,
+    ) -> ModuleResult<DataId> {
+        self.declarations
+            .declare_data(name, linkage, writable, tls)
+            .map(|(data_id, _)| data_id)
+    }
+
+    fn declare_anonymous_data(&mut self, writable: bool, tls: bool) -> ModuleResult<DataId> {
+        self.declarations.declare_anonymous_data(writable, tls)
+    }
+
+    fn define_function_with_control_plane(
+        &mut self,
+        func_id: FuncId,
+        ctx: &mut cranelift_codegen::Context,
+        ctrl_plane: &mut ControlPlane,
+    ) -> ModuleResult<()> {
+        ctx.compile(self.isa(), ctrl_plane)?;
+        let compiled = ctx
+            .compiled_code()
+            .expect("compiled code should be available after successful compile");
+        let bytes = compiled.code_buffer().to_vec();
+        let relocs = compiled
+            .buffer
+            .relocs()
+            .iter()
+            .map(|reloc| ModuleReloc::from_mach_reloc(reloc, &ctx.func, func_id))
+            .collect();
+        let alignment = u64::from(self.isa().function_alignment().minimum);
+        self.record_defined(func_id, bytes, relocs, alignment)
+    }
+
+    fn define_function_bytes(
+        &mut self,
+        func_id: FuncId,
+        func: &cranelift_codegen::ir::Function,
+        alignment: u64,
+        bytes: &[u8],
+        relocs: &[cranelift_codegen::FinalizedMachReloc],
+    ) -> ModuleResult<()> {
+        let relocs = relocs
+            .iter()
+            .map(|reloc| ModuleReloc::from_mach_reloc(reloc, func, func_id))
+            .collect();
+        self.record_defined(func_id, bytes.to_vec(), relocs, alignment)
+    }
+
+    fn define_data(&mut self, _data_id: DataId, _data: &DataDescription) -> ModuleResult<()> {
+        unreachable!("native object emission does not define data objects")
+    }
+}
+
 pub fn compile_native(module: &AstModule) -> Result<NativeProgram, NativeError> {
     let plan = analyze_module(module)?;
-    let isa_builder = cranelift_native::builder()
-        .map_err(|error| NativeError::new(format!("failed to create host ISA builder: {error}")))?;
-    let mut flags = settings::builder();
-    flags.set("is_pic", "false").map_err(|error| {
-        NativeError::new(format!("failed to configure Cranelift flags: {error}"))
-    })?;
-    let isa = isa_builder
-        .finish(settings::Flags::new(flags))
-        .map_err(|error| NativeError::new(format!("failed to finish host ISA: {error}")))?;
+    let isa = host_isa(false)?;
     let mut jit_builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
     // Register the Rust-side trap callback so JIT code can signal arithmetic errors.
     jit_builder.symbol("__spore_arith_trap", spore_arith_trap as *const u8);
     let mut jit = JITModule::new(jit_builder);
-
-    // Declare the trap callback as an imported function.
-    let mut trap_sig = jit.make_signature();
-    trap_sig.params.push(AbiParam::new(types::I64));
-    let trap_func_id = jit
-        .declare_function("__spore_arith_trap", Linkage::Import, &trap_sig)
-        .map_err(|error| NativeError::new(format!("failed to declare trap callback: {error}")))?;
-
-    let mut func_ids = BTreeMap::new();
-    for (name, info) in &plan.functions {
-        let sig = native_signature(&jit, info.params.len());
-        let func_id = jit
-            .declare_function(name, Linkage::Local, &sig)
-            .map_err(|error| NativeError::new(format!("failed to declare `{name}`: {error}")))?;
-        func_ids.insert(name.clone(), func_id);
-    }
-
-    for (name, info) in &plan.functions {
-        define_function(&mut jit, name, info, &plan, &func_ids, trap_func_id)?;
-    }
+    let trap_func_id = declare_trap_callback(&mut jit)?;
+    let func_ids = declare_and_define_functions(&mut jit, &plan, trap_func_id)?;
     jit.finalize_definitions()
         .map_err(|error| NativeError::new(format!("failed to finalize native module: {error}")))?;
 
@@ -258,12 +454,184 @@ pub fn compile_native(module: &AstModule) -> Result<NativeProgram, NativeError> 
     })
 }
 
+pub fn emit_native_object(module: &AstModule) -> Result<Vec<u8>, NativeError> {
+    let plan = analyze_module(module)?;
+    let isa = host_isa(false)?;
+    let mut object = ObjectEmitModule::new(isa);
+    let trap_func_id = declare_trap_callback(&mut object)?;
+    let _func_ids = declare_and_define_functions(&mut object, &plan, trap_func_id)?;
+    object.finish()
+}
+
 pub fn run_native(module: &AstModule) -> Result<Value, NativeError> {
     call_native(module, "main", vec![])
 }
 
 pub fn call_native(module: &AstModule, name: &str, args: Vec<Value>) -> Result<Value, NativeError> {
     compile_native(module)?.call_function(name, args)
+}
+
+fn host_isa(is_pic: bool) -> Result<OwnedTargetIsa, NativeError> {
+    let isa_builder = cranelift_native::builder()
+        .map_err(|error| NativeError::new(format!("failed to create host ISA builder: {error}")))?;
+    let mut flags = settings::builder();
+    flags
+        .set("is_pic", if is_pic { "true" } else { "false" })
+        .map_err(|error| {
+            NativeError::new(format!("failed to configure Cranelift flags: {error}"))
+        })?;
+    isa_builder
+        .finish(settings::Flags::new(flags))
+        .map_err(|error| NativeError::new(format!("failed to finish host ISA: {error}")))
+}
+
+fn host_binary_format() -> BinaryFormat {
+    #[cfg(target_os = "macos")]
+    {
+        BinaryFormat::MachO
+    }
+    #[cfg(target_os = "linux")]
+    {
+        BinaryFormat::Elf
+    }
+    #[cfg(target_os = "windows")]
+    {
+        BinaryFormat::Coff
+    }
+}
+
+fn host_architecture() -> Architecture {
+    #[cfg(target_arch = "aarch64")]
+    {
+        Architecture::Aarch64
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        Architecture::X86_64
+    }
+}
+
+fn host_endianness() -> Endianness {
+    #[cfg(target_endian = "little")]
+    {
+        Endianness::Little
+    }
+    #[cfg(target_endian = "big")]
+    {
+        Endianness::Big
+    }
+}
+
+fn symbol_scope_for_linkage(linkage: Linkage) -> SymbolScope {
+    match linkage {
+        Linkage::Import => SymbolScope::Dynamic,
+        Linkage::Local => SymbolScope::Compilation,
+        Linkage::Hidden | Linkage::Export => SymbolScope::Linkage,
+        Linkage::Preemptible => SymbolScope::Dynamic,
+    }
+}
+
+fn relocation_target_symbol(
+    reloc: &ModuleReloc,
+    symbol_ids: &BTreeMap<FuncId, object::write::SymbolId>,
+) -> Result<(object::write::SymbolId, i64), NativeError> {
+    match &reloc.name {
+        ModuleRelocTarget::User {
+            namespace: 0,
+            index,
+        } => {
+            let func_id = FuncId::from_u32(*index);
+            let symbol = symbol_ids.get(&func_id).copied().ok_or_else(|| {
+                NativeError::new(format!("missing relocation target symbol for `{func_id}`"))
+            })?;
+            Ok((symbol, reloc.addend))
+        }
+        ModuleRelocTarget::FunctionOffset(func_id, offset) => {
+            let symbol = symbol_ids.get(func_id).copied().ok_or_else(|| {
+                NativeError::new(format!("missing relocation target symbol for `{func_id}`"))
+            })?;
+            Ok((symbol, reloc.addend + i64::from(*offset)))
+        }
+        ModuleRelocTarget::User { namespace, .. } => Err(NativeError::unsupported(format!(
+            "data relocation namespace `{namespace}` is not supported by native object emission"
+        ))),
+        ModuleRelocTarget::LibCall(libcall) => Err(NativeError::unsupported(format!(
+            "libcall relocation `{libcall}` is not supported by native object emission"
+        ))),
+        ModuleRelocTarget::KnownSymbol(symbol) => Err(NativeError::unsupported(format!(
+            "known-symbol relocation `{symbol}` is not supported by native object emission"
+        ))),
+    }
+}
+
+fn relocation_flags(reloc: Reloc) -> Result<RelocationFlags, NativeError> {
+    let generic = |kind, encoding, size| RelocationFlags::Generic {
+        kind,
+        encoding,
+        size,
+    };
+    match reloc {
+        Reloc::Abs4 => Ok(generic(
+            RelocationKind::Absolute,
+            RelocationEncoding::Generic,
+            32,
+        )),
+        Reloc::Abs8 => Ok(generic(
+            RelocationKind::Absolute,
+            RelocationEncoding::Generic,
+            64,
+        )),
+        Reloc::X86PCRel4 => Ok(generic(
+            RelocationKind::Relative,
+            RelocationEncoding::Generic,
+            32,
+        )),
+        Reloc::X86CallPCRel4 => Ok(generic(
+            RelocationKind::Relative,
+            RelocationEncoding::X86Branch,
+            32,
+        )),
+        Reloc::X86CallPLTRel4 => Ok(generic(
+            RelocationKind::PltRelative,
+            RelocationEncoding::X86Branch,
+            32,
+        )),
+        Reloc::Arm64Call => Ok(generic(
+            RelocationKind::Relative,
+            RelocationEncoding::AArch64Call,
+            26,
+        )),
+        other => Err(NativeError::unsupported(format!(
+            "relocation `{other:?}` is not supported by native object emission"
+        ))),
+    }
+}
+
+fn declare_trap_callback<M: Module>(module: &mut M) -> Result<FuncId, NativeError> {
+    let mut trap_sig = module.make_signature();
+    trap_sig.params.push(AbiParam::new(types::I64));
+    module
+        .declare_function("__spore_arith_trap", Linkage::Import, &trap_sig)
+        .map_err(|error| NativeError::new(format!("failed to declare trap callback: {error}")))
+}
+
+fn declare_and_define_functions<M: Module>(
+    module: &mut M,
+    plan: &ModulePlan<'_>,
+    trap_func_id: FuncId,
+) -> Result<BTreeMap<String, FuncId>, NativeError> {
+    let mut func_ids = BTreeMap::new();
+    for (name, info) in &plan.functions {
+        let sig = native_signature(module, info.params.len());
+        let func_id = module
+            .declare_function(name, Linkage::Local, &sig)
+            .map_err(|error| NativeError::new(format!("failed to declare `{name}`: {error}")))?;
+        func_ids.insert(name.clone(), func_id);
+    }
+    for (name, info) in &plan.functions {
+        define_function(module, name, info, plan, &func_ids, trap_func_id)?;
+    }
+    Ok(func_ids)
 }
 
 fn analyze_module(module: &AstModule) -> Result<ModulePlan<'_>, NativeError> {
@@ -638,15 +1006,15 @@ fn detect_recursive_cycles(
     Ok(())
 }
 
-fn native_signature(module: &JITModule, arity: usize) -> cranelift_codegen::ir::Signature {
+fn native_signature<M: Module>(module: &M, arity: usize) -> cranelift_codegen::ir::Signature {
     let mut sig = module.make_signature();
     sig.params = vec![AbiParam::new(types::I64); arity];
     sig.returns.push(AbiParam::new(types::I64));
     sig
 }
 
-fn define_function(
-    module: &mut JITModule,
+fn define_function<M: Module>(
+    module: &mut M,
     name: &str,
     info: &FunctionInfo<'_>,
     plan: &ModulePlan<'_>,
@@ -700,9 +1068,9 @@ fn define_function(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn compile_expr(
+fn compile_expr<M: Module>(
     builder: &mut FunctionBuilder<'_>,
-    module: &mut JITModule,
+    module: &mut M,
     plan: &ModulePlan<'_>,
     func_ids: &BTreeMap<String, FuncId>,
     trap_func_id: FuncId,
@@ -923,9 +1291,9 @@ fn compile_expr(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn compile_if(
+fn compile_if<M: Module>(
     builder: &mut FunctionBuilder<'_>,
-    module: &mut JITModule,
+    module: &mut M,
     plan: &ModulePlan<'_>,
     func_ids: &BTreeMap<String, FuncId>,
     trap_func_id: FuncId,
@@ -992,9 +1360,9 @@ fn compile_if(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn compile_logical(
+fn compile_logical<M: Module>(
     builder: &mut FunctionBuilder<'_>,
-    module: &mut JITModule,
+    module: &mut M,
     plan: &ModulePlan<'_>,
     func_ids: &BTreeMap<String, FuncId>,
     trap_func_id: FuncId,
@@ -1058,9 +1426,9 @@ fn compile_logical(
     })
 }
 
-fn compile_binop(
+fn compile_binop<M: Module>(
     builder: &mut FunctionBuilder<'_>,
-    module: &mut JITModule,
+    module: &mut M,
     trap_func_id: FuncId,
     lhs: BoundValue,
     op: &BinOp,
@@ -1272,9 +1640,9 @@ fn unit_value(builder: &mut FunctionBuilder<'_>) -> BoundValue {
 /// continues with 0 as the placeholder result. Otherwise continues with
 /// `ok_result`. The caller checks the thread-local after the JIT call
 /// returns and converts any set trap code into `Err(NativeError)`.
-fn emit_arith_guard(
+fn emit_arith_guard<M: Module>(
     builder: &mut FunctionBuilder<'_>,
-    module: &mut JITModule,
+    module: &mut M,
     trap_func_id: FuncId,
     condition: cranelift_codegen::ir::Value,
     trap_code: i64,

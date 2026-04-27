@@ -156,7 +156,7 @@ spore format --diff <file>        # show formatting diff without writing
 spore holes <file>                # JSON hole report (types, bindings, candidates, DAG)
 
 # Building
-spore build <file>                # compile without executing (interpreter mode)
+spore build <file>                # compile a standalone scalar .sp file to a native .o object (experimental)
 
 # Watch mode
 spore watch <file>                # re-check on file changes
@@ -229,5 +229,5 @@ Operators: `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `<`, `<=`, `>`, `>=`, `&&`, `||`
 1. No loops — use recursion or higher-order functions.
 2. Unfilled holes are checkable/reportable, but execution stops with a runtime error if a hole is reached.
 3. Structured concurrency is only the current subset (`parallel_scope`, `spawn`, `.await`, `select`); broader async/runtime surface is still evolving.
-4. Tree-walking interpreter — no compiled native output yet.
+4. Runtime execution still uses the tree-walking interpreter; `spore build` only emits experimental native `.o` artifacts for standalone scalar files.
 5. Refinement types — parsed but not enforced at type-check time.

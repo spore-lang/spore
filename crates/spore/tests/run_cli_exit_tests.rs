@@ -99,6 +99,106 @@ fn standalone_run_json_omits_completion_value() {
 }
 
 #[test]
+fn standalone_build_writes_native_object_file() {
+    let project = TempProject::new();
+    let file = project.write(
+        "main.sp",
+        r#"
+        fn choose(flag: Bool) -> Bool {
+            if flag { true } else { false }
+        }
+
+        fn main() -> Bool {
+            choose(true)
+        }
+        "#,
+    );
+    let artifact = file.with_extension("o");
+
+    let output = spore_cmd()
+        .args(["build", file.to_str().expect("utf-8 path")])
+        .output()
+        .expect("run spore build");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        artifact.is_file(),
+        "expected native artifact at {}",
+        artifact.display()
+    );
+    let metadata = fs::metadata(&artifact).expect("artifact metadata");
+    assert!(metadata.len() > 0, "artifact should not be empty");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("built native object"), "stdout: {stdout}");
+    assert!(
+        !stdout.contains("interpreter mode"),
+        "build output should not claim interpreter mode: {stdout}"
+    );
+}
+
+#[test]
+fn standalone_build_rejects_native_unsupported_source_explicitly() {
+    let project = TempProject::new();
+    let file = project.write("main.sp", "fn main() -> Str { \"hello\" }\n");
+
+    let output = spore_cmd()
+        .args(["build", file.to_str().expect("utf-8 path")])
+        .output()
+        .expect("run spore build");
+
+    assert!(!output.status.success(), "expected native build failure");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("native build unavailable"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("unsupported native backend feature"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn project_build_fails_explicitly_until_native_project_backend_exists() {
+    let project = TempProject::new();
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "main"
+
+        [entries.main]
+        path = "main.sp"
+        "#,
+    );
+    project.write("src/main.sp", "fn main() -> I64 { 42 }\n");
+
+    let output = spore_cmd()
+        .arg("build")
+        .current_dir(project.root())
+        .output()
+        .expect("run spore build");
+
+    assert!(!output.status.success(), "expected project build failure");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("project builds are not supported yet"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn project_basic_cli_exit_returns_requested_code_without_printing_value() {
     let project = TempProject::new();
     project.write(

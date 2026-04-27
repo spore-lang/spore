@@ -27,10 +27,12 @@ license = "MIT OR Apache-2.0"
 
 # Code generation
 cranelift-codegen = "0.114"
+cranelift-control = "0.114"
 cranelift-frontend = "0.114"
 cranelift-jit = "0.114"
 cranelift-module = "0.114"
 cranelift-native = "0.114"
+object = { version = "0.37.3", features = ["write"] }
 
 # Error reporting
 ariadne = "0.6"
