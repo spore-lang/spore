@@ -220,6 +220,8 @@ just package-cli        # build a wheel into dist/
 just package-cli-sdist  # build a source distribution into dist/
 ```
 
+GitHub Actions builds wheel artifacts for Linux x86_64, macOS x86_64, macOS arm64, and Windows x86_64 on every push and pull request. Pushing a `v*` tag runs the same wheel matrix plus an sdist and publishes the collected artifacts to PyPI from the `pypi` environment via trusted publishing, so the repository also needs a matching PyPI trusted publisher configuration.
+
 ## Development
 
 ### Local hooks

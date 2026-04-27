@@ -1,88 +1,24 @@
-name: "CI - Tests"
+name: "Release - PyPI"
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - "v*"
 
 concurrency:
-  group: ci-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: release-pypi-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
 
 jobs:
-  msrv:
-    name: msrv
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.90"
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-targets
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    env:
-      RUST_BACKTRACE: 1
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          components: llvm-tools
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@cargo-llvm-cov
-
-      - name: Run tests with coverage
-        run: cargo llvm-cov test --lcov --output-path lcov.info -- --no-capture
-
-      - name: Run doc tests
-        run: cargo test --doc --all-features
-
-      - uses: astral-sh/setup-uv@v6
-
-      - name: Validate published hook manifest
-        run: uvx prek validate-manifest .pre-commit-hooks.yaml
-
-      - name: Smoke-test project-aware build
-        run: |
-          cargo run --release --bin spore -- new ci-build-smoke
-          cd ci-build-smoke
-          ../target/release/spore build
-
-      - name: Smoke-test stdlib specs
-        run: cargo run --release --bin spore -- test stdlib/math.sp stdlib/string.sp stdlib/collections.sp stdlib/char.sp stdlib/set.sp stdlib/dict.sp
-
-      - name: Smoke-test sporec CLI
-        run: |
-          cargo run --release --bin sporec -- explain E0001
-          cargo run --release --bin sporec -- compile examples/demo.sp
-          cat > /tmp/sporec-hole-smoke.sp <<'EOF'
-          fn main() -> I32 {
-              ?todo
-          }
-          EOF
-          cargo run --release --bin sporec -- holes --json /tmp/sporec-hole-smoke.sp > /tmp/sporec-holes.json
-          grep -q '"holes"' /tmp/sporec-holes.json
-          cargo run --release --bin sporec -- query-hole --json /tmp/sporec-hole-smoke.sp '?todo' > /tmp/sporec-hole.json
-          grep -q '"name"' /tmp/sporec-hole.json
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
-          fail_ci_if_error: false
-
-  package-cli-wheel:
-    name: package-cli (${{ matrix.label }})
+  build-wheel:
+    name: wheel (${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -111,7 +47,7 @@ jobs:
           toolchain: "1.95"
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: package-cli-${{ matrix.label }}
+          shared-key: release-wheel-${{ matrix.label }}
 
       - name: Build wheel
         uses: PyO3/maturin-action@v1
@@ -143,8 +79,8 @@ jobs:
           path: dist/*.whl
           if-no-files-found: error
 
-  package-cli-sdist:
-    name: package-cli (sdist)
+  build-sdist:
+    name: sdist
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -157,7 +93,7 @@ jobs:
           toolchain: "1.95"
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: package-cli-sdist
+          shared-key: release-sdist
 
       - name: Build sdist
         uses: PyO3/maturin-action@v1
@@ -181,3 +117,28 @@ jobs:
           name: spore-sdist
           path: dist/*.tar.gz
           if-no-files-found: error
+
+  publish:
+    name: publish
+    runs-on: ubuntu-latest
+    needs:
+      - build-wheel
+      - build-sdist
+    environment:
+      name: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+      - name: Download release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          pattern: spore-*
+          path: dist
+          merge-multiple: true
+      - name: List release artifacts
+        run: ls -1 dist
+      - name: Publish to PyPI
+        run: uv publish dist/*
