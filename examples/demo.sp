@@ -126,8 +126,11 @@ fn main() -> () {
     let f5 = factorial(5);
     let fib = fibonacci(10);
     let even = is_even(42);
-    println(greet("world"));
-    println(to_string(sum + d + tripled + piped + a));
+    sum;
+    d;
+    tripled;
+    piped;
+    a;
     f5;
     fib;
     even;

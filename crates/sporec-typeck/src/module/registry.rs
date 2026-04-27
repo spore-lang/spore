@@ -199,6 +199,19 @@ impl ModuleRegistry {
             prelude
                 .functions
                 .insert("read_line".into(), (vec![], Ty::Str));
+            // Register Console as a required effect for the synthetic console builtins so
+            // that effect validation is enforced at call sites (callers must declare
+            // `uses [Console]`).
+            let console_effect = crate::types::EffectSet::from_names(["Console".to_string()]);
+            prelude
+                .function_required_effects
+                .insert("print".into(), console_effect.clone());
+            prelude
+                .function_required_effects
+                .insert("println".into(), console_effect.clone());
+            prelude
+                .function_required_effects
+                .insert("read_line".into(), console_effect);
         }
 
         prelude

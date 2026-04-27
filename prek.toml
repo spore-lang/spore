@@ -23,6 +23,13 @@ hooks = [
 ]
 
 [[repos]]
+repo = "https://github.com/rhysd/actionlint"
+rev = "v1.7.12"
+hooks = [
+  { id = "actionlint" },
+]
+
+[[repos]]
 repo = "https://github.com/crate-ci/typos"
 rev = "v1.33.1"
 hooks = [

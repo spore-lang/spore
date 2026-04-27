@@ -7,6 +7,14 @@ install:
     uvx prek install --install-hooks --hook-type pre-commit --hook-type commit-msg
     uvx maturin develop
 
+# Build a platform wheel for the packaged CLI into dist/
+package-cli:
+    uvx maturin build --release --locked --out dist
+
+# Build a source distribution for the packaged CLI into dist/
+package-cli-sdist:
+    uvx maturin sdist --out dist
+
 # Format all code
 format:
     just --fmt --unstable

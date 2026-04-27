@@ -54,12 +54,13 @@ fn standalone_run_ignores_return_value_by_default() {
 }
 
 #[test]
-fn standalone_run_prints_only_explicit_console_output() {
+fn standalone_run_rejects_console_builtins() {
+    // `println` is not available in standalone mode; it must be rejected at type-check time.
     let project = TempProject::new();
     let file = project.write(
         "main.sp",
         r#"
-        fn main() -> () {
+        fn main() -> () uses [Console] {
             println("hello");
             return
         }
@@ -72,11 +73,9 @@ fn standalone_run_prints_only_explicit_console_output() {
         .expect("run spore");
 
     assert!(
-        output.status.success(),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
+        !output.status.success(),
+        "expected failure because println is undefined in standalone mode"
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello");
 }
 
 #[test]
@@ -181,5 +180,98 @@ fn project_basic_cli_exit_returns_requested_code_without_printing_value() {
         String::from_utf8_lossy(&output.stdout).trim().is_empty(),
         "stdout: {}",
         String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn project_test_reuses_project_aware_import_resolution() {
+    let project = TempProject::new();
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "basic-cli"
+        type = "platform"
+
+        [platform]
+        contract-module = "platform_contract"
+        startup-contract = "main"
+        adapter-function = "main_for_host"
+        handled-effects = ["Console"]
+        "#,
+    );
+    project.write(
+        "src/platform_contract.sp",
+        r#"
+        pub fn main() -> () {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> ()) -> () {
+            app_main();
+            return
+        }
+        "#,
+    );
+    project.write(
+        "src/basic_cli/stdout.sp",
+        r#"
+        pub foreign fn println(s: Str) -> () uses [Console]
+        "#,
+    );
+    project.write(
+        "examples/hello-app/spore.toml",
+        r#"
+        [package]
+        name = "hello-app"
+        type = "application"
+
+        [project]
+        platform = "basic-cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "main.sp"
+
+        [dependencies]
+        basic-cli = { path = "../.." }
+        "#,
+    );
+    project.write(
+        "examples/hello-app/src/main.sp",
+        r#"
+        import basic_cli.stdout as stdout
+
+        fn local_identity(x: I32) -> I32
+        spec {
+            example "basic": local_identity(42) == 42
+        }
+        {
+            x
+        }
+
+        fn main() -> () uses [Console] {
+            println("hello");
+            return
+        }
+        "#,
+    );
+
+    let output = spore_cmd()
+        .arg("test")
+        .current_dir(project.root())
+        .output()
+        .expect("run spore test");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("1 specs passed"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }

@@ -33,17 +33,9 @@ impl From<&Visibility> for SymbolVisibility {
 }
 
 /// Options for how the synthetic prelude should be assembled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PreludeOptions {
     pub include_console: bool,
-}
-
-impl Default for PreludeOptions {
-    fn default() -> Self {
-        Self {
-            include_console: true,
-        }
-    }
 }
 
 /// The kind of an imported symbol.

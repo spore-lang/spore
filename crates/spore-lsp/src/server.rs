@@ -48,9 +48,6 @@ const KEYWORDS: &[&str] = &[
 ];
 
 const BUILTINS: &[&str] = &[
-    "print",
-    "println",
-    "read_line",
     "map",
     "filter",
     "fold",
