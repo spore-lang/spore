@@ -14,6 +14,26 @@ Spore is a compiled language where function signatures are "gravity centers" —
 - **Structured Concurrency**: Task trees with cancellation propagation, channels for communication
 - **Expression-Based**: Everything is an expression, no loops (recursion + higher-order functions)
 
+## Install
+
+Published CLI artifacts are distributed on PyPI as `spore-lang` and attached to
+[GitHub Releases](https://github.com/spore-lang/spore/releases).
+
+Install the latest published CLI with:
+
+```bash
+uv tool install spore-lang
+spore --help
+```
+
+If you prefer `pipx`, use:
+
+```bash
+pipx install spore-lang
+```
+
+If you need unreleased changes, keep using the source-based quick start below.
+
 ## Canonical Surface Syntax
 
 - Modules come only from file paths; there is no `module ...` header.
@@ -213,14 +233,21 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. 
 
 ## Packaging
 
-The `spore` CLI is packaged from `crates/spore` via `maturin` so it can be built and published as a PyPI binary package.
+The `spore` CLI is packaged from `crates/spore` via `maturin` so it can be
+built and published as a PyPI binary package.
 
 ```bash
 just package-cli        # build a wheel into dist/
 just package-cli-sdist  # build a source distribution into dist/
 ```
 
-GitHub Actions builds wheel artifacts for Linux x86_64, macOS x86_64, macOS arm64, and Windows x86_64 on every push and pull request. Pushing a `v*` tag runs the same wheel matrix plus an sdist and publishes the collected artifacts to PyPI from the `pypi` environment via trusted publishing, so the repository also needs a matching PyPI trusted publisher configuration.
+GitHub Actions builds wheel artifacts for Linux x86_64, macOS x86_64, macOS
+arm64, and Windows x86_64 on every push and pull request. Pushing a `v*` tag
+runs `.github/workflows/cd-publish.yml`, which builds the same wheel matrix plus
+an sdist, uploads those artifacts to GitHub Releases, and publishes the
+collected distributions to PyPI from the `pypi` environment via trusted
+publishing. The repository therefore also needs a matching PyPI trusted
+publisher configuration.
 
 ## Development
 

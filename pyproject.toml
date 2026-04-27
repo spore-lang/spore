@@ -22,6 +22,8 @@ dynamic = ["version"]
 
 [project.urls]
 Documentation = "https://github.com/spore-lang/spore#readme"
+Homepage = "https://github.com/spore-lang/spore"
+Releases = "https://github.com/spore-lang/spore/releases"
 Repository = "https://github.com/spore-lang/spore"
 
 [build-system]
