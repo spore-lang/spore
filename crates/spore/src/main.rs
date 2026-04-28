@@ -38,7 +38,7 @@ fn main() -> ExitCode {
         } => exec_test(&files, verbose, json, deny_warnings),
         Cmd::Format { files, check, diff } => exec_format(&files, check, diff),
         Cmd::Holes { file } => exec_holes(&file),
-        Cmd::Build { file } => exec_build(file.as_deref()),
+        Cmd::Build { file } => exec_build(Some(&file)),
         Cmd::Watch { file, json } => exec_watch(&file, json),
         Cmd::New { name, project_type } => exec_new(&name, &project_type),
         Cmd::Init { project_type } => exec_init(&project_type),

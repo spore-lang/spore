@@ -165,37 +165,12 @@ fn standalone_build_rejects_native_unsupported_source_explicitly() {
 }
 
 #[test]
-fn project_build_fails_explicitly_until_native_project_backend_exists() {
-    let project = TempProject::new();
-    project.write(
-        "spore.toml",
-        r#"
-        [package]
-        name = "demo"
-        type = "application"
-
-        [project]
-        platform = "cli"
-        default-entry = "main"
-
-        [entries.main]
-        path = "main.sp"
-        "#,
-    );
-    project.write("src/main.sp", "fn main() -> I64 { 42 }\n");
-
-    let output = spore_cmd()
-        .arg("build")
-        .current_dir(project.root())
-        .output()
-        .expect("run spore build");
+fn build_requires_an_explicit_file_argument() {
+    let output = spore_cmd().arg("build").output().expect("run spore build");
 
     assert!(!output.status.success(), "expected project build failure");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("project builds are not supported yet"),
-        "stderr: {stderr}"
-    );
+    assert!(stderr.contains("expected `FILE`"), "stderr: {stderr}");
 }
 
 #[test]

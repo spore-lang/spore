@@ -218,6 +218,7 @@ impl NativeProgram {
     }
 }
 
+#[allow(clippy::result_large_err)]
 impl ObjectEmitModule {
     fn new(isa: OwnedTargetIsa) -> Self {
         Self {
@@ -333,6 +334,7 @@ impl ObjectEmitModule {
     }
 }
 
+#[allow(clippy::result_large_err)]
 impl Module for ObjectEmitModule {
     fn isa(&self) -> &dyn cranelift_codegen::isa::TargetIsa {
         self.isa.as_ref()
@@ -458,7 +460,7 @@ pub fn emit_native_object(module: &AstModule) -> Result<Vec<u8>, NativeError> {
     let plan = analyze_module(module)?;
     let isa = host_isa(false)?;
     let mut object = ObjectEmitModule::new(isa);
-    let trap_func_id = declare_trap_callback(&mut object)?;
+    let trap_func_id = define_trap_callback_stub(&mut object)?;
     let _func_ids = declare_and_define_functions(&mut object, &plan, trap_func_id)?;
     object.finish()
 }
@@ -485,6 +487,9 @@ fn host_isa(is_pic: bool) -> Result<OwnedTargetIsa, NativeError> {
         .map_err(|error| NativeError::new(format!("failed to finish host ISA: {error}")))
 }
 
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+compile_error!("native object emission supports only macOS, Linux, and Windows targets");
+
 fn host_binary_format() -> BinaryFormat {
     #[cfg(target_os = "macos")]
     {
@@ -499,6 +504,9 @@ fn host_binary_format() -> BinaryFormat {
         BinaryFormat::Coff
     }
 }
+
+#[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+compile_error!("native object emission supports only aarch64 and x86_64 targets");
 
 fn host_architecture() -> Architecture {
     #[cfg(target_arch = "aarch64")]
@@ -520,6 +528,30 @@ fn host_endianness() -> Endianness {
     {
         Endianness::Big
     }
+}
+
+fn define_trap_callback_stub(module: &mut ObjectEmitModule) -> Result<FuncId, NativeError> {
+    let mut trap_sig = module.make_signature();
+    trap_sig.params.push(AbiParam::new(types::I64));
+    trap_sig.returns.push(AbiParam::new(types::I64));
+    let trap_func_id = module
+        .declare_function("__spore_arith_trap", Linkage::Local, &trap_sig)
+        .map_err(|error| NativeError::new(format!("failed to declare trap callback: {error}")))?;
+    let mut ctx = module.make_context();
+    ctx.func.signature = trap_sig;
+    let mut builder_ctx = FunctionBuilderContext::new();
+    let mut builder = FunctionBuilder::new(&mut ctx.func, &mut builder_ctx);
+    let entry = builder.create_block();
+    builder.append_block_param(entry, types::I64);
+    builder.switch_to_block(entry);
+    builder.seal_block(entry);
+    let zero = builder.ins().iconst(types::I64, 0);
+    builder.ins().return_(&[zero]);
+    builder.finalize();
+    module
+        .define_function(trap_func_id, &mut ctx)
+        .map_err(|error| NativeError::new(format!("failed to define trap callback: {error}")))?;
+    Ok(trap_func_id)
 }
 
 fn symbol_scope_for_linkage(linkage: Linkage) -> SymbolScope {
