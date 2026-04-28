@@ -270,16 +270,16 @@ With the root `pyproject.toml` in place, the repository can also expose reusable
 
 ```yaml
 repos:
-  - repo: https://github.com/spore-lang/spore
-    rev: <tag-or-sha>
+  - repo: https://github.com/spore-lang/spore-pre-commit
+    rev: <tag>
     hooks:
       - id: spore-format
       - id: spore-check
 ```
 
-Until a dedicated thin mirror repo exists, installing these hooks from the
-source repo still builds Spore from source, so consumers need a working Rust
-1.95+ toolchain.
+The dedicated `spore-pre-commit` mirror publishes version-pinned hooks backed by
+the released `spore-lang` package, so downstream repos do not need to build the
+compiler from source just to run the hooks.
 
 ## Documentation
 

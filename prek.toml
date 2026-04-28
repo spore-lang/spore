@@ -44,6 +44,14 @@ hooks = [
 ]
 
 [[repos]]
+repo = "https://github.com/spore-lang/spore-pre-commit"
+rev = "v0.0.3"
+hooks = [
+  { id = "spore-format", files = "^examples/.*\\.sp$" },
+  { id = "spore-check", files = "^examples/.*\\.sp$" },
+]
+
+[[repos]]
 repo = "local"
 hooks = [
   {
@@ -61,19 +69,5 @@ hooks = [
     language = "system",
     types = ["rust"],
     pass_filenames = false
-  },
-  {
-    id = "spore-format",
-    name = "spore-format",
-    entry = "cargo run --quiet --bin spore -- format",
-    language = "system",
-    files = "^examples/.*\\.sp$"
-  },
-  {
-    id = "spore-check",
-    name = "spore-check",
-    entry = "cargo run --quiet --bin spore -- check",
-    language = "system",
-    files = "^examples/.*\\.sp$"
   },
 ]
