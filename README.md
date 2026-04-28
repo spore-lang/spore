@@ -33,6 +33,7 @@ pipx install spore-lang
 ```
 
 If you need unreleased changes, keep using the source-based quick start below.
+Source builds currently require Rust 1.95 or newer.
 
 ## Canonical Surface Syntax
 
@@ -244,10 +245,13 @@ just package-cli-sdist  # build a source distribution into dist/
 GitHub Actions builds wheel artifacts for Linux x86_64, macOS x86_64, macOS
 arm64, and Windows x86_64 on every push and pull request. Pushing a `v*` tag
 runs `.github/workflows/cd-publish.yml`, which builds the same wheel matrix plus
-an sdist, uploads those artifacts to GitHub Releases, and publishes the
-collected distributions to PyPI from the `pypi` environment via trusted
-publishing. The repository therefore also needs a matching PyPI trusted
-publisher configuration.
+an sdist, smoke-tests the packaged artifacts, uploads those artifacts to GitHub
+Releases, and publishes the collected distributions to PyPI from the `pypi`
+environment via trusted publishing. The repository therefore also needs a
+matching PyPI trusted publisher configuration.
+
+The current MSRV is Rust 1.95, matching `Cargo.toml`, `rust-toolchain.toml`,
+CI, and `just msrv`.
 
 ## Development
 
@@ -273,7 +277,9 @@ repos:
       - id: spore-check
 ```
 
-Until a dedicated thin mirror repo exists, installing these hooks from the source repo still builds Spore from source, so consumers need a working Rust toolchain.
+Until a dedicated thin mirror repo exists, installing these hooks from the
+source repo still builds Spore from source, so consumers need a working Rust
+1.95+ toolchain.
 
 ## Documentation
 
