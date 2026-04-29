@@ -14,3 +14,4 @@ cranelift-jit = { workspace = true }
 cranelift-module = { workspace = true }
 cranelift-native = { workspace = true }
 sporec-parser = { path = "../sporec-parser" }
+sporec-stdlib = { path = "../sporec-stdlib" }

@@ -1,0 +1,10 @@
+[package]
+name = "sporec-stdlib"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Bundled Spore standard library registry"
+repository.workspace = true
+license.workspace = true
+
+[dependencies]

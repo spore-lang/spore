@@ -1,5 +1,6 @@
 use sporec_codegen::{ProjectRunOutcome, RuntimePlatform, value::Value};
 use sporec_parser::parse;
+use sporec_stdlib::all as stdlib_modules;
 
 fn run_main(src: &str) -> Value {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
@@ -788,19 +789,8 @@ fn assert_stdlib_source_parses(name: &str, src: &str) {
 
 #[test]
 fn test_stdlib_sources_parse() {
-    for (name, src) in [
-        ("prelude.sp", include_str!("../../../stdlib/prelude.sp")),
-        ("math.sp", include_str!("../../../stdlib/math.sp")),
-        ("string.sp", include_str!("../../../stdlib/string.sp")),
-        (
-            "collections.sp",
-            include_str!("../../../stdlib/collections.sp"),
-        ),
-        ("dict.sp", include_str!("../../../stdlib/dict.sp")),
-        ("set.sp", include_str!("../../../stdlib/set.sp")),
-        ("char.sp", include_str!("../../../stdlib/char.sp")),
-    ] {
-        assert_stdlib_source_parses(name, src);
+    for module in stdlib_modules() {
+        assert_stdlib_source_parses(module.file_name, module.source);
     }
 }
 

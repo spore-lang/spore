@@ -4,6 +4,7 @@ use sporec_parser::{
     ast::{Item, TypeExpr},
     parse,
 };
+use sporec_stdlib::prelude;
 
 use crate::env::HandlerInfo;
 use crate::types::{EffectSet, ErrorSet, Ty};
@@ -93,8 +94,7 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
 }
 
 pub(super) fn build_prelude_interface() -> ModuleInterface {
-    let module = parse(include_str!("../../../../stdlib/prelude.sp"))
-        .expect("embedded stdlib/prelude.sp must parse");
+    let module = parse(prelude().source).expect("embedded stdlib prelude must parse");
     let mut iface = ModuleInterface::new(vec!["Std".into(), "Prelude".into()]);
     let checker = crate::check::Checker::new();
 

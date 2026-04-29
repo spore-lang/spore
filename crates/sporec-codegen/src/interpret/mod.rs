@@ -13,6 +13,7 @@ mod pattern;
 use std::collections::BTreeMap;
 
 use sporec_parser::ast::*;
+use sporec_stdlib::prelude;
 
 use crate::effect_handler::EffectHandler;
 use crate::value::{TaskHandle, Value};
@@ -57,8 +58,7 @@ impl Interpreter {
 
     /// Load the prelude (embedded at compile time).
     pub fn load_prelude(&mut self) {
-        let source = include_str!("../../../../stdlib/prelude.sp");
-        if let Ok(module) = sporec_parser::parse(source) {
+        if let Ok(module) = sporec_parser::parse(prelude().source) {
             self.load_module(&module);
         }
     }
