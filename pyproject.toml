@@ -3,14 +3,13 @@ name = "spore"
 description = "CLI and reference compiler for the Spore language."
 readme = "README.md"
 requires-python = ">=3.8"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 authors = [{ name = "Zhan Rongrui" }]
 keywords = ["cli", "compiler", "language", "spore"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python",

@@ -275,4 +275,4 @@ Detailed topic proposals now live in [`spore-evolution/seps/`](https://github.co
 
 ## License
 
-MIT OR Apache-2.0
+MIT
