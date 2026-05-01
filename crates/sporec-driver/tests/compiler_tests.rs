@@ -4,9 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use sporec_codegen::value::Value;
 use sporec_driver::{
-    CheckFailure, CheckReport, build_native_object, call_native, check_files, check_project,
-    check_project_verbose, check_verbose, compile, compile_project, hole_summary, run_native,
-    run_project, run_project_with_outcome,
+    CheckFailure, CheckReport, build_native_object, build_project_native_object, call_native,
+    check_files, check_project, check_project_verbose, check_verbose, compile, compile_project,
+    hole_summary, run_native, run_project, run_project_with_outcome,
 };
 
 struct TempProject {
@@ -417,6 +417,246 @@ fn build_native_object_emits_bytes_for_supported_scalar_source() {
     assert!(
         !artifact.is_empty(),
         "native object artifact should not be empty"
+    );
+}
+
+#[test]
+fn build_project_native_object_flattens_multi_module_imports_with_main_wrapper() {
+    let project = TempProject::new("project-native-object-multi-module");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        import util
+
+        fn helper() -> () {
+            double_truth()
+        }
+
+        fn main() -> () {
+            helper()
+        }
+        "#,
+    );
+    project.write(
+        "src/util.sp",
+        r#"
+        import util_inner
+
+        pub fn double_truth() -> () {
+            truth()
+        }
+        "#,
+    );
+    project.write(
+        "src/util_inner.sp",
+        r#"
+        pub fn truth() -> () {}
+        "#,
+    );
+
+    let artifact = build_project_native_object(project.root(), "app.sp")
+        .expect("project native build should flatten imported modules");
+    let symbols = String::from_utf8_lossy(&artifact);
+    assert!(
+        symbols.contains("main"),
+        "expected exported startup wrapper symbol in native object"
+    );
+    assert!(
+        symbols.contains("app.main"),
+        "expected qualified entry startup symbol in native object"
+    );
+    assert!(
+        symbols.contains("util.double_truth"),
+        "expected qualified imported function symbol in native object"
+    );
+    assert!(
+        symbols.contains("util_inner.truth"),
+        "expected qualified transitive imported function symbol in native object"
+    );
+}
+
+#[test]
+fn build_project_native_object_rejects_ambiguous_same_name_imports() {
+    let project = TempProject::new("project-native-object-ambiguous");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        import left
+        import right
+
+        fn main() -> () {
+            helper()
+        }
+        "#,
+    );
+    project.write(
+        "src/left.sp",
+        r#"
+        pub fn helper() -> () {}
+        "#,
+    );
+    project.write(
+        "src/right.sp",
+        r#"
+        pub fn helper() -> () {}
+        "#,
+    );
+
+    let err = build_project_native_object(project.root(), "app.sp")
+        .expect_err("native project build should reject ambiguous imported functions");
+    assert!(
+        err.contains("ambiguous native project import"),
+        "expected explicit ambiguous import failure, got: {err}"
+    );
+    assert!(
+        err.contains("helper"),
+        "expected ambiguous function name in error, got: {err}"
+    );
+}
+
+#[test]
+fn build_project_native_object_uses_platform_adapter_startup_semantics() {
+    let project = TempProject::new("project-native-object-adapter");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    project.write(
+        "vendor/basic-cli/src/basic_cli/runtime.sp",
+        r#"
+        import basic_cli.runtime_inner
+
+        pub fn value() -> Int {
+            helper()
+        }
+        "#,
+    );
+    project.write(
+        "vendor/basic-cli/src/basic_cli/runtime_inner.sp",
+        r#"
+        pub fn helper() -> Int {
+            42
+        }
+        "#,
+    );
+    write_basic_cli_platform(
+        &project,
+        r#"
+        import basic_cli.runtime
+
+        pub fn main() -> Int {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> Int) -> Int {
+            value()
+        }
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        fn main() -> Int {
+            ?entry_startup_should_not_be_reachable
+        }
+        "#,
+    );
+
+    let artifact = build_project_native_object(project.root(), "app.sp")
+        .expect("native project build should bind startup through the platform adapter");
+    let symbols = String::from_utf8_lossy(&artifact);
+    assert!(
+        symbols.contains("main"),
+        "expected exported startup wrapper symbol in native object"
+    );
+    assert!(
+        symbols.contains("basic_cli.runtime.value"),
+        "expected reachable adapter dependency in native object"
+    );
+    assert!(
+        !symbols.contains("app.main"),
+        "entry startup should be pruned when the platform adapter does not call it"
+    );
+}
+
+#[test]
+fn build_project_native_object_specializes_adapter_helper_startup_flow() {
+    let project = TempProject::new("project-native-object-adapter-helper");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    project.write(
+        "vendor/basic-cli/src/basic_cli/adapter.sp",
+        r#"
+        pub fn use_adapter(app_main: () -> Bool) -> Bool {
+            app_main()
+        }
+        "#,
+    );
+    project.write(
+        "vendor/basic-cli/src/basic_cli/runtime.sp",
+        r#"
+        pub fn answer() -> Bool {
+            true
+        }
+        "#,
+    );
+    write_basic_cli_platform(
+        &project,
+        r#"
+        import basic_cli.adapter
+
+        pub fn main() -> Bool {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> Bool) -> Bool {
+            use_adapter(app_main)
+        }
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        import basic_cli.runtime
+
+        fn main() -> Bool {
+            answer()
+        }
+        "#,
+    );
+
+    let artifact = build_project_native_object(project.root(), "app.sp")
+        .expect("native project build should specialize adapter helper startup flow");
+    let symbols = String::from_utf8_lossy(&artifact);
+    assert!(
+        symbols.contains("basic_cli.adapter.use_adapter.__spore_startup_0"),
+        "expected specialized adapter helper symbol in native object"
     );
 }
 

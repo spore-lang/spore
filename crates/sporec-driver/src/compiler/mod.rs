@@ -6,8 +6,8 @@ mod source;
 pub use files::{check_files, compile_files};
 pub use hole_json::{hole_summary, holes, holes_report, query_hole_report};
 pub use project::{
-    check_project, check_project_verbose, compile_project, run_project, run_project_with_outcome,
-    test_specs_project,
+    build_project_native_object, check_project, check_project_verbose, compile_project,
+    run_project, run_project_with_outcome, test_specs_project,
 };
 pub use source::{
     build_native_object, call_native, check_verbose, compile, compile_diagnostics, format, run,

@@ -8,11 +8,11 @@ pub mod project;
 
 pub use compiler::{
     CheckFailure, CheckReport, CompileOutput, Diagnostic as CompilerDiagnostic,
-    DiagnosticSeverity as CompilerDiagnosticSeverity, build_native_object, call_native,
-    check_files, check_project, check_project_verbose, check_verbose, compile,
-    compile_diagnostics as compile_legacy_diagnostics, compile_files, compile_project, format,
-    hole_summary, holes, holes_report, query_hole_report, run, run_native, run_project,
-    run_project_with_outcome, test_specs, test_specs_project,
+    DiagnosticSeverity as CompilerDiagnosticSeverity, build_native_object,
+    build_project_native_object, call_native, check_files, check_project, check_project_verbose,
+    check_verbose, compile, compile_diagnostics as compile_legacy_diagnostics, compile_files,
+    compile_project, format, hole_summary, holes, holes_report, query_hole_report, run, run_native,
+    run_project, run_project_with_outcome, test_specs, test_specs_project,
 };
 pub use diagnostics::{
     SourceCheckFailure, SourceCheckReport, check_source_file, diagnostics_for_type_errors,

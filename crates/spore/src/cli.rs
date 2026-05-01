@@ -29,7 +29,7 @@ pub(crate) enum Cmd {
         file: String,
     },
     Build {
-        file: String,
+        path: Option<String>,
     },
     Watch {
         file: String,
@@ -135,11 +135,12 @@ fn cmd_holes_parser() -> impl Parser<Cmd> {
 }
 
 fn cmd_build_parser() -> impl Parser<Cmd> {
-    let file = positional::<String>("FILE")
-        .help("A standalone .sp file to compile to a native object file");
-    construct!(Cmd::Build { file })
+    let path = positional::<String>("PATH")
+        .help("Project path or standalone .sp file to compile to a native object file")
+        .optional();
+    construct!(Cmd::Build { path })
         .to_options()
-        .descr("Compile a standalone .sp file to a native .o object file (projects unsupported)")
+        .descr("Compile a project target or standalone .sp file to a native .o object file")
         .command("build")
 }
 
