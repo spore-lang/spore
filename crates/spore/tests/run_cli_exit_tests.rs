@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 struct TempProject {
     root: tempfile::TempDir,
@@ -29,6 +29,76 @@ impl TempProject {
 
 fn spore_cmd() -> Command {
     Command::new(env!("CARGO_BIN_EXE_spore"))
+}
+
+fn assert_build_succeeded(output: &Output, artifact: &Path) {
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        artifact.is_file(),
+        "expected native artifact at {}",
+        artifact.display()
+    );
+    let metadata = fs::metadata(artifact).expect("artifact metadata");
+    assert!(metadata.len() > 0, "artifact should not be empty");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("built native object"), "stdout: {stdout}");
+    assert!(
+        !stdout.contains("interpreter mode"),
+        "build output should not claim interpreter mode: {stdout}"
+    );
+}
+
+fn write_cli_project(project: &TempProject) -> PathBuf {
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "app.sp"
+
+        [entries.repl]
+        path = "tools/repl.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        import util
+
+        fn main() -> () {
+            helper()
+        }
+        "#,
+    );
+    project.write(
+        "src/util.sp",
+        r#"
+        pub fn helper() -> () {}
+        "#,
+    );
+    project.write(
+        "src/tools/repl.sp",
+        r#"
+        import util
+
+        fn main() -> () {
+            helper()
+        }
+        "#,
+    )
 }
 
 #[test]
@@ -120,26 +190,7 @@ fn standalone_build_writes_native_object_file() {
         .output()
         .expect("run spore build");
 
-    assert!(
-        output.status.success(),
-        "stdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(
-        artifact.is_file(),
-        "expected native artifact at {}",
-        artifact.display()
-    );
-    let metadata = fs::metadata(&artifact).expect("artifact metadata");
-    assert!(metadata.len() > 0, "artifact should not be empty");
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("built native object"), "stdout: {stdout}");
-    assert!(
-        !stdout.contains("interpreter mode"),
-        "build output should not claim interpreter mode: {stdout}"
-    );
+    assert_build_succeeded(&output, &artifact);
 }
 
 #[test]
@@ -165,12 +216,111 @@ fn standalone_build_rejects_native_unsupported_source_explicitly() {
 }
 
 #[test]
-fn build_requires_an_explicit_file_argument() {
-    let output = spore_cmd().arg("build").output().expect("run spore build");
+fn project_build_without_argument_uses_default_target() {
+    let project = TempProject::new();
+    write_cli_project(&project);
+    let artifact = project.root().join("target/native/app.o");
 
-    assert!(!output.status.success(), "expected project build failure");
+    let output = spore_cmd()
+        .arg("build")
+        .current_dir(project.root())
+        .output()
+        .expect("run spore build");
+
+    assert_build_succeeded(&output, &artifact);
+}
+
+#[test]
+fn project_build_accepts_dot_for_project_root() {
+    let project = TempProject::new();
+    write_cli_project(&project);
+    let artifact = project.root().join("target/native/app.o");
+
+    let output = spore_cmd()
+        .args(["build", "."])
+        .current_dir(project.root())
+        .output()
+        .expect("run spore build");
+
+    assert_build_succeeded(&output, &artifact);
+}
+
+#[test]
+fn project_build_accepts_project_directory_argument() {
+    let project = TempProject::new();
+    write_cli_project(&project);
+    let artifact = project.root().join("target/native/app.o");
+
+    let output = spore_cmd()
+        .args(["build", project.root().to_str().expect("utf-8 path")])
+        .output()
+        .expect("run spore build");
+
+    assert_build_succeeded(&output, &artifact);
+}
+
+#[test]
+fn project_build_file_in_project_writes_project_relative_artifact() {
+    let project = TempProject::new();
+    let module = write_cli_project(&project);
+    let artifact = project.root().join("target/native/tools/repl.o");
+
+    let output = spore_cmd()
+        .args(["build", module.to_str().expect("utf-8 path")])
+        .output()
+        .expect("run spore build");
+
+    assert_build_succeeded(&output, &artifact);
+}
+
+#[test]
+fn project_build_surfaces_ambiguous_import_errors() {
+    let project = TempProject::new();
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "app.sp"
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        import left
+        import right
+
+        fn main() -> () {
+            helper()
+        }
+        "#,
+    );
+    project.write("src/left.sp", "pub fn helper() -> () {}\n");
+    project.write("src/right.sp", "pub fn helper() -> () {}\n");
+
+    let output = spore_cmd()
+        .arg("build")
+        .current_dir(project.root())
+        .output()
+        .expect("run spore build");
+
+    assert!(
+        !output.status.success(),
+        "expected ambiguous project build failure"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("expected `FILE`"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("ambiguous native project import"),
+        "stderr: {stderr}"
+    );
+    assert!(stderr.contains("helper"), "stderr: {stderr}");
 }
 
 #[test]

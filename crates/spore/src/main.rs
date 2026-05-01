@@ -38,7 +38,7 @@ fn main() -> ExitCode {
         } => exec_test(&files, verbose, json, deny_warnings),
         Cmd::Format { files, check, diff } => exec_format(&files, check, diff),
         Cmd::Holes { file } => exec_holes(&file),
-        Cmd::Build { file } => exec_build(Some(&file)),
+        Cmd::Build { path } => exec_build(path.as_deref()),
         Cmd::Watch { file, json } => exec_watch(&file, json),
         Cmd::New { name, project_type } => exec_new(&name, &project_type),
         Cmd::Init { project_type } => exec_init(&project_type),
@@ -386,6 +386,26 @@ mod tests {
             BuildTarget::Project { root, entry } => {
                 assert_eq!(root, std::fs::canonicalize(&project_dir).unwrap());
                 assert_eq!(entry, "host.sp");
+            }
+            BuildTarget::File(path) => panic!("expected project target, got file target `{path}`"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_build_target_accepts_file_inside_project() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_dir = tmp.path().join("proj");
+        create_project(&project_dir, "proj", "application").unwrap();
+        let nested_dir = project_dir.join("src/lib");
+        fs::create_dir_all(&nested_dir).unwrap();
+        let file = nested_dir.join("util.sp");
+        fs::write(&file, "pub fn helper() -> I32 { 1 }\n").unwrap();
+
+        let target = resolve_build_target(Some(file.to_str().unwrap()), tmp.path()).unwrap();
+        match target {
+            BuildTarget::Project { root, entry } => {
+                assert_eq!(root, std::fs::canonicalize(&project_dir).unwrap());
+                assert_eq!(entry, "lib/util.sp");
             }
             BuildTarget::File(path) => panic!("expected project target, got file target `{path}`"),
         }

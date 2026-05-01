@@ -50,10 +50,43 @@ pub(crate) fn exec_build(file: Option<&str>) -> ExitCode {
     };
 
     match &target {
-        BuildTarget::Project { root, entry } => fail_human(&format!(
-            "native build is currently only available for standalone `.sp` files in the experimental scalar subset; project builds are not supported yet (`{}`, entry `{entry}`)",
-            root.display()
-        )),
+        BuildTarget::Project { root, entry } => {
+            let artifact_path = root
+                .join("target")
+                .join("native")
+                .join(entry)
+                .with_extension("o");
+            let artifact = match sporec_driver::build_project_native_object(root, entry) {
+                Ok(artifact) => artifact,
+                Err(message) => {
+                    return fail_human(&format!(
+                        "native project build unavailable for `{}` (entry `{entry}`): {message}",
+                        root.display()
+                    ));
+                }
+            };
+            if let Some(parent) = artifact_path.parent()
+                && let Err(error) = std::fs::create_dir_all(parent)
+            {
+                return fail_human(&format!(
+                    "cannot create native artifact directory `{}`: {error}",
+                    parent.display()
+                ));
+            }
+            if let Err(error) = std::fs::write(&artifact_path, artifact) {
+                return fail_human(&format!(
+                    "cannot write native artifact `{}`: {error}",
+                    artifact_path.display()
+                ));
+            }
+
+            println!(
+                "{} built native object `{}`",
+                "✓".green(),
+                artifact_path.display()
+            );
+            ExitCode::SUCCESS
+        }
         BuildTarget::File(path) => {
             let source = match read_source_message(path) {
                 Ok(s) => s,
