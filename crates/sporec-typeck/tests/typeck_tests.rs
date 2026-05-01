@@ -1471,6 +1471,51 @@ fn enum_constructor_match_still_works() {
 }
 
 #[test]
+fn generic_enum_constructor_pattern_binds_instantiated_field_type() {
+    check_ok(
+        r#"
+        type Option[T] { Some(T), None }
+        fn unwrap_or[T](opt: Option[T], default: T) -> T {
+            match opt {
+                Some(value) => value,
+                None => default,
+            }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn generic_zero_field_variant_pattern_matches_type_application() {
+    check_ok(
+        r#"
+        type Option[T] { Some(T), None }
+        fn is_none[T](opt: Option[T]) -> Bool {
+            match opt {
+                Some(_) => false,
+                None => true,
+            }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn nested_generic_enum_constructor_pattern_binds_inner_type() {
+    check_ok(
+        r#"
+        type Option[T] { Some(T), None }
+        fn flatten_option[T](opt: Option[Option[T]]) -> Option[T] {
+            match opt {
+                Some(inner) => inner,
+                None => None,
+            }
+        }
+    "#,
+    );
+}
+
+#[test]
 fn enum_constructor_wrong_arg_count() {
     let errs = check_err(
         r#"

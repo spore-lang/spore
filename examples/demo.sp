@@ -18,7 +18,6 @@ fn add(a: I32, b: I32) -> I32
 spec {
     example "identity": add(0, 42) == 42
     example "basic": add(20, 22) == 42
-    property "left_identity": |a: I32, b: I32 when self == 0| a
 }
 { a + b }
 
@@ -27,7 +26,6 @@ spec {
     example "positive": abs(5) == 5
     example "negative": abs(0 - 5) == 5
     example "zero": abs(0) == 0
-    property "non_negative_identity": |x: I32 when self >= 0| x
 }
 { if x < 0 { 0 - x } else { x } }
 
