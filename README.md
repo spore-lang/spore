@@ -9,7 +9,7 @@ Spore is a compiled language where function signatures are "gravity centers" —
 - **Hole System**: `?name` partial functions as first-class collaboration protocol with Agents
 - **Effect System**: IO effects gated by required effects, verified at compile time
 - **Cost Model**: 4-dimension cost analysis (compute, alloc, io, parallel) with compile-time budgets
-- **Content-Addressed**: Dual hash (sig + impl) for modules — no semver, pure hash addressing
+- **Module Hashes**: Internal dual hash (sig + impl) support for modules; package-level content-addressed distribution and lockfiles are roadmap
 - **Effect Handlers**: All IO through Platform-provided effect handlers, application code stays pure
 - **Structured Concurrency**: Task trees with cancellation propagation, channels for communication
 - **Expression-Based**: Everything is an expression, no loops (recursion + higher-order functions)
@@ -217,11 +217,11 @@ sporec (stateless compiler CLI / product)
     │   ├── module       Module registry + import resolution
     │   ├── concurrency  Structured concurrency analysis
     │   └── platform     Platform system (cli/web/embedded)
-    └── sporec-codegen   Tree-walk interpreter (PoC) / Cranelift (planned)
+    └── sporec-codegen   Tree-walk interpreter (PoC) / experimental native object backend for a supported scalar/object subset
 
 spore (stateful codebase manager — handles IO / project workflow)
 ├── File watching, incremental compilation
-├── Package management (content-addressed)
+├── Project scaffolding and package metadata (content-addressed registry/store/lock workflow is roadmap)
 ├── Platform management
 └── LSP server (spore-lsp)
 ```
@@ -229,6 +229,10 @@ spore (stateful codebase manager — handles IO / project workflow)
 ## Project Status
 
 **Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, cost analysis, and the current structured-concurrency subset. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, try-operator support, and the current structured-concurrency runtime.
+
+Native build support is experimental: the current backend emits object files for
+the supported scalar/object subset and rejects unsupported language features
+explicitly. General native compilation remains future work.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. Topic-level normative proposals live in the sibling [`spore-evolution`](https://github.com/spore-lang/spore-evolution/tree/main/seps) repo under `seps/`.
 
@@ -270,16 +274,17 @@ With the root `pyproject.toml` in place, the repository can also expose reusable
 
 ```yaml
 repos:
-  - repo: https://github.com/spore-lang/spore
+  - repo: https://github.com/spore-lang/spore-pre-commit
     rev: <tag-or-sha>
     hooks:
       - id: spore-format
       - id: spore-check
 ```
 
-Until a dedicated thin mirror repo exists, installing these hooks from the
-source repo still builds Spore from source, so consumers need a working Rust
-1.95+ toolchain.
+The dedicated thin mirror lives at
+[`spore-lang/spore-pre-commit`](https://github.com/spore-lang/spore-pre-commit).
+Hook installation still builds Spore from source, so consumers need a working
+Rust 1.95+ toolchain.
 
 ## Documentation
 

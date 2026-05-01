@@ -162,9 +162,9 @@ fn type_flag() -> impl Parser<String> {
 }
 
 fn cmd_new_parser() -> impl Parser<Cmd> {
-    let name = positional::<String>("NAME").help("Project name");
     let project_type = type_flag();
-    construct!(Cmd::New { name, project_type })
+    let name = positional::<String>("NAME").help("Project name");
+    construct!(Cmd::New { project_type, name })
         .to_options()
         .descr("Create a new Spore project")
         .command("new")

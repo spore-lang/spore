@@ -31,6 +31,19 @@ fn spore_cmd() -> Command {
     Command::new(env!("CARGO_BIN_EXE_spore"))
 }
 
+fn assert_help_succeeds(args: &[&str], expected: &str) {
+    let output = spore_cmd().args(args).output().expect("run spore help");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(expected), "stdout: {stdout}");
+}
+
 fn assert_build_succeeded(output: &Output, artifact: &Path) {
     assert!(
         output.status.success(),
@@ -99,6 +112,16 @@ fn write_cli_project(project: &TempProject) -> PathBuf {
         }
         "#,
     )
+}
+
+#[test]
+fn help_output_does_not_panic() {
+    assert_help_succeeds(&["--help"], "spore — the Spore language toolkit");
+    assert_help_succeeds(&["new", "--help"], "Create a new Spore project");
+    assert_help_succeeds(
+        &["init", "--help"],
+        "Initialize Spore project in current directory",
+    );
 }
 
 #[test]
