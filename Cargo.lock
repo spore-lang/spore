@@ -787,6 +787,7 @@ dependencies = [
  "cranelift-native",
  "object",
  "sporec-parser",
+ "sporec-stdlib",
 ]
 
 [[package]]
@@ -820,11 +821,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sporec-stdlib"
+version = "0.1.0"
+
+[[package]]
 name = "sporec-typeck"
 version = "0.1.0"
 dependencies = [
  "blake3",
  "sporec-parser",
+ "sporec-stdlib",
  "tempfile",
 ]
 

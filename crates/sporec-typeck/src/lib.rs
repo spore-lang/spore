@@ -25,6 +25,7 @@ use error::{ErrorCode, TypeError};
 use hole::HoleReport;
 use module::{ModuleRegistry, PreludeOptions};
 use sporec_parser::ast::Module;
+use sporec_stdlib::prelude;
 
 pub fn is_synthetic_hole_name(name: &str) -> bool {
     matches!(
@@ -34,8 +35,7 @@ pub fn is_synthetic_hole_name(name: &str) -> bool {
 }
 
 fn parse_embedded_prelude() -> Module {
-    let source = include_str!("../../../stdlib/prelude.sp");
-    sporec_parser::parse(source).expect("embedded stdlib/prelude.sp must parse")
+    sporec_parser::parse(prelude().source).expect("embedded stdlib prelude must parse")
 }
 
 /// Result of a successful type check, including hole report and cost analysis.
