@@ -235,6 +235,7 @@ Source → [Lex] → Tokens → [Parse] → AST
 ## 实现技术栈
 
 - **实现语言**：Rust（edition 2024）。
+- **编译器开发基线**：当前仓库 MSRV 为 Rust 1.95。
 - **自举策略**：Rust bootstrap → 纯计算组件（Parser / TypeChecker / CostAnalyzer 等）逐步用 Spore 重写。
 - **解析器**：手写递归下降 + Pratt。
 - **Backend**：Cranelift 为主（纯 Rust、快编译、原生 WASM、函数级粒度契合内容寻址）；LLVM 作为未来可选高性能后端。
