@@ -1,4 +1,4 @@
-use sporec_codegen::{call, call_native, run, run_native, value::Value};
+use sporec_codegen::{call, call_native, emit_native_object, run, run_native, value::Value};
 use sporec_parser::parse;
 
 fn parse_module(source: &str) -> sporec_parser::ast::Module {
@@ -69,6 +69,26 @@ fn native_backend_matches_interpreter_for_scalar_main_programs() {
     ] {
         assert_main_parity(source);
     }
+}
+
+#[test]
+fn native_backend_can_emit_object_artifacts_for_supported_scalar_modules() {
+    let module = parse_module(
+        r#"
+        fn choose(flag: Bool) -> Bool {
+            if flag { true } else { false }
+        }
+
+        fn main() -> Bool {
+            choose(true)
+        }
+        "#,
+    );
+    let object = emit_native_object(&module).expect("supported scalar module should emit object");
+    assert!(
+        !object.is_empty(),
+        "native object artifact should not be empty"
+    );
 }
 
 #[test]

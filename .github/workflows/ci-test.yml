@@ -51,11 +51,15 @@ jobs:
       - name: Validate published hook manifest
         run: uvx prek validate-manifest .pre-commit-hooks.yaml
 
-      - name: Smoke-test project-aware build
+      - name: Smoke-test standalone native build
         run: |
-          cargo run --release --bin spore -- new ci-build-smoke
-          cd ci-build-smoke
-          ../target/release/spore build
+          cat > /tmp/ci-native-build-smoke.sp <<'EOF'
+          fn main() -> Bool {
+              true
+          }
+          EOF
+          cargo run --release --bin spore -- build /tmp/ci-native-build-smoke.sp
+          test -f /tmp/ci-native-build-smoke.o
 
       - name: Smoke-test stdlib specs
         run: cargo run --release --bin spore -- test stdlib/math.sp stdlib/string.sp stdlib/collections.sp stdlib/char.sp stdlib/set.sp stdlib/dict.sp

@@ -68,10 +68,16 @@ jobs:
           wheel_path="$repo_root/dist/$(basename dist/*.whl)"
           tmp_dir="$(mktemp -d)"
           uv tool run --from "$wheel_path" spore new "$tmp_dir/package-smoke"
+          cat > "$tmp_dir/native-build.sp" <<'EOF'
+          fn main() -> Bool {
+              true
+          }
+          EOF
           (
-            cd "$tmp_dir/package-smoke"
-            uv tool run --from "$wheel_path" spore build
+            cd "$tmp_dir"
+            uv tool run --from "$wheel_path" spore build native-build.sp
           )
+          test -f "$tmp_dir/native-build.o"
           uv tool run --from "$wheel_path" spore check "$repo_root/examples/demo.sp"
           uv tool run --from "$wheel_path" spore test "$repo_root/examples/demo.sp"
 

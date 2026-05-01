@@ -9,8 +9,10 @@ license.workspace = true
 
 [dependencies]
 cranelift-codegen = { workspace = true }
+cranelift-control = { workspace = true }
 cranelift-frontend = { workspace = true }
 cranelift-jit = { workspace = true }
 cranelift-module = { workspace = true }
 cranelift-native = { workspace = true }
+object = { workspace = true }
 sporec-parser = { path = "../sporec-parser" }
