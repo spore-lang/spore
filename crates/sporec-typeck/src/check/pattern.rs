@@ -4,6 +4,20 @@ impl Checker {
     // ── Pattern type checking ──────────────────────────────────────
 
     fn variant_pattern_field_types(&mut self, name: &str, scrutinee_ty: &Ty) -> Option<Vec<Ty>> {
+        if let Ty::Named(type_name) = scrutinee_ty {
+            let field_tys = self
+                .registry
+                .types
+                .get(type_name)
+                .and_then(|variants| variants.iter().find(|(vname, _)| vname == name))
+                .map(|(_, field_tys)| field_tys.clone());
+            if let Some(field_tys) = field_tys {
+                let expected_ty = Ty::Named(type_name.clone());
+                self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
+                return Some(field_tys);
+            }
+        }
+
         if let Some((params, ret, _)) = self.registry.functions.get(name).cloned() {
             let (field_tys, ret_ty, _) =
                 if let Some(type_params) = self.registry.fn_type_params.get(name).cloned() {
