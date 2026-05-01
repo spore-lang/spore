@@ -661,6 +661,57 @@ fn build_project_native_object_specializes_adapter_helper_startup_flow() {
 }
 
 #[test]
+fn build_project_native_object_specializes_block_wrapped_startup_alias() {
+    let project = TempProject::new("project-native-object-adapter-block-alias");
+    project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
+    project.write(
+        "vendor/basic-cli/src/basic_cli/runtime.sp",
+        r#"
+        pub fn answer() -> Bool {
+            true
+        }
+        "#,
+    );
+    write_basic_cli_platform(
+        &project,
+        r#"
+        import basic_cli.runtime
+
+        pub fn main() -> Bool {
+            ?platform_startup_contract
+        }
+
+        pub fn main_for_host(app_main: () -> Bool) -> Bool {
+            let forwarded = { app_main };
+            forwarded()
+        }
+        "#,
+    );
+    project.write(
+        "src/app.sp",
+        r#"
+        import basic_cli.runtime
+
+        fn main() -> Bool {
+            answer()
+        }
+        "#,
+    );
+
+    let artifact = build_project_native_object(project.root(), "app.sp")
+        .expect("native project build should specialize block-wrapped startup aliases");
+    let symbols = String::from_utf8_lossy(&artifact);
+    assert!(
+        symbols.contains("platform_contract.main_for_host.__spore_startup_0"),
+        "expected specialized adapter symbol in native object"
+    );
+    assert!(
+        symbols.contains("app.main"),
+        "expected startup symbol reachable through block-wrapped alias"
+    );
+}
+
+#[test]
 fn compile_project_rejects_type_error_in_imported_module() {
     let project = TempProject::new("project-import-type-error");
     project.write(

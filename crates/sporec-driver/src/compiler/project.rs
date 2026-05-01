@@ -1046,7 +1046,13 @@ fn rewrite_native_project_function(
 }
 
 fn expr_is_startup_alias(expr: &Expr, startup_function: &str) -> bool {
-    matches!(expr, Expr::Var(name) if name == startup_function)
+    match expr {
+        Expr::Var(name) => name == startup_function,
+        Expr::Block(stmts, Some(tail)) if stmts.is_empty() => {
+            expr_is_startup_alias(tail, startup_function)
+        }
+        _ => false,
+    }
 }
 
 fn lookup_startup_alias(name: &str, scopes: &[BTreeMap<String, bool>]) -> Option<bool> {
@@ -1371,7 +1377,15 @@ fn specialize_startup_expr(
                             .last_mut()
                             .unwrap()
                             .insert(name.clone(), aliases_startup);
-                        rewritten_stmts.push(Stmt::Let(name.clone(), annotation.clone(), value));
+                        // Alias-only bindings are tracked in scope and elided so the
+                        // native backend never sees a first-class function value.
+                        if !aliases_startup {
+                            rewritten_stmts.push(Stmt::Let(
+                                name.clone(),
+                                annotation.clone(),
+                                value,
+                            ));
+                        }
                     }
                     Stmt::Expr(expr) => rewritten_stmts.push(Stmt::Expr(specialize_startup_expr(
                         expr,
