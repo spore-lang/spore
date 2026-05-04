@@ -6,7 +6,9 @@ spec {
     example "zero": abs(0) == 0
     property "non_negative_identity": |x: I32 when self >= 0| x
 }
-{ if x < 0 { 0 - x } else { x } }
+{
+    if x < 0 { 0 - x } else { x }
+}
 
 fn negate(x: I32) -> I32 cost [1, 0, 0, 0]
 spec {
@@ -21,7 +23,11 @@ spec {
     example "negative": sign(0 - 3) == 0 - 1
     example "zero": sign(0) == 0
 }
-{ if x > 0 { 1 } else { if x < 0 { 0 - 1 } else { 0 } } }
+{
+    if x > 0 { 1 } else {
+        if x < 0 { 0 - 1 } else { 0 }
+    }
+}
 
 fn min(a: I32, b: I32) -> I32 cost [2, 0, 0, 0]
 spec {
@@ -29,7 +35,9 @@ spec {
     example "second_smaller": min(7, 3) == 3
     example "equal": min(5, 5) == 5
 }
-{ if a < b { a } else { b } }
+{
+    if a < b { a } else { b }
+}
 
 fn max(a: I32, b: I32) -> I32 cost [2, 0, 0, 0]
 spec {
@@ -37,7 +45,9 @@ spec {
     example "second_larger": max(3, 7) == 7
     example "equal": max(5, 5) == 5
 }
-{ if a > b { a } else { b } }
+{
+    if a > b { a } else { b }
+}
 
 fn clamp(x: I32, lo: I32, hi: I32) -> I32 cost [8, 0, 0, 0]
 spec {
@@ -91,7 +101,9 @@ spec {
     example "basic": pow(2, 10) == 1024
     example "cubed": pow(3, 3) == 27
 }
-{ if exp <= 0 { 1 } else { base * pow(base, exp - 1) } }
+{
+    if exp <= 0 { 1 } else { base * pow(base, exp - 1) }
+}
 
 fn gcd(a: I32, b: I32) -> I32 cost [128, 0, 0, 0]
 spec {
@@ -126,7 +138,9 @@ spec {
     example "remainder": div_ceil(7, 3) == 3
     example "one": div_ceil(1, 3) == 1
 }
-{ if a % b == 0 { a / b } else { a / b + 1 } }
+{
+    if a % b == 0 { a / b } else { a / b + 1 }
+}
 
 fn sum_list(xs: List[I32]) -> I32 cost [1000, 2, 0, 0]
 spec {
@@ -144,4 +158,6 @@ spec {
 }
 { fold(xs, 1, |acc: I32, x: I32| acc * x) }
 
-fn checked_div(a: I32, b: I32) -> Option[I32] cost [6, 0, 0, 0] { if b == 0 { None } else { Some(a / b) } }
+fn checked_div(a: I32, b: I32) -> Option[I32] cost [6, 0, 0, 0] {
+    if b == 0 { None } else { Some(a / b) }
+}

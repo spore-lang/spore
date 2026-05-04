@@ -84,6 +84,38 @@ fn test_match_expression() {
 }
 
 #[test]
+fn test_single_match_body_stays_multiline() {
+    let src = concat!(
+        "fn area(s: Shape) -> Int { match s {\n",
+        "    Circle(r) => r * r * 3,\n",
+        "    Rect(w, h) => w * h,\n",
+        "} }\n",
+    );
+    let expected = concat!(
+        "fn area(s: Shape) -> Int {\n",
+        "    match s {\n",
+        "        Circle(r) => r * r * 3,\n",
+        "        Rect(w, h) => w * h,\n",
+        "    }\n",
+        "}\n",
+    );
+    assert_eq!(roundtrip(src), expected);
+}
+
+#[test]
+fn test_nested_if_body_stays_multiline() {
+    let src = "fn classify(x: I32) -> I32 { if x < 0 { 0 } else { if x == 0 { 1 } else { 2 } } }\n";
+    let expected = concat!(
+        "fn classify(x: I32) -> I32 {\n",
+        "    if x < 0 { 0 } else {\n",
+        "        if x == 0 { 1 } else { 2 }\n",
+        "    }\n",
+        "}\n",
+    );
+    assert_eq!(roundtrip(src), expected);
+}
+
+#[test]
 fn test_uses_clause() {
     let src = "fn read() -> String uses [IO, FileRead] { ?todo }\n";
     let out = roundtrip(src);
@@ -158,7 +190,22 @@ fn test_refinement_type_roundtrips_in_property_params() {
         "spec {\n",
         "    property \"non_negative_identity\": |x: I32 when self >= 0| x\n",
         "}\n",
-        "{ if x < 0 { 0 - x } else { x } }\n",
+        "{\n",
+        "    if x < 0 { 0 - x } else { x }\n",
+        "}\n",
+    );
+    assert_eq!(roundtrip(src), src);
+}
+
+#[test]
+fn test_multiple_properties_roundtrip() {
+    let src = concat!(
+        "fn add(a: I32, b: I32) -> I32\n",
+        "spec {\n",
+        "    property \"left_identity\": |a: I32, b: I32 when self == 0| a\n",
+        "    property \"non_negative_identity\": |x: I32 when self >= 0| x\n",
+        "}\n",
+        "{ a + b }\n",
     );
     assert_eq!(roundtrip(src), src);
 }

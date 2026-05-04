@@ -24,7 +24,11 @@ spec {
 }
 { string_length(trim(s)) == 0 }
 
-fn char_at_safe(s: Str, i: I32) -> Option[Str] cost [8, 0, 0, 0] { if i < 0 { None } else { if i >= string_length(s) { None } else { char_at(s, i) } } }
+fn char_at_safe(s: Str, i: I32) -> Option[Str] cost [8, 0, 0, 0] {
+    if i < 0 { None } else {
+        if i >= string_length(s) { None } else { char_at(s, i) }
+    }
+}
 
 @unbounded
 fn repeat_string(s: Str, n: I32) -> Str
@@ -33,7 +37,9 @@ spec {
     example "zero": repeat_string("x", 0) == ""
     example "one": repeat_string("hi", 1) == "hi"
 }
-{ if n <= 0 { "" } else { s + repeat_string(s, n - 1) } }
+{
+    if n <= 0 { "" } else { s + repeat_string(s, n - 1) }
+}
 
 @unbounded
 fn pad_left(s: Str, width: I32, fill: Str) -> Str
@@ -41,7 +47,9 @@ spec {
     example "pad": pad_left("hi", 5, " ") == "   hi"
     example "no_pad": pad_left("hello", 3, " ") == "hello"
 }
-{ if string_length(s) >= width { s } else { pad_left(fill + s, width, fill) } }
+{
+    if string_length(s) >= width { s } else { pad_left(fill + s, width, fill) }
+}
 
 @unbounded
 fn pad_right(s: Str, width: I32, fill: Str) -> Str
@@ -49,4 +57,6 @@ spec {
     example "pad": pad_right("hi", 5, " ") == "hi   "
     example "no_pad": pad_right("hello", 3, " ") == "hello"
 }
-{ if string_length(s) >= width { s } else { pad_right(s + fill, width, fill) } }
+{
+    if string_length(s) >= width { s } else { pad_right(s + fill, width, fill) }
+}

@@ -9,9 +9,22 @@ impl<'a> Formatter<'a> {
         match expr {
             Expr::Block(stmts, trailing) => {
                 if stmts.is_empty() && trailing.is_some() {
-                    self.write("{ ");
-                    self.fmt_expr(trailing.as_ref().unwrap());
-                    self.write(" }");
+                    let trailing = trailing.as_ref().unwrap();
+                    if self.expr_needs_multiline_body(trailing) {
+                        self.write("{");
+                        self.newline();
+                        self.indent += 1;
+                        self.write_indent();
+                        self.fmt_expr(trailing);
+                        self.newline();
+                        self.indent -= 1;
+                        self.write_indent();
+                        self.write("}");
+                    } else {
+                        self.write("{ ");
+                        self.fmt_expr(trailing);
+                        self.write(" }");
+                    }
                 } else {
                     self.write("{");
                     self.newline();
@@ -30,11 +43,41 @@ impl<'a> Formatter<'a> {
                 }
             }
             _ => {
-                self.write("{ ");
-                self.fmt_expr(expr);
-                self.write(" }");
+                if self.expr_needs_multiline_body(expr) {
+                    self.write("{");
+                    self.newline();
+                    self.indent += 1;
+                    self.write_indent();
+                    self.fmt_expr(expr);
+                    self.newline();
+                    self.indent -= 1;
+                    self.write_indent();
+                    self.write("}");
+                } else {
+                    self.write("{ ");
+                    self.fmt_expr(expr);
+                    self.write(" }");
+                }
             }
         }
+    }
+
+    fn expr_needs_multiline_body(&self, expr: &Expr) -> bool {
+        matches!(
+            expr,
+            Expr::Match(_, _) | Expr::If(_, _, _) | Expr::Block(_, _)
+        ) || self.expr_format_contains_newline(expr)
+    }
+
+    fn expr_format_contains_newline(&self, expr: &Expr) -> bool {
+        let mut formatter = Formatter {
+            output: String::new(),
+            indent: self.indent,
+            comments: &[],
+            comment_idx: 0,
+        };
+        formatter.fmt_expr(expr);
+        formatter.output.contains('\n')
     }
 
     pub(super) fn fmt_expr(&mut self, expr: &Expr) {

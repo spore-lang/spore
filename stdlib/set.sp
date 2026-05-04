@@ -12,7 +12,9 @@ spec {
     example "add": set_contains(set_insert(set_new(), 5), 5) == true
     example "idempotent": set_len(set_insert(set_insert(set_new(), 5), 5)) == 1
 }
-{ if contains(s, item) { s } else { append(s, item) } }
+{
+    if contains(s, item) { s } else { append(s, item) }
+}
 
 @unbounded
 fn set_remove(s: List[I32], item: I32) -> List[I32]
@@ -71,7 +73,9 @@ spec {
 fn set_new_str() -> List[Str] cost [1, 1, 0, 0] { [] }
 
 @unbounded
-fn set_insert_str(s: List[Str], item: Str) -> List[Str] { if contains(s, item) { s } else { append(s, item) } }
+fn set_insert_str(s: List[Str], item: Str) -> List[Str] {
+    if contains(s, item) { s } else { append(s, item) }
+}
 
 @unbounded
 fn set_remove_str(s: List[Str], item: Str) -> List[Str] { filter(s, |x: Str| x != item) }

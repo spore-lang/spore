@@ -83,6 +83,11 @@ impl Checker {
                     })
                     .collect();
                 self.registry.types.insert(t.name.clone(), variants.clone());
+                if !t.type_params.is_empty() {
+                    self.registry
+                        .type_type_params
+                        .insert(t.name.clone(), t.type_params.clone());
+                }
 
                 let ret_ty = if t.type_params.is_empty() {
                     Ty::Named(t.name.clone())

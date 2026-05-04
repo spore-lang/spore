@@ -4,35 +4,47 @@ impl Checker {
     // ── Pattern type checking ──────────────────────────────────────
 
     fn variant_pattern_field_types(&mut self, name: &str, scrutinee_ty: &Ty) -> Option<Vec<Ty>> {
-        if let Ty::Named(type_name) = scrutinee_ty {
-            let field_tys = self
-                .registry
-                .types
-                .get(type_name)
-                .and_then(|variants| variants.iter().find(|(vname, _)| vname == name))
-                .map(|(_, field_tys)| field_tys.clone());
-            if let Some(field_tys) = field_tys {
-                let expected_ty = Ty::Named(type_name.clone());
-                self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
-                return Some(field_tys);
+        match scrutinee_ty {
+            Ty::Named(type_name) => {
+                let field_tys = self
+                    .registry
+                    .types
+                    .get(type_name)
+                    .and_then(|variants| variants.iter().find(|(vname, _)| vname == name))
+                    .map(|(_, field_tys)| field_tys.clone());
+                if let Some(field_tys) = field_tys {
+                    let expected_ty = Ty::Named(type_name.clone());
+                    self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
+                    return Some(field_tys);
+                }
             }
-        }
-
-        if let Some((params, ret, _)) = self.registry.functions.get(name).cloned() {
-            let (field_tys, ret_ty, _) =
-                if let Some(type_params) = self.registry.fn_type_params.get(name).cloned() {
-                    self.instantiate_sig(&type_params, &params, &ret)
-                } else {
-                    (params, ret, HashMap::new())
-                };
-
-            self.unify(&ret_ty, scrutinee_ty, &format!("pattern `{name}`"));
-            return Some(
-                field_tys
-                    .into_iter()
-                    .map(|ty| self.apply_subst(&ty))
-                    .collect(),
-            );
+            Ty::App(type_name, args) => {
+                let field_tys = self
+                    .registry
+                    .types
+                    .get(type_name)
+                    .and_then(|variants| variants.iter().find(|(vname, _)| vname == name))
+                    .map(|(_, field_tys)| field_tys.clone());
+                if let Some(field_tys) = field_tys {
+                    if let Some(type_params) = self.registry.type_type_params.get(type_name)
+                        && type_params.len() == args.len()
+                    {
+                        let mapping: HashMap<String, Ty> = type_params
+                            .iter()
+                            .cloned()
+                            .zip(args.iter().cloned())
+                            .collect();
+                        return Some(
+                            field_tys
+                                .iter()
+                                .map(|ty| self.instantiate_ty(ty, &mapping))
+                                .collect(),
+                        );
+                    }
+                    return Some(field_tys);
+                }
+            }
+            _ => {}
         }
 
         #[allow(clippy::type_complexity)]
@@ -44,8 +56,26 @@ impl Checker {
             .collect();
         for (type_name, variants) in &types_snapshot {
             if let Some((_, field_tys)) = variants.iter().find(|(vname, _)| vname == name) {
-                let expected_ty = match scrutinee_ty {
-                    Ty::App(actual_name, _) if actual_name == type_name => scrutinee_ty.clone(),
+                let expected_ty = match self.registry.type_type_params.get(type_name).cloned() {
+                    Some(type_params) if !type_params.is_empty() => {
+                        let field_tys = field_tys.clone();
+                        let ret_ty = Ty::App(
+                            type_name.clone(),
+                            type_params
+                                .iter()
+                                .map(|param| Ty::Named(param.clone()))
+                                .collect(),
+                        );
+                        let (inst_field_tys, inst_ret_ty, _) =
+                            self.instantiate_sig(&type_params, &field_tys, &ret_ty);
+                        self.unify(&inst_ret_ty, scrutinee_ty, &format!("pattern `{name}`"));
+                        return Some(
+                            inst_field_tys
+                                .into_iter()
+                                .map(|ty| self.apply_subst(&ty))
+                                .collect(),
+                        );
+                    }
                     _ => Ty::Named(type_name.clone()),
                 };
                 self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));

@@ -1516,6 +1516,35 @@ fn nested_generic_enum_constructor_pattern_binds_inner_type() {
 }
 
 #[test]
+fn concrete_generic_enum_constructor_pattern_binds_instantiated_field_type() {
+    check_ok(
+        r#"
+        type Option[T] { Some(T), None }
+        fn unwrap_i32(opt: Option[I32], default: I32) -> I32 {
+            match opt {
+                Some(value) => value,
+                None => default,
+            }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn catch_all_binding_can_share_name_with_zero_arg_function() {
+    check_ok(
+        r#"
+        fn fallback() -> I32 { 0 }
+        fn describe(n: I32) -> I32 {
+            match n {
+                fallback => fallback,
+            }
+        }
+    "#,
+    );
+}
+
+#[test]
 fn enum_constructor_wrong_arg_count() {
     let errs = check_err(
         r#"
