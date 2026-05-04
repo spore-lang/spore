@@ -103,6 +103,17 @@ fn test_single_match_body_stays_multiline() {
 }
 
 #[test]
+fn test_simple_if_body_stays_multiline() {
+    let src = "fn classify(x: I32) -> I32 { if x < 0 { 0 } else { x } }\n";
+    let expected = concat!(
+        "fn classify(x: I32) -> I32 {\n",
+        "    if x < 0 { 0 } else { x }\n",
+        "}\n",
+    );
+    assert_eq!(roundtrip(src), expected);
+}
+
+#[test]
 fn test_nested_if_body_stays_multiline() {
     let src = "fn classify(x: I32) -> I32 { if x < 0 { 0 } else { if x == 0 { 1 } else { 2 } } }\n";
     let expected = concat!(

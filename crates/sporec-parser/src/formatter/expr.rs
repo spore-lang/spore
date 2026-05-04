@@ -4,62 +4,67 @@ use super::{Formatter, binop_str, escape_str, unaryop_str};
 
 impl<'a> Formatter<'a> {
     /// Format a function/block body. Single expressions go inline `{ expr }`,
-    /// multi-statement blocks go on new lines.
+    /// multi-statement blocks and multiline body expressions go on new lines.
     pub(super) fn fmt_body(&mut self, expr: &Expr) {
-        match expr {
-            Expr::Block(stmts, trailing) => {
-                if stmts.is_empty() && trailing.is_some() {
-                    let trailing = trailing.as_ref().unwrap();
-                    if self.expr_needs_multiline_body(trailing) {
-                        self.write("{");
-                        self.newline();
-                        self.indent += 1;
-                        self.write_indent();
-                        self.fmt_expr(trailing);
-                        self.newline();
-                        self.indent -= 1;
-                        self.write_indent();
-                        self.write("}");
-                    } else {
-                        self.write("{ ");
-                        self.fmt_expr(trailing);
-                        self.write(" }");
-                    }
-                } else {
-                    self.write("{");
-                    self.newline();
-                    self.indent += 1;
-                    for stmt in stmts {
-                        self.fmt_stmt(stmt);
-                    }
-                    if let Some(trail) = trailing {
-                        self.write_indent();
-                        self.fmt_expr(trail);
-                        self.newline();
-                    }
-                    self.indent -= 1;
-                    self.write_indent();
-                    self.write("}");
-                }
-            }
-            _ => {
-                if self.expr_needs_multiline_body(expr) {
-                    self.write("{");
-                    self.newline();
-                    self.indent += 1;
-                    self.write_indent();
-                    self.fmt_expr(expr);
-                    self.newline();
-                    self.indent -= 1;
-                    self.write_indent();
-                    self.write("}");
-                } else {
-                    self.write("{ ");
-                    self.fmt_expr(expr);
-                    self.write(" }");
-                }
-            }
+        self.fmt_expr_body(expr);
+    }
+
+    fn fmt_expr_body(&mut self, expr: &Expr) {
+        let expr = self.normalize_body_expr(expr);
+        if self.expr_needs_multiline_body(expr) {
+            self.fmt_multiline_expr_body(expr);
+        } else {
+            self.fmt_inline_expr_body(expr);
         }
+    }
+
+    fn normalize_body_expr<'b>(&self, expr: &'b Expr) -> &'b Expr {
+        if let Expr::Block(stmts, Some(trailing)) = expr
+            && stmts.is_empty()
+        {
+            trailing
+        } else {
+            expr
+        }
+    }
+
+    fn fmt_inline_expr_body(&mut self, expr: &Expr) {
+        self.write("{ ");
+        self.fmt_expr(expr);
+        self.write(" }");
+    }
+
+    fn fmt_multiline_expr_body(&mut self, expr: &Expr) {
+        if let Expr::Block(stmts, trailing) = expr {
+            self.fmt_multiline_block_body(stmts, trailing.as_deref());
+        } else {
+            self.write("{");
+            self.newline();
+            self.indent += 1;
+            self.write_indent();
+            self.fmt_expr(expr);
+            self.newline();
+            self.indent -= 1;
+            self.write_indent();
+            self.write("}");
+        }
+    }
+
+    fn fmt_multiline_block_body(&mut self, stmts: &[Stmt], trailing: Option<&Expr>) {
+        self.write("{");
+        self.newline();
+        self.indent += 1;
+        for stmt in stmts {
+            self.fmt_stmt(stmt);
+        }
+        if let Some(trail) = trailing {
+            self.write_indent();
+            self.fmt_expr(trail);
+            self.newline();
+        }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
     }
 
     fn expr_needs_multiline_body(&self, expr: &Expr) -> bool {
