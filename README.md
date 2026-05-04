@@ -18,6 +18,7 @@ Spore is a compiled language where function signatures are "gravity centers" —
 
 Published CLI artifacts are distributed on PyPI as `spore-lang` and attached to
 [GitHub Releases](https://github.com/spore-lang/spore/releases).
+PyPI-based installs require Python 3.13 or newer.
 
 Install the latest published CLI with:
 

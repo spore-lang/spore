@@ -1,7 +1,7 @@
 version = 1
 revision = 3
-requires-python = ">=3.8"
+requires-python = ">=3.13"
 
 [[package]]
-name = "spore"
+name = "spore-lang"
 source = { editable = "." }
