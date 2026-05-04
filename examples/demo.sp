@@ -29,7 +29,9 @@ spec {
     example "zero": abs(0) == 0
     property "non_negative_identity": |x: I32 when self >= 0| x
 }
-{ if x < 0 { 0 - x } else { x } }
+{
+    if x < 0 { 0 - x } else { x }
+}
 
 struct Point {
     x: I32,
@@ -66,20 +68,24 @@ spec {
     example "circle": area(Circle(5)) == 75
     example "rect": area(Rect(3, 4)) == 12
 }
-{ match s {
-    Circle(r) => r * r * 3,
-    Rect(w, h) => w * h,
-} }
+{
+    match s {
+        Circle(r) => r * r * 3,
+        Rect(w, h) => w * h,
+    }
+}
 
 fn factorial(n: I32) -> I32
 spec {
     example "base": factorial(0) == 1
     example "five": factorial(5) == 120
 }
-{ match n {
-    0 => 1,
-    _ => n * factorial(n - 1),
-} }
+{
+    match n {
+        0 => 1,
+        _ => n * factorial(n - 1),
+    }
+}
 
 fn fibonacci(n: I32) -> I32
 spec {
@@ -87,11 +93,13 @@ spec {
     example "base1": fibonacci(1) == 1
     example "fib10": fibonacci(10) == 55
 }
-{ match n {
-    0 => 0,
-    1 => 1,
-    _ => fibonacci(n - 1) + fibonacci(n - 2),
-} }
+{
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fibonacci(n - 1) + fibonacci(n - 2),
+    }
+}
 
 fn is_even(n: I32) -> Bool
 spec {

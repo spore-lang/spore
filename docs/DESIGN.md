@@ -73,7 +73,10 @@ fn name(params) -> ReturnType ! Errors
 - 四维 **CostVector**：`compute(op) + alloc(cell) + io(call) + parallel(lane)`。
 - 编译期通过**抽象解释**模拟执行，验证 ≤ 声明上界。
 - 支持符号代价表达式；编译器从被调用函数自动推导。
-- `unbounded` 函数必须由 `with_cost_limit` 包裹。
+- `@unbounded` 是显式逃生舱：它跳过函数体预算验证、向调用者传播
+  unbounded taint，但当前策略仍要求声明期望向量
+  `cost [compute, alloc, io, parallel]`，保留签名中的代价意图。
+  `with_cost_limit` 属于未来收敛机制，不是当前表面语法。
 
 完整规范见 SEP-0004。
 

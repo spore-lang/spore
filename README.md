@@ -18,6 +18,7 @@ Spore is a compiled language where function signatures are "gravity centers" —
 
 Published CLI artifacts are distributed on PyPI as `spore-lang` and attached to
 [GitHub Releases](https://github.com/spore-lang/spore/releases).
+PyPI-based installs require Python 3.13 or newer.
 
 Install the latest published CLI with:
 
@@ -153,7 +154,10 @@ and stable `where` syntax is a single comma-separated clause such as
 `cost [compute, alloc, io, parallel]`; each slot currently uses the minimal
 subset only: integer constants, parameter variables, or linear `O(n)` terms.
 Old scalar `cost <= expr`, `log`/`max`/`min`, and richer algebraic terms are
-deferred.
+deferred. Functions marked `@unbounded` are still contagious and skip body
+budget verification, but they must declare an expected vector with the same
+`cost [compute, alloc, io, parallel]` syntax so callers and docs preserve an
+explicit cost intent.
 
 ```spore
 effect NetConnect {

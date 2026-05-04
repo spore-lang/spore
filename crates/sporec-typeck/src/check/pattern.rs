@@ -3,6 +3,89 @@ use super::*;
 impl Checker {
     // ── Pattern type checking ──────────────────────────────────────
 
+    fn variant_pattern_field_types(&mut self, name: &str, scrutinee_ty: &Ty) -> Option<Vec<Ty>> {
+        match scrutinee_ty {
+            Ty::Named(type_name) => {
+                let field_tys = self
+                    .registry
+                    .types
+                    .get(type_name)
+                    .and_then(|variants| variants.iter().find(|(vname, _)| vname == name))
+                    .map(|(_, field_tys)| field_tys.clone());
+                if let Some(field_tys) = field_tys {
+                    let expected_ty = Ty::Named(type_name.clone());
+                    self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
+                    return Some(field_tys);
+                }
+            }
+            Ty::App(type_name, args) => {
+                let field_tys = self
+                    .registry
+                    .types
+                    .get(type_name)
+                    .and_then(|variants| variants.iter().find(|(vname, _)| vname == name))
+                    .map(|(_, field_tys)| field_tys.clone());
+                if let Some(field_tys) = field_tys {
+                    if let Some(type_params) = self.registry.type_type_params.get(type_name)
+                        && type_params.len() == args.len()
+                    {
+                        let mapping: HashMap<String, Ty> = type_params
+                            .iter()
+                            .cloned()
+                            .zip(args.iter().cloned())
+                            .collect();
+                        return Some(
+                            field_tys
+                                .iter()
+                                .map(|ty| self.instantiate_ty(ty, &mapping))
+                                .collect(),
+                        );
+                    }
+                    return Some(field_tys);
+                }
+            }
+            _ => {}
+        }
+
+        #[allow(clippy::type_complexity)]
+        let types_snapshot: Vec<(String, Vec<(String, Vec<Ty>)>)> = self
+            .registry
+            .types
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        for (type_name, variants) in &types_snapshot {
+            if let Some((_, field_tys)) = variants.iter().find(|(vname, _)| vname == name) {
+                let expected_ty = match self.registry.type_type_params.get(type_name).cloned() {
+                    Some(type_params) if !type_params.is_empty() => {
+                        let field_tys = field_tys.clone();
+                        let ret_ty = Ty::App(
+                            type_name.clone(),
+                            type_params
+                                .iter()
+                                .map(|param| Ty::Named(param.clone()))
+                                .collect(),
+                        );
+                        let (inst_field_tys, inst_ret_ty, _) =
+                            self.instantiate_sig(&type_params, &field_tys, &ret_ty);
+                        self.unify(&inst_ret_ty, scrutinee_ty, &format!("pattern `{name}`"));
+                        return Some(
+                            inst_field_tys
+                                .into_iter()
+                                .map(|ty| self.apply_subst(&ty))
+                                .collect(),
+                        );
+                    }
+                    _ => Ty::Named(type_name.clone()),
+                };
+                self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
+                return Some(field_tys.clone());
+            }
+        }
+
+        None
+    }
+
     /// Check if `name` is a known zero-field enum variant.
     pub(super) fn find_unit_variant(&self, name: &str) -> Option<String> {
         for (type_name, variants) in &self.registry.types {
@@ -27,9 +110,9 @@ impl Checker {
             Pattern::Wildcard => vec![],
             Pattern::Var(name) => {
                 // Zero-field enum variants (e.g. Red, None) are parsed as Var.
-                if let Some(type_name) = self.find_unit_variant(name) {
-                    let expected_ty = Ty::Named(type_name);
-                    self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
+                if let Some(field_tys) = self.variant_pattern_field_types(name, scrutinee_ty)
+                    && field_tys.is_empty()
+                {
                     vec![]
                 } else {
                     vec![(name.clone(), scrutinee_ty.clone())]
@@ -63,40 +146,29 @@ impl Checker {
                 vec![]
             }
             Pattern::Constructor(name, sub_pats) => {
-                #[allow(clippy::type_complexity)]
-                let types_snapshot: Vec<(String, Vec<(String, Vec<Ty>)>)> = self
-                    .registry
-                    .types
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                for (type_name, variants) in &types_snapshot {
-                    if let Some((_, field_tys)) = variants.iter().find(|(vname, _)| vname == name) {
-                        let expected_ty = Ty::Named(type_name.clone());
-                        self.unify(&expected_ty, scrutinee_ty, &format!("pattern `{name}`"));
-
-                        if sub_pats.len() != field_tys.len() {
-                            self.err(
-                                ErrorCode::E0007,
-                                format!(
-                                    "variant `{name}` expects {} fields, got {}",
-                                    field_tys.len(),
-                                    sub_pats.len()
-                                ),
-                            );
-                        }
-
-                        let mut bindings = vec![];
-                        for (sub_pat, field_ty) in sub_pats.iter().zip(field_tys.iter()) {
-                            bindings.extend(self.check_pattern(sub_pat, field_ty));
-                        }
-                        return bindings;
+                if let Some(field_tys) = self.variant_pattern_field_types(name, scrutinee_ty) {
+                    if sub_pats.len() != field_tys.len() {
+                        self.err(
+                            ErrorCode::E0007,
+                            format!(
+                                "variant `{name}` expects {} fields, got {}",
+                                field_tys.len(),
+                                sub_pats.len()
+                            ),
+                        );
                     }
-                }
-                if !scrutinee_ty.is_error() {
+
+                    let mut bindings = vec![];
+                    for (sub_pat, field_ty) in sub_pats.iter().zip(field_tys.iter()) {
+                        bindings.extend(self.check_pattern(sub_pat, field_ty));
+                    }
+                    bindings
+                } else if !scrutinee_ty.is_error() {
                     self.err(ErrorCode::E0006, format!("unknown variant `{name}`"));
+                    vec![]
+                } else {
+                    vec![]
                 }
-                vec![]
             }
             Pattern::Struct(name, field_pats) => {
                 let def_fields = self.registry.structs.get(name).cloned();

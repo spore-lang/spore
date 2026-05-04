@@ -20,6 +20,7 @@
 | D3 | spec-clause 作为签名子句 | `spec { example "...": expr }` |
 | D11 | `! E1 \| E2` 错误集语法 | 管道符，无方括号，fn-def 与 type-expr 通用 |
 | N1 | `cost [c, a, i, p]` 向量形式 | 固定顺序 compute/alloc/io/parallel；避免非 ASCII `≤` |
+| N8 | `@unbounded` 仍必须写 `cost [...]` | 逃过体预算验证但保留期望代价向量；缺失时报 K0303 |
 | N4 | `where` 子句不支持 `+` | 每个参数单一约束；`where T: Bound, U: Bound` |
 | N5 | Spec 子句使用 `:` 分隔符 | `example "name": expr`，非 `=>` |
 

@@ -202,7 +202,7 @@ Current server surface is still small: no rename, references, or code actions ye
 
 ### Cost enforcement
 
-Use `cost [compute, alloc, io, parallel]`. The old scalar `cost <= expr` form is rejected by the parser. Each slot currently accepts only integer literals, parameter variables, or linear `O(n)` terms. The `@unbounded` escape hatch still exists and is contagious to callers.
+Use `cost [compute, alloc, io, parallel]`. The old scalar `cost <= expr` form is rejected by the parser. Each slot currently accepts only integer literals, parameter variables, or linear `O(n)` terms. The `@unbounded` escape hatch still exists and is contagious to callers, but it must also declare an expected `cost [...]` vector; omitting it is hard error K0303.
 
 ## Filling holes — checklist
 

@@ -24,7 +24,7 @@ use cost::{CostAnalyzer, CostChecker, CostResult, CostVector};
 use error::{ErrorCode, TypeError};
 use hole::HoleReport;
 use module::{ModuleRegistry, PreludeOptions};
-use sporec_parser::ast::Module;
+use sporec_parser::ast::{Item, Module};
 use sporec_stdlib::prelude;
 
 pub fn is_synthetic_hole_name(name: &str) -> bool {
@@ -77,6 +77,7 @@ pub fn type_check_with_registry_and_prelude(
     let mut checker = Checker::with_module_registry(registry);
     checker.load_prelude(&parse_embedded_prelude());
     checker.check_module(module);
+    checker.errors.extend(unbounded_policy_errors(module));
 
     // Run cost analysis (independent of type checking)
     let mut cost_analyzer = CostAnalyzer::new();
@@ -108,6 +109,27 @@ pub fn type_check_with_registry_and_prelude(
     } else {
         Err(checker.errors)
     }
+}
+
+fn unbounded_policy_errors(module: &Module) -> Vec<TypeError> {
+    module
+        .items
+        .iter()
+        .filter_map(|item| {
+            let Item::Function(fn_def) = item else {
+                return None;
+            };
+            (fn_def.is_unbounded && fn_def.cost_clause.is_none()).then(|| {
+                TypeError::new(
+                    ErrorCode::K0303,
+                    format!(
+                        "@unbounded function `{}` must declare an expected cost vector with `cost [compute, alloc, io, parallel]`",
+                        fn_def.name
+                    ),
+                )
+            })
+        })
+        .collect()
 }
 
 /// Build a `ModuleInterface` from a parsed module (for multi-file compilation).

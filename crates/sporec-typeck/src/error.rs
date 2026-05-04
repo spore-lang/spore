@@ -138,6 +138,7 @@ pub enum ErrorCode {
     // ── K03xx: Declaration ──────────────────────────────────────────
     K0301, // missing cost annotation on recursive function
     K0302, // invalid cost expression syntax
+    K0303, // @unbounded requires cost vector declaration
 
     // ── Legacy cost codes ───────────────────────────────────────────
     K0001, // cost budget exceeded (alias for K0101)
@@ -308,6 +309,7 @@ impl ErrorCode {
             // K03xx — Declaration
             K0301 => "Missing cost annotation on recursive function",
             K0302 => "Invalid cost expression syntax",
+            K0303 => "@unbounded requires a cost declaration",
 
             // Legacy cost code
             K0001 => "Cost budget exceeded",
@@ -445,6 +447,7 @@ impl fmt::Display for ErrorCode {
             // K03xx
             K0301 => "K0301",
             K0302 => "K0302",
+            K0303 => "K0303",
             // Legacy K0xxx
             K0001 => "K0001",
             // H01xx
@@ -490,9 +493,9 @@ pub fn all_error_codes() -> &'static [ErrorCode] {
         E0503, E0504, E0001, E0002, E0003, E0004, E0005, E0006, E0007, E0008, E0009, E0010, E0011,
         E0012, E0013, E0014, E0015, E0016, E0017, W0101, W0102, W0103, W0104, W0201, W0202, W0301,
         W0302, W0401, W0402, R0001, C0101, C0102, C0103, C0201, C0202, C0301, C0302, C0001, C0002,
-        K0101, K0102, K0201, K0202, K0301, K0302, K0001, H0101, H0102, H0103, H0201, H0202, H0203,
-        H0301, H0302, M0101, M0102, M0201, M0202, M0203, M0301, M0302, M0303, M0401, M0402, M0001,
-        M0002, M0003,
+        K0101, K0102, K0201, K0202, K0301, K0302, K0303, K0001, H0101, H0102, H0103, H0201, H0202,
+        H0203, H0301, H0302, M0101, M0102, M0201, M0202, M0203, M0301, M0302, M0303, M0401, M0402,
+        M0001, M0002, M0003,
     ]
 }
 
