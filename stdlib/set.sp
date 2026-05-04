@@ -7,7 +7,7 @@ spec {
 { [] }
 
 @unbounded
-fn set_insert(s: List[I32], item: I32) -> List[I32]
+fn set_insert(s: List[I32], item: I32) -> List[I32] cost [O(s), O(s), 0, 0]
 spec {
     example "add": set_contains(set_insert(set_new(), 5), 5) == true
     example "idempotent": set_len(set_insert(set_insert(set_new(), 5), 5)) == 1
@@ -17,7 +17,7 @@ spec {
 }
 
 @unbounded
-fn set_remove(s: List[I32], item: I32) -> List[I32]
+fn set_remove(s: List[I32], item: I32) -> List[I32] cost [O(s), O(s), 0, 0]
 spec {
     example "remove": set_contains(set_remove(set_insert(set_new(), 5), 5), 5) == false
     example "noop": set_len(set_remove(set_new(), 5)) == 0
@@ -46,7 +46,7 @@ spec {
 { len(s) == 0 }
 
 @unbounded
-fn set_union(a: List[I32], b: List[I32]) -> List[I32]
+fn set_union(a: List[I32], b: List[I32]) -> List[I32] cost [O(b), O(b), 0, 0]
 spec {
     example "merge": set_len(set_union(set_insert(set_new(), 1), set_insert(set_new(), 2))) == 2
     example "overlap": set_len(set_union(set_insert(set_new(), 1), set_insert(set_new(), 1))) == 1
@@ -54,7 +54,7 @@ spec {
 { fold(b, a, |acc: List[I32], x: I32| set_insert(acc, x)) }
 
 @unbounded
-fn set_intersection(a: List[I32], b: List[I32]) -> List[I32]
+fn set_intersection(a: List[I32], b: List[I32]) -> List[I32] cost [O(a), O(a), 0, 0]
 spec {
     example "overlap": set_len(set_intersection(set_insert(set_insert(set_new(), 1), 2), set_insert(set_insert(set_new(), 2), 3))) == 1
     example "none": set_len(set_intersection(set_insert(set_new(), 1), set_insert(set_new(), 2))) == 0
@@ -62,7 +62,7 @@ spec {
 { filter(a, |x: I32| contains(b, x)) }
 
 @unbounded
-fn set_difference(a: List[I32], b: List[I32]) -> List[I32]
+fn set_difference(a: List[I32], b: List[I32]) -> List[I32] cost [O(a), O(a), 0, 0]
 spec {
     example "basic": set_len(set_difference(set_insert(set_insert(set_new(), 1), 2), set_insert(set_new(), 2))) == 1
     example "empty": set_len(set_difference(set_new(), set_insert(set_new(), 1))) == 0
@@ -73,12 +73,12 @@ spec {
 fn set_new_str() -> List[Str] cost [1, 1, 0, 0] { [] }
 
 @unbounded
-fn set_insert_str(s: List[Str], item: Str) -> List[Str] {
+fn set_insert_str(s: List[Str], item: Str) -> List[Str] cost [O(s), O(s), 0, 0] {
     if contains(s, item) { s } else { append(s, item) }
 }
 
 @unbounded
-fn set_remove_str(s: List[Str], item: Str) -> List[Str] { filter(s, |x: Str| x != item) }
+fn set_remove_str(s: List[Str], item: Str) -> List[Str] cost [O(s), O(s), 0, 0] { filter(s, |x: Str| x != item) }
 
 fn set_contains_str(s: List[Str], item: Str) -> Bool cost [3, 0, 0, 0]
 spec {

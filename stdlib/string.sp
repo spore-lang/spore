@@ -31,7 +31,7 @@ fn char_at_safe(s: Str, i: I32) -> Option[Str] cost [8, 0, 0, 0] {
 }
 
 @unbounded
-fn repeat_string(s: Str, n: I32) -> Str
+fn repeat_string(s: Str, n: I32) -> Str cost [O(n), O(n), 0, 0]
 spec {
     example "basic": repeat_string("ab", 3) == "ababab"
     example "zero": repeat_string("x", 0) == ""
@@ -42,7 +42,7 @@ spec {
 }
 
 @unbounded
-fn pad_left(s: Str, width: I32, fill: Str) -> Str
+fn pad_left(s: Str, width: I32, fill: Str) -> Str cost [O(width), O(width), 0, 0]
 spec {
     example "pad": pad_left("hi", 5, " ") == "   hi"
     example "no_pad": pad_left("hello", 3, " ") == "hello"
@@ -52,7 +52,7 @@ spec {
 }
 
 @unbounded
-fn pad_right(s: Str, width: I32, fill: Str) -> Str
+fn pad_right(s: Str, width: I32, fill: Str) -> Str cost [O(width), O(width), 0, 0]
 spec {
     example "pad": pad_right("hi", 5, " ") == "hi   "
     example "no_pad": pad_right("hello", 3, " ") == "hello"
