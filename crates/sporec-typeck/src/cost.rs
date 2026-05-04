@@ -56,6 +56,9 @@ pub enum CostResult {
     /// User declared via `cost [compute, alloc, io, parallel]`; stores compute part.
     Declared(CostExpr),
     /// `@unbounded` annotation — cost checking skipped.
+    ///
+    /// This is an unchecked/tainted result, independent from any expected
+    /// vector declared in the function's `cost [...]` signature clause.
     Unbounded,
     /// Could not determine — warning message attached.
     Unknown(String),
@@ -241,15 +244,17 @@ impl CostAnalyzer {
         let fn_name = &fn_def.name;
 
         if fn_def.is_unbounded {
-            self.cost_vectors.insert(
-                fn_name.clone(),
-                CostVector {
+            let expected = fn_def
+                .cost_clause
+                .as_ref()
+                .map(ast_cost_clause_to_cost_vector)
+                .unwrap_or(CostVector {
                     compute: CostExpr::Unbounded,
                     alloc: CostExpr::Unbounded,
                     io: CostExpr::Unbounded,
                     parallel: CostExpr::Unbounded,
-                },
-            );
+                });
+            self.cost_vectors.insert(fn_name.clone(), expected);
             return;
         }
 

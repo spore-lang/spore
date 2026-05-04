@@ -170,6 +170,12 @@ fn test_foreign_fn_with_errors_roundtrips() {
 }
 
 #[test]
+fn test_unbounded_fn_with_cost_roundtrips() {
+    let src = "@unbounded\nfn wild(n: I32) -> I32 cost [O(n), 1, 0, 0] { n }\n";
+    assert_eq!(roundtrip(src), src);
+}
+
+#[test]
 fn test_spec_clause_normalizes_clause_order_and_preserves_item_order() {
     let src = concat!(
         "fn show[T](x: T) -> T cost [5, 0, 0, 0] spec {\n",

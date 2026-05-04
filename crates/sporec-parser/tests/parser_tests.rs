@@ -103,6 +103,30 @@ fn test_fn_with_cost() {
 }
 
 #[test]
+fn test_unbounded_fn_with_cost() {
+    let m = parse_ok("@unbounded\nfn wild(n: I32) -> I32 cost [O(n), 1, 0, 0] { n }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            assert!(f.is_unbounded);
+            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
+            assert!(
+                matches!(cost.compute, sporec_parser::ast::CostExpr::Linear(ref v) if v == "n")
+            );
+            assert!(matches!(
+                cost.alloc,
+                sporec_parser::ast::CostExpr::Literal(1)
+            ));
+            assert!(matches!(cost.io, sporec_parser::ast::CostExpr::Literal(0)));
+            assert!(matches!(
+                cost.parallel,
+                sporec_parser::ast::CostExpr::Literal(0)
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
 fn test_fn_with_where() {
     let m = parse_ok("fn show(x: T) -> String where T: Display { \"\" }");
     match &m.items[0] {

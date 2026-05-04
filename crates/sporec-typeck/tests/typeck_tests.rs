@@ -1,5 +1,5 @@
 use sporec_parser::parse;
-use sporec_typeck::cost::CostResult;
+use sporec_typeck::cost::{CostExpr, CostResult};
 use sporec_typeck::error::ErrorCode;
 use sporec_typeck::type_check;
 use sporec_typeck::types::{EffectSet, ErrorSet, Ty};
@@ -681,11 +681,12 @@ fn cost_budget_within_limit_no_error() {
 
 #[test]
 fn unbounded_skips_cost_analysis() {
-    // @unbounded should not emit any cost error regardless of body
+    // @unbounded should not emit any cost error regardless of body, but it must
+    // declare the expected signature cost vector.
     let module = parse(
         r#"
         @unbounded
-        fn wild(n: I32) -> I32 { if n >= 100 { n } else { wild(n + 1) } }
+        fn wild(n: I32) -> I32 cost [O(n), 0, 0, 0] { if n >= 100 { n } else { wild(n + 1) } }
     "#,
     )
     .unwrap();
@@ -693,6 +694,76 @@ fn unbounded_skips_cost_analysis() {
     assert!(
         matches!(result.cost_results.get("wild"), Some(CostResult::Unbounded)),
         "expected Unbounded for @unbounded function, got {:?}",
+        result.cost_results.get("wild")
+    );
+}
+
+#[test]
+fn unbounded_without_cost_is_hard_error() {
+    let errs = check_err_with_codes(
+        r#"
+        @unbounded
+        fn wild(n: I32) -> I32 { if n >= 100 { n } else { wild(n + 1) } }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|(code, message)| {
+            *code == ErrorCode::K0303
+                && message.contains("@unbounded")
+                && message.contains("cost [compute, alloc, io, parallel]")
+        }),
+        "expected K0303 missing-cost error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn unbounded_with_cost_succeeds_and_preserves_expected_vector() {
+    let module = parse(
+        r#"
+        @unbounded
+        fn wild(n: I32) -> I32 cost [O(n), 1, 2, 3] { if n >= 100 { n } else { wild(n + 1) } }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(result.cost_results.get("wild"), Some(CostResult::Unbounded)),
+        "expected unchecked Unbounded taint, got {:?}",
+        result.cost_results.get("wild")
+    );
+    let vector = result
+        .cost_vectors
+        .get("wild")
+        .expect("expected declared vector metadata");
+    assert!(matches!(vector.compute, CostExpr::Linear(ref v) if v == "n"));
+    assert_eq!(vector.alloc, CostExpr::Const(1));
+    assert_eq!(vector.io, CostExpr::Const(2));
+    assert_eq!(vector.parallel, CostExpr::Const(3));
+}
+
+#[test]
+fn unbounded_declared_cost_skips_budget_warning_from_body() {
+    let module = parse(
+        r#"
+        fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] { x + x }
+
+        @unbounded
+        fn wild(a: I32) -> I32 cost [1, 0, 0, 0] { expensive(expensive(a)) }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        !result
+            .warnings
+            .iter()
+            .any(|w| w.code == ErrorCode::K0101 && w.message.contains("wild")),
+        "expected @unbounded body budget check to be skipped, got warnings: {:?}",
+        result.warnings
+    );
+    assert!(
+        matches!(result.cost_results.get("wild"), Some(CostResult::Unbounded)),
+        "declared expected cost must not make @unbounded look verified, got {:?}",
         result.cost_results.get("wild")
     );
 }
