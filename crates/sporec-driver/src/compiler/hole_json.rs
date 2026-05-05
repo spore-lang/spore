@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 use sporec_diagnostics::{
     HoleCandidateCostCheckJson, HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson,
     HoleCostBudgetJson, HoleCostVectorJson, HoleDependencyEdgeJson, HoleDependencyGraphJson,
-    HoleDependencyKind, HoleErrorClusterJson, HoleInfoJson, HoleLocationJson, HoleReportJson,
-    HoleResidualContextJson, HoleSummary, HoleTypeInferenceJson, SourceFile,
+    HoleDependencyKind, HoleEffectContextJson, HoleErrorClusterJson, HoleInfoJson,
+    HoleLocationJson, HoleReportJson, HoleResidualContextJson, HoleSummary, HoleTypeInferenceJson,
+    SourceFile,
 };
 use sporec_typeck::hole::{
     CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
@@ -107,6 +108,13 @@ fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
         binding_dependencies: hole.binding_dependencies.clone(),
         available_effects: hole.available_effects.iter().cloned().collect(),
         errors_to_handle: hole.errors_to_handle.clone(),
+        effect_context: hole
+            .effect_context
+            .as_ref()
+            .map(|context| HoleEffectContextJson {
+                discharged_effects: context.discharged_effects.iter().cloned().collect(),
+                surviving_effects: context.surviving_effects.iter().cloned().collect(),
+            }),
         cost_budget: hole.cost_budget.as_ref().map(|budget| HoleCostBudgetJson {
             budget_total: budget.budget_total,
             cost_before_hole: budget.cost_before_hole,
@@ -132,6 +140,8 @@ fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
                 required_effects_fit: candidate.required_effects_fit,
                 error_coverage: candidate.error_coverage,
                 overall: candidate.overall(),
+                rejection_reasons: candidate.rejection_reasons.clone(),
+                explanation: candidate.explanation.clone(),
                 adjustments: candidate.adjustments.clone(),
                 cost_check: candidate.cost_check.as_ref().map(|cost_check| {
                     HoleCandidateCostCheckJson {

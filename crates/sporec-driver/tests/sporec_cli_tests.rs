@@ -347,6 +347,58 @@ fn query_hole_json_includes_checked_residual_context() {
 }
 
 #[test]
+fn query_hole_json_includes_effect_and_rejection_context() {
+    let temp = TempDir::new("query-hole-effects");
+    let file = temp.write(
+        "main.sp",
+        r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
+        effect Debug {
+            fn trace(msg: Str) -> ()
+        }
+        fn pure() -> I32 { 1 }
+        fn noisy() -> I32 uses [Debug] { 2 }
+        fn main() -> I32 uses [IO] {
+            handle {
+                ?todo
+            } with {
+                on Console.println(msg) => { msg; }
+            }
+        }
+        "#,
+    );
+
+    let output = sporec_cmd()
+        .args(["query-hole", "--json", file.to_str().unwrap(), "?todo"])
+        .output()
+        .expect("run sporec query-hole");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"effect_context\""), "stdout: {stdout}");
+    assert!(
+        stdout.contains("\"discharged_effects\":[\"Console\"]")
+            || stdout.contains("\"discharged_effects\": [\"Console\"]"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"surviving_effects\"") && stdout.contains("\"IO\""),
+        "stdout: {stdout}"
+    );
+    assert!(stdout.contains("\"rejection_reasons\""), "stdout: {stdout}");
+    assert!(
+        stdout.contains("requires effects [Debug]"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
 fn query_hole_missing_exits_non_zero() {
     let temp = TempDir::new("query-hole-missing");
     let file = temp.write("main.sp", "fn main() -> I32 { 42 }\n");

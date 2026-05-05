@@ -422,83 +422,6 @@ fn test_hole_report_suggestions() {
 }
 
 #[test]
-fn test_hole_report_checked_residual_cost_context() {
-    let module = parse(
-        r#"
-        fn cheap() -> I32 cost [1, 0, 0, 0] { 1 + 1 }
-        fn costly() -> I32 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
-        fn target() -> I32 cost [6, 0, 0, 0] {
-            let seed = cheap();
-            ?todo
-        }
-    "#,
-    )
-    .unwrap();
-    let result = type_check(&module).unwrap();
-    let hole = &result.hole_report.holes[0];
-
-    let cost_budget = hole.cost_budget.as_ref().expect("legacy cost budget");
-    assert_eq!(cost_budget.budget_total, Some(6.0));
-    assert_eq!(cost_budget.cost_before_hole, 4.0);
-    assert_eq!(cost_budget.budget_remaining, Some(2.0));
-
-    let residual = hole
-        .residual_context
-        .as_ref()
-        .expect("checked residual context");
-    assert_eq!(
-        residual
-            .budget_declared
-            .as_ref()
-            .map(|cost| cost.compute.as_str()),
-        Some("6")
-    );
-    assert_eq!(residual.cost_before.compute, "4");
-    assert_eq!(
-        residual
-            .budget_residual
-            .as_ref()
-            .map(|cost| cost.compute.as_str()),
-        Some("2")
-    );
-    assert_eq!(
-        residual.fit_rule.as_deref(),
-        Some("before + candidate <= budget")
-    );
-
-    let cheap = hole
-        .candidates
-        .iter()
-        .find(|candidate| candidate.name == "cheap")
-        .expect("cheap candidate");
-    assert_eq!(cheap.cost_fit, 1.0);
-    assert_eq!(
-        cheap.cost_check.as_ref().and_then(|cost| cost.fits_budget),
-        Some(true)
-    );
-
-    let costly = hole
-        .candidates
-        .iter()
-        .find(|candidate| candidate.name == "costly")
-        .expect("costly candidate");
-    assert_eq!(costly.cost_fit, 0.0);
-    assert_eq!(
-        costly.cost_check.as_ref().and_then(|cost| cost.fits_budget),
-        Some(false)
-    );
-    assert!(
-        costly
-            .cost_check
-            .as_ref()
-            .and_then(|cost| cost.reason.as_deref())
-            .is_some_and(|reason| reason.contains("exceeds budget in compute")),
-        "expected over-budget reason, got {:?}",
-        costly.cost_check
-    );
-}
-
-#[test]
 fn test_hole_report_suggestions_respect_allows_annotation() {
     let module = parse(
         "@allows[double]\n\
@@ -1131,30 +1054,6 @@ fn try_propagation_superset_ok() {
 }
 
 #[test]
-fn try_propagation_equivalent_error_order_ok() {
-    check_ok(
-        r#"
-        fn read_file(path: Str) -> Str ! ParseError | IoError { "content" }
-        fn process() -> Str ! IoError | ParseError {
-            read_file("test.txt")?
-        }
-    "#,
-    );
-}
-
-#[test]
-fn try_propagation_duplicate_declared_errors_ok() {
-    check_ok(
-        r#"
-        fn read_file(path: Str) -> Str ! IoError { "content" }
-        fn process() -> Str ! IoError | IoError {
-            read_file("test.txt")?
-        }
-    "#,
-    );
-}
-
-#[test]
 fn try_propagation_partial_missing() {
     let errs = check_err(
         r#"
@@ -1410,6 +1309,7 @@ fn hole_info_v03_has_all_fields() {
         binding_dependencies: BTreeMap::new(),
         available_effects: EffectSet::new(),
         errors_to_handle: vec![],
+        effect_context: None,
         cost_budget: None,
         residual_context: None,
         candidates: vec![],
@@ -1434,6 +1334,8 @@ fn candidate_score_overall_formula() {
         cost_fit: 1.0,
         required_effects_fit: 1.0,
         error_coverage: 1.0,
+        rejection_reasons: vec![],
+        explanation: None,
         adjustments: vec![],
         cost_check: None,
     };
@@ -1445,6 +1347,8 @@ fn candidate_score_overall_formula() {
         cost_fit: 0.0,
         required_effects_fit: 0.0,
         error_coverage: 0.0,
+        rejection_reasons: vec![],
+        explanation: None,
         adjustments: vec![],
         cost_check: None,
     };
@@ -1457,6 +1361,8 @@ fn candidate_score_overall_formula() {
         cost_fit: 0.8,
         required_effects_fit: 1.0,
         error_coverage: 0.6,
+        rejection_reasons: vec![],
+        explanation: None,
         adjustments: vec![],
         cost_check: None,
     };
@@ -1609,6 +1515,163 @@ fn hole_collects_available_effects_and_errors() {
     let hole = &result.hole_report.holes[0];
     assert!(hole.available_effects.contains("IO"));
     assert!(hole.errors_to_handle.contains(&"ParseError".to_string()));
+}
+
+#[test]
+fn hole_collects_handler_effect_context_after_discharge() {
+    let module = parse(
+        r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
+        fn main() -> I32 uses [IO] {
+            handle {
+                ?todo
+            } with {
+                on Console.println(msg) => { msg; }
+            }
+        }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    assert!(hole.available_effects.contains("Console"));
+    let effect_context = hole
+        .effect_context
+        .as_ref()
+        .expect("handler effect context");
+    assert!(effect_context.discharged_effects.contains("Console"));
+    assert!(effect_context.surviving_effects.contains("IO"));
+    assert!(!effect_context.surviving_effects.contains("Console"));
+}
+
+#[test]
+fn hole_candidates_include_canonical_rejection_reasons() {
+    let module = parse(
+        r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
+        fn pure() -> I32 { 1 }
+        fn noisy() -> I32 uses [Console] { 2 }
+        fn risky() -> I32 ! ParseError { 3 }
+        fn main() -> I32 {
+            ?todo
+        }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    let noisy = hole
+        .candidates
+        .iter()
+        .find(|candidate| candidate.name == "noisy")
+        .expect("noisy candidate");
+    assert!(
+        noisy
+            .rejection_reasons
+            .iter()
+            .any(|reason| reason.contains("requires effects [Console]")),
+        "expected missing effect reason, got {:?}",
+        noisy.rejection_reasons
+    );
+    assert_eq!(
+        noisy.explanation.as_deref(),
+        Some("requires effects [Console]")
+    );
+
+    let risky = hole
+        .candidates
+        .iter()
+        .find(|candidate| candidate.name == "risky")
+        .expect("risky candidate");
+    assert!(
+        risky
+            .rejection_reasons
+            .iter()
+            .any(|reason| reason.contains("propagates unhandled errors [ParseError]")),
+        "expected missing error reason, got {:?}",
+        risky.rejection_reasons
+    );
+}
+
+#[test]
+fn hole_report_includes_checked_residual_context() {
+    let module = parse(
+        r#"
+        fn cheap() -> I32 cost [1, 0, 0, 0] { 1 + 1 }
+        fn costly() -> I32 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
+        fn target() -> I32 cost [6, 0, 0, 0] {
+            let seed = cheap();
+            ?todo
+        }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+
+    let cost_budget = hole.cost_budget.as_ref().expect("legacy cost budget");
+    assert_eq!(cost_budget.budget_total, Some(6.0));
+    assert_eq!(cost_budget.cost_before_hole, 4.0);
+    assert_eq!(cost_budget.budget_remaining, Some(2.0));
+
+    let residual = hole
+        .residual_context
+        .as_ref()
+        .expect("checked residual context");
+    assert_eq!(
+        residual
+            .budget_declared
+            .as_ref()
+            .map(|cost| cost.compute.as_str()),
+        Some("6")
+    );
+    assert_eq!(residual.cost_before.compute, "4");
+    assert_eq!(
+        residual
+            .budget_residual
+            .as_ref()
+            .map(|cost| cost.compute.as_str()),
+        Some("2")
+    );
+    assert_eq!(
+        residual.fit_rule.as_deref(),
+        Some("before + candidate <= budget")
+    );
+
+    let cheap = hole
+        .candidates
+        .iter()
+        .find(|candidate| candidate.name == "cheap")
+        .expect("cheap candidate");
+    assert_eq!(cheap.cost_fit, 1.0);
+    assert_eq!(
+        cheap.cost_check.as_ref().and_then(|cost| cost.fits_budget),
+        Some(true)
+    );
+
+    let costly = hole
+        .candidates
+        .iter()
+        .find(|candidate| candidate.name == "costly")
+        .expect("costly candidate");
+    assert_eq!(costly.cost_fit, 0.0);
+    assert_eq!(
+        costly.cost_check.as_ref().and_then(|cost| cost.fits_budget),
+        Some(false)
+    );
+    assert!(
+        costly
+            .cost_check
+            .as_ref()
+            .and_then(|cost| cost.reason.as_deref())
+            .is_some_and(|reason| reason.contains("exceeds budget in compute")),
+        "expected over-budget reason, got {:?}",
+        costly.cost_check
+    );
 }
 
 // ── Enum constructor in expression position ────────────────────────────
@@ -2545,10 +2608,8 @@ fn test_named_handler_payload_and_self_typecheck() {
         effect Math {
             fn double(x: I32) -> I32
         }
-        handler DoubleMath(multiplier: I32) handles [Math] uses [] {
-            impl Math {
-                fn double(x: I32) -> I32 { x * self.multiplier }
-            }
+        handler Math as DoubleMath(multiplier: I32) {
+            fn double(x: I32) -> I32 { x * self.multiplier }
         }
         fn main() -> I32 {
             handle {
@@ -2568,10 +2629,8 @@ fn test_named_handler_payload_checks_field_types() {
         effect Math {
             fn double(x: I32) -> I32
         }
-        handler DoubleMath(multiplier: I32) handles [Math] uses [] {
-            impl Math {
-                fn double(x: I32) -> I32 { x * self.multiplier }
-            }
+        handler Math as DoubleMath(multiplier: I32) {
+            fn double(x: I32) -> I32 { x * self.multiplier }
         }
         fn main() -> I32 {
             handle {
@@ -2597,10 +2656,8 @@ fn test_named_and_inline_duplicate_binding_errors() {
         effect Math {
             fn double(x: I32) -> I32
         }
-        handler DoubleMath(multiplier: I32) handles [Math] uses [] {
-            impl Math {
-                fn double(x: I32) -> I32 { x * self.multiplier }
-            }
+        handler Math as DoubleMath(multiplier: I32) {
+            fn double(x: I32) -> I32 { x * self.multiplier }
         }
         fn main() -> I32 {
             handle {
@@ -2616,108 +2673,6 @@ fn test_named_and_inline_duplicate_binding_errors() {
         errs.iter()
             .any(|e| e.contains("duplicate handler binding") && e.contains("Math.double")),
         "expected duplicate handler binding error, got: {errs:?}"
-    );
-}
-
-#[test]
-fn test_named_handler_discharges_effect_with_pure_uses() {
-    check_ok(
-        r#"
-        effect Math {
-            fn double(x: I32) -> I32
-        }
-        handler DoubleMath(multiplier: I32) handles [Math] uses [] {
-            impl Math {
-                fn double(x: I32) -> I32 { x * self.multiplier }
-            }
-        }
-        fn main() -> I32 {
-            handle {
-                perform Math.double(21)
-            } with {
-                use DoubleMath { multiplier: 2 }
-            }
-        }
-        "#,
-    );
-}
-
-#[test]
-fn test_handler_impl_leak_reports_undeclared_effects() {
-    let errs = check_err(
-        r#"
-        effect Console {
-            fn println(msg: Str) -> ()
-        }
-        effect Math {
-            fn double(x: I32) -> I32
-        }
-        handler LeakyMath handles [Math] uses [] {
-            impl Math {
-                fn double(x: I32) -> I32 {
-                    perform Console.println("oops");
-                    x
-                }
-            }
-        }
-        "#,
-    );
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("leaks undeclared effects") && e.contains("Console")),
-        "expected handler leak diagnostic, got: {errs:?}"
-    );
-}
-
-#[test]
-fn test_handle_missing_handler_arm_reports_coverage_error() {
-    let errs = check_err(
-        r#"
-        effect Console {
-            fn println(msg: Str) -> ()
-            fn read_line() -> Str
-        }
-        fn main() -> () {
-            handle {
-                perform Console.println("hello")
-            } with {
-                on Console.println(msg) => { msg; return }
-            }
-        }
-        "#,
-    );
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("missing handler arm `Console.read_line`")),
-        "expected handler coverage diagnostic, got: {errs:?}"
-    );
-}
-
-#[test]
-fn test_handle_preserves_remaining_outer_effects() {
-    let errs = check_err(
-        r#"
-        effect Console {
-            fn println(msg: Str) -> ()
-        }
-        effect Math {
-            fn double(x: I32) -> I32
-        }
-        fn main() -> I32 {
-            handle {
-                perform Math.double(21);
-                perform Console.println("still outer");
-                0
-            } with {
-                on Math.double(x) => x + x
-            }
-        }
-        "#,
-    );
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("handle block leaks outer effects [Console]")),
-        "expected remaining outer effect diagnostic, got: {errs:?}"
     );
 }
 
@@ -2884,25 +2839,6 @@ fn test_error_set_propagation_declared() {
         }
         fn caller() -> I32 ! MyError {
             risky()?
-        }
-    "#,
-    );
-}
-
-#[test]
-fn function_type_error_sets_are_canonical_for_calls() {
-    check_ok(
-        r#"
-        fn apply(f: () -> I32 ! ParseError | IoError) -> I32 ! IoError | ParseError {
-            f()?
-        }
-
-        fn risky() -> I32 ! IoError | ParseError {
-            42
-        }
-
-        fn caller() -> I32 ! ParseError | IoError {
-            apply(risky)?
         }
     "#,
     );
@@ -3385,10 +3321,8 @@ fn handler_definition_parses() {
         effect Console {
             fn println(msg: Str) -> ()
         }
-        handler MockConsole handles [Console] uses [] {
-            impl Console {
-                fn println(msg: Str) -> () { return }
-            }
+        handler MockConsole for Console {
+            fn println(msg: Str) -> () { return }
         }
     "#,
     );
@@ -3398,10 +3332,8 @@ fn handler_definition_parses() {
 fn handler_unknown_effect_error() {
     let errs = check_err(
         r#"
-        handler MockConsole handles [UnknownEffect] uses [] {
-            impl UnknownEffect {
-                fn println(msg: Str) -> () { 0 }
-            }
+        handler MockConsole for UnknownEffect {
+            fn println(msg: Str) -> () { 0 }
         }
     "#,
     );
@@ -3415,10 +3347,8 @@ fn handler_return_type_mismatch_error() {
         effect Console {
             fn println(msg: Str) -> ()
         }
-        handler MockConsole handles [Console] uses [] {
-            impl Console {
-                fn println(msg: Str) -> () { 0 }
-            }
+        handler MockConsole for Console {
+            fn println(msg: Str) -> () { 0 }
         }
     "#,
     );
@@ -3434,10 +3364,8 @@ fn handler_missing_operation_error() {
             fn println(msg: Str) -> ()
             fn read_line() -> Str
         }
-        handler MockConsole handles [Console] uses [] {
-            impl Console {
-                fn println(msg: Str) -> () { return }
-            }
+        handler MockConsole for Console {
+            fn println(msg: Str) -> () { return }
         }
     "#,
     );

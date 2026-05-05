@@ -301,6 +301,12 @@ pub struct HoleResidualContextJson {
     pub note: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleEffectContextJson {
+    pub discharged_effects: Vec<String>,
+    pub surviving_effects: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HoleCandidateJson {
     pub name: String,
@@ -309,6 +315,8 @@ pub struct HoleCandidateJson {
     pub required_effects_fit: f64,
     pub error_coverage: f64,
     pub overall: f64,
+    pub rejection_reasons: Vec<String>,
+    pub explanation: Option<String>,
     pub adjustments: Vec<String>,
     pub cost_check: Option<HoleCandidateCostCheckJson>,
 }
@@ -389,6 +397,7 @@ pub struct HoleInfoJson {
     pub binding_dependencies: BTreeMap<String, Vec<String>>,
     pub available_effects: Vec<String>,
     pub errors_to_handle: Vec<String>,
+    pub effect_context: Option<HoleEffectContextJson>,
     pub cost_budget: Option<HoleCostBudgetJson>,
     pub residual_context: Option<HoleResidualContextJson>,
     pub candidates: Vec<HoleCandidateJson>,

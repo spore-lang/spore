@@ -334,21 +334,32 @@ impl Checker {
                 let candidates: Vec<crate::hole::CandidateScore> = suggestions
                     .into_iter()
                     .map(|name| {
-                        let required_effects_fit = self
+                        let missing_effects = self
                             .registry
                             .functions
                             .get(&name)
                             .map(|(_, _, effects)| {
-                                if effects
+                                effects
                                     .iter()
-                                    .all(|effect| self.current_effects.contains(effect))
-                                {
-                                    1.0
-                                } else {
-                                    0.0
-                                }
+                                    .filter(|effect| !self.current_effects.contains(effect))
+                                    .cloned()
+                                    .collect::<Vec<_>>()
                             })
-                            .unwrap_or(1.0);
+                            .unwrap_or_default();
+                        let required_effects_fit =
+                            if missing_effects.is_empty() { 1.0 } else { 0.0 };
+                        let missing_errors = self
+                            .registry
+                            .fn_errors
+                            .get(&name)
+                            .map(|errors| {
+                                errors
+                                    .iter()
+                                    .filter(|error| !self.current_errors.contains(error.as_str()))
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
                         let error_coverage = self
                             .registry
                             .fn_errors
@@ -357,14 +368,22 @@ impl Checker {
                                 if errors.is_empty() {
                                     1.0
                                 } else {
-                                    let covered = errors
-                                        .iter()
-                                        .filter(|error| self.current_errors.contains(*error))
-                                        .count();
+                                    let covered = errors.len() - missing_errors.len();
                                     covered as f64 / errors.len() as f64
                                 }
                             })
                             .unwrap_or(1.0);
+                        let mut rejection_reasons = Vec::new();
+                        if !missing_effects.is_empty() {
+                            rejection_reasons
+                                .push(format!("requires effects [{}]", missing_effects.join(", ")));
+                        }
+                        if !missing_errors.is_empty() {
+                            rejection_reasons.push(format!(
+                                "propagates unhandled errors [{}]",
+                                missing_errors.join(", ")
+                            ));
+                        }
 
                         crate::hole::CandidateScore {
                             name,
@@ -372,7 +391,9 @@ impl Checker {
                             cost_fit: 0.5,
                             required_effects_fit,
                             error_coverage,
-                            adjustments: Vec::new(),
+                            rejection_reasons: rejection_reasons.clone(),
+                            explanation: rejection_reasons.first().cloned(),
+                            adjustments: rejection_reasons,
                             cost_check: None,
                         }
                     })
@@ -381,6 +402,12 @@ impl Checker {
                 // Collect available effects and errors in scope
                 let available_effects = self.current_effects.clone();
                 let errors_to_handle: Vec<String> = self.current_errors.iter().cloned().collect();
+                let effect_context = self.hole_effect_context_stack.last().map(|context| {
+                    crate::hole::EffectContext {
+                        discharged_effects: context.discharged_effects.clone(),
+                        surviving_effects: context.surviving_effects.clone(),
+                    }
+                });
 
                 self.hole_report.holes.push(HoleInfo {
                     name: hole_name,
@@ -394,6 +421,7 @@ impl Checker {
                     binding_dependencies: std::collections::BTreeMap::new(),
                     available_effects,
                     errors_to_handle,
+                    effect_context,
                     cost_budget: None,
                     residual_context: None,
                     candidates,
@@ -773,9 +801,24 @@ impl Checker {
 
                 let prev_effects = self.current_effects.clone();
                 self.current_effects = prev_effects.union(&handled_effects);
+                let enclosing_effect_context =
+                    if let Some(parent) = self.hole_effect_context_stack.last() {
+                        super::EnclosingHandlerEffectContext {
+                            surviving_effects: parent.surviving_effects.clone(),
+                            discharged_effects: parent.discharged_effects.union(&handled_effects),
+                        }
+                    } else {
+                        super::EnclosingHandlerEffectContext {
+                            surviving_effects: prev_effects.clone(),
+                            discharged_effects: handled_effects.clone(),
+                        }
+                    };
+                self.hole_effect_context_stack
+                    .push(enclosing_effect_context);
                 self.push_effect_observer();
                 let body_ty = self.check_expr(body);
                 let body_effects = self.pop_effect_observer();
+                self.hole_effect_context_stack.pop();
                 let mut handler_effects = named_handler_effects;
 
                 self.current_effects = prev_effects.clone();

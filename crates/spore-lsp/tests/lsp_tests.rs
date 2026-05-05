@@ -423,6 +423,37 @@ fn main() -> I32 cost [6, 0, 0, 0] {
     );
 }
 
+#[test]
+fn test_hover_shows_handler_discharge_context() {
+    let source = r#"
+effect Console {
+    fn println(msg: Str) -> ()
+}
+fn main() -> I32 uses [IO] {
+    handle {
+        ?todo
+    } with {
+        on Console.println(msg) => { msg; }
+    }
+}
+"#;
+    let line = source
+        .lines()
+        .enumerate()
+        .find_map(|(index, text)| text.find("?todo").map(|col| (index as u32, col as u32)))
+        .expect("hole position");
+    let hover = build_hover_for_position(source, line.0, line.1).expect("hole hover");
+
+    assert!(
+        hover.contains("Discharged by enclosing handlers"),
+        "expected handler discharge section, got: {hover}"
+    );
+    assert!(
+        hover.contains("Effects after handler discharge"),
+        "expected post-discharge effects section, got: {hover}"
+    );
+}
+
 // ── word_at_position tests ───────────────────────────────────────────
 
 #[test]
