@@ -395,6 +395,34 @@ fn test_hover_distinguishes_unnamed_holes_in_same_function() {
     );
 }
 
+#[test]
+fn test_hover_shows_checked_residual_context() {
+    let source = r#"
+fn cheap() -> I32 cost [1, 0, 0, 0] { 1 + 1 }
+fn costly() -> I32 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
+fn main() -> I32 cost [6, 0, 0, 0] {
+    let seed = cheap();
+    ?todo
+}
+"#;
+    let line = source
+        .lines()
+        .enumerate()
+        .find_map(|(index, text)| text.find("?todo").map(|col| (index as u32, col as u32)))
+        .expect("hole position");
+    let hover = build_hover_for_position(source, line.0, line.1).expect("hole hover");
+
+    assert!(
+        hover.contains("Checked residual"),
+        "expected checked residual section, got: {hover}"
+    );
+    assert!(
+        hover.contains("fits checked residual budget")
+            || hover.contains("exceeds budget in compute"),
+        "expected candidate cost reasoning, got: {hover}"
+    );
+}
+
 // ── word_at_position tests ───────────────────────────────────────────
 
 #[test]

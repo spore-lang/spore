@@ -422,6 +422,83 @@ fn test_hole_report_suggestions() {
 }
 
 #[test]
+fn test_hole_report_checked_residual_cost_context() {
+    let module = parse(
+        r#"
+        fn cheap() -> I32 cost [1, 0, 0, 0] { 1 + 1 }
+        fn costly() -> I32 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
+        fn target() -> I32 cost [6, 0, 0, 0] {
+            let seed = cheap();
+            ?todo
+        }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+
+    let cost_budget = hole.cost_budget.as_ref().expect("legacy cost budget");
+    assert_eq!(cost_budget.budget_total, Some(6.0));
+    assert_eq!(cost_budget.cost_before_hole, 4.0);
+    assert_eq!(cost_budget.budget_remaining, Some(2.0));
+
+    let residual = hole
+        .residual_context
+        .as_ref()
+        .expect("checked residual context");
+    assert_eq!(
+        residual
+            .budget_declared
+            .as_ref()
+            .map(|cost| cost.compute.as_str()),
+        Some("6")
+    );
+    assert_eq!(residual.cost_before.compute, "4");
+    assert_eq!(
+        residual
+            .budget_residual
+            .as_ref()
+            .map(|cost| cost.compute.as_str()),
+        Some("2")
+    );
+    assert_eq!(
+        residual.fit_rule.as_deref(),
+        Some("before + candidate <= budget")
+    );
+
+    let cheap = hole
+        .candidates
+        .iter()
+        .find(|candidate| candidate.name == "cheap")
+        .expect("cheap candidate");
+    assert_eq!(cheap.cost_fit, 1.0);
+    assert_eq!(
+        cheap.cost_check.as_ref().and_then(|cost| cost.fits_budget),
+        Some(true)
+    );
+
+    let costly = hole
+        .candidates
+        .iter()
+        .find(|candidate| candidate.name == "costly")
+        .expect("costly candidate");
+    assert_eq!(costly.cost_fit, 0.0);
+    assert_eq!(
+        costly.cost_check.as_ref().and_then(|cost| cost.fits_budget),
+        Some(false)
+    );
+    assert!(
+        costly
+            .cost_check
+            .as_ref()
+            .and_then(|cost| cost.reason.as_deref())
+            .is_some_and(|reason| reason.contains("exceeds budget in compute")),
+        "expected over-budget reason, got {:?}",
+        costly.cost_check
+    );
+}
+
+#[test]
 fn test_hole_report_suggestions_respect_allows_annotation() {
     let module = parse(
         "@allows[double]\n\
@@ -1334,6 +1411,7 @@ fn hole_info_v03_has_all_fields() {
         available_effects: EffectSet::new(),
         errors_to_handle: vec![],
         cost_budget: None,
+        residual_context: None,
         candidates: vec![],
         dependent_holes: vec![],
         confidence: None,
@@ -1356,6 +1434,8 @@ fn candidate_score_overall_formula() {
         cost_fit: 1.0,
         required_effects_fit: 1.0,
         error_coverage: 1.0,
+        adjustments: vec![],
+        cost_check: None,
     };
     assert!((cs.overall() - 1.0).abs() < 1e-9);
 
@@ -1365,6 +1445,8 @@ fn candidate_score_overall_formula() {
         cost_fit: 0.0,
         required_effects_fit: 0.0,
         error_coverage: 0.0,
+        adjustments: vec![],
+        cost_check: None,
     };
     assert!((cs2.overall() - 0.0).abs() < 1e-9);
 
@@ -1375,6 +1457,8 @@ fn candidate_score_overall_formula() {
         cost_fit: 0.8,
         required_effects_fit: 1.0,
         error_coverage: 0.6,
+        adjustments: vec![],
+        cost_check: None,
     };
     let expected = 0.40 * 0.5 + 0.20 * 0.8 + 0.25 * 1.0 + 0.15 * 0.6;
     assert!((cs3.overall() - expected).abs() < 1e-9);

@@ -333,12 +333,48 @@ impl Checker {
                 // Build scored candidates from simple suggestions
                 let candidates: Vec<crate::hole::CandidateScore> = suggestions
                     .into_iter()
-                    .map(|s| crate::hole::CandidateScore {
-                        name: s,
-                        type_match: 1.0,
-                        cost_fit: 0.5,
-                        required_effects_fit: 1.0,
-                        error_coverage: 0.5,
+                    .map(|name| {
+                        let required_effects_fit = self
+                            .registry
+                            .functions
+                            .get(&name)
+                            .map(|(_, _, effects)| {
+                                if effects
+                                    .iter()
+                                    .all(|effect| self.current_effects.contains(effect))
+                                {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            })
+                            .unwrap_or(1.0);
+                        let error_coverage = self
+                            .registry
+                            .fn_errors
+                            .get(&name)
+                            .map(|errors| {
+                                if errors.is_empty() {
+                                    1.0
+                                } else {
+                                    let covered = errors
+                                        .iter()
+                                        .filter(|error| self.current_errors.contains(*error))
+                                        .count();
+                                    covered as f64 / errors.len() as f64
+                                }
+                            })
+                            .unwrap_or(1.0);
+
+                        crate::hole::CandidateScore {
+                            name,
+                            type_match: 1.0,
+                            cost_fit: 0.5,
+                            required_effects_fit,
+                            error_coverage,
+                            adjustments: Vec::new(),
+                            cost_check: None,
+                        }
                     })
                     .collect();
 
@@ -359,6 +395,7 @@ impl Checker {
                     available_effects,
                     errors_to_handle,
                     cost_budget: None,
+                    residual_context: None,
                     candidates,
                     dependent_holes: Vec::new(),
                     confidence: None,
