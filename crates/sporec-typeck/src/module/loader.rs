@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use sporec_parser::ast::Module as AstModule;
+use sporec_stdlib::get as get_stdlib_module;
 
 use super::{ModuleError, ModuleInterface};
 
@@ -70,14 +71,16 @@ impl ModuleLoader {
             return Ok(&self.loaded[module_path]);
         }
 
-        let file_path = self
-            .resolve_path(module_path)
-            .ok_or_else(|| ModuleError::ModuleNotFound(module_path.to_string()))?;
-
-        let source = std::fs::read_to_string(&file_path).map_err(|e| ModuleError::IoError {
-            module: module_path.to_string(),
-            detail: e.to_string(),
-        })?;
+        let source = if let Some(file_path) = self.resolve_path(module_path) {
+            std::fs::read_to_string(&file_path).map_err(|e| ModuleError::IoError {
+                module: module_path.to_string(),
+                detail: e.to_string(),
+            })?
+        } else if let Some(module) = get_stdlib_module(module_path) {
+            module.source.to_string()
+        } else {
+            return Err(ModuleError::ModuleNotFound(module_path.to_string()));
+        };
         self.sources.insert(module_path.to_string(), source.clone());
 
         let ast = sporec_parser::parse(&source).map_err(|errs| ModuleError::ParseErrors {
