@@ -3,12 +3,45 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
+use sporec_parser::ast::TypeExpr;
+
 use crate::is_synthetic_hole_name;
 
 pub use crate::effect_set::EffectSet;
 
 /// A set of error types that a function may throw.
 pub type ErrorSet = BTreeSet<String>;
+
+/// Canonicalize error names into a stable, order-insensitive error set.
+pub fn canonical_error_set<I, S>(names: I) -> ErrorSet
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    names.into_iter().map(Into::into).collect()
+}
+
+/// Re-canonicalize an existing error set to make normalization explicit at boundaries.
+pub fn canonicalize_error_set(errors: &ErrorSet) -> ErrorSet {
+    canonical_error_set(errors.iter().cloned())
+}
+
+/// Extract and canonicalize a declared `! E1 | E2` error set from parsed type expressions.
+pub fn declared_error_set(error_exprs: &[TypeExpr]) -> ErrorSet {
+    canonical_error_set(error_exprs.iter().filter_map(|expr| match expr {
+        TypeExpr::Named(name) => Some(name.clone()),
+        _ => None,
+    }))
+}
+
+/// Return the canonical missing subset `required \ available`.
+pub fn missing_errors<'a>(required: &'a ErrorSet, available: &ErrorSet) -> Vec<&'a str> {
+    required
+        .iter()
+        .filter(|name| !available.contains(*name))
+        .map(String::as_str)
+        .collect()
+}
 
 /// The internal type representation used during type checking.
 /// This is separate from the AST's `TypeExpr` — resolved and normalized.

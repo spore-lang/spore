@@ -188,14 +188,7 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     checker.declared_effects(f.uses_clause.as_ref()),
                 );
                 if !f.errors.is_empty() {
-                    let error_set: types::ErrorSet = f
-                        .errors
-                        .iter()
-                        .filter_map(|te| match te {
-                            sporec_parser::ast::TypeExpr::Named(name) => Some(name.clone()),
-                            _ => None,
-                        })
-                        .collect();
+                    let error_set = types::declared_error_set(&f.errors);
                     iface.function_errors.insert(f.name.clone(), error_set);
                 }
                 let mut type_params = f.type_params.clone();

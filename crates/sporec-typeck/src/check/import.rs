@@ -97,7 +97,7 @@ impl Checker {
                         let errors = module
                             .function_errors
                             .get(name)
-                            .cloned()
+                            .map(crate::types::canonicalize_error_set)
                             .unwrap_or_default();
                         let type_params = module
                             .function_type_params

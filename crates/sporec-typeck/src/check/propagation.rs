@@ -20,11 +20,7 @@ impl Checker {
 
     /// Verify that the current function's error set is a superset of the callee's.
     pub(super) fn check_error_propagation(&mut self, callee_errors: &ErrorSet) {
-        let missing: Vec<&str> = callee_errors
-            .iter()
-            .filter(|item| !self.current_errors.contains(*item))
-            .map(|s| s.as_str())
-            .collect();
+        let missing = crate::types::missing_errors(callee_errors, &self.current_errors);
         if !missing.is_empty() {
             self.err(
                 ErrorCode::E0012,

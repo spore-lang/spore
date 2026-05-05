@@ -1054,6 +1054,30 @@ fn try_propagation_superset_ok() {
 }
 
 #[test]
+fn try_propagation_equivalent_error_order_ok() {
+    check_ok(
+        r#"
+        fn read_file(path: Str) -> Str ! ParseError | IoError { "content" }
+        fn process() -> Str ! IoError | ParseError {
+            read_file("test.txt")?
+        }
+    "#,
+    );
+}
+
+#[test]
+fn try_propagation_duplicate_declared_errors_ok() {
+    check_ok(
+        r#"
+        fn read_file(path: Str) -> Str ! IoError { "content" }
+        fn process() -> Str ! IoError | IoError {
+            read_file("test.txt")?
+        }
+    "#,
+    );
+}
+
+#[test]
 fn try_propagation_partial_missing() {
     let errs = check_err(
         r#"
@@ -2776,6 +2800,25 @@ fn test_error_set_propagation_declared() {
         }
         fn caller() -> I32 ! MyError {
             risky()?
+        }
+    "#,
+    );
+}
+
+#[test]
+fn function_type_error_sets_are_canonical_for_calls() {
+    check_ok(
+        r#"
+        fn apply(f: () -> I32 ! ParseError | IoError) -> I32 ! IoError | ParseError {
+            f()?
+        }
+
+        fn risky() -> I32 ! IoError | ParseError {
+            42
+        }
+
+        fn caller() -> I32 ! ParseError | IoError {
+            apply(risky)?
         }
     "#,
     );
