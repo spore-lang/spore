@@ -333,8 +333,6 @@ impl<'a> Formatter<'a> {
     pub(super) fn fmt_handler_def(&mut self, h: &HandlerDef) {
         self.write_indent();
         self.write("handler ");
-        self.write(&h.effect);
-        self.write(" as ");
         self.write(&h.name);
         if !h.fields.is_empty() {
             self.write("(");
@@ -348,12 +346,29 @@ impl<'a> Formatter<'a> {
             }
             self.write(")");
         }
+        self.write(" handles [");
+        self.write(&h.handles_clause.effects.join(", "));
+        self.write("]");
+        if let Some(uses_clause) = &h.uses_clause {
+            self.write(" ");
+            self.fmt_uses_clause(uses_clause);
+        }
         self.write(" {");
         self.newline();
         self.indent += 1;
-        for m in &h.methods {
+        for handler_impl in &h.impls {
             self.write_indent();
-            self.fmt_fn_def(m);
+            self.write("impl ");
+            self.write(&handler_impl.effect);
+            self.write(" {");
+            self.newline();
+            self.indent += 1;
+            for method in &handler_impl.methods {
+                self.fmt_fn_def(method);
+            }
+            self.indent -= 1;
+            self.write_indent();
+            self.write("}");
             self.newline();
         }
         self.indent -= 1;

@@ -2437,8 +2437,10 @@ fn test_named_handler_payload_and_self_typecheck() {
         effect Math {
             fn double(x: I32) -> I32
         }
-        handler Math as DoubleMath(multiplier: I32) {
-            fn double(x: I32) -> I32 { x * self.multiplier }
+        handler DoubleMath(multiplier: I32) handles [Math] uses [] {
+            impl Math {
+                fn double(x: I32) -> I32 { x * self.multiplier }
+            }
         }
         fn main() -> I32 {
             handle {
@@ -2458,8 +2460,10 @@ fn test_named_handler_payload_checks_field_types() {
         effect Math {
             fn double(x: I32) -> I32
         }
-        handler Math as DoubleMath(multiplier: I32) {
-            fn double(x: I32) -> I32 { x * self.multiplier }
+        handler DoubleMath(multiplier: I32) handles [Math] uses [] {
+            impl Math {
+                fn double(x: I32) -> I32 { x * self.multiplier }
+            }
         }
         fn main() -> I32 {
             handle {
@@ -2485,8 +2489,10 @@ fn test_named_and_inline_duplicate_binding_errors() {
         effect Math {
             fn double(x: I32) -> I32
         }
-        handler Math as DoubleMath(multiplier: I32) {
-            fn double(x: I32) -> I32 { x * self.multiplier }
+        handler DoubleMath(multiplier: I32) handles [Math] uses [] {
+            impl Math {
+                fn double(x: I32) -> I32 { x * self.multiplier }
+            }
         }
         fn main() -> I32 {
             handle {
@@ -2502,6 +2508,108 @@ fn test_named_and_inline_duplicate_binding_errors() {
         errs.iter()
             .any(|e| e.contains("duplicate handler binding") && e.contains("Math.double")),
         "expected duplicate handler binding error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_named_handler_discharges_effect_with_pure_uses() {
+    check_ok(
+        r#"
+        effect Math {
+            fn double(x: I32) -> I32
+        }
+        handler DoubleMath(multiplier: I32) handles [Math] uses [] {
+            impl Math {
+                fn double(x: I32) -> I32 { x * self.multiplier }
+            }
+        }
+        fn main() -> I32 {
+            handle {
+                perform Math.double(21)
+            } with {
+                use DoubleMath { multiplier: 2 }
+            }
+        }
+        "#,
+    );
+}
+
+#[test]
+fn test_handler_impl_leak_reports_undeclared_effects() {
+    let errs = check_err(
+        r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
+        effect Math {
+            fn double(x: I32) -> I32
+        }
+        handler LeakyMath handles [Math] uses [] {
+            impl Math {
+                fn double(x: I32) -> I32 {
+                    perform Console.println("oops");
+                    x
+                }
+            }
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("leaks undeclared effects") && e.contains("Console")),
+        "expected handler leak diagnostic, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_handle_missing_handler_arm_reports_coverage_error() {
+    let errs = check_err(
+        r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+            fn read_line() -> Str
+        }
+        fn main() -> () {
+            handle {
+                perform Console.println("hello")
+            } with {
+                on Console.println(msg) => { msg; return }
+            }
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("missing handler arm `Console.read_line`")),
+        "expected handler coverage diagnostic, got: {errs:?}"
+    );
+}
+
+#[test]
+fn test_handle_preserves_remaining_outer_effects() {
+    let errs = check_err(
+        r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
+        effect Math {
+            fn double(x: I32) -> I32
+        }
+        fn main() -> I32 {
+            handle {
+                perform Math.double(21);
+                perform Console.println("still outer");
+                0
+            } with {
+                on Math.double(x) => x + x
+            }
+        }
+        "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("handle block leaks outer effects [Console]")),
+        "expected remaining outer effect diagnostic, got: {errs:?}"
     );
 }
 
@@ -3150,8 +3258,10 @@ fn handler_definition_parses() {
         effect Console {
             fn println(msg: Str) -> ()
         }
-        handler MockConsole for Console {
-            fn println(msg: Str) -> () { return }
+        handler MockConsole handles [Console] uses [] {
+            impl Console {
+                fn println(msg: Str) -> () { return }
+            }
         }
     "#,
     );
@@ -3161,8 +3271,10 @@ fn handler_definition_parses() {
 fn handler_unknown_effect_error() {
     let errs = check_err(
         r#"
-        handler MockConsole for UnknownEffect {
-            fn println(msg: Str) -> () { 0 }
+        handler MockConsole handles [UnknownEffect] uses [] {
+            impl UnknownEffect {
+                fn println(msg: Str) -> () { 0 }
+            }
         }
     "#,
     );
@@ -3176,8 +3288,10 @@ fn handler_return_type_mismatch_error() {
         effect Console {
             fn println(msg: Str) -> ()
         }
-        handler MockConsole for Console {
-            fn println(msg: Str) -> () { 0 }
+        handler MockConsole handles [Console] uses [] {
+            impl Console {
+                fn println(msg: Str) -> () { 0 }
+            }
         }
     "#,
     );
@@ -3193,8 +3307,10 @@ fn handler_missing_operation_error() {
             fn println(msg: Str) -> ()
             fn read_line() -> Str
         }
-        handler MockConsole for Console {
-            fn println(msg: Str) -> () { return }
+        handler MockConsole handles [Console] uses [] {
+            impl Console {
+                fn println(msg: Str) -> () { return }
+            }
         }
     "#,
     );

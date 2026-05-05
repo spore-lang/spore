@@ -398,19 +398,26 @@ fn test_effect_alias_ast_shape() {
 fn test_handler_item_ast_shape() {
     let m = parse_ok(
         r#"
-        handler Console as MockConsole(output: List[Str]) {
-            fn println(msg: String) -> Unit { return }
+        handler MockConsole(output: List[Str]) handles [Console] uses [Clock] {
+            impl Console {
+                fn println(msg: String) -> Unit { return }
+            }
         }
     "#,
     );
     match &m.items[0] {
         sporec_parser::ast::Item::HandlerDef(handler) => {
             assert_eq!(handler.name, "MockConsole");
-            assert_eq!(handler.effect, "Console");
+            assert_eq!(handler.handles_clause.effects, vec!["Console"]);
             assert_eq!(handler.fields.len(), 1);
             assert_eq!(handler.fields[0].name, "output");
-            assert_eq!(handler.methods.len(), 1);
-            assert_eq!(handler.methods[0].name, "println");
+            assert_eq!(
+                handler.uses_clause.as_ref().unwrap().resources,
+                vec!["Clock".to_string()]
+            );
+            assert_eq!(handler.impls.len(), 1);
+            assert_eq!(handler.impls[0].effect, "Console");
+            assert_eq!(handler.impls[0].methods[0].name, "println");
         }
         other => panic!("expected HandlerDef, got {other:?}"),
     }

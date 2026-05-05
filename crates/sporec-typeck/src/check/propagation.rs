@@ -5,6 +5,7 @@ impl Checker {
 
     /// Verify that the current function's effect set is a superset of the callee's.
     pub(super) fn check_effect_propagation(&mut self, callee_effects: &EffectSet) {
+        self.observe_effects(callee_effects);
         let missing = find_missing_set_items(callee_effects, &self.current_effects);
         if !missing.is_empty() {
             self.err(
