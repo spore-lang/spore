@@ -965,7 +965,7 @@ mod tests {
         let source = SourceFile::new("src/demo.sp", "alpha\nbeta\n");
         let diagnostic = Diagnostic::new("E0301", Severity::Error, "type mismatch")
             .with_primary_span(source.span(6..10))
-            .with_note("expected `Int`")
+            .with_note("expected `I64`")
             .with_help("convert the value before returning");
 
         let value = serde_json::to_value(&diagnostic).expect("serialize diagnostic");

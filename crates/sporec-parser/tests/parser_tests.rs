@@ -24,7 +24,7 @@ fn test_empty_module() {
 
 #[test]
 fn test_simple_fn() {
-    let m = parse_ok("fn add(a: Int, b: Int) -> Int { a + b }");
+    let m = parse_ok("fn add(a: I64, b: I64) -> I64 { a + b }");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
@@ -38,6 +38,47 @@ fn test_simple_fn() {
     }
 }
 
+#[test]
+fn test_suffixed_integer_literal_expr() {
+    let m = parse_ok("fn main() -> U8 { 7u8 }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            assert!(matches!(
+                f.body.as_ref(),
+                Some(sporec_parser::ast::Expr::Block(_, Some(expr)))
+                    if matches!(
+                        expr.as_ref(),
+                        sporec_parser::ast::Expr::SuffixedIntLit(n, suffix)
+                            if *n == 7 && suffix == "u8"
+                    )
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_suffixed_integer_literal_direct_call() {
+    let m = parse_ok("fn main() -> Never uses [Exit] { exit(7u8) }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            assert!(matches!(
+                f.body.as_ref(),
+                Some(sporec_parser::ast::Expr::Block(_, Some(expr)))
+                    if matches!(
+                        expr.as_ref(),
+                        sporec_parser::ast::Expr::Call(_, args)
+                            if matches!(
+                                args.as_slice(),
+                                [sporec_parser::ast::Expr::SuffixedIntLit(n, suffix)]
+                                    if *n == 7 && suffix == "u8"
+                            )
+                    )
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
 // ── Visibility ───────────────────────────────────────────────────────────
 
 #[test]
@@ -53,7 +94,7 @@ fn test_pub_fn() {
 
 #[test]
 fn test_pub_pkg_fn() {
-    let m = parse_ok("pub(pkg) fn internal() -> Int { 42 }");
+    let m = parse_ok("pub(pkg) fn internal() -> I64 { 42 }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             assert!(matches!(
@@ -157,9 +198,9 @@ fn test_fn_where_multi_bound_is_rejected() {
 fn test_fn_with_spec_clause_preserves_item_order() {
     let m = parse_ok(
         r#"
-        fn add(a: Int, b: Int) -> Int
+        fn add(a: I64, b: I64) -> I64
         spec {
-            property "left_identity": |a: Int, b: Int when self == 0| a
+            property "left_identity": |a: I64, b: I64 when self == 0| a
             example "identity": add(0, 42) == 42
         }
         { a + b }
@@ -186,7 +227,7 @@ fn test_fn_with_spec_clause_preserves_item_order() {
 fn test_fn_with_block_spec_example() {
     let m = parse_ok(
         r#"
-        fn add(a: Int, b: Int) -> Int
+        fn add(a: I64, b: I64) -> I64
         spec {
             example "block" {
                 let sum = add(2, 3);
@@ -276,7 +317,7 @@ fn test_fn_clauses_parse_in_any_order() {
 
 #[test]
 fn test_scalar_cost_syntax_is_rejected() {
-    let errs = parse("fn f(x: Int) -> Int cost <= 5 { x }")
+    let errs = parse("fn f(x: I64) -> I64 cost <= 5 { x }")
         .expect_err("scalar cost syntax should be rejected");
     assert!(
         errs.iter().any(|e| e
@@ -288,7 +329,7 @@ fn test_scalar_cost_syntax_is_rejected() {
 
 #[test]
 fn test_composed_cost_slot_syntax_is_rejected() {
-    let errs = parse("fn f(n: Int) -> Int cost [n + 1, 0, 0, 0] { n }")
+    let errs = parse("fn f(n: I64) -> I64 cost [n + 1, 0, 0, 0] { n }")
         .expect_err("composed cost slot syntax should be rejected");
     assert!(
         errs.iter().any(|e| e.message.contains(
@@ -300,7 +341,7 @@ fn test_composed_cost_slot_syntax_is_rejected() {
 
 #[test]
 fn test_parenthesized_cost_slot_syntax_is_rejected() {
-    let errs = parse("fn f(n: Int) -> Int cost [(n), 0, 0, 0] { n }")
+    let errs = parse("fn f(n: I64) -> I64 cost [(n), 0, 0, 0] { n }")
         .expect_err("parenthesized cost slot syntax should be rejected");
     assert!(
         errs.iter()
@@ -428,7 +469,7 @@ fn test_handler_item_ast_shape() {
 #[test]
 fn test_arithmetic_precedence() {
     // 1 + 2 * 3 should parse as 1 + (2 * 3)
-    let m = parse_ok("fn f() -> Int { 1 + 2 * 3 }");
+    let m = parse_ok("fn f() -> I64 { 1 + 2 * 3 }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -459,7 +500,7 @@ fn test_arithmetic_precedence() {
 
 #[test]
 fn test_if_expr() {
-    let m = parse_ok("fn f(x: Int) -> Int { if x > 0 { x } else { 0 } }");
+    let m = parse_ok("fn f(x: I64) -> I64 { if x > 0 { x } else { 0 } }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -479,7 +520,7 @@ fn test_if_expr() {
 
 #[test]
 fn test_match_expr() {
-    let src = r#"fn f(x: Int) -> String {
+    let src = r#"fn f(x: I64) -> String {
         match x {
             0 => "zero",
             1 => "one",
@@ -506,7 +547,7 @@ fn test_match_expr() {
 
 #[test]
 fn test_let_stmt() {
-    let m = parse_ok("fn f() -> Int { let x = 42; x }");
+    let m = parse_ok("fn f() -> I64 { let x = 42; x }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -527,7 +568,7 @@ fn test_let_stmt() {
 
 #[test]
 fn test_pipe_expr() {
-    let m = parse_ok("fn f(x: Int) -> Int { x |> double }");
+    let m = parse_ok("fn f(x: I64) -> I64 { x |> double }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -547,7 +588,7 @@ fn test_pipe_expr() {
 
 #[test]
 fn test_lambda() {
-    let m = parse_ok("fn f() -> Int { |x| x + 1 }");
+    let m = parse_ok("fn f() -> I64 { |x| x + 1 }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -567,7 +608,7 @@ fn test_lambda() {
 
 #[test]
 fn test_try_expr() {
-    let m = parse_ok("fn f(x: Result) -> Int { x? }");
+    let m = parse_ok("fn f(x: Result) -> I64 { x? }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -584,7 +625,7 @@ fn test_try_expr() {
 
 #[test]
 fn test_hole() {
-    let m = parse_ok("fn f() -> Int { ?todo }");
+    let m = parse_ok("fn f() -> I64 { ?todo }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -604,7 +645,7 @@ fn test_hole() {
 
 #[test]
 fn test_unnamed_hole() {
-    let m = parse_ok("fn f() -> Int { ? }");
+    let m = parse_ok("fn f() -> I64 { ? }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -640,7 +681,7 @@ fn test_signature_type_holes() {
 
 #[test]
 fn test_allows_annotation_on_function() {
-    let m = parse_ok("@allows[validate, sanitize]\nfn f() -> Int { ? }");
+    let m = parse_ok("@allows[validate, sanitize]\nfn f() -> I64 { ? }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             assert_eq!(
@@ -656,7 +697,7 @@ fn test_allows_annotation_on_function() {
 
 #[test]
 fn test_struct_def() {
-    let m = parse_ok("struct Point { x: Float, y: Float }");
+    let m = parse_ok("struct Point { x: F64, y: F64 }");
     match &m.items[0] {
         sporec_parser::ast::Item::StructDef(s) => {
             assert_eq!(s.name, "Point");
@@ -727,7 +768,7 @@ fn test_capability_keyword_is_not_reserved() {
 
 #[test]
 fn test_generic_type() {
-    let m = parse_ok("fn f(xs: List[Int]) -> List[String] { xs }");
+    let m = parse_ok("fn f(xs: List[I64]) -> List[String] { xs }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => match &f.params[0].ty {
             sporec_parser::ast::TypeExpr::Generic(name, args) => {
@@ -745,7 +786,7 @@ fn test_generic_type() {
 #[test]
 fn test_multiple_items() {
     let src = r#"
-        struct Point { x: Float, y: Float }
+        struct Point { x: F64, y: F64 }
         fn origin() -> Point { Point { x: 0.0, y: 0.0 } }
     "#;
     let m = parse_ok(src);
@@ -758,7 +799,7 @@ fn test_multiple_items() {
 
 #[test]
 fn test_call_expr() {
-    let m = parse_ok("fn f() -> Int { add(1, 2) }");
+    let m = parse_ok("fn f() -> I64 { add(1, 2) }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -778,7 +819,7 @@ fn test_call_expr() {
 
 #[test]
 fn test_method_call() {
-    let m = parse_ok("fn f(x: String) -> Int { x.len() }");
+    let m = parse_ok("fn f(x: String) -> I64 { x.len() }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -823,7 +864,7 @@ fn test_struct_literal() {
 
 #[test]
 fn test_unary_neg() {
-    let m = parse_ok("fn f() -> Int { -42 }");
+    let m = parse_ok("fn f() -> I64 { -42 }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -872,7 +913,7 @@ fn test_fn_multiple_type_params() {
 
 #[test]
 fn test_fn_no_type_params() {
-    let m = parse_ok("fn add(a: Int, b: Int) -> Int { a + b }");
+    let m = parse_ok("fn add(a: I64, b: I64) -> I64 { a + b }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             assert!(f.type_params.is_empty());
@@ -885,7 +926,7 @@ fn test_fn_no_type_params() {
 
 #[test]
 fn test_const_item() {
-    let m = parse_ok("const MAX: Int = 100");
+    let m = parse_ok("const MAX: I64 = 100");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
         sporec_parser::ast::Item::Const(c) => {
@@ -894,7 +935,7 @@ fn test_const_item() {
                 c.visibility,
                 sporec_parser::ast::Visibility::Private
             ));
-            assert!(matches!(&c.ty, sporec_parser::ast::TypeExpr::Named(n) if n == "Int"));
+            assert!(matches!(&c.ty, sporec_parser::ast::TypeExpr::Named(n) if n == "I64"));
             assert!(matches!(&c.value, sporec_parser::ast::Expr::IntLit(100)));
         }
         _ => panic!("expected const"),
@@ -940,7 +981,7 @@ fn get_tail(src: &str) -> Expr {
 
 #[test]
 fn test_return_expr() {
-    let tail = get_tail("fn foo(x: Int) -> Int { return x }");
+    let tail = get_tail("fn foo(x: I64) -> I64 { return x }");
     assert!(matches!(tail, Expr::Return(Some(_))));
 }
 
@@ -1034,7 +1075,7 @@ fn test_tstring() {
 
 #[test]
 fn test_parallel_scope_basic() {
-    let tail = get_tail("fn f() -> Int { parallel_scope { 1 + 2 } }");
+    let tail = get_tail("fn f() -> I64 { parallel_scope { 1 + 2 } }");
     match tail {
         Expr::ParallelScope { lanes, body } => {
             assert!(lanes.is_none());
@@ -1046,7 +1087,7 @@ fn test_parallel_scope_basic() {
 
 #[test]
 fn test_parallel_scope_with_lanes() {
-    let tail = get_tail("fn f() -> Int { parallel_scope(lanes: 4) { 1 + 2 } }");
+    let tail = get_tail("fn f() -> I64 { parallel_scope(lanes: 4) { 1 + 2 } }");
     match tail {
         Expr::ParallelScope { lanes, body } => {
             assert!(matches!(*lanes.unwrap(), Expr::IntLit(4)));
@@ -1060,7 +1101,7 @@ fn test_parallel_scope_with_lanes() {
 
 #[test]
 fn test_select_expr() {
-    let src = r#"fn f(rx1: Chan, rx2: Chan) -> Int {
+    let src = r#"fn f(rx1: Chan, rx2: Chan) -> I64 {
         select {
             val from rx1 => val,
             msg from rx2 => msg
@@ -1085,7 +1126,7 @@ fn test_select_expr() {
 
 #[test]
 fn test_select_expr_with_timeout_arm() {
-    let src = r#"fn f(rx1: Chan) -> Int {
+    let src = r#"fn f(rx1: Chan) -> I64 {
         select {
             val from rx1 => val,
             timeout(5) => 0
@@ -1109,7 +1150,7 @@ fn test_select_expr_with_timeout_arm() {
 
 #[test]
 fn test_task_await_postfix_sugar() {
-    let tail = get_tail("fn f() -> Int { let t = spawn 41; t.await }");
+    let tail = get_tail("fn f() -> I64 { let t = spawn 41; t.await }");
     match tail {
         Expr::Await(inner) => assert!(matches!(*inner, Expr::Var(ref name) if name == "t")),
         other => panic!("expected Await from postfix sugar, got {:?}", other),
@@ -1119,7 +1160,7 @@ fn test_task_await_postfix_sugar() {
 #[test]
 fn test_prefix_await_is_rejected() {
     let errs =
-        parse("fn f() -> Int { let t = spawn 41; await t }").expect_err("expected parse error");
+        parse("fn f() -> I64 { let t = spawn 41; await t }").expect_err("expected parse error");
     assert!(
         errs.iter()
             .any(|e| e.to_string().contains("expected expression, found Await")),
@@ -1129,10 +1170,10 @@ fn test_prefix_await_is_rejected() {
 
 #[test]
 fn test_channel_new_sugar() {
-    let tail = get_tail("fn f() { Channel.new[Int](buffer: 8) }");
+    let tail = get_tail("fn f() { Channel.new[I64](buffer: 8) }");
     match tail {
         Expr::ChannelNew { elem_type, buffer } => {
-            assert!(matches!(elem_type, TypeExpr::Named(ref n) if n == "Int"));
+            assert!(matches!(elem_type, TypeExpr::Named(ref n) if n == "I64"));
             assert!(matches!(*buffer, Expr::IntLit(8)));
         }
         other => panic!("expected ChannelNew sugar, got {:?}", other),
@@ -1143,7 +1184,7 @@ fn test_channel_new_sugar() {
 
 #[test]
 fn test_module_header_is_rejected() {
-    let errs = parse("module mymod\nfn foo() -> Int { 42 }").expect_err("expected parse error");
+    let errs = parse("module mymod\nfn foo() -> I64 { 42 }").expect_err("expected parse error");
     assert!(
         errs.iter().any(|e| e
             .to_string()
@@ -1154,7 +1195,7 @@ fn test_module_header_is_rejected() {
 
 #[test]
 fn test_module_header_with_uses_is_rejected() {
-    let errs = parse("module mymod uses [NetRead]\nfn foo() -> Int { 42 }")
+    let errs = parse("module mymod uses [NetRead]\nfn foo() -> I64 { 42 }")
         .expect_err("expected parse error");
     assert!(
         errs.iter().any(|e| e
@@ -1170,7 +1211,7 @@ use sporec_parser::ast::{AliasDef, Item, Visibility};
 
 #[test]
 fn test_alias_def() {
-    let m = parse_ok("alias MyInt = Int");
+    let m = parse_ok("alias MyInt = I64");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
         Item::Alias(AliasDef {
@@ -1181,7 +1222,7 @@ fn test_alias_def() {
         }) => {
             assert_eq!(name, "MyInt");
             assert!(matches!(visibility, Visibility::Private));
-            assert!(matches!(target, TypeExpr::Named(n) if n == "Int"));
+            assert!(matches!(target, TypeExpr::Named(n) if n == "I64"));
         }
         other => panic!("expected Alias, got {:?}", other),
     }
@@ -1225,7 +1266,7 @@ use sporec_parser::ast::Pattern;
 
 #[test]
 fn test_list_pattern_basic() {
-    let src = r#"fn f(xs: List) -> Int {
+    let src = r#"fn f(xs: List) -> I64 {
         match xs {
             [h, ..tail] => h,
             _ => 0
@@ -1258,7 +1299,7 @@ fn test_list_pattern_basic() {
 
 #[test]
 fn test_list_pattern_no_rest() {
-    let src = r#"fn f(xs: List) -> Int {
+    let src = r#"fn f(xs: List) -> I64 {
         match xs {
             [a, b] => a,
             _ => 0
@@ -1292,7 +1333,7 @@ fn test_list_pattern_no_rest() {
 
 #[test]
 fn test_float_scientific_notation() {
-    let tail = get_tail("fn f() -> Float { 1.5e10 }");
+    let tail = get_tail("fn f() -> F64 { 1.5e10 }");
     match tail {
         Expr::FloatLit(v) => assert_eq!(v, 1.5e10),
         other => panic!("expected FloatLit, got {:?}", other),
@@ -1301,7 +1342,7 @@ fn test_float_scientific_notation() {
 
 #[test]
 fn test_float_scientific_negative_exponent() {
-    let tail = get_tail("fn f() -> Float { 2.3E-4 }");
+    let tail = get_tail("fn f() -> F64 { 2.3E-4 }");
     match tail {
         Expr::FloatLit(v) => assert!((v - 2.3e-4).abs() < 1e-20),
         other => panic!("expected FloatLit, got {:?}", other),
@@ -1310,7 +1351,7 @@ fn test_float_scientific_negative_exponent() {
 
 #[test]
 fn test_float_scientific_positive_exponent() {
-    let tail = get_tail("fn f() -> Float { 1.0e+3 }");
+    let tail = get_tail("fn f() -> F64 { 1.0e+3 }");
     match tail {
         Expr::FloatLit(v) => assert_eq!(v, 1.0e+3),
         other => panic!("expected FloatLit, got {:?}", other),
@@ -1320,7 +1361,7 @@ fn test_float_scientific_positive_exponent() {
 #[test]
 fn test_int_scientific_notation() {
     // An integer followed by e should also become a float
-    let tail = get_tail("fn f() -> Float { 5e2 }");
+    let tail = get_tail("fn f() -> F64 { 5e2 }");
     match tail {
         Expr::FloatLit(v) => assert_eq!(v, 5e2),
         other => panic!("expected FloatLit, got {:?}", other),
@@ -1332,7 +1373,7 @@ fn test_int_scientific_notation() {
 #[test]
 fn test_record_type_in_param() {
     use sporec_parser::ast::*;
-    let m = parse_ok("fn f(p: { x: Int, y: Int }) -> Int { 0 }");
+    let m = parse_ok("fn f(p: { x: I64, y: I64 }) -> I64 { 0 }");
     match &m.items[0] {
         Item::Function(f) => match &f.params[0].ty {
             TypeExpr::Record(fields) => {
@@ -1405,7 +1446,7 @@ fn body_tail(f: &sporec_parser::ast::FnDef) -> &sporec_parser::ast::Expr {
 #[test]
 fn test_placeholder_desugars_to_lambda() {
     use sporec_parser::ast::*;
-    let m = parse_ok("fn main() -> Int { f(_, 2) }");
+    let m = parse_ok("fn main() -> I64 { f(_, 2) }");
     match &m.items[0] {
         Item::Function(f) => {
             let expr = body_tail(f);
@@ -1421,7 +1462,7 @@ fn test_placeholder_desugars_to_lambda() {
 #[test]
 fn test_placeholder_multi_params() {
     use sporec_parser::ast::*;
-    let m = parse_ok("fn main() -> Int { f(_, b, _) }");
+    let m = parse_ok("fn main() -> I64 { f(_, b, _) }");
     match &m.items[0] {
         Item::Function(f) => {
             let expr = body_tail(f);
@@ -1442,7 +1483,7 @@ fn test_placeholder_multi_params() {
 #[test]
 fn test_no_placeholder_no_desugar() {
     use sporec_parser::ast::*;
-    let m = parse_ok("fn main() -> Int { f(a, 2) }");
+    let m = parse_ok("fn main() -> I64 { f(a, 2) }");
     match &m.items[0] {
         Item::Function(f) => {
             let expr = body_tail(f);
@@ -1460,7 +1501,7 @@ fn test_wildcard_in_match_unchanged() {
     use sporec_parser::ast::*;
     let m = parse_ok(
         r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             match 1 {
                 _ => 42,
             }
@@ -1484,7 +1525,7 @@ fn test_wildcard_in_match_unchanged() {
 
 #[test]
 fn test_foreign_fn_basic() {
-    let m = parse_ok("foreign fn c_add(a: Int, b: Int) -> Int");
+    let m = parse_ok("foreign fn c_add(a: I64, b: I64) -> I64");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
         Item::Function(f) => {
@@ -1713,7 +1754,7 @@ fn test_parse_handle_named_and_inline_bindings() {
 
 #[test]
 fn test_fn_def_has_span() {
-    let src = "fn add(a: Int, b: Int) -> Int { a + b }";
+    let src = "fn add(a: I64, b: I64) -> I64 { a + b }";
     let m = parse_ok(src);
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
@@ -1730,7 +1771,7 @@ fn test_fn_def_has_span() {
 
 #[test]
 fn test_pub_struct() {
-    let m = parse_ok("pub struct Foo { x: Int }");
+    let m = parse_ok("pub struct Foo { x: I64 }");
     match &m.items[0] {
         Item::StructDef(s) => {
             assert_eq!(s.name, "Foo");
@@ -1744,7 +1785,7 @@ fn test_pub_struct() {
 
 #[test]
 fn test_struct_def_has_span() {
-    let src = "struct Point { x: Int, y: Int }";
+    let src = "struct Point { x: I64, y: I64 }";
     let m = parse_ok(src);
     match &m.items[0] {
         sporec_parser::ast::Item::StructDef(s) => {
@@ -1759,7 +1800,7 @@ fn test_struct_def_has_span() {
 
 #[test]
 fn test_pub_pkg_struct() {
-    let m = parse_ok("pub(pkg) struct Bar { y: Int }");
+    let m = parse_ok("pub(pkg) struct Bar { y: I64 }");
     match &m.items[0] {
         Item::StructDef(s) => {
             assert_eq!(s.name, "Bar");
@@ -1787,7 +1828,7 @@ fn test_type_def_has_span() {
 
 #[test]
 fn test_private_struct_still_works() {
-    let m = parse_ok("struct Point { x: Int, y: Int }");
+    let m = parse_ok("struct Point { x: I64, y: I64 }");
     match &m.items[0] {
         Item::StructDef(s) => {
             assert_eq!(s.name, "Point");
@@ -1829,7 +1870,7 @@ fn test_pub_type() {
 
 #[test]
 fn test_fn_span_with_leading_items() {
-    let src = "const X: Int = 1\nfn foo() -> Int { 42 }";
+    let src = "const X: I64 = 1\nfn foo() -> I64 { 42 }";
     let m = parse_ok(src);
     // The fn item starts after the const
     match &m.items[1] {

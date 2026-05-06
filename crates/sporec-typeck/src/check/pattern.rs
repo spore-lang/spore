@@ -349,7 +349,7 @@ impl Checker {
                 );
             }
             Ty::App(name, _args) => {
-                // For parameterized types like Option[Int], look up the base type's variants
+                // For parameterized types like Option[I64], look up the base type's variants
                 if let Some(variants) = self.registry.types.get(name).cloned() {
                     let variant_names: Vec<String> =
                         variants.iter().map(|(n, _)| n.clone()).collect();

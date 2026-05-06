@@ -660,6 +660,7 @@ fn rewrite_native_project_expr(
 ) -> Expr {
     match expr {
         Expr::IntLit(_)
+        | Expr::SuffixedIntLit(_, _)
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
@@ -1097,6 +1098,7 @@ fn specialize_startup_expr(
 ) -> Result<Expr, String> {
     Ok(match expr {
         Expr::IntLit(_)
+        | Expr::SuffixedIntLit(_, _)
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
@@ -1863,6 +1865,7 @@ fn collect_direct_calls(expr: &Expr, calls: &mut BTreeSet<String>) {
             }
         }
         Expr::IntLit(_)
+        | Expr::SuffixedIntLit(_, _)
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
@@ -2033,12 +2036,8 @@ fn build_native_project_module(
 
 fn runtime_platform_for_target(target: &ResolvedProjectTarget) -> Result<RuntimePlatform, String> {
     if let Some(contract) = target.platform_contract.as_ref() {
-        return match contract.name.as_str() {
-            "basic-cli" => Ok(RuntimePlatform::BasicCli),
-            other => Err(format!(
-                "runtime host binding for package platform `{other}` is not implemented yet; currently supported package platforms: basic-cli"
-            )),
-        };
+        let _ = contract;
+        return Ok(RuntimePlatform::PackageHost);
     }
 
     Ok(RuntimePlatform::Cli)

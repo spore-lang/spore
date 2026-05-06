@@ -216,7 +216,7 @@ impl ModuleRegistry {
 
         prelude
             .functions
-            .insert("string_length".into(), (vec![Ty::Str], Ty::I32));
+            .insert("string_length".into(), (vec![Ty::Str], Ty::I64));
         prelude.functions.insert(
             "split".into(),
             (
@@ -242,19 +242,19 @@ impl ModuleRegistry {
         prelude.functions.insert(
             "char_at".into(),
             (
-                vec![Ty::Str, Ty::I32],
+                vec![Ty::Str, Ty::I64],
                 Ty::App("Option".into(), vec![Ty::Str]),
             ),
         );
         prelude
             .functions
-            .insert("char_to_int".into(), (vec![Ty::Str], Ty::I32));
+            .insert("char_to_int".into(), (vec![Ty::Str], Ty::I64));
         prelude
             .functions
-            .insert("int_to_char".into(), (vec![Ty::I32], Ty::Str));
+            .insert("int_to_char".into(), (vec![Ty::I64], Ty::Str));
         prelude.functions.insert(
             "substring".into(),
-            (vec![Ty::Str, Ty::I32, Ty::I32], Ty::Str),
+            (vec![Ty::Str, Ty::I64, Ty::I64], Ty::Str),
         );
         prelude
             .functions
@@ -264,28 +264,28 @@ impl ModuleRegistry {
             .insert("to_string".into(), (vec![Ty::Var(0)], Ty::Str));
         prelude
             .functions
-            .insert("string_index_of".into(), (vec![Ty::Str, Ty::Str], Ty::I32));
+            .insert("string_index_of".into(), (vec![Ty::Str, Ty::Str], Ty::I64));
 
         prelude
             .functions
-            .insert("abs".into(), (vec![Ty::I32], Ty::I32));
+            .insert("abs".into(), (vec![Ty::I64], Ty::I64));
         prelude
             .functions
-            .insert("min".into(), (vec![Ty::I32, Ty::I32], Ty::I32));
+            .insert("min".into(), (vec![Ty::I64, Ty::I64], Ty::I64));
         prelude
             .functions
-            .insert("max".into(), (vec![Ty::I32, Ty::I32], Ty::I32));
+            .insert("max".into(), (vec![Ty::I64, Ty::I64], Ty::I64));
 
         let list_t = Ty::App("List".into(), vec![Ty::Var(0)]);
         let list_u = Ty::App("List".into(), vec![Ty::Var(1)]);
         prelude
             .functions
-            .insert("len".into(), (vec![Ty::Var(0)], Ty::I32));
+            .insert("len".into(), (vec![Ty::Var(0)], Ty::I64));
         prelude.functions.insert(
             "range".into(),
             (
-                vec![Ty::I32, Ty::I32],
-                Ty::App("List".into(), vec![Ty::I32]),
+                vec![Ty::I64, Ty::I64],
+                Ty::App("List".into(), vec![Ty::I64]),
             ),
         );
         prelude

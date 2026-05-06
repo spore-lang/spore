@@ -1,6 +1,6 @@
 # 语法规范决策记录
 
-以下决策已最终确定，所有文档和实现必须遵守。主设计文档见 [`../DESIGN.md`](../DESIGN.md)，完整规范见 `spore-evolution/seps/SEP-0001-core-syntax.md`。
+以下决策已最终确定，所有文档和实现必须遵守。主设计文档见 [`../../SPARK.md`](../../SPARK.md)，完整规范见 `spore-evolution/seps/SEP-0001-core-syntax.md`。
 
 ## 结构与关键字
 
@@ -30,9 +30,9 @@
 |---|------|------|
 | D6 | `when` 用于 refinement types | 避免与 `if` 表达式歧义 |
 | D8 | `[T]` 用于泛型 | 避免 `<>` 解析歧义 |
-| D9 | `Str` 为规范字符串类型名 | 与 `Int` / `Bool` / `Float` 一致 |
+| D9 | `Str` 为规范字符串类型名 | 字符串不使用 `String` |
 | D10 | `when self > 0` 谓词绑定 | 隐式 `self`，非 lambda |
-| N6 | `Int` / `Float` 是 `I64` / `F64` 别名 | 尺寸类型是具体类型，抽象名是便利别名 |
+| N6 | 数值类型必须写固定宽度名 | `I64` / `F64` 是无后缀字面量默认类型；`Int` / `Float` 不是内建别名 |
 
 ## Effect 与错误
 

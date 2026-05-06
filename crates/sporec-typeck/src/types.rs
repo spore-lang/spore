@@ -70,10 +70,10 @@ pub enum Ty {
     /// Named type (structs, type aliases, type params)
     Named(String),
 
-    /// Generic type application: `List[Int]`, `Result[T, E]`
+    /// Generic type application: `List[I64]`, `Result[T, E]`
     App(String, Vec<Ty>),
 
-    /// Tuple: `(Int, String)`
+    /// Tuple: `(I64, Str)`
     Tuple(Vec<Ty>),
 
     /// Function type: `(params) -> return [uses caps] [! errors]`
@@ -85,7 +85,7 @@ pub enum Ty {
     /// The type of a hole — we know the expected type but it's unfilled
     Hole(String),
 
-    /// Anonymous record type: `{ x: Int, y: Int }`
+    /// Anonymous record type: `{ x: I64, y: I64 }`
     Record(Vec<(String, Ty)>),
 
     /// Refinement type: base type with decidable predicate.

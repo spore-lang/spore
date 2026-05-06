@@ -14,7 +14,7 @@ fn server_with_doc(uri: &str, source: &str) -> LspServer {
 }
 
 const SAMPLE_SOURCE: &str = "\
-fn add(a: Int, b: Int) -> Int {
+fn add(a: I64, b: I64) -> I64 {
     a + b
 }
 
@@ -24,8 +24,8 @@ fn greet(name: String) -> String {
 }
 
 struct Point {
-    x: Int,
-    y: Int,
+    x: I64,
+    y: I64,
 }
 
 type Color {
@@ -38,7 +38,7 @@ trait Printable {
     fn to_string(self: Self) -> String
 }
 
-fn expensive(n: Int) -> Int
+fn expensive(n: I64) -> I64
   cost [100, 0, 0, 0]
   uses [Memory] {
     n
@@ -82,7 +82,7 @@ fn test_build_diagnostics_invalid_source_has_errors() {
 fn test_build_diagnostics_for_document_preserves_document_uri() {
     let diags = build_diagnostics_for_document(
         "file:///workspace/main.sp",
-        "fn main() -> I32 { \"oops\" }\n",
+        "fn main() -> I64 { \"oops\" }\n",
     );
 
     let d = &diags[0];
@@ -178,7 +178,7 @@ fn test_goto_definition_type() {
 
 #[test]
 fn test_goto_definition_unknown_symbol() {
-    let server = server_with_doc("file:///test.sp", "fn main() -> Int { 0 }");
+    let server = server_with_doc("file:///test.sp", "fn main() -> I64 { 0 }");
     let params = json!({
         "textDocument": { "uri": "file:///test.sp" },
         "position": { "line": 100, "character": 0 }
@@ -253,7 +253,7 @@ fn test_hover_function_signature() {
     assert!(hover.is_some(), "should have hover for 'add'");
     let text = hover.unwrap();
     assert!(
-        text.contains("fn add(a: Int, b: Int) -> Int"),
+        text.contains("fn add(a: I64, b: I64) -> I64"),
         "hover should show signature, got: {text}"
     );
 }
@@ -286,7 +286,7 @@ fn test_hover_with_doc_comment() {
 
 #[test]
 fn test_hover_returns_hole_information() {
-    let source = "fn fill() -> Int { ?todo }\n";
+    let source = "fn fill() -> I64 { ?todo }\n";
     let server = server_with_doc("file:///test.sp", source);
     let params = json!({
         "textDocument": { "uri": "file:///test.sp" },
@@ -303,7 +303,7 @@ fn test_hover_returns_hole_information() {
         "expected hole hover, got: {text}"
     );
     assert!(
-        text.contains("?todo : Int"),
+        text.contains("?todo : I64"),
         "expected hole type, got: {text}"
     );
     assert!(
@@ -315,7 +315,7 @@ fn test_hover_returns_hole_information() {
 #[test]
 fn test_hover_prefers_hole_in_current_function() {
     let source = "\
-fn first() -> Int { ?todo }
+fn first() -> I64 { ?todo }
 fn second() -> String { ?todo }
 ";
 
@@ -323,7 +323,7 @@ fn second() -> String { ?todo }
     let second = build_hover_for_position(source, 1, 26).expect("second hole hover");
 
     assert!(
-        first.contains("?todo : Int"),
+        first.contains("?todo : I64"),
         "expected first hole type, got: {first}"
     );
     assert!(
@@ -334,7 +334,7 @@ fn second() -> String { ?todo }
 
 #[test]
 fn test_hover_distinguishes_named_holes_in_same_function() {
-    let source = "fn pair() -> Int { let lhs = ?todo; let rhs = ?todo; lhs }\n";
+    let source = "fn pair() -> I64 { let lhs = ?todo; let rhs = ?todo; lhs }\n";
     let positions: Vec<(u32, u32)> = source
         .lines()
         .enumerate()
@@ -350,18 +350,18 @@ fn test_hover_distinguishes_named_holes_in_same_function() {
         .expect("second named hole");
 
     assert!(
-        !first.contains("lhs: Int"),
+        !first.contains("lhs: I64"),
         "first named hole should not include later binding, got: {first}"
     );
     assert!(
-        second.contains("lhs: Int"),
+        second.contains("lhs: I64"),
         "second named hole should include prior binding, got: {second}"
     );
 }
 
 #[test]
 fn test_hover_distinguishes_unnamed_holes_in_same_function() {
-    let source = "fn pair() -> Int { let a = ?; let b = ?; a }\n";
+    let source = "fn pair() -> I64 { let a = ?; let b = ?; a }\n";
 
     let hole_lines: Vec<(u32, u32)> = source
         .lines()
@@ -378,19 +378,19 @@ fn test_hover_distinguishes_unnamed_holes_in_same_function() {
         .expect("second unnamed hole hover");
 
     assert!(
-        first.contains("? : Int"),
+        first.contains("? : I64"),
         "expected first hole hover, got: {first}"
     );
     assert!(
-        second.contains("? : Int"),
+        second.contains("? : I64"),
         "expected second hole hover, got: {second}"
     );
     assert!(
-        !first.contains("a: Int"),
+        !first.contains("a: I64"),
         "first hole should not include later binding, got: {first}"
     );
     assert!(
-        second.contains("a: Int"),
+        second.contains("a: I64"),
         "second hole should include prior binding, got: {second}"
     );
 }
@@ -398,9 +398,9 @@ fn test_hover_distinguishes_unnamed_holes_in_same_function() {
 #[test]
 fn test_hover_shows_checked_residual_context() {
     let source = r#"
-fn cheap() -> I32 cost [1, 0, 0, 0] { 1 + 1 }
-fn costly() -> I32 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
-fn main() -> I32 cost [6, 0, 0, 0] {
+fn cheap() -> I64 cost [1, 0, 0, 0] { 1 + 1 }
+fn costly() -> I64 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
+fn main() -> I64 cost [6, 0, 0, 0] {
     let seed = cheap();
     ?todo
 }
@@ -429,7 +429,7 @@ fn test_hover_shows_handler_discharge_context() {
 effect Console {
     fn println(msg: Str) -> ()
 }
-fn main() -> I32 uses [IO] {
+fn main() -> I64 uses [IO] {
     handle {
         ?todo
     } with {
@@ -458,7 +458,7 @@ fn main() -> I32 uses [IO] {
 
 #[test]
 fn test_word_at_position_basic() {
-    let source = "fn hello(x: Int) -> Int { x }";
+    let source = "fn hello(x: I64) -> I64 { x }";
     assert_eq!(word_at_position(source, 0, 3), "hello");
     assert_eq!(word_at_position(source, 0, 0), "fn");
     assert_eq!(word_at_position(source, 0, 9), "x");
@@ -472,7 +472,7 @@ fn test_word_at_position_out_of_bounds() {
 
 #[test]
 fn test_hole_at_position_named_hole() {
-    let source = "fn fill() -> Int { ?todo }";
+    let source = "fn fill() -> I64 { ?todo }";
     let hole = hole_at_position(source, 0, 20).expect("hole at position");
     assert_eq!(hole.display_name, "?todo");
     assert_eq!(hole.name.as_deref(), Some("todo"));
@@ -480,7 +480,7 @@ fn test_hole_at_position_named_hole() {
 
 #[test]
 fn test_hole_at_position_unnamed_hole() {
-    let source = "fn fill() -> Int { ? }";
+    let source = "fn fill() -> I64 { ? }";
     let hole = hole_at_position(source, 0, 20).expect("hole at position");
     assert_eq!(hole.display_name, "?");
     assert_eq!(hole.name, None);
@@ -488,7 +488,7 @@ fn test_hole_at_position_unnamed_hole() {
 
 #[test]
 fn test_hole_at_position_before_hole_returns_none() {
-    let source = "fn fill() -> Int {  ?todo }";
+    let source = "fn fill() -> I64 {  ?todo }";
     let hole_col = source.find("?todo").expect("hole start") as u32;
     assert!(hole_at_position(source, 0, hole_col - 1).is_none());
 }

@@ -154,7 +154,7 @@ impl Interpreter {
         args: &[Value],
     ) -> Result<Option<Value>> {
         for handler in &self.effect_handlers {
-            if handler.operations().contains(&name) {
+            if handler.supports(name) {
                 let result = handler.handle(name, args).map_err(RuntimeError::new)?;
                 return match result {
                     EffectOutcome::Value(value) => Ok(Some(value)),
@@ -456,7 +456,7 @@ impl Interpreter {
                     .first()
                     .ok_or_else(|| RuntimeError::new("int_to_char: missing arg"))?
                     .as_int()
-                    .ok_or_else(|| RuntimeError::new("int_to_char: expected Int"))?;
+                    .ok_or_else(|| RuntimeError::new("int_to_char: expected I64"))?;
                 let ch = char::from_u32(n as u32)
                     .ok_or_else(|| RuntimeError::new("int_to_char: invalid code point"))?;
                 Ok(Some(Value::Str(ch.to_string())))

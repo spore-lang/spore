@@ -283,7 +283,9 @@ impl CostAnalyzer {
     fn analyze_expr_cost(&self, expr: &Expr) -> CostVector {
         match expr {
             // --- Leaves (zero cost) ---
-            Expr::IntLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) => CostVector::zero(),
+            Expr::IntLit(_) | Expr::SuffixedIntLit(_, _) | Expr::FloatLit(_) | Expr::BoolLit(_) => {
+                CostVector::zero()
+            }
             Expr::Var(_) => CostVector::zero(),
 
             // String literal: alloc = ⌈len/8⌉
@@ -804,6 +806,7 @@ where
         }
         // Leaves — no recursion
         Expr::IntLit(_)
+        | Expr::SuffixedIntLit(_, _)
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
@@ -844,7 +847,7 @@ fn classify_arg(expr: &Expr) -> CallArg {
 
 /// Check if an expression is a positive integer literal.
 fn is_positive_int(expr: &Expr) -> bool {
-    matches!(expr, Expr::IntLit(n) if *n > 0)
+    matches!(expr, Expr::IntLit(n) | Expr::SuffixedIntLit(n, _) if *n > 0)
 }
 
 /// Walk the AST collecting names of non-recursive function calls.
@@ -1544,6 +1547,7 @@ impl<'a> HoleCostCollector<'a> {
             }
             Expr::Return(None)
             | Expr::IntLit(_)
+            | Expr::SuffixedIntLit(_, _)
             | Expr::FloatLit(_)
             | Expr::StrLit(_)
             | Expr::BoolLit(_)
@@ -1667,6 +1671,7 @@ impl<'a> HoleCostCollector<'a> {
             Expr::Hole(_, _, _, _) => CostVector::constant(1, 0, 0, 0),
             Expr::Return(None)
             | Expr::IntLit(_)
+            | Expr::SuffixedIntLit(_, _)
             | Expr::FloatLit(_)
             | Expr::StrLit(_)
             | Expr::BoolLit(_)

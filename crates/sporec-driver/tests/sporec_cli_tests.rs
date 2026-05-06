@@ -42,7 +42,7 @@ fn sporec_cmd() -> Command {
 #[test]
 fn compile_succeeds_on_valid_file() {
     let temp = TempDir::new("compile-ok");
-    let file = temp.write("main.sp", "fn main() -> I32 { 42 }\n");
+    let file = temp.write("main.sp", "fn main() -> I64 { 42 }\n");
 
     let output = sporec_cmd()
         .args(["compile", file.to_str().unwrap()])
@@ -64,7 +64,7 @@ fn compile_succeeds_on_valid_file() {
 #[test]
 fn compile_fails_on_invalid_file() {
     let temp = TempDir::new("compile-fail");
-    let file = temp.write("main.sp", "fn main() -> I32 { \"oops\" }\n");
+    let file = temp.write("main.sp", "fn main() -> I64 { \"oops\" }\n");
 
     let output = sporec_cmd()
         .args(["compile", file.to_str().unwrap()])
@@ -86,7 +86,7 @@ fn compile_fails_on_invalid_file() {
 #[test]
 fn compile_json_failures_include_canonical_diagnostics() {
     let temp = TempDir::new("compile-json-fail");
-    let file = temp.write("main.sp", "fn main() -> I32 { \"oops\" }\n");
+    let file = temp.write("main.sp", "fn main() -> I64 { \"oops\" }\n");
 
     let output = sporec_cmd()
         .args(["compile", "--json", file.to_str().unwrap()])
@@ -112,7 +112,7 @@ fn compile_json_failures_include_canonical_diagnostics() {
 #[test]
 fn compile_json_parse_failures_include_canonical_diagnostics() {
     let temp = TempDir::new("compile-json-parse-fail");
-    let file = temp.write("main.sp", "fn main( -> I32 { 42 }\n");
+    let file = temp.write("main.sp", "fn main( -> I64 { 42 }\n");
 
     let output = sporec_cmd()
         .args(["compile", "--json", file.to_str().unwrap()])
@@ -139,10 +139,10 @@ fn compile_multiple_files_resolves_imports() {
         "main.sp",
         r#"
         import foo
-        fn main() -> I32 { foo() }
+        fn main() -> I64 { foo() }
         "#,
     );
-    let foo = temp.write("foo.sp", "pub fn foo() -> I32 { 1 }\n");
+    let foo = temp.write("foo.sp", "pub fn foo() -> I64 { 1 }\n");
 
     let output = sporec_cmd()
         .args(["compile", main.to_str().unwrap(), foo.to_str().unwrap()])
@@ -168,10 +168,10 @@ fn compile_multiple_spore_files_resolves_imports() {
         "main.spore",
         r#"
         import foo
-        fn main() -> I32 { foo() }
+        fn main() -> I64 { foo() }
         "#,
     );
-    let foo = temp.write("foo.spore", "pub fn foo() -> I32 { 1 }\n");
+    let foo = temp.write("foo.spore", "pub fn foo() -> I64 { 1 }\n");
 
     let output = sporec_cmd()
         .args(["compile", main.to_str().unwrap(), foo.to_str().unwrap()])
@@ -196,7 +196,7 @@ fn holes_json_contains_holes_key() {
     let file = temp.write(
         "main.sp",
         r#"
-        fn main() -> I32 {
+        fn main() -> I64 {
             ?todo
         }
         "#,
@@ -267,7 +267,7 @@ fn query_hole_json_finds_named_hole() {
     let file = temp.write(
         "main.sp",
         r#"
-        fn main() -> I32 {
+        fn main() -> I64 {
             ?todo
         }
         "#,
@@ -310,9 +310,9 @@ fn query_hole_json_includes_checked_residual_context() {
     let file = temp.write(
         "main.sp",
         r#"
-        fn cheap() -> I32 cost [1, 0, 0, 0] { 1 + 1 }
-        fn costly() -> I32 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
-        fn main() -> I32 cost [6, 0, 0, 0] {
+        fn cheap() -> I64 cost [1, 0, 0, 0] { 1 + 1 }
+        fn costly() -> I64 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
+        fn main() -> I64 cost [6, 0, 0, 0] {
             let seed = cheap();
             ?todo
         }
@@ -358,9 +358,9 @@ fn query_hole_json_includes_effect_and_rejection_context() {
         effect Debug {
             fn trace(msg: Str) -> ()
         }
-        fn pure() -> I32 { 1 }
-        fn noisy() -> I32 uses [Debug] { 2 }
-        fn main() -> I32 uses [IO] {
+        fn pure() -> I64 { 1 }
+        fn noisy() -> I64 uses [Debug] { 2 }
+        fn main() -> I64 uses [IO] {
             handle {
                 ?todo
             } with {
@@ -401,7 +401,7 @@ fn query_hole_json_includes_effect_and_rejection_context() {
 #[test]
 fn query_hole_missing_exits_non_zero() {
     let temp = TempDir::new("query-hole-missing");
-    let file = temp.write("main.sp", "fn main() -> I32 { 42 }\n");
+    let file = temp.write("main.sp", "fn main() -> I64 { 42 }\n");
 
     let output = sporec_cmd()
         .args(["query-hole", file.to_str().unwrap(), "?missing"])

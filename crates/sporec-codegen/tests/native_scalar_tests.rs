@@ -38,6 +38,22 @@ fn assert_call_errors_with(source: &str, name: &str, args: Vec<Value>, expected_
 }
 
 #[test]
+fn native_backend_rejects_unknown_named_scalar_types() {
+    for (source, type_name) in [
+        ("fn main() -> Number { 42 }", "Number"),
+        ("fn main() -> Decimal { 3.14 }", "Decimal"),
+    ] {
+        let module = parse_module(source);
+        let err = run_native(&module).expect_err("unknown named scalar type should be unsupported");
+        assert!(
+            err.to_string()
+                .contains(&format!("unsupported scalar type `{type_name}`")),
+            "expected native backend to reject {type_name}, got {err:?}"
+        );
+    }
+}
+
+#[test]
 fn native_backend_matches_interpreter_for_scalar_main_programs() {
     for source in [
         "fn main() -> I64 { 42 }",

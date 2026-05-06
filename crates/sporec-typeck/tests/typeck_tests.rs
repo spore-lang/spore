@@ -37,12 +37,111 @@ fn check_err_with_codes(src: &str) -> Vec<(ErrorCode, String)> {
 
 #[test]
 fn test_int_literal() {
-    check_ok("fn f() -> I32 { 42 }");
+    check_ok("fn f() -> I64 { 42 }");
 }
 
 #[test]
 fn test_float_literal() {
     check_ok("fn f() -> F64 { 3.14 }");
+}
+
+#[test]
+fn legacy_numeric_names_are_unknown_without_aliases() {
+    let int_errs = check_err("fn f() -> Int { 42 }");
+    assert!(
+        int_errs
+            .iter()
+            .any(|e| e.contains("expected `Int`, got `I64`")),
+        "expected Int to be treated as an unknown named type, got: {int_errs:?}"
+    );
+
+    let float_errs = check_err("fn f() -> Float { 3.14 }");
+    assert!(
+        float_errs
+            .iter()
+            .any(|e| e.contains("expected `Float`, got `F64`")),
+        "expected Float to be treated as an unknown named type, got: {float_errs:?}"
+    );
+}
+
+#[test]
+fn user_defined_int_alias_is_explicit_source_alias() {
+    check_ok(
+        r#"
+        alias Int = I64
+        fn f() -> Int { 42 }
+    "#,
+    );
+}
+
+#[test]
+fn user_defined_float_alias_is_explicit_source_alias() {
+    check_ok(
+        r#"
+        alias Float = F64
+        fn f() -> Float { 3.14 }
+    "#,
+    );
+}
+
+#[test]
+fn u8_context_accepts_fitting_integer_literals() {
+    check_ok(
+        r#"
+        fn exit(code: U8) -> Never uses [Exit] { ?exit }
+        fn code() -> U8 { 7u8 }
+        fn main() -> Never uses [Exit] { exit(7u8) }
+    "#,
+    );
+}
+
+#[test]
+fn u8_context_rejects_out_of_range_integer_literals() {
+    let errs = check_err(
+        r#"
+        fn exit(code: U8) -> Never uses [Exit] { ?exit }
+        fn main() -> Never uses [Exit] { exit(256) }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("does not fit `U8`")),
+        "expected literal range error, got: {errs:?}"
+    );
+
+    let suffixed_errs = check_err("fn f() -> U8 { 256u8 }");
+    assert!(
+        suffixed_errs
+            .iter()
+            .any(|e| e.contains("does not fit `U8`")),
+        "expected suffixed literal range error, got: {suffixed_errs:?}"
+    );
+}
+
+#[test]
+fn u8_context_rejects_wider_values_without_implicit_narrowing() {
+    let errs = check_err(
+        r#"
+        fn exit(code: U8) -> Never uses [Exit] { ?exit }
+        fn main(x: I64) -> Never uses [Exit] { exit(x) }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("expected `U8`, got `I64`")),
+        "expected I64 variable to be rejected for U8 parameter, got: {errs:?}"
+    );
+
+    let suffixed_errs = check_err(
+        r#"
+        fn exit(code: U8) -> Never uses [Exit] { ?exit }
+        fn main() -> Never uses [Exit] { exit(7i64) }
+    "#,
+    );
+    assert!(
+        suffixed_errs
+            .iter()
+            .any(|e| e.contains("expected `U8`, got `I64`")),
+        "expected I64-suffixed literal to be rejected for U8 parameter, got: {suffixed_errs:?}"
+    );
 }
 
 #[test]
@@ -59,9 +158,9 @@ fn test_bool_literal() {
 
 #[test]
 fn test_return_type_mismatch() {
-    let errs = check_err("fn f() -> I32 { \"oops\" }");
+    let errs = check_err("fn f() -> I64 { \"oops\" }");
     assert!(errs[0].contains("type mismatch"));
-    assert!(errs[0].contains("I32"));
+    assert!(errs[0].contains("I64"));
     assert!(errs[0].contains("Str"));
 }
 
@@ -75,17 +174,17 @@ fn test_return_type_mismatch_bool() {
 
 #[test]
 fn test_let_binding() {
-    check_ok("fn f() -> I32 { let x = 42; x }");
+    check_ok("fn f() -> I64 { let x = 42; x }");
 }
 
 #[test]
 fn test_let_with_annotation() {
-    check_ok("fn f() -> I32 { let x: I32 = 42; x }");
+    check_ok("fn f() -> I64 { let x: I64 = 42; x }");
 }
 
 #[test]
 fn test_let_annotation_mismatch() {
-    let errs = check_err("fn f() -> I32 { let x: Str = 42; x }");
+    let errs = check_err("fn f() -> I64 { let x: Str = 42; x }");
     assert!(errs[0].contains("type mismatch"));
 }
 
@@ -93,7 +192,7 @@ fn test_let_annotation_mismatch() {
 
 #[test]
 fn test_int_arithmetic() {
-    check_ok("fn f() -> I32 { 1 + 2 * 3 }");
+    check_ok("fn f() -> I64 { 1 + 2 * 3 }");
 }
 
 #[test]
@@ -103,7 +202,7 @@ fn test_float_arithmetic() {
 
 #[test]
 fn test_mixed_arithmetic_error() {
-    let errs = check_err("fn f() -> I32 { 1 + 2.0 }");
+    let errs = check_err("fn f() -> I64 { 1 + 2.0 }");
     assert!(!errs.is_empty());
 }
 
@@ -154,7 +253,7 @@ fn test_logical_on_non_bool() {
 
 #[test]
 fn test_negate_int() {
-    check_ok("fn f() -> I32 { -42 }");
+    check_ok("fn f() -> I64 { -42 }");
 }
 
 #[test]
@@ -173,16 +272,16 @@ fn test_negate_string_error() {
 #[test]
 fn test_call_known_function() {
     check_ok(
-        "fn add(a: I32, b: I32) -> I32 { a + b }
-         fn main() -> I32 { add(1, 2) }",
+        "fn add(a: I64, b: I64) -> I64 { a + b }
+         fn main() -> I64 { add(1, 2) }",
     );
 }
 
 #[test]
 fn test_call_wrong_arg_type() {
     let errs = check_err(
-        "fn add(a: I32, b: I32) -> I32 { a + b }
-         fn main() -> I32 { add(1, \"x\") }",
+        "fn add(a: I64, b: I64) -> I64 { a + b }
+         fn main() -> I64 { add(1, \"x\") }",
     );
     assert!(errs.iter().any(|e| e.contains("type mismatch")));
 }
@@ -190,8 +289,8 @@ fn test_call_wrong_arg_type() {
 #[test]
 fn test_call_wrong_arg_count() {
     let errs = check_err(
-        "fn add(a: I32, b: I32) -> I32 { a + b }
-         fn main() -> I32 { add(1) }",
+        "fn add(a: I64, b: I64) -> I64 { a + b }
+         fn main() -> I64 { add(1) }",
     );
     assert!(errs.iter().any(|e| e.contains("expects 2 arguments")));
 }
@@ -200,18 +299,18 @@ fn test_call_wrong_arg_count() {
 
 #[test]
 fn test_if_else() {
-    check_ok("fn f(x: Bool) -> I32 { if x { 1 } else { 0 } }");
+    check_ok("fn f(x: Bool) -> I64 { if x { 1 } else { 0 } }");
 }
 
 #[test]
 fn test_if_branch_mismatch() {
-    let errs = check_err("fn f(x: Bool) -> I32 { if x { 1 } else { \"no\" } }");
+    let errs = check_err("fn f(x: Bool) -> I64 { if x { 1 } else { \"no\" } }");
     assert!(errs.iter().any(|e| e.contains("type mismatch")));
 }
 
 #[test]
 fn test_if_non_bool_condition() {
-    let errs = check_err("fn f() -> I32 { if 42 { 1 } else { 0 } }");
+    let errs = check_err("fn f() -> I64 { if 42 { 1 } else { 0 } }");
     assert!(errs.iter().any(|e| e.contains("Bool")));
 }
 
@@ -220,7 +319,7 @@ fn test_if_non_bool_condition() {
 #[test]
 fn test_match_consistent_arms() {
     check_ok(
-        r#"fn f(x: I32) -> Str {
+        r#"fn f(x: I64) -> Str {
             match x {
                 0 => "zero",
                 _ => "other"
@@ -232,7 +331,7 @@ fn test_match_consistent_arms() {
 #[test]
 fn test_match_inconsistent_arms() {
     let errs = check_err(
-        r#"fn f(x: I32) -> I32 {
+        r#"fn f(x: I64) -> I64 {
             match x {
                 0 => 1,
                 _ => "other"
@@ -271,9 +370,9 @@ fn test_generic_struct_field_access_preserves_type_arguments() {
         r#"
         struct Pair[A, B] { first: A, second: B }
 
-        fn first(pair: Pair[Str, I32]) -> Str { pair.first }
+        fn first(pair: Pair[Str, I64]) -> Str { pair.first }
 
-        fn match_first(pair: Pair[Str, I32]) -> Str {
+        fn match_first(pair: Pair[Str, I64]) -> Str {
             match pair {
                 Pair { first, second } => first,
             }
@@ -303,7 +402,7 @@ fn test_struct_field_access() {
 
 #[test]
 fn test_undefined_variable() {
-    let errs = check_err("fn f() -> I32 { x }");
+    let errs = check_err("fn f() -> I64 { x }");
     assert!(errs.iter().any(|e| e.contains("undefined")));
 }
 
@@ -311,12 +410,12 @@ fn test_undefined_variable() {
 
 #[test]
 fn test_hole_accepts_any_type() {
-    check_ok("fn f() -> I32 { ?todo }");
+    check_ok("fn f() -> I64 { ?todo }");
 }
 
 #[test]
 fn test_unnamed_hole_accepts_any_type() {
-    check_ok("fn f() -> I32 { ? }");
+    check_ok("fn f() -> I64 { ? }");
 }
 
 #[test]
@@ -328,7 +427,7 @@ fn test_signature_holes_typecheck() {
 fn test_named_signature_holes_share_constraints() {
     let errs = check_err(
         "fn identity(x: ?t) -> ?t { x }
-         fn bad() -> I32 { identity(true) + 1 }",
+         fn bad() -> I64 { identity(true) + 1 }",
     );
     assert!(
         errs.iter()
@@ -341,8 +440,8 @@ fn test_named_signature_holes_share_constraints() {
 #[test]
 fn test_multiple_functions() {
     check_ok(
-        "fn double(x: I32) -> I32 { x + x }
-         fn quadruple(x: I32) -> I32 { double(double(x)) }",
+        "fn double(x: I64) -> I64 { x + x }
+         fn quadruple(x: I64) -> I64 { double(double(x)) }",
     );
 }
 
@@ -351,7 +450,7 @@ fn test_multiple_functions() {
 #[test]
 fn test_block_scoping() {
     check_ok(
-        "fn f() -> I32 {
+        "fn f() -> I64 {
             let x = 1;
             let y = 2;
             x + y
@@ -364,8 +463,8 @@ fn test_block_scoping() {
 #[test]
 fn test_lambda_type() {
     check_ok(
-        "fn apply(f: (I32) -> I32, x: I32) -> I32 { f(x) }
-         fn main() -> I32 { apply(|x: I32| x + 1, 42) }",
+        "fn apply(f: (I64) -> I64, x: I64) -> I64 { f(x) }
+         fn main() -> I64 { apply(|x: I64| x + 1, 42) }",
     );
 }
 
@@ -373,17 +472,17 @@ fn test_lambda_type() {
 
 #[test]
 fn test_hole_report_basic() {
-    let module = parse("fn f() -> I32 { ?todo }").unwrap();
+    let module = parse("fn f() -> I64 { ?todo }").unwrap();
     let result = type_check(&module).unwrap();
     assert_eq!(result.hole_report.holes.len(), 1);
     assert_eq!(result.hole_report.holes[0].name, "todo");
-    assert_eq!(result.hole_report.holes[0].expected_type, Ty::I32);
+    assert_eq!(result.hole_report.holes[0].expected_type, Ty::I64);
     assert_eq!(result.hole_report.holes[0].function, "f");
 }
 
 #[test]
 fn test_unnamed_hole_gets_synthetic_name_in_report() {
-    let module = parse("fn f() -> I32 { ? }").unwrap();
+    let module = parse("fn f() -> I64 { ? }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(result.hole_report.holes[0].name.starts_with("_hole"));
 }
@@ -402,7 +501,7 @@ fn test_user_named_hole_display_keeps_name() {
 
 #[test]
 fn test_hole_report_with_bindings() {
-    let module = parse("fn f(x: I32) -> I32 { let y = 42; ?impl_ }").unwrap();
+    let module = parse("fn f(x: I64) -> I64 { let y = 42; ?impl_ }").unwrap();
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
     assert!(hole.bindings.contains_key("x"));
@@ -412,8 +511,8 @@ fn test_hole_report_with_bindings() {
 #[test]
 fn test_hole_report_suggestions() {
     let module = parse(
-        "fn double(x: I32) -> I32 { x + x }
-         fn f() -> I32 { ?todo }",
+        "fn double(x: I64) -> I64 { x + x }
+         fn f() -> I64 { ?todo }",
     )
     .unwrap();
     let result = type_check(&module).unwrap();
@@ -425,9 +524,9 @@ fn test_hole_report_suggestions() {
 fn test_hole_report_suggestions_respect_allows_annotation() {
     let module = parse(
         "@allows[double]\n\
-         fn chooser() -> I32 { ?todo }\n\
-         fn double(x: I32) -> I32 { x + x }\n\
-         fn triple(x: I32) -> I32 { x + x + x }",
+         fn chooser() -> I64 { ?todo }\n\
+         fn double(x: I64) -> I64 { x + x }\n\
+         fn triple(x: I64) -> I64 { x + x + x }",
     )
     .unwrap();
     let result = type_check(&module).unwrap();
@@ -439,13 +538,13 @@ fn test_hole_report_suggestions_respect_allows_annotation() {
 #[test]
 fn test_hole_report_allows_can_refine_signature_hole() {
     let module = parse(
-        "fn produce() -> I32 { 1 }
+        "fn produce() -> I64 { 1 }
          fn chooser() -> ?r { ?todo @allows[produce] }",
     )
     .unwrap();
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
-    assert_eq!(hole.expected_type, Ty::I32);
+    assert_eq!(hole.expected_type, Ty::I64);
     assert_eq!(
         hole.type_inferred_from.as_deref(),
         Some("`@allows[...]` candidates")
@@ -455,29 +554,29 @@ fn test_hole_report_allows_can_refine_signature_hole() {
 #[test]
 fn test_signature_hole_inference_propagates_to_later_body_hole() {
     let module = parse(
-        "fn caller() -> I32 { later(1) }
+        "fn caller() -> I64 { later(1) }
          fn later(x: ?) -> ? { ?impl_ }",
     )
     .unwrap();
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
     assert_eq!(hole.function, "later");
-    assert_eq!(hole.expected_type, Ty::I32);
+    assert_eq!(hole.expected_type, Ty::I64);
 }
 
 #[test]
 fn test_hole_report_json() {
-    let module = parse("fn f() -> I32 { ?todo }").unwrap();
+    let module = parse("fn f() -> I64 { ?todo }").unwrap();
     let result = type_check(&module).unwrap();
     let json = result.hole_report.to_json();
     assert!(json.contains("\"name\": \"todo\""));
-    assert!(json.contains("\"expected_type\": \"I32\""));
+    assert!(json.contains("\"expected_type\": \"I64\""));
 }
 
 #[test]
 fn test_multiple_holes() {
     let module = parse(
-        "fn f() -> I32 { ?first }
+        "fn f() -> I64 { ?first }
          fn g() -> Str { ?second }",
     )
     .unwrap();
@@ -489,7 +588,7 @@ fn test_multiple_holes() {
 
 #[test]
 fn test_pure_function() {
-    check_ok("fn add(a: I32, b: I32) -> I32 { a + b }");
+    check_ok("fn add(a: I64, b: I64) -> I64 { a + b }");
 }
 
 #[test]
@@ -526,7 +625,28 @@ fn test_effect_superset_multiple() {
 
 #[test]
 fn test_pure_lambda() {
-    check_ok("fn f() -> (I32) -> I32 { |x: I32| x + 1 }");
+    check_ok("fn f() -> (I64) -> I64 { |x: I64| x + 1 }");
+}
+
+#[test]
+fn pure_hof_rejects_closure_that_spawns() {
+    let errs = check_err(
+        r#"
+        fn work() -> I64 { 42 }
+        fn apply(f: (I64) -> I64) -> I64 { f(0) }
+        fn main() -> I64 uses [Spawn] {
+            apply(|x: I64| parallel_scope {
+                let t = spawn work();
+                t.await
+            })
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("function effect mismatch"))
+            && errs.iter().any(|e| e.contains("Spawn")),
+        "expected pure HOF closure effect rejection, got: {errs:?}"
+    );
 }
 
 // ── Generics & Type Inference ───────────────────────────────────────────
@@ -534,19 +654,19 @@ fn test_pure_lambda() {
 #[test]
 fn test_type_variable_unification() {
     // Lambda with inferred type param
-    check_ok("fn f() -> I32 { let id = |x: I32| x; id(42) }");
+    check_ok("fn f() -> I64 { let id = |x: I64| x; id(42) }");
 }
 
 #[test]
 fn test_let_inference() {
-    check_ok("fn f() -> I32 { let x = 42; x + 1 }");
+    check_ok("fn f() -> I64 { let x = 42; x + 1 }");
 }
 
 // ── Cost analysis ────────────────────────────────────────────────────────
 
 #[test]
 fn test_cost_non_recursive_constant() {
-    let module = parse("fn add(a: I32, b: I32) -> I32 { a + b }").unwrap();
+    let module = parse("fn add(a: I64, b: I64) -> I64 { a + b }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(
         matches!(
@@ -561,7 +681,7 @@ fn test_cost_non_recursive_constant() {
 #[test]
 fn test_cost_structural_recursion() {
     let module =
-        parse("fn factorial(n: I32) -> I32 { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
+        parse("fn factorial(n: I64) -> I64 { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
             .unwrap();
     let result = type_check(&module).unwrap();
     assert!(
@@ -574,8 +694,8 @@ fn test_cost_structural_recursion() {
 #[test]
 fn test_cost_multiple_functions() {
     let module = parse(
-        "fn double(x: I32) -> I32 { x + x }
-         fn quadruple(x: I32) -> I32 { double(double(x)) }",
+        "fn double(x: I64) -> I64 { x + x }
+         fn quadruple(x: I64) -> I64 { double(double(x)) }",
     )
     .unwrap();
     let result = type_check(&module).unwrap();
@@ -596,7 +716,7 @@ fn test_cost_multiple_functions() {
 #[test]
 fn test_cost_unknown_recursion() {
     // Recursive but not structural (arg is n + 1, not decreasing)
-    let module = parse("fn bad(n: I32) -> I32 { if n >= 100 { n } else { bad(n + 1) } }").unwrap();
+    let module = parse("fn bad(n: I64) -> I64 { if n >= 100 { n } else { bad(n + 1) } }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(
         matches!(result.cost_results.get("bad"), Some(CostResult::Unknown(_))),
@@ -607,7 +727,7 @@ fn test_cost_unknown_recursion() {
 
 #[test]
 fn test_cost_hole_body_constant() {
-    let module = parse("fn f() -> I32 { ?todo }").unwrap();
+    let module = parse("fn f() -> I64 { ?todo }").unwrap();
     let result = type_check(&module).unwrap();
     // Holes count as constant cost (no real code to analyze)
     assert!(matches!(
@@ -620,7 +740,7 @@ fn test_cost_hole_body_constant() {
 fn test_cost_structural_countdown() {
     // countdown(n) calls countdown(n - 1)
     let module =
-        parse("fn countdown(n: I32) -> I32 { if n <= 0 { 0 } else { countdown(n - 1) } }").unwrap();
+        parse("fn countdown(n: I64) -> I64 { if n <= 0 { 0 } else { countdown(n - 1) } }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(
         matches!(result.cost_results.get("countdown"), Some(CostResult::Structural(p)) if p == "n"),
@@ -637,8 +757,8 @@ fn cost_budget_exceeded_emits_k0001() {
     // Cost violations are now warnings (SEP-0004), not errors
     let module = parse(
         r#"
-        fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] { x + x }
-        fn cheap(a: I32) -> I32 cost [2, 0, 0, 0] { expensive(expensive(a)) }
+        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] { x + x }
+        fn cheap(a: I64) -> I64 cost [2, 0, 0, 0] { expensive(expensive(a)) }
     "#,
     )
     .unwrap();
@@ -653,7 +773,7 @@ fn cost_budget_exceeded_emits_k0001() {
 #[test]
 fn no_cost_annotation_no_warning() {
     // A function with no cost annotation should not produce any cost warnings
-    let module = parse("fn f(x: I32) -> I32 { x + x }").unwrap();
+    let module = parse("fn f(x: I64) -> I64 { x + x }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(
         result.warnings.is_empty(),
@@ -676,7 +796,7 @@ fn cost_warning_severity_is_warning() {
 #[test]
 fn cost_budget_within_limit_no_error() {
     // Budget of 1000 is generous enough for a simple function
-    check_ok("fn simple(x: I32) -> I32 cost [1000, 0, 0, 0] { x + x }");
+    check_ok("fn simple(x: I64) -> I64 cost [1000, 0, 0, 0] { x + x }");
 }
 
 #[test]
@@ -686,7 +806,7 @@ fn unbounded_skips_cost_analysis() {
     let module = parse(
         r#"
         @unbounded
-        fn wild(n: I32) -> I32 cost [O(n), 0, 0, 0] { if n >= 100 { n } else { wild(n + 1) } }
+        fn wild(n: I64) -> I64 cost [O(n), 0, 0, 0] { if n >= 100 { n } else { wild(n + 1) } }
     "#,
     )
     .unwrap();
@@ -703,7 +823,7 @@ fn unbounded_without_cost_is_hard_error() {
     let errs = check_err_with_codes(
         r#"
         @unbounded
-        fn wild(n: I32) -> I32 { if n >= 100 { n } else { wild(n + 1) } }
+        fn wild(n: I64) -> I64 { if n >= 100 { n } else { wild(n + 1) } }
     "#,
     );
     assert!(
@@ -721,7 +841,7 @@ fn unbounded_with_cost_succeeds_and_preserves_expected_vector() {
     let module = parse(
         r#"
         @unbounded
-        fn wild(n: I32) -> I32 cost [O(n), 1, 2, 3] { if n >= 100 { n } else { wild(n + 1) } }
+        fn wild(n: I64) -> I64 cost [O(n), 1, 2, 3] { if n >= 100 { n } else { wild(n + 1) } }
     "#,
     )
     .unwrap();
@@ -745,10 +865,10 @@ fn unbounded_with_cost_succeeds_and_preserves_expected_vector() {
 fn unbounded_declared_cost_skips_budget_warning_from_body() {
     let module = parse(
         r#"
-        fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] { x + x }
+        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] { x + x }
 
         @unbounded
-        fn wild(a: I32) -> I32 cost [1, 0, 0, 0] { expensive(expensive(a)) }
+        fn wild(a: I64) -> I64 cost [1, 0, 0, 0] { expensive(expensive(a)) }
     "#,
     )
     .unwrap();
@@ -773,8 +893,8 @@ fn callee_cost_propagation() {
     // helper costs Constant(1), caller calls helper 3 times → 1 + 3 = 4
     let module = parse(
         r#"
-        fn helper(x: I32) -> I32 { x + x }
-        fn caller(a: I32) -> I32 { helper(a) + helper(a) + helper(a) }
+        fn helper(x: I64) -> I64 { x + x }
+        fn caller(a: I64) -> I64 { helper(a) + helper(a) + helper(a) }
     "#,
     )
     .unwrap();
@@ -793,7 +913,7 @@ fn callee_cost_propagation() {
 fn structural_recursion_still_detected() {
     // Classic structural recursion: factorial(n - 1)
     let module =
-        parse("fn factorial(n: I32) -> I32 { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
+        parse("fn factorial(n: I64) -> I64 { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
             .unwrap();
     let result = type_check(&module).unwrap();
     assert!(
@@ -808,8 +928,8 @@ fn sep0006_cost_violation_uses_k0xxx() {
     // Verify K0101 code is used for cost violations (SEP-0004: warnings)
     let module = parse(
         r#"
-        fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] { x + x }
-        fn over_budget(a: I32) -> I32 cost [2, 0, 0, 0] { expensive(expensive(a)) }
+        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] { x + x }
+        fn over_budget(a: I64) -> I64 cost [2, 0, 0, 0] { expensive(expensive(a)) }
     "#,
     )
     .unwrap();
@@ -833,16 +953,16 @@ fn sep0006_cost_violation_uses_k0xxx() {
 
 #[test]
 fn never_type_unifies_with_anything() {
-    // A function returning Never should be usable where Int is expected
+    // A function returning Never should be usable where I64 is expected
     let src = r#"
         fn diverge() -> Never { ?todo }
-        fn use_int() -> I32 {
+        fn use_int() -> I64 {
             diverge()
         }
     "#;
     let ast = sporec_parser::parse(src).unwrap();
     let result = sporec_typeck::type_check(&ast);
-    assert!(result.is_ok(), "Never should unify with I32");
+    assert!(result.is_ok(), "Never should unify with I64");
 }
 
 #[test]
@@ -861,7 +981,7 @@ fn occurs_check_prevents_infinite_type() {
     // This should produce an error, not infinite loop
     // A function that tries to create T = List[T]
     let src = r#"
-        fn wrap(x: List[I32]) -> I32 { x }
+        fn wrap(x: List[I64]) -> I64 { x }
     "#;
     // This is a simpler test - just ensure occurs_in works
     // The real test is that unification with self-referential types fails
@@ -876,7 +996,7 @@ fn occurs_check_prevents_infinite_type() {
 #[test]
 fn exhaustive_bool_match() {
     check_ok(
-        r#"fn check(b: Bool) -> I32 {
+        r#"fn check(b: Bool) -> I64 {
             match b {
                 true => 1,
                 false => 0,
@@ -888,7 +1008,7 @@ fn exhaustive_bool_match() {
 #[test]
 fn non_exhaustive_bool_match() {
     let errs = check_err(
-        r#"fn check(b: Bool) -> I32 {
+        r#"fn check(b: Bool) -> I64 {
             match b {
                 true => 1,
             }
@@ -915,7 +1035,7 @@ fn exhaustive_enum_match() {
 fn non_exhaustive_enum_match() {
     let errs = check_err(
         r#"type Color { Red, Green, Blue }
-        fn name(c: Color) -> I32 {
+        fn name(c: Color) -> I64 {
             match c {
                 Red => 1,
                 Green => 2,
@@ -929,7 +1049,7 @@ fn non_exhaustive_enum_match() {
 #[test]
 fn wildcard_makes_match_exhaustive() {
     check_ok(
-        r#"fn describe(n: I32) -> Str {
+        r#"fn describe(n: I64) -> Str {
             match n {
                 0 => "zero",
                 1 => "one",
@@ -942,7 +1062,7 @@ fn wildcard_makes_match_exhaustive() {
 #[test]
 fn match_with_guard_type_checked() {
     check_ok(
-        r#"fn classify(n: I32) -> Str {
+        r#"fn classify(n: I64) -> Str {
             match n {
                 x if x > 0 => "positive",
                 _ => "non-positive",
@@ -954,8 +1074,8 @@ fn match_with_guard_type_checked() {
 #[test]
 fn pattern_binds_variable() {
     check_ok(
-        r#"type Option { Some(I32), None }
-        fn unwrap_or(opt: Option, default: I32) -> I32 {
+        r#"type Option { Some(I64), None }
+        fn unwrap_or(opt: Option, default: I64) -> I64 {
             match opt {
                 Some(value) => value,
                 None => default,
@@ -967,7 +1087,7 @@ fn pattern_binds_variable() {
 #[test]
 fn int_match_without_wildcard_is_non_exhaustive() {
     let errs = check_err(
-        r#"fn check(n: I32) -> Str {
+        r#"fn check(n: I64) -> Str {
             match n {
                 0 => "zero",
                 1 => "one",
@@ -980,7 +1100,7 @@ fn int_match_without_wildcard_is_non_exhaustive() {
 #[test]
 fn int_pattern_on_bool_is_type_error() {
     let errs = check_err(
-        r#"fn check(b: Bool) -> I32 {
+        r#"fn check(b: Bool) -> I64 {
             match b {
                 0 => 1,
                 _ => 2,
@@ -993,7 +1113,7 @@ fn int_pattern_on_bool_is_type_error() {
 #[test]
 fn variable_pattern_makes_int_match_exhaustive() {
     check_ok(
-        r#"fn describe(n: I32) -> Str {
+        r#"fn describe(n: I64) -> Str {
             match n {
                 0 => "zero",
                 other => "something",
@@ -1057,8 +1177,8 @@ fn try_propagation_superset_ok() {
 fn try_propagation_partial_missing() {
     let errs = check_err(
         r#"
-        fn risky(x: I32) -> I32 ! IoError | ParseError { x }
-        fn caller() -> I32 ! IoError {
+        fn risky(x: I64) -> I64 ! IoError | ParseError { x }
+        fn caller() -> I64 ! IoError {
             risky(1)?
         }
     "#,
@@ -1123,7 +1243,7 @@ fn throw_signature_clause_is_rejected() {
 fn width_specific_primitives_and_unit_type_work() {
     check_ok(
         r#"
-        fn id_i32(x: I32) -> I32 { x }
+        fn id_i32(x: I64) -> I64 { x }
         fn keep_f64(x: F64) -> F64 { x }
         fn greet(name: Str) -> Str { name }
         fn done() -> () { return }
@@ -1140,7 +1260,7 @@ fn trait_definition_and_impl() {
         trait Display[T] {
             fn show(self: T) -> Str
         }
-        struct Point { x: I32, y: I32 }
+        struct Point { x: I64, y: I64 }
         impl Display for Point {
             fn show(self: Point) -> Str { "point" }
         }
@@ -1155,7 +1275,7 @@ fn impl_missing_method_error() {
         trait Display[T] {
             fn show(self: T) -> Str
         }
-        struct Point { x: I32, y: I32 }
+        struct Point { x: I64, y: I64 }
         impl Display for Point {
         }
     "#,
@@ -1170,10 +1290,10 @@ fn impl_extra_method_error() {
         trait Display[T] {
             fn show(self: T) -> Str
         }
-        struct Point { x: I32, y: I32 }
+        struct Point { x: I64, y: I64 }
         impl Display for Point {
             fn show(self: Point) -> Str { "point" }
-            fn extra() -> I32 { 42 }
+            fn extra() -> I64 { 42 }
         }
     "#,
     );
@@ -1184,7 +1304,7 @@ fn impl_extra_method_error() {
 fn impl_unknown_trait_error() {
     let errs = check_err(
         r#"
-        struct Point { x: I32, y: I32 }
+        struct Point { x: I64, y: I64 }
         impl UnknownCap for Point {
             fn show(self: Point) -> Str { "point" }
         }
@@ -1197,13 +1317,13 @@ fn impl_unknown_trait_error() {
 
 #[test]
 fn error_code_type_mismatch() {
-    let errs = check_err_with_codes(r#"fn f() -> I32 { "oops" }"#);
+    let errs = check_err_with_codes(r#"fn f() -> I64 { "oops" }"#);
     assert!(errs.iter().any(|e| e.0 == ErrorCode::E0001));
 }
 
 #[test]
 fn error_code_in_display_output() {
-    let module = parse(r#"fn f() -> I32 { "oops" }"#).unwrap();
+    let module = parse(r#"fn f() -> I64 { "oops" }"#).unwrap();
     let errs = type_check(&module).unwrap_err();
     let output = errs[0].to_string();
     assert!(
@@ -1214,7 +1334,7 @@ fn error_code_in_display_output() {
 
 #[test]
 fn error_code_undefined_variable() {
-    let errs = check_err_with_codes("fn f() -> I32 { x }");
+    let errs = check_err_with_codes("fn f() -> I64 { x }");
     assert!(errs.iter().any(|e| e.0 == ErrorCode::E0004));
 }
 
@@ -1222,8 +1342,8 @@ fn error_code_undefined_variable() {
 fn error_code_wrong_arg_count() {
     let errs = check_err_with_codes(
         r#"
-        fn add(a: I32, b: I32) -> I32 { a }
-        fn main() -> I32 { add(1) }
+        fn add(a: I64, b: I64) -> I64 { a }
+        fn main() -> I64 { add(1) }
     "#,
     );
     assert!(errs.iter().any(|e| e.0 == ErrorCode::E0007));
@@ -1231,7 +1351,7 @@ fn error_code_wrong_arg_count() {
 
 #[test]
 fn error_code_cannot_call_non_function() {
-    let errs = check_err_with_codes("fn f() -> I32 { let x: I32 = 1; x(2) }");
+    let errs = check_err_with_codes("fn f() -> I64 { let x: I64 = 1; x(2) }");
     assert!(errs.iter().any(|e| e.0 == ErrorCode::E0008));
 }
 
@@ -1250,8 +1370,8 @@ fn error_code_missing_effects() {
 fn error_code_no_such_field() {
     let errs = check_err_with_codes(
         r#"
-        struct Point { x: I32, y: I32 }
-        fn f() -> I32 { let p = Point { x: 1, y: 2 }; p.z }
+        struct Point { x: I64, y: I64 }
+        fn f() -> I64 { let p = Point { x: 1, y: 2 }; p.z }
     "#,
     );
     assert!(errs.iter().any(|e| e.0 == ErrorCode::E0015));
@@ -1261,7 +1381,7 @@ fn error_code_no_such_field() {
 
 #[test]
 fn record_type_basic() {
-    check_ok("fn f(p: { x: I32, y: I32 }) -> I32 { 0 }");
+    check_ok("fn f(p: { x: I64, y: I64 }) -> I64 { 0 }");
 }
 
 #[test]
@@ -1269,8 +1389,8 @@ fn record_width_subtyping() {
     // A record with extra fields should be accepted where fewer are expected
     check_ok(
         r#"
-        fn needs_xy(p: { x: I32, y: I32 }) -> I32 { 0 }
-        fn provide_xyz(p: { x: I32, y: I32, z: Bool }) -> I32 { needs_xy(p) }
+        fn needs_xy(p: { x: I64, y: I64 }) -> I64 { 0 }
+        fn provide_xyz(p: { x: I64, y: I64, z: Bool }) -> I64 { needs_xy(p) }
     "#,
     );
 }
@@ -1283,7 +1403,7 @@ fn trait_with_assoc_type() {
         r#"
         trait Iterator[T] {
             type Output
-            fn next(self: T) -> I32
+            fn next(self: T) -> I64
         }
     "#,
     );
@@ -1301,10 +1421,10 @@ fn hole_info_v03_has_all_fields() {
         name: "impl".into(),
         location: None,
         span: None,
-        expected_type: Ty::I32,
+        expected_type: Ty::I64,
         type_inferred_from: Some("return type".into()),
         function: "foo".into(),
-        enclosing_signature: Some("fn foo() -> I32".into()),
+        enclosing_signature: Some("fn foo() -> I64".into()),
         bindings: BTreeMap::new(),
         binding_dependencies: BTreeMap::new(),
         available_effects: EffectSet::new(),
@@ -1318,10 +1438,10 @@ fn hole_info_v03_has_all_fields() {
         error_clusters: vec![],
     };
     assert_eq!(info.name, "impl");
-    assert_eq!(info.expected_type, Ty::I32);
+    assert_eq!(info.expected_type, Ty::I64);
     assert!(info.location.is_none());
     assert_eq!(info.type_inferred_from.as_deref(), Some("return type"));
-    assert_eq!(info.enclosing_signature.as_deref(), Some("fn foo() -> I32"));
+    assert_eq!(info.enclosing_signature.as_deref(), Some("fn foo() -> I64"));
 }
 
 #[test]
@@ -1505,7 +1625,7 @@ fn hole_report_json_v03_fields() {
 fn hole_collects_available_effects_and_errors() {
     let module = parse(
         r#"
-        fn helper() -> I32 ! ParseError uses [IO] {
+        fn helper() -> I64 ! ParseError uses [IO] {
             ?todo
         }
     "#,
@@ -1524,7 +1644,7 @@ fn hole_collects_handler_effect_context_after_discharge() {
         effect Console {
             fn println(msg: Str) -> ()
         }
-        fn main() -> I32 uses [IO] {
+        fn main() -> I64 uses [IO] {
             handle {
                 ?todo
             } with {
@@ -1553,10 +1673,10 @@ fn hole_candidates_include_canonical_rejection_reasons() {
         effect Console {
             fn println(msg: Str) -> ()
         }
-        fn pure() -> I32 { 1 }
-        fn noisy() -> I32 uses [Console] { 2 }
-        fn risky() -> I32 ! ParseError { 3 }
-        fn main() -> I32 {
+        fn pure() -> I64 { 1 }
+        fn noisy() -> I64 uses [Console] { 2 }
+        fn risky() -> I64 ! ParseError { 3 }
+        fn main() -> I64 {
             ?todo
         }
     "#,
@@ -1601,9 +1721,9 @@ fn hole_candidates_include_canonical_rejection_reasons() {
 fn hole_report_includes_checked_residual_context() {
     let module = parse(
         r#"
-        fn cheap() -> I32 cost [1, 0, 0, 0] { 1 + 1 }
-        fn costly() -> I32 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
-        fn target() -> I32 cost [6, 0, 0, 0] {
+        fn cheap() -> I64 cost [1, 0, 0, 0] { 1 + 1 }
+        fn costly() -> I64 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
+        fn target() -> I64 cost [6, 0, 0, 0] {
             let seed = cheap();
             ?todo
         }
@@ -1680,7 +1800,7 @@ fn hole_report_includes_checked_residual_context() {
 fn enum_constructor_call() {
     check_ok(
         r#"
-        type Shape { Circle(I32), Rect(I32, I32) }
+        type Shape { Circle(I64), Rect(I64, I64) }
         fn make_circle() -> Shape { Circle(3) }
         fn make_rect() -> Shape { Rect(6, 7) }
     "#,
@@ -1701,8 +1821,8 @@ fn enum_constructor_zero_field_as_value() {
 fn enum_constructor_match_still_works() {
     check_ok(
         r#"
-        type Option { Some(I32), None }
-        fn unwrap_or(opt: Option, default: I32) -> I32 {
+        type Option { Some(I64), None }
+        fn unwrap_or(opt: Option, default: I64) -> I64 {
             match opt {
                 Some(value) => value,
                 None => default,
@@ -1762,7 +1882,7 @@ fn concrete_generic_enum_constructor_pattern_binds_instantiated_field_type() {
     check_ok(
         r#"
         type Option[T] { Some(T), None }
-        fn unwrap_i32(opt: Option[I32], default: I32) -> I32 {
+        fn unwrap_i32(opt: Option[I64], default: I64) -> I64 {
             match opt {
                 Some(value) => value,
                 None => default,
@@ -1776,8 +1896,8 @@ fn concrete_generic_enum_constructor_pattern_binds_instantiated_field_type() {
 fn catch_all_binding_can_share_name_with_zero_arg_function() {
     check_ok(
         r#"
-        fn fallback() -> I32 { 0 }
-        fn describe(n: I32) -> I32 {
+        fn fallback() -> I64 { 0 }
+        fn describe(n: I64) -> I64 {
             match n {
                 fallback => fallback,
             }
@@ -1790,7 +1910,7 @@ fn catch_all_binding_can_share_name_with_zero_arg_function() {
 fn enum_constructor_wrong_arg_count() {
     let errs = check_err(
         r#"
-        type Shape { Circle(I32), Rect(I32, I32) }
+        type Shape { Circle(I64), Rect(I64, I64) }
         fn bad() -> Shape { Rect(1) }
     "#,
     );
@@ -1801,7 +1921,7 @@ fn enum_constructor_wrong_arg_count() {
 fn enum_constructor_wrong_arg_type() {
     let errs = check_err(
         r#"
-        type Shape { Circle(I32), Rect(I32, I32) }
+        type Shape { Circle(I64), Rect(I64, I64) }
         fn bad() -> Shape { Circle("hello") }
     "#,
     );
@@ -1817,9 +1937,9 @@ fn impl_wrong_return_type() {
         trait Stringify[T] {
             fn to_string(self: T) -> Str
         }
-        struct Num { val: I32 }
+        struct Num { val: I64 }
         impl Stringify for Num {
-            fn to_string(self: Num) -> I32 { 42 }
+            fn to_string(self: Num) -> I64 { 42 }
         }
     "#,
     );
@@ -1831,11 +1951,11 @@ fn impl_wrong_param_type() {
     let errs = check_err(
         r#"
         trait Adder[T] {
-            fn add(self: T, n: I32) -> I32
+            fn add(self: T, n: I64) -> I64
         }
-        struct Counter { val: I32 }
+        struct Counter { val: I64 }
         impl Adder for Counter {
-            fn add(self: Counter, n: Str) -> I32 { 0 }
+            fn add(self: Counter, n: Str) -> I64 { 0 }
         }
     "#,
     );
@@ -1849,7 +1969,7 @@ fn impl_correct_signature_ok() {
         trait Display[T] {
             fn show(self: T) -> Str
         }
-        struct Point { x: I32, y: I32 }
+        struct Point { x: I64, y: I64 }
         impl Display for Point {
             fn show(self: Point) -> Str { "point" }
         }
@@ -1863,8 +1983,8 @@ fn impl_correct_signature_ok() {
 fn spawn_wraps_in_task() {
     check_ok(
         r#"
-        fn work() -> I32 { 42 }
-        fn run() -> I32 uses [Spawn] {
+        fn work() -> I64 { 42 }
+        fn run() -> I64 uses [Spawn] {
             parallel_scope {
                 let t = spawn work();
                 t.await
@@ -1878,8 +1998,8 @@ fn spawn_wraps_in_task() {
 fn spawn_requires_spawn_effect() {
     let errs = check_err(
         r#"
-        fn work() -> I32 { 42 }
-        fn run() -> I32 {
+        fn work() -> I64 { 42 }
+        fn run() -> I64 {
             parallel_scope {
                 let t = spawn work();
                 t.await
@@ -1897,8 +2017,8 @@ fn spawn_requires_spawn_effect() {
 fn spawn_requires_parallel_scope() {
     let errs = check_err(
         r#"
-        fn work() -> I32 { 42 }
-        fn run() -> I32 uses [Spawn] {
+        fn work() -> I64 { 42 }
+        fn run() -> I64 uses [Spawn] {
             let t = spawn work();
             t.await
         }
@@ -1914,8 +2034,8 @@ fn spawn_requires_parallel_scope() {
 fn parallel_scope_lanes_positive_and_enforced_locally() {
     let errs = check_err(
         r#"
-        fn work() -> I32 { 42 }
-        fn run() -> I32 uses [Spawn] {
+        fn work() -> I64 { 42 }
+        fn run() -> I64 uses [Spawn] {
             parallel_scope(lanes: 1) {
                 let a = spawn work();
                 let b = spawn work();
@@ -1931,7 +2051,7 @@ fn parallel_scope_lanes_positive_and_enforced_locally() {
 fn await_non_task_is_error() {
     let errs = check_err(
         r#"
-        fn run() -> I32 {
+        fn run() -> I64 {
             42.await
         }
     "#,
@@ -1943,8 +2063,8 @@ fn await_non_task_is_error() {
 fn channel_new_typed_sender_receiver_pair() {
     check_ok(
         r#"
-        fn build() -> (Sender[I32], Receiver[I32]) {
-            Channel.new[I32](buffer: 16)
+        fn build() -> (Sender[I64], Receiver[I64]) {
+            Channel.new[I64](buffer: 16)
         }
     "#,
     );
@@ -1954,7 +2074,7 @@ fn channel_new_typed_sender_receiver_pair() {
 fn select_timeout_requires_int_duration() {
     let errs = check_err(
         r#"
-        fn f(rx: Receiver[I32]) -> I32 {
+        fn f(rx: Receiver[I64]) -> I64 {
             select {
                 value from rx => value,
                 timeout("slow") => 0
@@ -1969,7 +2089,7 @@ fn select_timeout_requires_int_duration() {
 fn select_recv_source_must_be_receiver() {
     let errs = check_err(
         r#"
-        fn f(tx: Sender[I32]) -> I32 {
+        fn f(tx: Sender[I64]) -> I64 {
             select {
                 value from tx => value
             }
@@ -1987,18 +2107,18 @@ fn select_recv_source_must_be_receiver() {
 #[test]
 fn sep0006_type_errors_use_e0xxx() {
     // Type mismatch → E0001
-    let errs = check_err_with_codes(r#"fn f() -> I32 { "oops" }"#);
+    let errs = check_err_with_codes(r#"fn f() -> I64 { "oops" }"#);
     assert!(errs.iter().any(|e| e.0 == ErrorCode::E0001));
 
     // Undefined variable → E0004
-    let errs = check_err_with_codes("fn f() -> I32 { x }");
+    let errs = check_err_with_codes("fn f() -> I64 { x }");
     assert!(errs.iter().any(|e| e.0 == ErrorCode::E0004));
 
     // Wrong arg count → E0007
     let errs = check_err_with_codes(
         r#"
-        fn add(a: I32, b: I32) -> I32 { a }
-        fn main() -> I32 { add(1) }
+        fn add(a: I64, b: I64) -> I64 { a }
+        fn main() -> I64 { add(1) }
     "#,
     );
     assert!(errs.iter().any(|e| e.0 == ErrorCode::E0007));
@@ -2018,7 +2138,7 @@ fn sep0006_effect_violations_use_c0xxx() {
 
 #[test]
 fn sep0006_display_format_four_digits() {
-    let module = parse(r#"fn f() -> I32 { "oops" }"#).unwrap();
+    let module = parse(r#"fn f() -> I64 { "oops" }"#).unwrap();
     let errs = type_check(&module).unwrap_err();
     let output = errs[0].to_string();
     assert!(
@@ -2030,7 +2150,7 @@ fn sep0006_display_format_four_digits() {
 #[test]
 fn sep0006_no_old_three_digit_codes() {
     // Verify that display output never contains old-style 3-digit codes
-    let module = parse(r#"fn f() -> I32 { "oops" }"#).unwrap();
+    let module = parse(r#"fn f() -> I64 { "oops" }"#).unwrap();
     let errs = type_check(&module).unwrap_err();
     let output = errs[0].to_string();
     // Old code would have been [E001]; new code is [E0001]
@@ -2047,8 +2167,8 @@ fn refinement_let_binding_satisfied() {
     // 5 > 0 is true, so this should pass
     check_ok(
         r#"
-fn f() -> I32 {
-    let x: I32 when self > 0 = 5;
+fn f() -> I64 {
+    let x: I64 when self > 0 = 5;
     x
 }
 "#,
@@ -2060,8 +2180,8 @@ fn refinement_let_binding_violated() {
     // -1 > 0 is false, should emit R0001
     let errs = check_err_with_codes(
         r#"
-fn f() -> I32 {
-    let x: I32 when self > 0 = -1;
+fn f() -> I64 {
+    let x: I64 when self > 0 = -1;
     x
 }
 "#,
@@ -2074,12 +2194,12 @@ fn f() -> I32 {
 
 #[test]
 fn refinement_subtype_of_base() {
-    // A refined Int should be accepted where Int is expected
+    // A refined I64 should be accepted where I64 is expected
     check_ok(
         r#"
-fn add(a: I32, b: I32) -> I32 { a + b }
-fn f() -> I32 {
-    let x: I32 when self > 0 = 5;
+fn add(a: I64, b: I64) -> I64 { a + b }
+fn f() -> I64 {
+    let x: I64 when self > 0 = 5;
     add(x, 3)
 }
 "#,
@@ -2088,11 +2208,11 @@ fn f() -> I32 {
 
 #[test]
 fn refinement_alias_definition() {
-    // alias Port = Int when ... should register and be usable
+    // alias Port = I64 when ... should register and be usable
     check_ok(
         r#"
-alias Port = I32 when self >= 1 && self <= 65535
-fn get_port() -> I32 {
+alias Port = I64 when self >= 1 && self <= 65535
+fn get_port() -> I64 {
     let p: Port = 80;
     p
 }
@@ -2105,8 +2225,8 @@ fn refinement_alias_violated() {
     // 0 is not in 1..=65535
     let errs = check_err_with_codes(
         r#"
-alias Port = I32 when self >= 1 && self <= 65535
-fn get_port() -> I32 {
+alias Port = I64 when self >= 1 && self <= 65535
+fn get_port() -> I64 {
     let p: Port = 0;
     p
 }
@@ -2150,14 +2270,14 @@ fn f() -> Str {
 
 #[test]
 fn refinement_type_display() {
-    // Verify Display impl shows "I32 when <predicate>"
+    // Verify Display impl shows "I64 when <predicate>"
     let ty = Ty::Refined(
-        Box::new(Ty::I32),
+        Box::new(Ty::I64),
         "self".into(),
         Box::new(sporec_parser::ast::Expr::BoolLit(true)),
     );
     let display = format!("{ty}");
-    assert_eq!(display, "I32 when <predicate>");
+    assert_eq!(display, "I64 when <predicate>");
 }
 
 #[test]
@@ -2165,8 +2285,8 @@ fn refinement_fn_param_with_refined_type() {
     // Function with refined parameter type should typecheck
     check_ok(
         r#"
-fn positive(x: I32 when self > 0) -> I32 { x }
-fn f() -> I32 { positive(5) }
+fn positive(x: I64 when self > 0) -> I64 { x }
+fn f() -> I64 { positive(5) }
 "#,
     );
 }
@@ -2277,7 +2397,7 @@ fn builtin_read_line_type_checks() {
 
 #[test]
 fn builtin_string_length_type_checks() {
-    check_ok(r#"fn f() -> I32 { string_length("abc") }"#);
+    check_ok(r#"fn f() -> I64 { string_length("abc") }"#);
 }
 
 #[test]
@@ -2297,13 +2417,13 @@ fn builtin_to_string_type_checks() {
 
 #[test]
 fn builtin_math_abs_type_checks() {
-    check_ok("fn f() -> I32 { abs(-1) }");
+    check_ok("fn f() -> I64 { abs(-1) }");
 }
 
 #[test]
 fn builtin_math_min_max_type_checks() {
-    check_ok("fn f() -> I32 { min(1, 2) }");
-    check_ok("fn f() -> I32 { max(1, 2) }");
+    check_ok("fn f() -> I64 { min(1, 2) }");
+    check_ok("fn f() -> I64 { max(1, 2) }");
 }
 
 #[test]
@@ -2340,7 +2460,7 @@ fn builtin_program_using_builtins() {
 
 #[test]
 fn builtin_to_string_accepts_float() {
-    // Bug A5: to_string should accept any type, not just Int
+    // Bug A5: to_string should accept any type, not just I64
     check_ok(r#"fn f() -> Str { to_string(3.14) }"#);
 }
 
@@ -2363,13 +2483,13 @@ fn builtin_split_returns_list_str() {
 #[test]
 fn builtin_head_returns_option() {
     // Bug A7: head should return Option[A], not A
-    check_ok(r#"fn f() -> Option[I32] { head([1, 2, 3]) }"#);
+    check_ok(r#"fn f() -> Option[I64] { head([1, 2, 3]) }"#);
 }
 
 #[test]
 fn builtin_tail_returns_option_list() {
     // Bug A7: tail should return Option[List[A]], not List[A]
-    check_ok(r#"fn f() -> Option[List[I32]] { tail([1, 2, 3]) }"#);
+    check_ok(r#"fn f() -> Option[List[I64]] { tail([1, 2, 3]) }"#);
 }
 
 #[test]
@@ -2380,7 +2500,7 @@ fn builtin_char_at_returns_option() {
 
 #[test]
 fn builtin_char_to_int_type_checks() {
-    check_ok(r#"fn f() -> I32 { char_to_int("A") }"#);
+    check_ok(r#"fn f() -> I64 { char_to_int("A") }"#);
 }
 
 #[test]
@@ -2403,8 +2523,8 @@ fn test_foreign_fn_typechecks() {
 fn test_foreign_fn_callable_signature() {
     check_ok(
         r#"
-        foreign fn add(a: I32, b: I32) -> I32
-        fn main() -> I32 { add(1, 2) }
+        foreign fn add(a: I64, b: I64) -> I64
+        fn main() -> I64 { add(1, 2) }
         "#,
     );
 }
@@ -2532,7 +2652,7 @@ fn test_perform_checks_declared_effect_argument_types() {
     assert!(
         errs.iter()
             .any(|e| e.contains("argument 1 of `Console.println`")
-                || e.contains("expected `Str`, got `I32`")),
+                || e.contains("expected `Str`, got `I64`")),
         "expected effect operation argument type error, got: {errs:?}"
     );
 }
@@ -2542,9 +2662,9 @@ fn test_handle_result_flows_into_surrounding_expression() {
     check_ok(
         r#"
         effect Math {
-            fn double(x: I32) -> I32
+            fn double(x: I64) -> I64
         }
-        fn main() -> I32 {
+        fn main() -> I64 {
             let doubled = handle {
                 perform Math.double(21)
             } with {
@@ -2561,9 +2681,9 @@ fn test_handle_arm_matches_declared_effect_return_type() {
     let errs = check_err(
         r#"
         effect Math {
-            fn double(x: I32) -> I32
+            fn double(x: I64) -> I64
         }
-        fn main() -> I32 {
+        fn main() -> I64 {
             handle {
                 perform Math.double(21)
             } with {
@@ -2583,9 +2703,9 @@ fn test_handle_arm_checks_declared_effect_arity() {
     let errs = check_err(
         r#"
         effect Math {
-            fn double(x: I32) -> I32
+            fn double(x: I64) -> I64
         }
-        fn main() -> I32 {
+        fn main() -> I64 {
             handle {
                 perform Math.double(21)
             } with {
@@ -2606,12 +2726,12 @@ fn test_named_handler_payload_and_self_typecheck() {
     check_ok(
         r#"
         effect Math {
-            fn double(x: I32) -> I32
+            fn double(x: I64) -> I64
         }
-        handler Math as DoubleMath(multiplier: I32) {
-            fn double(x: I32) -> I32 { x * self.multiplier }
+        handler Math as DoubleMath(multiplier: I64) {
+            fn double(x: I64) -> I64 { x * self.multiplier }
         }
-        fn main() -> I32 {
+        fn main() -> I64 {
             handle {
                 perform Math.double(21)
             } with {
@@ -2627,12 +2747,12 @@ fn test_named_handler_payload_checks_field_types() {
     let errs = check_err(
         r#"
         effect Math {
-            fn double(x: I32) -> I32
+            fn double(x: I64) -> I64
         }
-        handler Math as DoubleMath(multiplier: I32) {
-            fn double(x: I32) -> I32 { x * self.multiplier }
+        handler Math as DoubleMath(multiplier: I64) {
+            fn double(x: I64) -> I64 { x * self.multiplier }
         }
-        fn main() -> I32 {
+        fn main() -> I64 {
             handle {
                 perform Math.double(21)
             } with {
@@ -2644,7 +2764,7 @@ fn test_named_handler_payload_checks_field_types() {
     assert!(
         errs.iter()
             .any(|e| e.contains("payload field `multiplier`")
-                || e.contains("expected `I32`, got `Str`")),
+                || e.contains("expected `I64`, got `Str`")),
         "expected named handler payload type error, got: {errs:?}"
     );
 }
@@ -2654,12 +2774,12 @@ fn test_named_and_inline_duplicate_binding_errors() {
     let errs = check_err(
         r#"
         effect Math {
-            fn double(x: I32) -> I32
+            fn double(x: I64) -> I64
         }
-        handler Math as DoubleMath(multiplier: I32) {
-            fn double(x: I32) -> I32 { x * self.multiplier }
+        handler Math as DoubleMath(multiplier: I64) {
+            fn double(x: I64) -> I64 { x * self.multiplier }
         }
-        fn main() -> I32 {
+        fn main() -> I64 {
             handle {
                 perform Math.double(21)
             } with {
@@ -2681,8 +2801,8 @@ fn test_named_and_inline_duplicate_binding_errors() {
 #[test]
 fn test_or_pattern_same_bindings() {
     check_ok(
-        r#"type Shape { Circle(I32), Square(I32) }
-        fn size(s: Shape) -> I32 {
+        r#"type Shape { Circle(I64), Square(I64) }
+        fn size(s: Shape) -> I64 {
             match s {
                 Circle(x) | Square(x) => x,
             }
@@ -2693,8 +2813,8 @@ fn test_or_pattern_same_bindings() {
 #[test]
 fn test_or_pattern_different_bindings_error() {
     let errs = check_err_with_codes(
-        r#"type Shape { Circle(I32), Square(I32) }
-        fn size(s: Shape) -> I32 {
+        r#"type Shape { Circle(I64), Square(I64) }
+        fn size(s: Shape) -> I64 {
             match s {
                 Circle(x) | Square(y) => 0,
             }
@@ -2709,8 +2829,8 @@ fn test_or_pattern_different_bindings_error() {
 #[test]
 fn test_or_pattern_different_types_error() {
     let errs = check_err(
-        r#"type Value { IntVal(I32), StrVal(Str) }
-        fn show(v: Value) -> I32 {
+        r#"type Value { IntVal(I64), StrVal(Str) }
+        fn show(v: Value) -> I64 {
             match v {
                 IntVal(x) | StrVal(x) => 0,
             }
@@ -2740,7 +2860,7 @@ fn test_or_pattern_no_bindings() {
 #[test]
 fn test_fn_type_with_error_set() {
     let errors: ErrorSet = ["MyError".to_string()].into_iter().collect();
-    let ty = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), errors.clone());
+    let ty = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), errors.clone());
     match &ty {
         Ty::Fn(_, _, _, err_set) => assert_eq!(*err_set, errors),
         _ => panic!("expected Ty::Fn"),
@@ -2749,7 +2869,7 @@ fn test_fn_type_with_error_set() {
 
 #[test]
 fn test_fn_type_empty_error_set() {
-    let ty = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), ErrorSet::new());
+    let ty = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), ErrorSet::new());
     match &ty {
         Ty::Fn(_, _, _, err_set) => assert!(err_set.is_empty()),
         _ => panic!("expected Ty::Fn"),
@@ -2759,13 +2879,13 @@ fn test_fn_type_empty_error_set() {
 #[test]
 fn test_error_set_display_empty() {
     let ty = Ty::Fn(
-        vec![Ty::I32],
+        vec![Ty::I64],
         Box::new(Ty::Str),
         EffectSet::new(),
         ErrorSet::new(),
     );
     let display = format!("{ty}");
-    assert_eq!(display, "(I32) -> Str");
+    assert_eq!(display, "(I64) -> Str");
     assert!(!display.contains('!'));
 }
 
@@ -2784,10 +2904,10 @@ fn test_error_set_display_with_errors() {
 fn test_error_set_propagation() {
     // Using `?` to propagate errors from a caller that doesn't declare them
     let src = r#"
-        fn risky() -> I32 ! MyError {
+        fn risky() -> I64 ! MyError {
             42
         }
-        fn caller() -> I32 {
+        fn caller() -> I64 {
             risky()?
         }
     "#;
@@ -2806,7 +2926,7 @@ fn refined_types_different_predicates_not_equal() {
     use sporec_parser::ast::{BinOp, Expr};
 
     let pos = Ty::Refined(
-        Box::new(Ty::I32),
+        Box::new(Ty::I64),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2815,7 +2935,7 @@ fn refined_types_different_predicates_not_equal() {
         )),
     );
     let bounded = Ty::Refined(
-        Box::new(Ty::I32),
+        Box::new(Ty::I64),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2834,10 +2954,10 @@ fn test_error_set_propagation_declared() {
     // Using `?` from a caller that declares the errors should be OK
     check_ok(
         r#"
-        fn risky() -> I32 ! MyError {
+        fn risky() -> I64 ! MyError {
             42
         }
-        fn caller() -> I32 ! MyError {
+        fn caller() -> I64 ! MyError {
             risky()?
         }
     "#,
@@ -2849,7 +2969,7 @@ fn throw_requires_declared_error_set() {
     let errs = check_err(
         r#"
         struct MyError {}
-        fn fail() -> I32 {
+        fn fail() -> I64 {
             throw MyError {}
         }
     "#,
@@ -2867,7 +2987,7 @@ fn throw_named_error_must_be_declared() {
         r#"
         struct IoError {}
         struct ParseError {}
-        fn fail() -> I32 ! IoError {
+        fn fail() -> I64 ! IoError {
             throw ParseError {}
         }
     "#,
@@ -2883,7 +3003,7 @@ fn throw_named_error_declared_ok() {
     check_ok(
         r#"
         struct MyError {}
-        fn fail() -> I32 ! MyError {
+        fn fail() -> I64 ! MyError {
             throw MyError {}
         }
     "#,
@@ -2895,7 +3015,7 @@ fn refined_types_identical_are_equal() {
     use sporec_parser::ast::{BinOp, Expr};
 
     let a = Ty::Refined(
-        Box::new(Ty::I32),
+        Box::new(Ty::I64),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2904,7 +3024,7 @@ fn refined_types_identical_are_equal() {
         )),
     );
     let b = Ty::Refined(
-        Box::new(Ty::I32),
+        Box::new(Ty::I64),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2922,9 +3042,9 @@ fn refined_types_identical_are_equal() {
 fn test_fn_type_equality_with_error_set() {
     let mut errors = ErrorSet::new();
     errors.insert("E1".to_string());
-    let ty1 = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), errors.clone());
-    let ty2 = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), errors);
-    let ty3 = Ty::Fn(vec![], Box::new(Ty::I32), EffectSet::new(), ErrorSet::new());
+    let ty1 = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), errors.clone());
+    let ty2 = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), errors);
+    let ty3 = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), ErrorSet::new());
     assert_eq!(ty1, ty2);
     assert_ne!(ty1, ty3);
 }
@@ -2934,7 +3054,7 @@ fn refined_types_different_var_names_not_equal() {
     use sporec_parser::ast::{BinOp, Expr};
 
     let a = Ty::Refined(
-        Box::new(Ty::I32),
+        Box::new(Ty::I64),
         "x".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("x".into())),
@@ -2943,7 +3063,7 @@ fn refined_types_different_var_names_not_equal() {
         )),
     );
     let b = Ty::Refined(
-        Box::new(Ty::I32),
+        Box::new(Ty::I64),
         "y".into(),
         Box::new(Expr::BinOp(
             Box::new(Expr::Var("y".into())),
@@ -2960,15 +3080,15 @@ fn refined_types_different_var_names_not_equal() {
 
 #[test]
 fn ty_fold_replaces_int_with_float_in_nested_type() {
-    // Fn([Int, Tuple([Int, Bool])], Int, {}, {}) → Fn([Float, Tuple([Float, Bool])], Float, {}, {})
+    // Fn([I64, Tuple([I64, Bool])], I64, {}, {}) → Fn([F64, Tuple([F64, Bool])], F64, {}, {})
     let ty = Ty::Fn(
-        vec![Ty::I32, Ty::Tuple(vec![Ty::I32, Ty::Bool])],
-        Box::new(Ty::I32),
+        vec![Ty::I64, Ty::Tuple(vec![Ty::I64, Ty::Bool])],
+        Box::new(Ty::I64),
         EffectSet::new(),
         ErrorSet::new(),
     );
     let folded = ty.fold(&mut |t| match t {
-        Ty::I32 => Ty::F64,
+        Ty::I64 => Ty::F64,
         other => other,
     });
     let expected = Ty::Fn(
@@ -2982,9 +3102,9 @@ fn ty_fold_replaces_int_with_float_in_nested_type() {
 
 #[test]
 fn ty_fold_replaces_in_record() {
-    let ty = Ty::Record(vec![("x".into(), Ty::I32), ("y".into(), Ty::Bool)]);
+    let ty = Ty::Record(vec![("x".into(), Ty::I64), ("y".into(), Ty::Bool)]);
     let folded = ty.fold(&mut |t| match t {
-        Ty::I32 => Ty::Str,
+        Ty::I64 => Ty::Str,
         other => other,
     });
     assert_eq!(
@@ -2998,7 +3118,7 @@ fn ty_visit_collects_named_types() {
     let ty = Ty::Fn(
         vec![
             Ty::Named("Foo".into()),
-            Ty::Tuple(vec![Ty::Named("Bar".into()), Ty::I32]),
+            Ty::Tuple(vec![Ty::Named("Bar".into()), Ty::I64]),
         ],
         Box::new(Ty::App(
             "Result".into(),
@@ -3020,10 +3140,10 @@ fn ty_visit_collects_named_types() {
 fn ty_fold_ref_maps_vars() {
     let ty = Ty::App("List".into(), vec![Ty::Var(0)]);
     let mapped = ty.fold_ref(&mut |t| match t {
-        Ty::Var(0) => Some(Ty::I32),
+        Ty::Var(0) => Some(Ty::I64),
         _ => None,
     });
-    assert_eq!(mapped, Ty::App("List".into(), vec![Ty::I32]));
+    assert_eq!(mapped, Ty::App("List".into(), vec![Ty::I64]));
 }
 
 // ── Type soundness regression tests ─────────────────────────────────────
@@ -3031,8 +3151,8 @@ fn ty_fold_ref_maps_vars() {
 // S1: if without else must type as Unit
 #[test]
 fn if_without_else_types_as_unit() {
-    // Using the result of an if-without-else as Int should fail
-    let errs = check_err("fn f(x: Bool) -> I32 { if x { 42 } }");
+    // Using the result of an if-without-else as I64 should fail
+    let errs = check_err("fn f(x: Bool) -> I64 { if x { 42 } }");
     assert!(
         errs.iter().any(|e| e.contains("type mismatch")),
         "if-without-else returning non-() should be a type error, got: {errs:?}"
@@ -3052,9 +3172,9 @@ fn if_without_else_unit_body_ok() {
 // S2: return expression types as Never
 #[test]
 fn return_types_as_never() {
-    // return should diverge (Never), so using it in an if-else that expects Int is ok
+    // return should diverge (Never), so using it in an if-else that expects I64 is ok
     check_ok(
-        r#"fn f(x: Bool) -> I32 {
+        r#"fn f(x: Bool) -> I64 {
             if x { return 0 } else { 42 }
         }"#,
     );
@@ -3063,20 +3183,20 @@ fn return_types_as_never() {
 // S3: Never is covariant only — actual=Never is fine, expected=Never is not
 #[test]
 fn never_actual_unifies_with_any() {
-    // A function returning Never should be usable where Int is expected
+    // A function returning Never should be usable where I64 is expected
     check_ok(
         r#"fn diverge() -> Never { ?todo }
-        fn use_int() -> I32 { diverge() }"#,
+        fn use_int() -> I64 { diverge() }"#,
     );
 }
 
 #[test]
 fn int_does_not_satisfy_never() {
-    // Int should NOT satisfy an expected Never
+    // I64 should NOT satisfy an expected Never
     let errs = check_err("fn f() -> Never { 42 }");
     assert!(
         errs.iter().any(|e| e.contains("type mismatch")),
-        "I32 should not satisfy Never, got: {errs:?}"
+        "I64 should not satisfy Never, got: {errs:?}"
     );
 }
 
@@ -3110,8 +3230,8 @@ fn struct_duplicate_field_is_error() {
 fn exhaustive_parameterized_type_match() {
     // Non-parameterized Option works; the Ty::App path is tested below
     check_ok(
-        r#"type Option { Some(I32), None }
-        fn unwrap_or(opt: Option, default: I32) -> I32 {
+        r#"type Option { Some(I64), None }
+        fn unwrap_or(opt: Option, default: I64) -> I64 {
             match opt {
                 Some(v) => v,
                 None => default,
@@ -3123,8 +3243,8 @@ fn exhaustive_parameterized_type_match() {
 #[test]
 fn non_exhaustive_parameterized_type_match() {
     let errs = check_err(
-        r#"type Option { Some(I32), None }
-        fn unwrap(opt: Option) -> I32 {
+        r#"type Option { Some(I64), None }
+        fn unwrap(opt: Option) -> I64 {
             match opt {
                 Some(v) => v,
             }
@@ -3140,16 +3260,16 @@ fn non_exhaustive_parameterized_type_match() {
     );
 }
 
-/// Ty::App exhaustiveness: use a List[Int] return which forces the scrutinee
+/// Ty::App exhaustiveness: use a List[I64] return which forces the scrutinee
 /// through the App path. We construct the scenario via a helper that returns
 /// a parameterised type and then match on it.
 #[test]
 fn non_exhaustive_app_type_match() {
-    // Result[T, E] with two variants, matched on Result[Int, String].
-    // The checker resolves fn return type to Ty::App("Result", [Int, String]).
+    // Result[T, E] with two variants, matched on Result[I64, String].
+    // The checker resolves fn return type to Ty::App("Result", [I64, String]).
     let errs = check_err(
         r#"type Result[T, E] { Ok(T), Err(E) }
-        fn get_ok(r: Result[I32, Str]) -> I32 {
+        fn get_ok(r: Result[I64, Str]) -> I64 {
             match r {
                 Ok(v) => v,
             }
@@ -3157,7 +3277,7 @@ fn non_exhaustive_app_type_match() {
     );
     assert!(
         errs.iter().any(|e| e.contains("non-exhaustive")),
-        "should report non-exhaustive match on Result[I32, Str], got: {errs:?}"
+        "should report non-exhaustive match on Result[I64, Str], got: {errs:?}"
     );
 }
 
@@ -3165,7 +3285,7 @@ fn non_exhaustive_app_type_match() {
 
 #[test]
 fn return_type_mismatch_errors() {
-    let src = r#"fn foo() -> I32 { return "hello" }"#;
+    let src = r#"fn foo() -> I64 { return "hello" }"#;
     let errs = check_err(src);
     assert!(!errs.is_empty(), "should report return type mismatch");
 }
@@ -3174,12 +3294,12 @@ fn return_type_mismatch_errors() {
 
 #[test]
 fn len_on_list() {
-    check_ok("fn f() -> I32 { len([1, 2, 3]) }");
+    check_ok("fn f() -> I64 { len([1, 2, 3]) }");
 }
 
 #[test]
 fn len_on_string() {
-    check_ok(r#"fn f() -> I32 { len("hello") }"#);
+    check_ok(r#"fn f() -> I64 { len("hello") }"#);
 }
 
 // ── Trait keyword ───────────────────────────────────────────────────────
@@ -3191,7 +3311,7 @@ fn trait_keyword_definition_and_impl() {
         trait Display[T] {
             fn show(self: T) -> Str
         }
-        struct Point { x: I32, y: I32 }
+        struct Point { x: I64, y: I64 }
         impl Display for Point {
             fn show(self: Point) -> Str { "point" }
         }
@@ -3206,7 +3326,7 @@ fn trait_keyword_missing_method_error() {
         trait Display[T] {
             fn show(self: T) -> Str
         }
-        struct Point { x: I32, y: I32 }
+        struct Point { x: I64, y: I64 }
         impl Display for Point {
         }
     "#,
@@ -3221,7 +3341,7 @@ fn where_bound_single_trait_is_enforced() {
         trait Display[T] {
             fn show(self: T) -> Str
         }
-        struct Point { x: I32, y: I32 }
+        struct Point { x: I64, y: I64 }
         impl Display for Point {
             fn show(self: Point) -> Str { "point" }
         }
@@ -3380,7 +3500,7 @@ fn fn_named_example_still_works() {
     // `example` is a contextual keyword, so it should still be usable as a function name
     check_ok(
         r#"
-        fn example() -> I32 { 42 }
+        fn example() -> I64 { 42 }
     "#,
     );
 }
@@ -3391,7 +3511,7 @@ fn fn_named_example_still_works() {
 fn spec_examples_type_check() {
     check_ok(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
             example "basic": add(2, 3) == 5
         }
@@ -3406,7 +3526,7 @@ fn spec_examples_type_check() {
 fn spec_block_example_type_checks() {
     check_ok(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
             example "block" {
                 let sum = add(2, 3);
@@ -3424,9 +3544,9 @@ fn spec_block_example_type_checks() {
 fn spec_property_type_checks() {
     check_ok(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
-            property "left_identity": |a: I32, b: I32 when self == 0| a
+            property "left_identity": |a: I64, b: I64 when self == 0| a
         }
         {
             a + b
@@ -3439,9 +3559,9 @@ fn spec_property_type_checks() {
 fn spec_property_refinement_param_type_checks() {
     check_ok(
         r#"
-        fn abs(x: I32) -> I32
+        fn abs(x: I64) -> I64
         spec {
-            property "non_negative_identity": |x: I32 when self >= 0| x
+            property "non_negative_identity": |x: I64 when self >= 0| x
         }
         {
             if x < 0 { 0 - x } else { x }
@@ -3454,10 +3574,10 @@ fn spec_property_refinement_param_type_checks() {
 fn spec_full_clause_type_checks() {
     check_ok(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
             example "identity":     add(0, 42) == 42
-            property "left_identity": |a: I32, b: I32 when self == 0| a
+            property "left_identity": |a: I64, b: I64 when self == 0| a
         }
         {
             a + b
@@ -3470,7 +3590,7 @@ fn spec_full_clause_type_checks() {
 fn spec_example_must_be_bool() {
     let errs = check_err(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
             example "wrong": add(1, 2)
         }
@@ -3489,7 +3609,7 @@ fn spec_example_must_be_bool() {
 fn spec_property_must_be_lambda() {
     let errs = check_err(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
             property "bad": add(1, 2) == 3
         }
@@ -3509,9 +3629,9 @@ fn spec_property_must_be_lambda() {
 fn spec_property_lambda_must_return_function_result_type() {
     let errs = check_err(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
-            property "bad": |a: I32, b: I32| true
+            property "bad": |a: I64, b: I64| true
         }
         {
             a + b
@@ -3528,9 +3648,9 @@ fn spec_property_lambda_must_return_function_result_type() {
 fn spec_property_lambda_must_match_function_arity() {
     let errs = check_err(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
-            property "bad": |a: I32| a
+            property "bad": |a: I64| a
         }
         {
             a + b
@@ -3548,7 +3668,7 @@ fn spec_property_lambda_must_match_function_arity() {
 fn spec_property_param_must_match_input_or_subset() {
     let errs = check_err(
         r#"
-        fn abs(x: I32) -> I32
+        fn abs(x: I64) -> I64
         spec {
             property "bad": |x: Bool| x
         }
@@ -3567,7 +3687,7 @@ fn spec_property_param_must_match_input_or_subset() {
 fn spec_empty_clause_ok() {
     check_ok(
         r#"
-        fn f() -> I32
+        fn f() -> I64
         spec {
         }
         {
@@ -3591,6 +3711,6 @@ fn f64_identity_fn() {
 
 #[test]
 fn float_literal_infers_f64() {
-    // Float literals default to F64
+    // F64 literals default to F64
     check_ok("fn apply() -> F64 { let x: F64 = 3.14; x }");
 }

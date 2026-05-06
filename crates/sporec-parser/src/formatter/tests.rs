@@ -9,7 +9,7 @@ fn roundtrip(source: &str) -> String {
 
 #[test]
 fn test_simple_function() {
-    let src = "fn add(a: Int, b: Int) -> Int { a + b }\n";
+    let src = "fn add(a: I64, b: I64) -> I64 { a + b }\n";
     assert_eq!(roundtrip(src), src);
 }
 
@@ -21,44 +21,44 @@ fn test_function_with_errors_roundtrips() {
 
 #[test]
 fn test_struct_def() {
-    let src = "struct Point { x: Int, y: Int }\n";
+    let src = "struct Point { x: I64, y: I64 }\n";
     let out = roundtrip(src);
     assert!(out.contains("struct Point {"));
-    assert!(out.contains("x: Int,"));
-    assert!(out.contains("y: Int,"));
+    assert!(out.contains("x: I64,"));
+    assert!(out.contains("y: I64,"));
 }
 
 #[test]
 fn test_type_def_and_match() {
     let src = concat!(
         "type Shape {\n",
-        "    Circle(Int),\n",
-        "    Rect(Int, Int),\n",
+        "    Circle(I64),\n",
+        "    Rect(I64, I64),\n",
         "}\n",
     );
     let out = roundtrip(src);
     assert!(out.contains("type Shape {"));
-    assert!(out.contains("Circle(Int),"));
-    assert!(out.contains("Rect(Int, Int),"));
+    assert!(out.contains("Circle(I64),"));
+    assert!(out.contains("Rect(I64, I64),"));
 }
 
 #[test]
 fn test_pipe_operator() {
-    let src = "fn main() -> Int { 10 |> double }\n";
+    let src = "fn main() -> I64 { 10 |> double }\n";
     let out = roundtrip(src);
     assert!(out.contains("10 |> double"));
 }
 
 #[test]
 fn test_lambda() {
-    let src = "fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }\n";
+    let src = "fn apply(f: (I64) -> I64, x: I64) -> I64 { f(x) }\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
 fn test_multi_statement_block() {
     let src = concat!(
-        "fn main() -> Int {\n",
+        "fn main() -> I64 {\n",
         "    let x = 1;\n",
         "    let y = 2;\n",
         "    x + y\n",
@@ -70,7 +70,7 @@ fn test_multi_statement_block() {
 #[test]
 fn test_match_expression() {
     let src = concat!(
-        "fn area(s: Shape) -> Int {\n",
+        "fn area(s: Shape) -> I64 {\n",
         "    match s {\n",
         "        Circle(r) => r * r * 3,\n",
         "        Rect(w, h) => w * h,\n",
@@ -86,13 +86,13 @@ fn test_match_expression() {
 #[test]
 fn test_single_match_body_stays_multiline() {
     let src = concat!(
-        "fn area(s: Shape) -> Int { match s {\n",
+        "fn area(s: Shape) -> I64 { match s {\n",
         "    Circle(r) => r * r * 3,\n",
         "    Rect(w, h) => w * h,\n",
         "} }\n",
     );
     let expected = concat!(
-        "fn area(s: Shape) -> Int {\n",
+        "fn area(s: Shape) -> I64 {\n",
         "    match s {\n",
         "        Circle(r) => r * r * 3,\n",
         "        Rect(w, h) => w * h,\n",
@@ -141,19 +141,19 @@ fn test_hole_syntax_roundtrip() {
 
 #[test]
 fn test_allows_annotation_roundtrip() {
-    let src = "@allows[validate, sanitize]\nfn f() -> Int { ?todo }\n";
+    let src = "@allows[validate, sanitize]\nfn f() -> I64 { ?todo }\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
 fn test_hole_level_allows_roundtrip() {
-    let src = "fn f() -> Int { ?todo @allows[validate, sanitize] }\n";
+    let src = "fn f() -> I64 { ?todo @allows[validate, sanitize] }\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
 fn test_foreign_fn_roundtrips() {
-    let src = "foreign fn c_add(a: Int, b: Int) -> Int\n";
+    let src = "foreign fn c_add(a: I64, b: I64) -> I64\n";
     assert_eq!(roundtrip(src), src);
 }
 
@@ -229,15 +229,15 @@ fn test_multiple_properties_roundtrip() {
 
 #[test]
 fn test_blank_line_between_items() {
-    let src = concat!("fn a() -> Int { 1 }\n", "\n", "fn b() -> Int { 2 }\n",);
+    let src = concat!("fn a() -> I64 { 1 }\n", "\n", "fn b() -> I64 { 2 }\n",);
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
 fn test_const_def() {
-    let src = "const MAX: Int = 100\n";
+    let src = "const MAX: I64 = 100\n";
     let out = roundtrip(src);
-    assert!(out.contains("const MAX: Int = 100"));
+    assert!(out.contains("const MAX: I64 = 100"));
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn test_keyword_item_forms_roundtrip() {
 fn test_doc_comment_preserved() {
     let src = concat!(
         "/// Adds two numbers.\n",
-        "fn add(a: Int, b: Int) -> Int { a + b }\n",
+        "fn add(a: I64, b: I64) -> I64 { a + b }\n",
     );
     assert_eq!(roundtrip(src), src);
 }
@@ -278,10 +278,10 @@ fn test_doc_comment_preserved() {
 #[test]
 fn test_line_comment_between_items_preserved() {
     let src = concat!(
-        "fn a() -> Int { 1 }\n",
+        "fn a() -> I64 { 1 }\n",
         "\n",
         "// helper\n",
-        "fn b() -> Int { 2 }\n",
+        "fn b() -> I64 { 2 }\n",
     );
     assert_eq!(roundtrip(src), src);
 }
@@ -298,7 +298,7 @@ fn test_multi_line_doc_comment_preserved() {
 
 #[test]
 fn test_block_comment_preserved() {
-    let src = concat!("/* block comment */\n", "fn f() -> Int { 0 }\n",);
+    let src = concat!("/* block comment */\n", "fn f() -> I64 { 0 }\n",);
     assert_eq!(roundtrip(src), src);
 }
 
@@ -308,14 +308,14 @@ fn test_blank_line_between_comment_groups_preserved() {
         "/// Module doc.\n",
         "\n",
         "/// Function doc.\n",
-        "fn f() -> Int { 0 }\n",
+        "fn f() -> I64 { 0 }\n",
     );
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
 fn test_trailing_comment_after_last_item() {
-    let src = concat!("fn f() -> Int { 0 }\n", "\n", "// end of file\n",);
+    let src = concat!("fn f() -> I64 { 0 }\n", "\n", "// end of file\n",);
     let out = roundtrip(src);
     assert!(out.contains("// end of file"));
 }

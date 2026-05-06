@@ -60,7 +60,7 @@ pub struct AliasDef {
     pub span: Option<Span>,
 }
 
-/// Compile-time constant definition: `const MAX_SIZE: Int = 1024`
+/// Compile-time constant definition: `const MAX_SIZE: I64 = 1024`
 #[derive(Debug, Clone)]
 pub struct ConstDef {
     pub name: String,
@@ -162,7 +162,7 @@ pub struct HandlesClause {
 /// ```text
 /// spec {
 ///     example "identity": add(0, x) == x
-///     property "identity": |x: Int| x
+///     property "identity": |x: I64| x
 ///     property "non_negative_identity": |x: I32 when self >= 0| x
 /// }
 /// ```
@@ -222,11 +222,11 @@ pub enum TypeExpr {
     Tuple(Vec<TypeExpr>),
     /// Function type with optional error set: `(I32) -> I32 ! ParseError | IoError`
     Function(Vec<TypeExpr>, Box<TypeExpr>, Vec<TypeExpr>),
-    /// Refinement type using `when`: `{ x: Int when x > 0 }`
+    /// Refinement type using `when`: `{ x: I64 when x > 0 }`
     ///
     /// Fields: base type, binding name, predicate expression.
     Refinement(Box<TypeExpr>, String, Box<Expr>),
-    /// Anonymous record type: `{ x: Int, y: Int }`
+    /// Anonymous record type: `{ x: I64, y: I64 }`
     Record(Vec<(String, TypeExpr)>),
 }
 
@@ -234,6 +234,7 @@ pub enum TypeExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     IntLit(i64),
+    SuffixedIntLit(i64, String),
     FloatLit(f64),
     StrLit(String),
     FString(Vec<FStringPart>),

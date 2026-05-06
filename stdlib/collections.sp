@@ -20,7 +20,7 @@ fn last[T](list: List[T]) -> Option[T] cost [O(list), 1, 0, 0] {
 }
 
 @unbounded
-fn take[T](list: List[T], n: I32) -> List[T] cost [O(list), O(list), 0, 0]
+fn take[T](list: List[T], n: I64) -> List[T] cost [O(list), O(list), 0, 0]
 spec {
     example "len": len(take([1, 2, 3, 4], 2)) == 2
     example "sum": sum(take([1, 2, 3, 4], 2)) == 3
@@ -36,7 +36,7 @@ spec {
 }
 
 @unbounded
-fn drop[T](list: List[T], n: I32) -> List[T] cost [O(list), 0, 0, 0]
+fn drop[T](list: List[T], n: I64) -> List[T] cost [O(list), 0, 0, 0]
 spec {
     example "len": len(drop([1, 2, 3, 4], 2)) == 2
     example "sum": sum(drop([1, 2, 3, 4], 2)) == 7
@@ -63,7 +63,7 @@ fn zip[T, U](a: List[T], b: List[U]) -> List[Pair[T, U]] cost [O(a), O(a), 0, 0]
 }
 
 @unbounded
-fn enumerate_from[T](list: List[T], start: I32) -> List[Pair[I32, T]] cost [O(list), O(list), 0, 0] {
+fn enumerate_from[T](list: List[T], start: I64) -> List[Pair[I64, T]] cost [O(list), O(list), 0, 0] {
     match list {
         [] => [],
         [x, ..rest] => prepend(Pair { first: start, second: x }, enumerate_from(rest, start + 1)),
@@ -71,14 +71,14 @@ fn enumerate_from[T](list: List[T], start: I32) -> List[Pair[I32, T]] cost [O(li
 }
 
 @unbounded
-fn enumerate[T](list: List[T]) -> List[Pair[I32, T]] cost [O(list), O(list), 0, 0] { enumerate_from(list, 0) }
+fn enumerate[T](list: List[T]) -> List[Pair[I64, T]] cost [O(list), O(list), 0, 0] { enumerate_from(list, 0) }
 
 @unbounded
 fn any[T](list: List[T], pred: (T) -> Bool) -> Bool cost [O(list), 0, 0, 0]
 spec {
-    example "found": any([1, 2, 3], |x: I32| x > 2) == true
-    example "not_found": any([1, 2, 3], |x: I32| x > 5) == false
-    example "empty": any([], |x: I32| x > 0) == false
+    example "found": any([1, 2, 3], |x: I64| x > 2) == true
+    example "not_found": any([1, 2, 3], |x: I64| x > 5) == false
+    example "empty": any([], |x: I64| x > 0) == false
 }
 {
     match list {
@@ -90,9 +90,9 @@ spec {
 @unbounded
 fn all[T](list: List[T], pred: (T) -> Bool) -> Bool cost [O(list), 0, 0, 0]
 spec {
-    example "all_true": all([2, 4, 6], |x: I32| x % 2 == 0) == true
-    example "some_false": all([2, 3, 6], |x: I32| x % 2 == 0) == false
-    example "empty": all([], |x: I32| x > 0) == true
+    example "all_true": all([2, 4, 6], |x: I64| x % 2 == 0) == true
+    example "some_false": all([2, 3, 6], |x: I64| x % 2 == 0) == false
+    example "empty": all([], |x: I64| x > 0) == true
 }
 {
     match list {
@@ -110,10 +110,10 @@ fn find[T](list: List[T], pred: (T) -> Bool) -> Option[T] cost [O(list), 1, 0, 0
 }
 
 @unbounded
-fn find_index[T](list: List[T], pred: (T) -> Bool) -> Option[I32] cost [O(list), 1, 0, 0] { find_index_from(list, pred, 0) }
+fn find_index[T](list: List[T], pred: (T) -> Bool) -> Option[I64] cost [O(list), 1, 0, 0] { find_index_from(list, pred, 0) }
 
 @unbounded
-fn find_index_from[T](list: List[T], pred: (T) -> Bool, i: I32) -> Option[I32] cost [O(list), 1, 0, 0] {
+fn find_index_from[T](list: List[T], pred: (T) -> Bool, i: I64) -> Option[I64] cost [O(list), 1, 0, 0] {
     match list {
         [] => None,
         [x, ..rest] => if pred(x) { Some(i) } else { find_index_from(rest, pred, i + 1) },
@@ -132,7 +132,7 @@ spec {
 fn flat_map[T, U](list: List[T], f: (T) -> List[U]) -> List[U] cost [O(list), O(list), 0, 0] { flatten(map(list, f)) }
 
 @unbounded
-fn sort_asc(list: List[I32]) -> List[I32] cost [O(list), O(list), 0, 0]
+fn sort_asc(list: List[I64]) -> List[I64] cost [O(list), O(list), 0, 0]
 spec {
     example "preserves_sum": sum(sort_asc([3, 1, 4, 1, 5])) == 14
     example "preserves_len": len(sort_asc([3, 1, 4])) == 3
@@ -142,59 +142,59 @@ spec {
     match list {
         [] => [],
         [pivot, ..rest] => {
-            let smaller = filter(rest, |y: I32| y <= pivot);
-            let larger = filter(rest, |y: I32| y > pivot);
+            let smaller = filter(rest, |y: I64| y <= pivot);
+            let larger = filter(rest, |y: I64| y > pivot);
             let left = sort_asc(smaller);
             let right = sort_asc(larger);
-            fold(reverse(append(left, pivot)), right, |acc: List[I32], item: I32| prepend(item, acc))
+            fold(reverse(append(left, pivot)), right, |acc: List[I64], item: I64| prepend(item, acc))
         },
     }
 }
 
 @unbounded
-fn sum(list: List[I32]) -> I32 cost [O(list), 0, 0, 0]
+fn sum(list: List[I64]) -> I64 cost [O(list), 0, 0, 0]
 spec {
     example "basic": sum([1, 2, 3]) == 6
     example "empty": sum([]) == 0
     example "single": sum([42]) == 42
 }
-{ fold(list, 0, |acc: I32, x: I32| acc + x) }
+{ fold(list, 0, |acc: I64, x: I64| acc + x) }
 
 @unbounded
-fn product(list: List[I32]) -> I32 cost [O(list), 0, 0, 0]
+fn product(list: List[I64]) -> I64 cost [O(list), 0, 0, 0]
 spec {
     example "basic": product([2, 3, 4]) == 24
     example "empty": product([]) == 1
 }
-{ fold(list, 1, |acc: I32, x: I32| acc * x) }
+{ fold(list, 1, |acc: I64, x: I64| acc * x) }
 
 @unbounded
-fn count[T](list: List[T], pred: (T) -> Bool) -> I32 cost [O(list), 0, 0, 0]
+fn count[T](list: List[T], pred: (T) -> Bool) -> I64 cost [O(list), 0, 0, 0]
 spec {
-    example "basic": count([1, 2, 3, 4, 5], |x: I32| x > 3) == 2
-    example "none": count([1, 2], |x: I32| x > 5) == 0
-    example "empty": count([], |x: I32| x > 0) == 0
+    example "basic": count([1, 2, 3, 4, 5], |x: I64| x > 3) == 2
+    example "none": count([1, 2], |x: I64| x > 5) == 0
+    example "empty": count([], |x: I64| x > 0) == 0
 }
-{ fold(list, 0, |acc: I32, x: T| if pred(x) { acc + 1 } else { acc }) }
+{ fold(list, 0, |acc: I64, x: T| if pred(x) { acc + 1 } else { acc }) }
 
 @unbounded
-fn min_list(list: List[I32]) -> Option[I32] cost [O(list), 1, 0, 0] {
+fn min_list(list: List[I64]) -> Option[I64] cost [O(list), 1, 0, 0] {
     match list {
         [] => None,
-        [x, ..rest] => Some(fold(rest, x, |a: I32, b: I32| if b < a { b } else { a })),
+        [x, ..rest] => Some(fold(rest, x, |a: I64, b: I64| if b < a { b } else { a })),
     }
 }
 
 @unbounded
-fn max_list(list: List[I32]) -> Option[I32] cost [O(list), 1, 0, 0] {
+fn max_list(list: List[I64]) -> Option[I64] cost [O(list), 1, 0, 0] {
     match list {
         [] => None,
-        [x, ..rest] => Some(fold(rest, x, |a: I32, b: I32| if b > a { b } else { a })),
+        [x, ..rest] => Some(fold(rest, x, |a: I64, b: I64| if b > a { b } else { a })),
     }
 }
 
 @unbounded
-fn nth[T](list: List[T], n: I32) -> Option[T] cost [O(list), 1, 0, 0] {
+fn nth[T](list: List[T], n: I64) -> Option[T] cost [O(list), 1, 0, 0] {
     if n < 0 { None } else {
         match list {
             [] => None,
@@ -204,7 +204,7 @@ fn nth[T](list: List[T], n: I32) -> Option[T] cost [O(list), 1, 0, 0] {
 }
 
 @unbounded
-fn dedup(list: List[I32]) -> List[I32] cost [O(list), O(list), 0, 0]
+fn dedup(list: List[I64]) -> List[I64] cost [O(list), O(list), 0, 0]
 spec {
     example "reduces_len": len(dedup([1, 1, 2, 2, 3])) == 3
     example "sum": sum(dedup([1, 1, 2, 2, 3])) == 6

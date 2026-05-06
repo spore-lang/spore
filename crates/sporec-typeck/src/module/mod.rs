@@ -313,7 +313,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let src = dir.path().join("src").join("billing");
         std::fs::create_dir_all(&src).unwrap();
-        std::fs::write(src.join("invoice.sp"), "pub fn total() -> Int { 0 }").unwrap();
+        std::fs::write(src.join("invoice.sp"), "pub fn total() -> I64 { 0 }").unwrap();
 
         let loader = ModuleLoader::new(dir.path().to_path_buf());
         let resolved = loader.resolve_path("billing.invoice");
@@ -330,7 +330,7 @@ mod tests {
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
             src.join("math.sp"),
-            "pub fn add(a: Int, b: Int) -> Int { a + b }",
+            "pub fn add(a: I64, b: I64) -> I64 { a + b }",
         )
         .unwrap();
 
@@ -351,7 +351,7 @@ mod tests {
         std::fs::create_dir_all(&host).unwrap();
         std::fs::write(
             host.join("math.sp"),
-            "pub fn add(a: Int, b: Int) -> Int { a + b }",
+            "pub fn add(a: I64, b: I64) -> I64 { a + b }",
         )
         .unwrap();
 
@@ -373,10 +373,10 @@ mod tests {
         std::fs::create_dir_all(&src_b).unwrap();
         std::fs::create_dir_all(&src_c).unwrap();
 
-        std::fs::write(src_c.join("util.sp"), "pub fn helper() -> Int { 1 }").unwrap();
+        std::fs::write(src_c.join("util.sp"), "pub fn helper() -> I64 { 1 }").unwrap();
         std::fs::write(
             src_b.join("core.sp"),
-            "import c.util\npub fn work() -> Int { helper() }",
+            "import c.util\npub fn work() -> I64 { helper() }",
         )
         .unwrap();
 
@@ -403,8 +403,8 @@ mod tests {
         let src = dir.path().join("src");
         std::fs::create_dir_all(&src).unwrap();
 
-        std::fs::write(src.join("a.sp"), "import b\npub fn fa() -> Int { 1 }").unwrap();
-        std::fs::write(src.join("b.sp"), "import a\npub fn fb() -> Int { 2 }").unwrap();
+        std::fs::write(src.join("a.sp"), "import b\npub fn fa() -> I64 { 1 }").unwrap();
+        std::fs::write(src.join("b.sp"), "import a\npub fn fb() -> I64 { 2 }").unwrap();
 
         let mut loader = ModuleLoader::new(dir.path().to_path_buf());
         let mut registry = ModuleRegistry::new();
@@ -442,7 +442,7 @@ mod tests {
         std::fs::create_dir_all(&src).unwrap();
         std::fs::write(
             src.join("lib.sp"),
-            "pub fn public_fn() -> Int { 1 }\nfn private_fn() -> Int { 2 }",
+            "pub fn public_fn() -> I64 { 1 }\nfn private_fn() -> I64 { 2 }",
         )
         .unwrap();
 

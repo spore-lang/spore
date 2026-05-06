@@ -83,7 +83,7 @@ impl Checker {
                 "Str" => Ty::Str,
                 "Never" => Ty::Never,
                 _ => {
-                    // Check type aliases (supports refined aliases like `alias Port = Int when ...`)
+                    // Check type aliases (supports refined aliases like `alias Port = I64 when ...`)
                     if let Some(ty) = self.registry.type_aliases.get(name) {
                         ty.clone()
                     } else {

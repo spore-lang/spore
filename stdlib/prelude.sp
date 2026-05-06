@@ -125,7 +125,7 @@ type Ordering {
     Greater,
 }
 
-fn compare(a: I32, b: I32) -> Ordering cost [3, 0, 0, 0] {
+fn compare(a: I64, b: I64) -> Ordering cost [3, 0, 0, 0] {
     if a < b { Less } else {
         if a > b { Greater } else { Equal }
     }
@@ -136,7 +136,7 @@ fn not(b: Bool) -> Bool cost [1, 0, 0, 0] {
     if b { false } else { true }
 }
 
-fn bool_to_int(b: Bool) -> I32 cost [1, 0, 0, 0] {
+fn bool_to_int(b: Bool) -> I64 cost [1, 0, 0, 0] {
     if b { 1 } else { 0 }
 }
 

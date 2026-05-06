@@ -33,6 +33,7 @@ impl Interpreter {
     pub(super) fn eval(&mut self, expr: &Expr, env: &mut Env) -> Result<Value> {
         match expr {
             Expr::IntLit(n) => Ok(Value::Int(*n)),
+            Expr::SuffixedIntLit(n, _) => Ok(Value::Int(*n)),
             Expr::FloatLit(f) => Ok(Value::Float(*f)),
             Expr::StrLit(s) => Ok(Value::Str(s.clone())),
             Expr::BoolLit(b) => Ok(Value::Bool(*b)),
@@ -379,7 +380,7 @@ impl Interpreter {
                     let duration_value = self.eval(duration, env)?;
                     let duration_int = duration_value
                         .as_int()
-                        .ok_or_else(|| RuntimeError::new("select timeout expects Int duration"))?;
+                        .ok_or_else(|| RuntimeError::new("select timeout expects I64 duration"))?;
                     if duration_int < 0 {
                         return Err(RuntimeError::new(format!(
                             "select timeout must be >= 0, got {duration_int}"
