@@ -242,6 +242,14 @@ impl CostAnalyzer {
     /// Compute the four-dimensional [`CostVector`] for a single function.
     fn analyze_function_vector(&mut self, fn_def: &FnDef) {
         let fn_name = &fn_def.name;
+        if let Some(declared) = fn_def
+            .cost_clause
+            .as_ref()
+            .map(ast_cost_clause_to_cost_vector)
+        {
+            self.cost_vectors.insert(fn_name.clone(), declared);
+            return;
+        }
 
         if fn_def.is_unbounded {
             let expected = fn_def
@@ -601,6 +609,24 @@ fn ast_cost_to_cost_expr(ce: &ast::CostExpr) -> CostExpr {
         ast::CostExpr::Literal(n) => CostExpr::Const(*n),
         ast::CostExpr::Var(v) => CostExpr::Var(v.clone()),
         ast::CostExpr::Linear(v) => CostExpr::Linear(v.clone()),
+        ast::CostExpr::Add(a, b) => CostExpr::Add(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
+        ast::CostExpr::Mul(a, b) => CostExpr::Mul(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
+        ast::CostExpr::Pow(base, exp) => CostExpr::Pow(Box::new(ast_cost_to_cost_expr(base)), *exp),
+        ast::CostExpr::Log(expr) => CostExpr::Log(Box::new(ast_cost_to_cost_expr(expr))),
+        ast::CostExpr::Max(a, b) => CostExpr::Max(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
+        ast::CostExpr::Min(a, b) => CostExpr::Min(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
     }
 }
 

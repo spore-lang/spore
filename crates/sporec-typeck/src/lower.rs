@@ -519,7 +519,47 @@ impl Lowering {
                 let def_id = self.resolve_name(name);
                 HirExpr::Var(name.clone(), def_id)
             }
+            ast::CostExpr::Add(lhs, rhs) => HirExpr::BinOp(
+                Box::new(self.lower_cost_expr(lhs)),
+                HirBinOp::Add,
+                Box::new(self.lower_cost_expr(rhs)),
+            ),
+            ast::CostExpr::Mul(lhs, rhs) => HirExpr::BinOp(
+                Box::new(self.lower_cost_expr(lhs)),
+                HirBinOp::Mul,
+                Box::new(self.lower_cost_expr(rhs)),
+            ),
+            ast::CostExpr::Pow(base, exp) => self.lower_cost_pow(base, *exp),
+            ast::CostExpr::Log(expr) => self.lower_cost_builtin_call("log", vec![expr.as_ref()]),
+            ast::CostExpr::Max(lhs, rhs) => {
+                self.lower_cost_builtin_call("max", vec![lhs.as_ref(), rhs.as_ref()])
+            }
+            ast::CostExpr::Min(lhs, rhs) => {
+                self.lower_cost_builtin_call("min", vec![lhs.as_ref(), rhs.as_ref()])
+            }
         }
+    }
+
+    fn lower_cost_pow(&self, base: &ast::CostExpr, exp: u32) -> HirExpr {
+        if exp == 0 {
+            return HirExpr::IntLit(1);
+        }
+        let base_expr = self.lower_cost_expr(base);
+        let mut out = base_expr.clone();
+        for _ in 1..exp {
+            out = HirExpr::BinOp(Box::new(out), HirBinOp::Mul, Box::new(base_expr.clone()));
+        }
+        out
+    }
+
+    fn lower_cost_builtin_call(&self, name: &str, args: Vec<&ast::CostExpr>) -> HirExpr {
+        let def_id = self.resolve_name(name);
+        HirExpr::Call(
+            Box::new(HirExpr::Var(name.to_string(), def_id)),
+            args.into_iter()
+                .map(|arg| self.lower_cost_expr(arg))
+                .collect(),
+        )
     }
 }
 

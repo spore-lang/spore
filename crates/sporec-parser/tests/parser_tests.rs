@@ -287,24 +287,119 @@ fn test_scalar_cost_syntax_is_rejected() {
 }
 
 #[test]
-fn test_composed_cost_slot_syntax_is_rejected() {
-    let errs = parse("fn f(n: Int) -> Int cost [n + 1, 0, 0, 0] { n }")
-        .expect_err("composed cost slot syntax should be rejected");
+fn test_composed_cost_slot_syntax_parses() {
+    let m = parse_ok("fn f(n: Int) -> Int cost [n + 1, n * log(n), max(n, 1), n^2] { n }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
+            assert_eq!(
+                cost.compute,
+                sporec_parser::ast::CostExpr::Add(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                )
+            );
+            assert_eq!(
+                cost.alloc,
+                sporec_parser::ast::CostExpr::Mul(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Log(Box::new(
+                        sporec_parser::ast::CostExpr::Var("n".into()),
+                    ))),
+                )
+            );
+            assert_eq!(
+                cost.io,
+                sporec_parser::ast::CostExpr::Max(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                )
+            );
+            assert_eq!(
+                cost.parallel,
+                sporec_parser::ast::CostExpr::Pow(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    2,
+                )
+            );
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_parenthesized_cost_slot_syntax_parses() {
+    let m = parse_ok("fn f(n: Int) -> Int cost [(n + 1) * 2, min(n, 1), 0, 0] { n }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
+            assert_eq!(
+                cost.compute,
+                sporec_parser::ast::CostExpr::Mul(
+                    Box::new(sporec_parser::ast::CostExpr::Add(
+                        Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                        Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                    )),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(2)),
+                )
+            );
+            assert_eq!(
+                cost.alloc,
+                sporec_parser::ast::CostExpr::Min(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                )
+            );
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_cost_slot_subtraction_is_rejected() {
+    let errs = parse("fn f(n: Int) -> Int cost [n - 1, 0, 0, 0] { n }")
+        .expect_err("cost slot subtraction should be rejected");
     assert!(
-        errs.iter().any(|e| e.message.contains(
-            "cost slot expressions only support integer literals, parameter variables, or linear `O(n)`"
-        )),
+        errs.iter().any(|e| e
+            .message
+            .contains("cost expressions do not support subtraction")),
         "unexpected errors: {errs:?}"
     );
 }
 
 #[test]
-fn test_parenthesized_cost_slot_syntax_is_rejected() {
-    let errs = parse("fn f(n: Int) -> Int cost [(n), 0, 0, 0] { n }")
-        .expect_err("parenthesized cost slot syntax should be rejected");
+fn test_cost_slot_division_is_rejected() {
+    let errs = parse("fn f(n: Int) -> Int cost [n / 2, 0, 0, 0] { n }")
+        .expect_err("cost slot division should be rejected");
     assert!(
-        errs.iter()
-            .any(|e| e.message.contains("expected cost expression, found LParen")),
+        errs.iter().any(|e| {
+            e.message
+                .contains("cost expressions do not support division or remainder")
+        }),
+        "unexpected errors: {errs:?}"
+    );
+}
+
+#[test]
+fn test_cost_slot_conditional_is_rejected() {
+    let errs = parse("fn f(n: Int) -> Int cost [if true { 1 } else { 0 }, 0, 0, 0] { n }")
+        .expect_err("cost slot conditionals should be rejected");
+    assert!(
+        errs.iter().any(|e| e
+            .message
+            .contains("cost expressions do not support conditionals")),
+        "unexpected errors: {errs:?}"
+    );
+}
+
+#[test]
+fn test_cost_slot_non_constant_exponent_is_rejected() {
+    let errs = parse("fn f(n: Int, m: Int) -> Int cost [n^m, 0, 0, 0] { n }")
+        .expect_err("non-constant exponents should be rejected");
+    assert!(
+        errs.iter().any(|e| e
+            .message
+            .contains("cost exponents must be non-negative integer constants")),
         "unexpected errors: {errs:?}"
     );
 }

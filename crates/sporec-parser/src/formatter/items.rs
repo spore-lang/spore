@@ -438,6 +438,25 @@ impl<'a> Formatter<'a> {
     }
 
     pub(super) fn fmt_cost_expr(&mut self, ce: &CostExpr) {
+        self.fmt_cost_expr_prec(ce, 0);
+    }
+
+    fn fmt_cost_expr_prec(&mut self, ce: &CostExpr, parent_prec: u8) {
+        let prec = match ce {
+            CostExpr::Add(_, _) => 1,
+            CostExpr::Mul(_, _) => 2,
+            CostExpr::Pow(_, _) => 3,
+            CostExpr::Literal(_)
+            | CostExpr::Var(_)
+            | CostExpr::Linear(_)
+            | CostExpr::Log(_)
+            | CostExpr::Max(_, _)
+            | CostExpr::Min(_, _) => 4,
+        };
+        let needs_parens = prec < parent_prec;
+        if needs_parens {
+            self.write("(");
+        }
         match ce {
             CostExpr::Literal(n) => self.write(&n.to_string()),
             CostExpr::Var(v) => self.write(v),
@@ -446,6 +465,43 @@ impl<'a> Formatter<'a> {
                 self.write(v);
                 self.write(")");
             }
+            CostExpr::Add(lhs, rhs) => {
+                self.fmt_cost_expr_prec(lhs, prec);
+                self.write(" + ");
+                self.fmt_cost_expr_prec(rhs, prec);
+            }
+            CostExpr::Mul(lhs, rhs) => {
+                self.fmt_cost_expr_prec(lhs, prec);
+                self.write(" * ");
+                self.fmt_cost_expr_prec(rhs, prec);
+            }
+            CostExpr::Pow(base, exp) => {
+                self.fmt_cost_expr_prec(base, prec);
+                self.write("^");
+                self.write(&exp.to_string());
+            }
+            CostExpr::Log(expr) => {
+                self.write("log(");
+                self.fmt_cost_expr_prec(expr, 0);
+                self.write(")");
+            }
+            CostExpr::Max(lhs, rhs) => {
+                self.write("max(");
+                self.fmt_cost_expr_prec(lhs, 0);
+                self.write(", ");
+                self.fmt_cost_expr_prec(rhs, 0);
+                self.write(")");
+            }
+            CostExpr::Min(lhs, rhs) => {
+                self.write("min(");
+                self.fmt_cost_expr_prec(lhs, 0);
+                self.write(", ");
+                self.fmt_cost_expr_prec(rhs, 0);
+                self.write(")");
+            }
+        }
+        if needs_parens {
+            self.write(")");
         }
     }
 
