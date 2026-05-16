@@ -207,14 +207,14 @@ pub enum CostExpr {
     Add(Box<CostExpr>, Box<CostExpr>),
     /// Multiplication of two symbolic cost expressions.
     Mul(Box<CostExpr>, Box<CostExpr>),
-    /// Exponentiation by an integer constant.
-    Pow(Box<CostExpr>, u32),
     /// Logarithm of a symbolic cost expression.
     Log(Box<CostExpr>),
     /// Maximum of two symbolic cost expressions.
     Max(Box<CostExpr>, Box<CostExpr>),
     /// Minimum of two symbolic cost expressions.
     Min(Box<CostExpr>, Box<CostExpr>),
+    /// Span/distance between two symbolic cost expressions.
+    Span(Box<CostExpr>, Box<CostExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

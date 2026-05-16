@@ -745,7 +745,7 @@ fn unbounded_with_cost_succeeds_and_preserves_expected_vector() {
 fn declared_composed_cost_is_preserved() {
     let module = parse(
         r#"
-        fn f(n: I32) -> I32 cost [n + 1, n * log(n), max(n, 1), n^2] { n }
+        fn f(n: I32) -> I32 cost [n + 1, n * log(n), max(n, 1), span(n, 1)] { n }
     "#,
     )
     .unwrap();
@@ -779,7 +779,10 @@ fn declared_composed_cost_is_preserved() {
     );
     assert_eq!(
         vector.parallel,
-        CostExpr::Pow(Box::new(CostExpr::Var("n".into())), 2)
+        CostExpr::Span(
+            Box::new(CostExpr::Var("n".into())),
+            Box::new(CostExpr::Const(1)),
+        )
     );
 }
 

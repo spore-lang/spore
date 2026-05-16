@@ -1123,7 +1123,6 @@ pub fn format_cost_expr(cost: &CostExpr) -> String {
                 2,
                 format!("{} * {}", format_prec(lhs, 2), format_prec(rhs, 2)),
             ),
-            CostExpr::Pow(base, exp) => (3, format!("{}^{exp}", format_prec(base, 3))),
             CostExpr::Log(expr) => (4, format!("log({})", format_prec(expr, 0))),
             CostExpr::Max(lhs, rhs) => (
                 4,
@@ -1132,6 +1131,10 @@ pub fn format_cost_expr(cost: &CostExpr) -> String {
             CostExpr::Min(lhs, rhs) => (
                 4,
                 format!("min({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
+            ),
+            CostExpr::Span(lhs, rhs) => (
+                4,
+                format!("span({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
             ),
         };
         if prec < parent_prec {

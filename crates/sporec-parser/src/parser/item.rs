@@ -343,33 +343,11 @@ impl Parser {
     }
 
     fn parse_cost_multiplicative(&mut self) -> Result<CostExpr, ParseError> {
-        let mut expr = self.parse_cost_power()?;
+        let mut expr = self.parse_cost_atom()?;
         while self.at(&Token::Star) {
             self.advance();
-            let rhs = self.parse_cost_power()?;
+            let rhs = self.parse_cost_atom()?;
             expr = CostExpr::Mul(Box::new(expr), Box::new(rhs));
-        }
-        Ok(expr)
-    }
-
-    fn parse_cost_power(&mut self) -> Result<CostExpr, ParseError> {
-        let mut expr = self.parse_cost_atom()?;
-        while self.at(&Token::Caret) {
-            self.advance();
-            let exp = match self.peek().clone() {
-                Token::Int(n) if n >= 0 => {
-                    self.advance();
-                    u32::try_from(n).map_err(|_| {
-                        self.error("cost exponents must fit in a 32-bit unsigned integer".into())
-                    })?
-                }
-                _ => {
-                    return Err(
-                        self.error("cost exponents must be non-negative integer constants".into())
-                    );
-                }
-            };
-            expr = CostExpr::Pow(Box::new(expr), exp);
         }
         Ok(expr)
     }
@@ -407,7 +385,7 @@ impl Parser {
                     self.expect(&Token::RParen)?;
                     return Ok(CostExpr::Log(Box::new(expr)));
                 }
-                if (s == "max" || s == "min")
+                if (s == "max" || s == "min" || s == "span")
                     && matches!(
                         self.tokens.get(self.pos + 1).map(|t| &t.node),
                         Some(Token::LParen)
@@ -419,16 +397,17 @@ impl Parser {
                     self.expect(&Token::Comma)?;
                     let rhs = self.parse_cost_expr()?;
                     self.expect(&Token::RParen)?;
-                    return Ok(if s == "max" {
-                        CostExpr::Max(Box::new(lhs), Box::new(rhs))
-                    } else {
-                        CostExpr::Min(Box::new(lhs), Box::new(rhs))
+                    return Ok(match s.as_str() {
+                        "max" => CostExpr::Max(Box::new(lhs), Box::new(rhs)),
+                        "min" => CostExpr::Min(Box::new(lhs), Box::new(rhs)),
+                        "span" => CostExpr::Span(Box::new(lhs), Box::new(rhs)),
+                        _ => unreachable!(),
                     });
                 }
                 self.advance();
                 if self.at(&Token::LParen) {
                     return Err(self.error(format!(
-                        "unsupported cost function `{s}`; only `log`, `max`, and `min` are accepted"
+                        "unsupported cost function `{s}`; only `log`, `max`, `min`, and `span` are accepted"
                     )));
                 }
                 Ok(CostExpr::Var(s))

@@ -11,17 +11,17 @@ use sporec_parser::ast::{self, BinOp, Expr, FnDef, HandleBinding, Item, Module, 
 
 /// Cost expression — a symbolic representation of computational cost.
 ///
-/// Grammar: `+, *, ^const, log, max, min` — no division or conditionals.
+/// Grammar: `+, *, log, max, min, span` — no division or conditionals.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CostExpr {
     Const(u64),
     Var(String),
     Add(Box<CostExpr>, Box<CostExpr>),
     Mul(Box<CostExpr>, Box<CostExpr>),
-    Pow(Box<CostExpr>, u32),
     Log(Box<CostExpr>),
     Max(Box<CostExpr>, Box<CostExpr>),
     Min(Box<CostExpr>, Box<CostExpr>),
+    Span(Box<CostExpr>, Box<CostExpr>),
     /// Linear in a named variable — represents O(n) cost.
     Linear(String),
     /// Unbounded / unknown cost — analysis could not determine a bound.
@@ -35,10 +35,10 @@ impl std::fmt::Display for CostExpr {
             CostExpr::Var(v) => write!(f, "{v}"),
             CostExpr::Add(a, b) => write!(f, "({a} + {b})"),
             CostExpr::Mul(a, b) => write!(f, "({a} * {b})"),
-            CostExpr::Pow(base, exp) => write!(f, "{base}^{exp}"),
             CostExpr::Log(e) => write!(f, "log({e})"),
             CostExpr::Max(a, b) => write!(f, "max({a}, {b})"),
             CostExpr::Min(a, b) => write!(f, "min({a}, {b})"),
+            CostExpr::Span(a, b) => write!(f, "span({a}, {b})"),
             CostExpr::Linear(v) => write!(f, "O({v})"),
             CostExpr::Unbounded => write!(f, "∞"),
         }
@@ -617,13 +617,16 @@ fn ast_cost_to_cost_expr(ce: &ast::CostExpr) -> CostExpr {
             Box::new(ast_cost_to_cost_expr(a)),
             Box::new(ast_cost_to_cost_expr(b)),
         ),
-        ast::CostExpr::Pow(base, exp) => CostExpr::Pow(Box::new(ast_cost_to_cost_expr(base)), *exp),
         ast::CostExpr::Log(expr) => CostExpr::Log(Box::new(ast_cost_to_cost_expr(expr))),
         ast::CostExpr::Max(a, b) => CostExpr::Max(
             Box::new(ast_cost_to_cost_expr(a)),
             Box::new(ast_cost_to_cost_expr(b)),
         ),
         ast::CostExpr::Min(a, b) => CostExpr::Min(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
+        ast::CostExpr::Span(a, b) => CostExpr::Span(
             Box::new(ast_cost_to_cost_expr(a)),
             Box::new(ast_cost_to_cost_expr(b)),
         ),
@@ -1133,8 +1136,11 @@ mod tests {
         );
         assert_eq!(e.to_string(), "(n + 1)");
 
-        let e2 = CostExpr::Pow(Box::new(CostExpr::Var("n".into())), 2);
-        assert_eq!(e2.to_string(), "n^2");
+        let e2 = CostExpr::Span(
+            Box::new(CostExpr::Var("hi".into())),
+            Box::new(CostExpr::Var("lo".into())),
+        );
+        assert_eq!(e2.to_string(), "span(hi, lo)");
 
         let e3 = CostExpr::Log(Box::new(CostExpr::Var("n".into())));
         assert_eq!(e3.to_string(), "log(n)");

@@ -529,7 +529,6 @@ impl Lowering {
                 HirBinOp::Mul,
                 Box::new(self.lower_cost_expr(rhs)),
             ),
-            ast::CostExpr::Pow(base, exp) => self.lower_cost_pow(base, *exp),
             ast::CostExpr::Log(expr) => self.lower_cost_builtin_call("log", vec![expr.as_ref()]),
             ast::CostExpr::Max(lhs, rhs) => {
                 self.lower_cost_builtin_call("max", vec![lhs.as_ref(), rhs.as_ref()])
@@ -537,19 +536,10 @@ impl Lowering {
             ast::CostExpr::Min(lhs, rhs) => {
                 self.lower_cost_builtin_call("min", vec![lhs.as_ref(), rhs.as_ref()])
             }
+            ast::CostExpr::Span(lhs, rhs) => {
+                self.lower_cost_builtin_call("span", vec![lhs.as_ref(), rhs.as_ref()])
+            }
         }
-    }
-
-    fn lower_cost_pow(&self, base: &ast::CostExpr, exp: u32) -> HirExpr {
-        if exp == 0 {
-            return HirExpr::IntLit(1);
-        }
-        let base_expr = self.lower_cost_expr(base);
-        let mut out = base_expr.clone();
-        for _ in 1..exp {
-            out = HirExpr::BinOp(Box::new(out), HirBinOp::Mul, Box::new(base_expr.clone()));
-        }
-        out
     }
 
     fn lower_cost_builtin_call(&self, name: &str, args: Vec<&ast::CostExpr>) -> HirExpr {

@@ -288,7 +288,7 @@ fn test_scalar_cost_syntax_is_rejected() {
 
 #[test]
 fn test_composed_cost_slot_syntax_parses() {
-    let m = parse_ok("fn f(n: Int) -> Int cost [n + 1, n * log(n), max(n, 1), n^2] { n }");
+    let m = parse_ok("fn f(n: Int) -> Int cost [n + 1, n * log(n), max(n, 1), span(n, 1)] { n }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let cost = f.cost_clause.as_ref().expect("cost clause should parse");
@@ -317,9 +317,9 @@ fn test_composed_cost_slot_syntax_parses() {
             );
             assert_eq!(
                 cost.parallel,
-                sporec_parser::ast::CostExpr::Pow(
+                sporec_parser::ast::CostExpr::Span(
                     Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
-                    2,
+                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
                 )
             );
         }
@@ -393,13 +393,12 @@ fn test_cost_slot_conditional_is_rejected() {
 }
 
 #[test]
-fn test_cost_slot_non_constant_exponent_is_rejected() {
-    let errs = parse("fn f(n: Int, m: Int) -> Int cost [n^m, 0, 0, 0] { n }")
-        .expect_err("non-constant exponents should be rejected");
+fn test_cost_slot_exponentiation_is_rejected() {
+    let errs = parse("fn f(n: Int) -> Int cost [n^2, 0, 0, 0] { n }")
+        .expect_err("cost slot exponentiation should be rejected");
     assert!(
-        errs.iter().any(|e| e
-            .message
-            .contains("cost exponents must be non-negative integer constants")),
+        errs.iter()
+            .any(|e| e.message.contains("unsupported token in cost expression")),
         "unexpected errors: {errs:?}"
     );
 }

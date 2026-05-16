@@ -445,13 +445,13 @@ impl<'a> Formatter<'a> {
         let prec = match ce {
             CostExpr::Add(_, _) => 1,
             CostExpr::Mul(_, _) => 2,
-            CostExpr::Pow(_, _) => 3,
             CostExpr::Literal(_)
             | CostExpr::Var(_)
             | CostExpr::Linear(_)
             | CostExpr::Log(_)
             | CostExpr::Max(_, _)
-            | CostExpr::Min(_, _) => 4,
+            | CostExpr::Min(_, _)
+            | CostExpr::Span(_, _) => 4,
         };
         let needs_parens = prec < parent_prec;
         if needs_parens {
@@ -475,11 +475,6 @@ impl<'a> Formatter<'a> {
                 self.write(" * ");
                 self.fmt_cost_expr_prec(rhs, prec);
             }
-            CostExpr::Pow(base, exp) => {
-                self.fmt_cost_expr_prec(base, prec);
-                self.write("^");
-                self.write(&exp.to_string());
-            }
             CostExpr::Log(expr) => {
                 self.write("log(");
                 self.fmt_cost_expr_prec(expr, 0);
@@ -494,6 +489,13 @@ impl<'a> Formatter<'a> {
             }
             CostExpr::Min(lhs, rhs) => {
                 self.write("min(");
+                self.fmt_cost_expr_prec(lhs, 0);
+                self.write(", ");
+                self.fmt_cost_expr_prec(rhs, 0);
+                self.write(")");
+            }
+            CostExpr::Span(lhs, rhs) => {
+                self.write("span(");
                 self.fmt_cost_expr_prec(lhs, 0);
                 self.write(", ");
                 self.fmt_cost_expr_prec(rhs, 0);
