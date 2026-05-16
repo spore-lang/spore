@@ -742,6 +742,51 @@ fn unbounded_with_cost_succeeds_and_preserves_expected_vector() {
 }
 
 #[test]
+fn declared_composed_cost_is_preserved() {
+    let module = parse(
+        r#"
+        fn f(n: I32) -> I32 cost [n + 1, n * log(n), max(n, 1), span(n, 1)] { n }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    assert!(
+        matches!(
+            result.cost_results.get("f"),
+            Some(CostResult::Declared(CostExpr::Add(lhs, rhs)))
+                if **lhs == CostExpr::Var("n".into()) && **rhs == CostExpr::Const(1)
+        ),
+        "expected declared symbolic compute cost, got {:?}",
+        result.cost_results.get("f")
+    );
+    let vector = result
+        .cost_vectors
+        .get("f")
+        .expect("expected declared vector metadata");
+    assert_eq!(
+        vector.alloc,
+        CostExpr::Mul(
+            Box::new(CostExpr::Var("n".into())),
+            Box::new(CostExpr::Log(Box::new(CostExpr::Var("n".into())))),
+        )
+    );
+    assert_eq!(
+        vector.io,
+        CostExpr::Max(
+            Box::new(CostExpr::Var("n".into())),
+            Box::new(CostExpr::Const(1)),
+        )
+    );
+    assert_eq!(
+        vector.parallel,
+        CostExpr::Span(
+            Box::new(CostExpr::Var("n".into())),
+            Box::new(CostExpr::Const(1)),
+        )
+    );
+}
+
+#[test]
 fn unbounded_declared_cost_skips_budget_warning_from_body() {
     let module = parse(
         r#"

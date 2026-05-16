@@ -174,6 +174,15 @@ fn check_verbose_uses_cost_vector_syntax() {
 }
 
 #[test]
+fn check_verbose_preserves_composed_symbolic_cost_vector() {
+    let output = check_verbose("fn f(n: I32) -> I32 cost [n + 1, 0, 0, 0] { n }").unwrap();
+    assert!(
+        output.contains("cost [(n + 1), 0, 0, 0]"),
+        "verbose output should preserve symbolic cost expressions, got: {output}"
+    );
+}
+
+#[test]
 fn check_verbose_hides_synthetic_hole_names() {
     let output = check_verbose(
         r#"

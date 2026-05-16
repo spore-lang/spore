@@ -1113,9 +1113,39 @@ pub fn format_type_expr(ty: &TypeExpr) -> String {
 }
 
 pub fn format_cost_expr(cost: &CostExpr) -> String {
-    match cost {
-        CostExpr::Literal(n) => n.to_string(),
-        CostExpr::Var(v) => v.clone(),
-        CostExpr::Linear(v) => format!("O({v})"),
+    fn format_prec(cost: &CostExpr, parent_prec: u8) -> String {
+        let (prec, rendered) = match cost {
+            CostExpr::Literal(n) => (4, n.to_string()),
+            CostExpr::Var(v) => (4, v.clone()),
+            CostExpr::Linear(v) => (4, format!("O({v})")),
+            CostExpr::Add(lhs, rhs) => (
+                1,
+                format!("{} + {}", format_prec(lhs, 1), format_prec(rhs, 1)),
+            ),
+            CostExpr::Mul(lhs, rhs) => (
+                2,
+                format!("{} * {}", format_prec(lhs, 2), format_prec(rhs, 2)),
+            ),
+            CostExpr::Log(expr) => (4, format!("log({})", format_prec(expr, 0))),
+            CostExpr::Max(lhs, rhs) => (
+                4,
+                format!("max({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
+            ),
+            CostExpr::Min(lhs, rhs) => (
+                4,
+                format!("min({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
+            ),
+            CostExpr::Span(lhs, rhs) => (
+                4,
+                format!("span({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
+            ),
+        };
+        if prec < parent_prec {
+            format!("({rendered})")
+        } else {
+            rendered
+        }
     }
+
+    format_prec(cost, 0)
 }
