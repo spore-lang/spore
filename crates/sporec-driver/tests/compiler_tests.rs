@@ -394,7 +394,11 @@ fn compile_project_resolves_transitive_embedded_compositional_stdlib_module() {
         import spore.laws
 
         pub fn merged_size() -> I64 {
-            len(merge_self_i32([1i32, 1i32, 2i32]))
+            len(canonical_members_i32([1i32, 1i32, 2i32]))
+        }
+
+        pub fn summed() -> I32 {
+            sum3_left_assoc_i32(20i32, 10i32, 12i32)
         }
         "#,
     );

@@ -523,3 +523,53 @@ fn project_test_reuses_project_aware_import_resolution() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn project_test_runs_specs_in_imported_embedded_law_modules() {
+    let project = TempProject::new();
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "law-checks"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "main.sp"
+        "#,
+    );
+    project.write(
+        "src/main.sp",
+        r#"
+        import spore.laws
+
+        fn main() -> () {
+            canonical_members_i32([1i32, 1i32, 2i32]);
+            sum3_left_assoc_i32(20i32, 10i32, 12i32);
+            return
+        }
+        "#,
+    );
+
+    let output = spore_cmd()
+        .arg("test")
+        .current_dir(project.root())
+        .output()
+        .expect("run spore test");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("specs passed"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

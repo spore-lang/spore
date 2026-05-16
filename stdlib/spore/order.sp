@@ -15,7 +15,7 @@ spec {
 }
 {
     if left < right { Less } else {
-        if left > right { Greater } else { Equal }
+        if right < left { Greater } else { Equal }
     }
 }
 
@@ -25,8 +25,15 @@ spec {
     example "equal": ordering_is_eq(compare_bool(true, true)) == true
 }
 {
-    if left == right { Equal } else {
-        if left { Greater } else { Less }
+    match left {
+        true => match right {
+            true => Equal,
+            false => Greater,
+        },
+        false => match right {
+            true => Less,
+            false => Equal,
+        },
     }
 }
 
@@ -40,8 +47,8 @@ pub fn ordering_is_lt(ordering: Ordering) -> Bool cost [3, 0, 0, 0] {
 
 pub fn ordering_is_eq(ordering: Ordering) -> Bool cost [3, 0, 0, 0] {
     match ordering {
-        Less => false,
         Equal => true,
+        Less => false,
         Greater => false,
     }
 }
