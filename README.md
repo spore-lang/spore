@@ -9,7 +9,7 @@ Spore is a compiled language where function signatures are "gravity centers" —
 - **Hole System**: `?name` partial functions as first-class collaboration protocol with Agents
 - **Effect System**: IO effects gated by required effects, verified at compile time
 - **Cost Model**: 4-dimension cost analysis (compute, alloc, io, parallel) with compile-time budgets
-- **Module Hashes**: Internal dual hash (sig + impl) support for modules; package-level content-addressed distribution and lockfiles are roadmap
+- **Module Hashes**: Internal dual hash (sig + impl) support for modules; `spore lock` provides the first local package content-hash lock/store slice while registry distribution remains roadmap
 - **Effect Handlers**: All IO through Platform-provided effect handlers, application code stays pure
 - **Structured Concurrency**: Task trees with cancellation propagation, channels for communication
 - **Expression-Based**: Everything is an expression, no loops (recursion + higher-order functions)
@@ -59,11 +59,24 @@ cargo test --all                                 # run all compiler tests
 ```
 
 For single-file exploration:
+
 ```bash
 cargo run --bin spore -- run examples/demo.sp   # run standalone file (no Platform)
 cargo run --bin spore -- check examples/demo.sp # type-check standalone file
 cargo run --bin spore -- test examples/demo.sp  # validate spec examples in file
 ```
+
+For manifest-backed projects, the first local content-addressed lock/store slice
+is available via:
+
+```bash
+cargo run --bin spore -- lock path/to/project         # write .spore-lock + .spore-store
+cargo run --bin spore -- lock --check path/to/project # CI check for lock freshness
+```
+
+This MVP snapshots the root package plus local path dependencies by deterministic
+content hash. Registry backends, signature-level dependency acceptance, and full
+package update workflows remain roadmap items.
 
 If `spore` is installed on your `PATH`, you can replace the explicit Cargo or
 `target/debug/spore` invocations above with bare `spore ...`.
@@ -108,7 +121,7 @@ fn main() -> I32 {
 ```
 
 Standalone mode does not participate in a package-backed Platform contract and does
-not have access to platform builtins such as `println`.  Console I/O requires a
+not have access to platform builtins such as `println`. Console I/O requires a
 project with an explicit Platform effect boundary (e.g. `basic-cli`).
 See [`examples/demo.sp`](examples/demo.sp) for a standalone example file.
 
@@ -254,7 +267,7 @@ sporec (stateless compiler CLI / product)
 
 spore (stateful codebase manager — handles IO / project workflow)
 ├── File watching, incremental compilation
-├── Project scaffolding and package metadata (content-addressed registry/store/lock workflow is roadmap)
+├── Project scaffolding and package metadata (`spore lock` local content-hash store; registry/update workflow is roadmap)
 ├── Platform management
 └── LSP server (spore-lsp)
 ```
@@ -323,13 +336,15 @@ Rust 1.95+ toolchain.
 ## Documentation
 
 ### Canonical design docs
-| Document | Description |
-|----------|-------------|
-| [docs/DESIGN.md](docs/DESIGN.md) | Primary in-repo design document, syntax authority, and durable design summary |
-| [docs/specs/README.md](docs/specs/README.md) | Redirect for the retired per-topic spec drafts |
-| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts |
+
+| Document                                           | Description                                                                   |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| [docs/DESIGN.md](docs/DESIGN.md)                   | Primary in-repo design document, syntax authority, and durable design summary |
+| [docs/specs/README.md](docs/specs/README.md)       | Redirect for the retired per-topic spec drafts                                |
+| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts                                      |
 
 ### SEP mapping
+
 Detailed topic proposals now live in [`spore-evolution/seps/`](https://github.com/spore-lang/spore-evolution/tree/main/seps):
 
 - [`SEP-0001-core-syntax.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0001-core-syntax.md)

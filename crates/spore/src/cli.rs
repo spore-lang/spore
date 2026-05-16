@@ -28,6 +28,10 @@ pub(crate) enum Cmd {
     Holes {
         file: String,
     },
+    Lock {
+        check: bool,
+        path: Option<String>,
+    },
     Build {
         path: Option<String>,
     },
@@ -134,6 +138,19 @@ fn cmd_holes_parser() -> impl Parser<Cmd> {
         .command("holes")
 }
 
+fn cmd_lock_parser() -> impl Parser<Cmd> {
+    let check = long("check")
+        .help("Check that .spore-lock is up to date without rewriting it")
+        .switch();
+    let path = positional::<String>("PATH")
+        .help("Project path to lock (default: current directory)")
+        .optional();
+    construct!(Cmd::Lock { check, path })
+        .to_options()
+        .descr("Write a local content-addressed .spore-lock and .spore-store snapshot")
+        .command("lock")
+}
+
 fn cmd_build_parser() -> impl Parser<Cmd> {
     let path = positional::<String>("PATH")
         .help("Project path or standalone .sp file to compile to a native object file")
@@ -185,6 +202,7 @@ pub(crate) fn cli() -> OptionParser<Cmd> {
         cmd_test_parser(),
         cmd_format_parser(),
         cmd_holes_parser(),
+        cmd_lock_parser(),
         cmd_build_parser(),
         cmd_watch_parser(),
         cmd_new_parser(),

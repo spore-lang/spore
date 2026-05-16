@@ -10,8 +10,8 @@ use cli::{Cmd, cli};
 #[cfg(test)]
 use exec::{create_project, is_valid_type};
 use exec::{
-    exec_build, exec_check, exec_format, exec_holes, exec_init, exec_new, exec_run, exec_test,
-    exec_watch,
+    exec_build, exec_check, exec_format, exec_holes, exec_init, exec_lock, exec_new, exec_run,
+    exec_test, exec_watch,
 };
 #[cfg(test)]
 use report::hole_graph_update;
@@ -38,6 +38,7 @@ fn main() -> ExitCode {
         } => exec_test(&files, verbose, json, deny_warnings),
         Cmd::Format { files, check, diff } => exec_format(&files, check, diff),
         Cmd::Holes { file } => exec_holes(&file),
+        Cmd::Lock { path, check } => exec_lock(path.as_deref(), check),
         Cmd::Build { path } => exec_build(path.as_deref()),
         Cmd::Watch { file, json } => exec_watch(&file, json),
         Cmd::New { name, project_type } => exec_new(&name, &project_type),
