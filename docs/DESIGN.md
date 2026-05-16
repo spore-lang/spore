@@ -81,8 +81,8 @@ fn name(params) -> ReturnType ! Errors
 - 编译期通过**抽象解释**模拟执行，验证 ≤ 声明上界。
 - 支持符号代价表达式；编译器从被调用函数自动推导。
 - `@unbounded` 是显式逃生舱：它跳过函数体预算验证、向调用者传播
-  unbounded taint，但当前策略仍要求声明期望向量
-  `cost [compute, alloc, io, parallel]`，保留签名中的代价意图。
+  unbounded taint；若同时写有 `cost [compute, alloc, io, parallel]`，该向量只保留
+  签名中的代价意图，不作为 checked residual budget。
 - 编译器在检查过程中会为调用点、handler 安装点、hole 点位维护**checked residual budget**（声明总预算扣除已消耗 obligation 后的剩余空间）；这是验证器 / 诊断 / HoleReport 共享的内部概念，不引入用户可写的“代价减法”表面语法。
   `with_cost_limit` 属于未来收敛机制，不是当前表面语法。
 
