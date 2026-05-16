@@ -148,6 +148,14 @@ pub struct UsesClause {
     pub resources: Vec<String>,
 }
 
+/// Effect coverage introduced by `handles`.
+///
+/// Example: `handles [Console, FileRead]`
+#[derive(Debug, Clone)]
+pub struct HandlesClause {
+    pub effects: Vec<String>,
+}
+
 /// Behavioral contract introduced by `spec`.
 ///
 /// Contains example assertions and property-based invariants:
@@ -459,13 +467,22 @@ pub struct EffectAlias {
     pub span: Option<Span>,
 }
 
-/// Handler implementation: `handler Console as MockConsole(prefix: Str) { ... }`
+/// Handler implementation block: `impl Console { ... }`
+#[derive(Debug, Clone)]
+pub struct HandlerImpl {
+    pub effect: String,
+    pub methods: Vec<FnDef>,
+    pub span: Option<Span>,
+}
+
+/// Unified handler definition.
 #[derive(Debug, Clone)]
 pub struct HandlerDef {
     pub name: String,
-    pub effect: String,
     pub fields: Vec<FieldDef>,
-    pub methods: Vec<FnDef>,
+    pub handles_clause: HandlesClause,
+    pub uses_clause: Option<UsesClause>,
+    pub impls: Vec<HandlerImpl>,
     pub span: Option<Span>,
 }
 

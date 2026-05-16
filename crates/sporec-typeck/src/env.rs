@@ -67,9 +67,10 @@ impl Default for Env {
 /// Registered signature information for a named handler.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandlerInfo {
-    pub effect: String,
+    pub handled_effects: EffectSet,
+    pub uses_effects: EffectSet,
     pub fields: Vec<(String, Ty)>,
-    pub methods: Vec<(String, Vec<Ty>, Ty)>,
+    pub methods: HashMap<String, Vec<(String, Vec<Ty>, Ty)>>,
 }
 
 /// Top-level type registry — struct definitions, type defs, function signatures.

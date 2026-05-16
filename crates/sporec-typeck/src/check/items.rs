@@ -197,43 +197,58 @@ impl Checker {
                     .insert(ed.name.clone(), (vec![], methods));
             }
             Item::HandlerDef(hd) => {
-                if !self.registry.interfaces.contains_key(&hd.effect) {
-                    self.err(ErrorCode::C0002, format!("unknown effect `{}`", hd.effect));
-                    return;
-                }
+                let handled_effects =
+                    self.hierarchy
+                        .expand(&crate::effect_set::EffectSet::from_names(
+                            hd.handles_clause.effects.iter().cloned(),
+                        ));
+                let uses_effects = self.declared_effects(hd.uses_clause.as_ref());
                 let fields: Vec<(String, Ty)> = hd
                     .fields
                     .iter()
                     .map(|field| (field.name.clone(), self.resolve_type(&field.ty)))
                     .collect();
-                let methods: Vec<(String, Vec<Ty>, Ty)> = hd
-                    .methods
-                    .iter()
-                    .map(|m| {
-                        let param_tys: Vec<Ty> =
-                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
-                        let ret_ty = m
-                            .return_type
-                            .as_ref()
-                            .map(|t| self.resolve_type(t))
-                            .unwrap_or(Ty::Unit);
-                        (m.name.clone(), param_tys, ret_ty)
-                    })
-                    .collect();
+                let mut methods = HashMap::new();
+                for handler_impl in &hd.impls {
+                    if !self.registry.interfaces.contains_key(&handler_impl.effect) {
+                        self.err(
+                            ErrorCode::C0002,
+                            format!("unknown effect `{}`", handler_impl.effect),
+                        );
+                        continue;
+                    }
+                    let impl_methods: Vec<(String, Vec<Ty>, Ty)> = handler_impl
+                        .methods
+                        .iter()
+                        .map(|m| {
+                            let param_tys: Vec<Ty> =
+                                m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                            let ret_ty = m
+                                .return_type
+                                .as_ref()
+                                .map(|t| self.resolve_type(t))
+                                .unwrap_or(Ty::Unit);
+                            (m.name.clone(), param_tys, ret_ty)
+                        })
+                        .collect();
+                    self.registry.impls.insert(
+                        (handler_impl.effect.clone(), hd.name.clone()),
+                        impl_methods.clone(),
+                    );
+                    methods.insert(handler_impl.effect.clone(), impl_methods);
+                }
                 self.registry.handlers.insert(
                     hd.name.clone(),
                     HandlerInfo {
-                        effect: hd.effect.clone(),
+                        handled_effects,
+                        uses_effects,
                         fields: fields.clone(),
-                        methods: methods.clone(),
+                        methods,
                     },
                 );
                 self.registry
                     .structs
                     .insert(handler_self_type_name(&hd.name), fields);
-                self.registry
-                    .impls
-                    .insert((hd.effect.clone(), hd.name.clone()), methods);
             }
             Item::Alias(alias_def) => {
                 let resolved = self.resolve_type(&alias_def.target);
@@ -289,7 +304,8 @@ impl Checker {
         span: Option<Span>,
         type_mapping: &HashMap<String, Ty>,
         extra_bindings: &[(String, Ty)],
-    ) {
+        inherited_effects: &EffectSet,
+    ) -> EffectSet {
         for (method_name, _expected_params, _expected_ret) in contract_methods {
             if !methods.iter().any(|m| &m.name == method_name) {
                 let msg = format!("{impl_label} is missing {member_noun} `{method_name}`");
@@ -374,9 +390,15 @@ impl Checker {
             }
         }
 
+        let mut observed_effects = EffectSet::new();
         for method in methods {
-            self.check_fn_with_extra_bindings(method, extra_bindings);
+            observed_effects = observed_effects.union(&self.check_fn_with_extra_bindings(
+                method,
+                extra_bindings,
+                inherited_effects,
+            ));
         }
+        observed_effects
     }
 
     pub(super) fn check_impl(&mut self, impl_def: &ImplDef) {
@@ -420,46 +442,118 @@ impl Checker {
             impl_def.span,
             &type_mapping,
             &[],
+            &EffectSet::new(),
         );
     }
 
     pub(super) fn check_handler(&mut self, handler_def: &HandlerDef) {
-        let Some((_effect_type_params, effect_methods)) =
-            self.registry.interfaces.get(&handler_def.effect).cloned()
-        else {
-            return;
-        };
-
-        let impl_label = format!(
-            "handler `{}` for effect `{}`",
-            handler_def.name, handler_def.effect
+        let declared_handles = crate::effect_set::EffectSet::from_names(
+            handler_def.handles_clause.effects.iter().cloned(),
         );
+        let handler_uses = self.declared_effects(handler_def.uses_clause.as_ref());
+        let mut seen_declared = HashSet::new();
+        for effect in &handler_def.handles_clause.effects {
+            if !seen_declared.insert(effect.clone()) {
+                self.err(
+                    ErrorCode::E0014,
+                    format!(
+                        "handler `{}` declares duplicate handled effect `{effect}`",
+                        handler_def.name
+                    ),
+                );
+            }
+            if !self.registry.interfaces.contains_key(effect) {
+                self.err(ErrorCode::C0002, format!("unknown effect `{effect}`"));
+            }
+        }
+
         let self_ty = Ty::Named(handler_self_type_name(&handler_def.name));
         let extra_bindings = vec![("self".to_string(), self_ty)];
-        self.check_contract_impl(
-            &handler_def.effect,
-            &effect_methods,
-            &handler_def.methods,
-            &impl_label,
-            "operation",
-            "effect",
-            handler_def.span,
-            &HashMap::new(),
-            &extra_bindings,
-        );
+        let mut seen_impls = HashSet::new();
+        for handler_impl in &handler_def.impls {
+            if !seen_impls.insert(handler_impl.effect.clone()) {
+                self.err(
+                    ErrorCode::E0014,
+                    format!(
+                        "handler `{}` has duplicate impl block for effect `{}`",
+                        handler_def.name, handler_impl.effect
+                    ),
+                );
+                continue;
+            }
+            if !declared_handles.contains(&handler_impl.effect) {
+                self.err(
+                    ErrorCode::E0014,
+                    format!(
+                        "handler `{}` implements effect `{}` but does not declare it in `handles [...]`",
+                        handler_def.name, handler_impl.effect
+                    ),
+                );
+            }
+            let Some((_effect_type_params, effect_methods)) =
+                self.registry.interfaces.get(&handler_impl.effect).cloned()
+            else {
+                continue;
+            };
+
+            let impl_label = format!(
+                "handler `{}` impl for effect `{}`",
+                handler_def.name, handler_impl.effect
+            );
+            let observed_effects = self.check_contract_impl(
+                &handler_impl.effect,
+                &effect_methods,
+                &handler_impl.methods,
+                &impl_label,
+                "operation",
+                "effect",
+                handler_impl.span.or(handler_def.span),
+                &HashMap::new(),
+                &extra_bindings,
+                &handler_uses,
+            );
+            let leaked_effects = observed_effects.difference(&handler_uses);
+            if !leaked_effects.is_empty() {
+                self.err(
+                    ErrorCode::C0001,
+                    format!(
+                        "handler `{}` impl for effect `{}` leaks undeclared effects {}; add them to the handler `uses [...]` clause",
+                        handler_def.name, handler_impl.effect, leaked_effects
+                    ),
+                );
+            }
+        }
+
+        for effect in &handler_def.handles_clause.effects {
+            if !handler_def
+                .impls
+                .iter()
+                .any(|handler_impl| &handler_impl.effect == effect)
+            {
+                self.err(
+                    ErrorCode::E0013,
+                    format!(
+                        "handler `{}` is missing impl block for effect `{effect}`",
+                        handler_def.name
+                    ),
+                );
+            }
+        }
     }
 
     pub(super) fn check_fn(&mut self, f: &FnDef) {
-        self.check_fn_with_extra_bindings(f, &[]);
+        let _ = self.check_fn_with_extra_bindings(f, &[], &EffectSet::new());
     }
 
     pub(super) fn check_fn_with_extra_bindings(
         &mut self,
         f: &FnDef,
         extra_bindings: &[(String, Ty)],
-    ) {
+        inherited_effects: &EffectSet,
+    ) -> EffectSet {
         self.concurrency.enter_function(&f.name);
-        let declared_effects = self.declared_effects(f.uses_clause.as_ref());
+        let declared_effects =
+            inherited_effects.union(&self.declared_effects(f.uses_clause.as_ref()));
         let prev_effects = std::mem::replace(&mut self.current_effects, declared_effects);
 
         let prev_errors = std::mem::replace(
@@ -505,8 +599,11 @@ impl Checker {
             self.env.define(name.clone(), ty.clone());
         }
 
+        let mut observed_effects = EffectSet::new();
         if let Some(body) = &f.body {
+            self.push_effect_observer();
             let body_ty = self.check_expr(body);
+            observed_effects = self.pop_effect_observer();
             let body_ty = self.apply_subst(&body_ty);
             let declared_ret = self.apply_subst(&declared_ret);
 
@@ -524,6 +621,7 @@ impl Checker {
         self.expected_return_type = prev_expected;
         self.current_hole_allows = prev_hole_allows;
         self.concurrency.leave_function(&f.name);
+        observed_effects
     }
 
     /// Type-check a `spec { ... }` clause attached to a function.

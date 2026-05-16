@@ -304,7 +304,7 @@ impl LspServer {
                         items.push(json!({
                             "label": &h.name,
                             "kind": 6, // Method
-                            "detail": format!("handler for {}", h.effect),
+                            "detail": format!("handler handles {}", h.handles_clause.effects.join(", ")),
                         }));
                     }
                     Item::Const(c) => {
@@ -874,7 +874,10 @@ pub fn collect_document_symbols(source: &str) -> Vec<SymbolInfo> {
             Item::HandlerDef(h) => (
                 h.name.clone(),
                 SK_FUNCTION,
-                Some(format!("handler for {}", h.effect)),
+                Some(format!(
+                    "handler handles {}",
+                    h.handles_clause.effects.join(", ")
+                )),
             ),
             Item::Const(c) => (c.name.clone(), SK_CONSTANT, Some("const".into())),
             _ => continue,

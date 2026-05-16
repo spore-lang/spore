@@ -66,6 +66,8 @@ pub struct Checker {
     hierarchy: EffectHierarchy,
     /// Structured concurrency analyzer (parallel scopes + spawn sites).
     concurrency: ConcurrencyAnalyzer,
+    /// Nested effect observations used for handle discharge and leak diagnostics.
+    effect_observation_stack: Vec<EffectSet>,
 }
 
 impl Checker {
@@ -87,6 +89,7 @@ impl Checker {
             substitution: HashMap::new(),
             hierarchy: default_effect_hierarchy(),
             concurrency: ConcurrencyAnalyzer::new(),
+            effect_observation_stack: Vec::new(),
         }
     }
 
@@ -109,7 +112,28 @@ impl Checker {
             substitution: HashMap::new(),
             hierarchy: default_effect_hierarchy(),
             concurrency: ConcurrencyAnalyzer::new(),
+            effect_observation_stack: Vec::new(),
         }
+    }
+
+    pub(super) fn push_effect_observer(&mut self) {
+        self.effect_observation_stack.push(EffectSet::new());
+    }
+
+    pub(super) fn pop_effect_observer(&mut self) -> EffectSet {
+        self.effect_observation_stack.pop().unwrap_or_default()
+    }
+
+    pub(super) fn observe_effects(&mut self, effects: &EffectSet) {
+        if let Some(current) = self.effect_observation_stack.pop() {
+            self.effect_observation_stack.push(current.union(effects));
+        }
+    }
+
+    pub(super) fn observe_effect(&mut self, effect: impl Into<String>) {
+        let mut set = EffectSet::new();
+        set.insert(effect.into());
+        self.observe_effects(&set);
     }
 
     /// Type-check an entire module.

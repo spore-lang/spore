@@ -442,6 +442,17 @@ impl Parser {
         Ok(UsesClause { resources })
     }
 
+    fn parse_handles_clause(&mut self) -> Result<HandlesClause, ParseError> {
+        if !self.at_contextual_ident("handles") {
+            return Err(self.error("expected `handles [Effect]` in handler signature".into()));
+        }
+        self.advance();
+        self.expect(&Token::LBracket)?;
+        let effects = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
+        self.expect(&Token::RBracket)?;
+        Ok(HandlesClause { effects })
+    }
+
     fn parse_struct_item(&mut self) -> Result<Item, ParseError> {
         let visibility = self.parse_visibility()?;
         let start = self.peek_span().start;
@@ -651,52 +662,137 @@ impl Parser {
         let start = self.peek_span().start;
         self.expect(&Token::Handler)?;
         let first = self.expect_ident()?;
-        let (effect, name) = if self.at(&Token::As) {
+        let (name, fields, handles_clause, uses_clause, impls) = if self.at(&Token::As) {
             self.advance();
             let name = self.expect_ident()?;
-            (first, name)
-        } else {
-            let next = self.expect_ident()?;
-            if next != "for" {
-                return Err(self.error(format!(
-                    "expected `as` or legacy `for` after handler head, got `{next}`"
-                )));
+            let fields = if self.at(&Token::LParen) {
+                self.advance();
+                let fields = self.parse_comma_sep(
+                    |p| {
+                        let name = p.expect_ident()?;
+                        p.expect(&Token::Colon)?;
+                        let ty = p.parse_type_expr()?;
+                        Ok(FieldDef { name, ty })
+                    },
+                    &Token::RParen,
+                )?;
+                self.expect(&Token::RParen)?;
+                fields
+            } else {
+                vec![]
+            };
+            self.expect(&Token::LBrace)?;
+            let mut methods = Vec::new();
+            while !self.at(&Token::RBrace) && !self.at_eof() {
+                methods.push(self.parse_fn_def()?);
             }
-            let effect = self.expect_ident()?;
-            (effect, first)
-        };
-
-        let fields = if self.at(&Token::LParen) {
-            self.advance();
-            let fields = self.parse_comma_sep(
-                |p| {
-                    let name = p.expect_ident()?;
-                    p.expect(&Token::Colon)?;
-                    let ty = p.parse_type_expr()?;
-                    Ok(FieldDef { name, ty })
+            self.expect(&Token::RBrace)?;
+            (
+                name,
+                fields,
+                HandlesClause {
+                    effects: vec![first.clone()],
                 },
-                &Token::RParen,
-            )?;
-            self.expect(&Token::RParen)?;
-            fields
+                None,
+                vec![HandlerImpl {
+                    effect: first,
+                    methods,
+                    span: None,
+                }],
+            )
+        } else if self.at_contextual_ident("for") {
+            self.advance();
+            let effect = self.expect_ident()?;
+            let fields = if self.at(&Token::LParen) {
+                self.advance();
+                let fields = self.parse_comma_sep(
+                    |p| {
+                        let name = p.expect_ident()?;
+                        p.expect(&Token::Colon)?;
+                        let ty = p.parse_type_expr()?;
+                        Ok(FieldDef { name, ty })
+                    },
+                    &Token::RParen,
+                )?;
+                self.expect(&Token::RParen)?;
+                fields
+            } else {
+                vec![]
+            };
+            self.expect(&Token::LBrace)?;
+            let mut methods = Vec::new();
+            while !self.at(&Token::RBrace) && !self.at_eof() {
+                methods.push(self.parse_fn_def()?);
+            }
+            self.expect(&Token::RBrace)?;
+            (
+                first.clone(),
+                fields,
+                HandlesClause {
+                    effects: vec![effect.clone()],
+                },
+                None,
+                vec![HandlerImpl {
+                    effect,
+                    methods,
+                    span: None,
+                }],
+            )
         } else {
-            vec![]
+            let name = first;
+            let fields = if self.at(&Token::LParen) {
+                self.advance();
+                let fields = self.parse_comma_sep(
+                    |p| {
+                        let name = p.expect_ident()?;
+                        p.expect(&Token::Colon)?;
+                        let ty = p.parse_type_expr()?;
+                        Ok(FieldDef { name, ty })
+                    },
+                    &Token::RParen,
+                )?;
+                self.expect(&Token::RParen)?;
+                fields
+            } else {
+                vec![]
+            };
+            let handles_clause = self.parse_handles_clause()?;
+            let uses_clause = if self.at(&Token::Uses) {
+                Some(self.parse_uses_clause()?)
+            } else {
+                None
+            };
+            self.expect(&Token::LBrace)?;
+            let mut impls = Vec::new();
+            while !self.at(&Token::RBrace) && !self.at_eof() {
+                let impl_start = self.peek_span().start;
+                self.expect(&Token::Impl)?;
+                let effect = self.expect_ident()?;
+                self.expect(&Token::LBrace)?;
+                let mut methods = Vec::new();
+                while !self.at(&Token::RBrace) && !self.at_eof() {
+                    methods.push(self.parse_fn_def()?);
+                }
+                self.expect(&Token::RBrace)?;
+                let impl_end = self.previous_span().end;
+                impls.push(HandlerImpl {
+                    effect,
+                    methods,
+                    span: Some(Span::new(impl_start, impl_end)),
+                });
+            }
+            self.expect(&Token::RBrace)?;
+            (name, fields, handles_clause, uses_clause, impls)
         };
-
-        self.expect(&Token::LBrace)?;
-        let mut methods = Vec::new();
-        while !self.at(&Token::RBrace) && !self.at_eof() {
-            methods.push(self.parse_fn_def()?);
-        }
-        self.expect(&Token::RBrace)?;
 
         let end = self.previous_span().end;
 
         Ok(Item::HandlerDef(HandlerDef {
             name,
-            effect,
             fields,
-            methods,
+            handles_clause,
+            uses_clause,
+            impls,
             span: Some(Span::new(start, end)),
         }))
     }

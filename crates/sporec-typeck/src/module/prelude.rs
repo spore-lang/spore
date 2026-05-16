@@ -213,27 +213,40 @@ pub(super) fn build_prelude_interface() -> ModuleInterface {
                         )
                     })
                     .collect();
-                let methods = handler
-                    .methods
-                    .iter()
-                    .map(|method| {
-                        let param_tys = method
-                            .params
-                            .iter()
-                            .map(|param| resolve_prelude_type(&param.ty, &HashMap::new()))
-                            .collect();
-                        let ret_ty = method
-                            .return_type
-                            .as_ref()
-                            .map(|ty| resolve_prelude_type(ty, &HashMap::new()))
-                            .unwrap_or(Ty::Unit);
-                        (method.name.clone(), param_tys, ret_ty)
-                    })
-                    .collect();
+                let mut methods = HashMap::new();
+                for handler_impl in &handler.impls {
+                    let impl_methods = handler_impl
+                        .methods
+                        .iter()
+                        .map(|method| {
+                            let param_tys = method
+                                .params
+                                .iter()
+                                .map(|param| resolve_prelude_type(&param.ty, &HashMap::new()))
+                                .collect();
+                            let ret_ty = method
+                                .return_type
+                                .as_ref()
+                                .map(|ty| resolve_prelude_type(ty, &HashMap::new()))
+                                .unwrap_or(Ty::Unit);
+                            (method.name.clone(), param_tys, ret_ty)
+                        })
+                        .collect();
+                    methods.insert(handler_impl.effect.clone(), impl_methods);
+                }
                 iface.handlers.insert(
                     handler.name.clone(),
                     HandlerInfo {
-                        effect: handler.effect.clone(),
+                        handled_effects: EffectSet::from_names(
+                            handler.handles_clause.effects.iter().cloned(),
+                        ),
+                        uses_effects: EffectSet::from_names(
+                            handler
+                                .uses_clause
+                                .as_ref()
+                                .map(|uses| uses.resources.clone())
+                                .unwrap_or_default(),
+                        ),
                         fields,
                         methods,
                     },
