@@ -5,7 +5,7 @@ pub struct StdlibModule {
     pub source: &'static str,
 }
 
-static MODULES: [StdlibModule; 7] = [
+static MODULES: [StdlibModule; 11] = [
     StdlibModule {
         logical_name: "prelude",
         file_name: "prelude.sp",
@@ -41,6 +41,26 @@ static MODULES: [StdlibModule; 7] = [
         file_name: "char.sp",
         source: include_str!("../../../stdlib/char.sp"),
     },
+    StdlibModule {
+        logical_name: "spore.combine",
+        file_name: "spore/combine.sp",
+        source: include_str!("../../../stdlib/spore/combine.sp"),
+    },
+    StdlibModule {
+        logical_name: "spore.merge",
+        file_name: "spore/merge.sp",
+        source: include_str!("../../../stdlib/spore/merge.sp"),
+    },
+    StdlibModule {
+        logical_name: "spore.order",
+        file_name: "spore/order.sp",
+        source: include_str!("../../../stdlib/spore/order.sp"),
+    },
+    StdlibModule {
+        logical_name: "spore.laws",
+        file_name: "spore/laws.sp",
+        source: include_str!("../../../stdlib/spore/laws.sp"),
+    },
 ];
 
 pub fn prelude() -> &'static StdlibModule {
@@ -62,7 +82,7 @@ mod tests {
     use std::collections::BTreeSet;
     use std::path::PathBuf;
 
-    use super::{all, get, prelude};
+    use super::{MODULES, all, get, prelude};
 
     fn workspace_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -72,24 +92,45 @@ mod tests {
             .to_path_buf()
     }
 
+    fn collect_stdlib_files(dir: PathBuf) -> BTreeSet<String> {
+        let mut files = BTreeSet::new();
+        let mut stack = vec![dir.clone()];
+        while let Some(path) = stack.pop() {
+            for entry in std::fs::read_dir(&path).expect("stdlib directory should be readable") {
+                let entry = entry.expect("stdlib entry should be readable");
+                let entry_path = entry.path();
+                if entry_path.is_dir() {
+                    stack.push(entry_path);
+                    continue;
+                }
+                if entry_path.extension().is_none_or(|ext| ext != "sp") {
+                    continue;
+                }
+                let rel = entry_path
+                    .strip_prefix(&dir)
+                    .expect("stdlib file should stay under stdlib root")
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                files.insert(rel);
+            }
+        }
+        files
+    }
+
     #[test]
     fn prelude_lookup_round_trips() {
         assert_eq!(Some(prelude()), get("prelude"));
     }
 
     #[test]
+    fn compositional_module_lookup_round_trips() {
+        assert_eq!(Some(&MODULES[8]), get("spore.merge"));
+        assert_eq!(Some(&MODULES[10]), get("spore.laws"));
+    }
+
+    #[test]
     fn registry_matches_stdlib_directory() {
-        let expected: BTreeSet<_> = std::fs::read_dir(workspace_root().join("stdlib"))
-            .expect("stdlib directory should exist")
-            .map(|entry| {
-                entry
-                    .expect("stdlib entry should be readable")
-                    .file_name()
-                    .into_string()
-                    .expect("stdlib file name should be valid UTF-8")
-            })
-            .filter(|file_name| file_name.ends_with(".sp"))
-            .collect();
+        let expected = collect_stdlib_files(workspace_root().join("stdlib"));
 
         let actual: BTreeSet<_> = all()
             .iter()

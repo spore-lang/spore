@@ -208,6 +208,32 @@ impl Display for Point {
 }
 ```
 
+### Compositional stdlib modules
+
+The first compositional stdlib slice now ships under the target engineering-facing
+module names:
+
+```spore
+import spore.merge
+import spore.laws
+
+fn canonical_members(xs: List[I32]) -> List[I32] {
+    merge_self_i32(xs)
+}
+```
+
+Today this is intentionally small and truthful to the live implementation:
+
+- `spore.combine` provides higher-order combine helpers plus a `Combine[T]` trait
+- `spore.merge` provides list-backed unique merge helpers plus a `Merge[T]` trait
+- `spore.order` layers small helpers over the current prelude `Ordering`
+- `spore.laws` hosts executable law-shaped examples, including an idempotent
+  self-merge example via `spec { property ... }`
+
+Older shipped stdlib helpers still live on the prelude or legacy root-module
+surface (`math`, `set`, `dict`, ...); this new `spore.*` naming is the current
+targeted first slice, not a full rename of every shipped module yet.
+
 ## Architecture
 
 ```
