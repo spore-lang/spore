@@ -1667,6 +1667,33 @@ fn hole_collects_handler_effect_context_after_discharge() {
 }
 
 #[test]
+fn hole_discharge_removes_declared_handled_effect_from_surviving_context() {
+    let module = parse(
+        r#"
+        effect Console {
+            fn println(msg: Str) -> ()
+        }
+        fn main() -> I64 uses [Console] {
+            handle {
+                ?todo
+            } with {
+                on Console.println(msg) => { msg; }
+            }
+        }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    let effect_context = hole
+        .effect_context
+        .as_ref()
+        .expect("handler effect context");
+    assert!(effect_context.discharged_effects.contains("Console"));
+    assert!(!effect_context.surviving_effects.contains("Console"));
+}
+
+#[test]
 fn hole_candidates_include_canonical_rejection_reasons() {
     let module = parse(
         r#"
@@ -1791,6 +1818,48 @@ fn hole_report_includes_checked_residual_context() {
             .is_some_and(|reason| reason.contains("exceeds budget in compute")),
         "expected over-budget reason, got {:?}",
         costly.cost_check
+    );
+}
+
+#[test]
+fn unbounded_hole_report_skips_checked_residual_budget() {
+    let module = parse(
+        r#"
+        fn cheap() -> I64 cost [1, 0, 0, 0] { 1 }
+
+        @unbounded
+        fn target() -> I64 cost [1, 0, 0, 0] {
+            ?todo
+        }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+
+    assert!(hole.cost_budget.is_none());
+    let residual = hole
+        .residual_context
+        .as_ref()
+        .expect("residual context with unbounded note");
+    assert!(residual.budget_residual.is_none());
+    assert!(residual.fit_rule.is_none());
+    assert!(
+        residual
+            .note
+            .as_deref()
+            .is_some_and(|note| note.contains("@unbounded disables checked residual budgeting"))
+    );
+
+    let cheap = hole
+        .candidates
+        .iter()
+        .find(|candidate| candidate.name == "cheap")
+        .expect("cheap candidate");
+    assert_eq!(cheap.cost_fit, 0.5);
+    assert_eq!(
+        cheap.cost_check.as_ref().and_then(|cost| cost.fits_budget),
+        None
     );
 }
 

@@ -1345,13 +1345,24 @@ impl<'a> HoleCostCollector<'a> {
             let Some(body) = &fn_def.body else {
                 continue;
             };
-            let checked_budget = fn_def
-                .cost_clause
-                .as_ref()
-                .map(ast_cost_clause_to_cost_vector);
-            let note = checked_budget
-                .is_none()
-                .then_some("checked residual budget unavailable".to_string());
+            let (checked_budget, note) = if fn_def.is_unbounded {
+                (
+                    None,
+                    Some(
+                        "@unbounded disables checked residual budgeting for this function"
+                            .to_string(),
+                    ),
+                )
+            } else {
+                let checked_budget = fn_def
+                    .cost_clause
+                    .as_ref()
+                    .map(ast_cost_clause_to_cost_vector);
+                let note = checked_budget
+                    .is_none()
+                    .then_some("checked residual budget unavailable".to_string());
+                (checked_budget, note)
+            };
             self.walk_expr(
                 body,
                 &fn_def.name,

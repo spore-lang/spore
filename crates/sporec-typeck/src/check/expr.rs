@@ -797,18 +797,19 @@ impl Checker {
 
                 let prev_effects = self.current_effects.clone();
                 self.current_effects = prev_effects.union(&handled_effects);
-                let enclosing_effect_context =
-                    if let Some(parent) = self.hole_effect_context_stack.last() {
-                        super::EnclosingHandlerEffectContext {
-                            surviving_effects: parent.surviving_effects.clone(),
-                            discharged_effects: parent.discharged_effects.union(&handled_effects),
-                        }
-                    } else {
-                        super::EnclosingHandlerEffectContext {
-                            surviving_effects: prev_effects.clone(),
-                            discharged_effects: handled_effects.clone(),
-                        }
-                    };
+                let enclosing_effect_context = if let Some(parent) =
+                    self.hole_effect_context_stack.last()
+                {
+                    super::EnclosingHandlerEffectContext {
+                        surviving_effects: parent.surviving_effects.difference(&handled_effects),
+                        discharged_effects: parent.discharged_effects.union(&handled_effects),
+                    }
+                } else {
+                    super::EnclosingHandlerEffectContext {
+                        surviving_effects: prev_effects.difference(&handled_effects),
+                        discharged_effects: handled_effects.clone(),
+                    }
+                };
                 self.hole_effect_context_stack
                     .push(enclosing_effect_context);
                 self.push_effect_observer();
