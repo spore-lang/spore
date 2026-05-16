@@ -11,7 +11,7 @@ spec {
     example "keeps_members": contains(merge_self_i32([1, 1, 2]), 2) == true
     property "idempotent_self_merge": |items: List[I32]| merge_unique_i32([], items)
 }
-{ merge_unique_i32(items, items) }
+{ merge_unique_i32([], items) }
 
 pub fn compare_self_i32(value: I32) -> Bool cost [6, 0, 0, 0]
 spec {
