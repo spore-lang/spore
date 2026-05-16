@@ -218,7 +218,7 @@ import spore.merge
 import spore.laws
 
 fn canonical_members(xs: List[I32]) -> List[I32] {
-    merge_self_i32(xs)
+    canonical_members_i32(xs)
 }
 ```
 
@@ -227,8 +227,44 @@ Today this is intentionally small and truthful to the live implementation:
 - `spore.combine` provides higher-order combine helpers plus a `Combine[T]` trait
 - `spore.merge` provides list-backed unique merge helpers plus a `Merge[T]` trait
 - `spore.order` layers small helpers over the current prelude `Ordering`
-- `spore.laws` hosts executable law-shaped examples, including an idempotent
-  self-merge example via `spec { property ... }`
+- `spore.laws` hosts executable law-oriented helpers such as
+  `canonical_members_i32` and `sum3_left_assoc_i32`, expressed with ordinary
+  `spec { example ... property ... }` clauses
+
+`spore.laws` does **not** add trusted optimizer rules or new `law` syntax yet.
+It gives you reusable helpers plus patterns you can copy into your own APIs
+today. For example, you can encode an associative check for a local combine step
+with existing surface syntax:
+
+```spore
+import spore.combine
+
+fn sum3(a: I32, b: I32, c: I32) -> I32
+spec {
+    property "associative": |a: I32, b: I32, c: I32|
+        combine_pair(a, combine_pair(b, c, |x: I32, y: I32| x + y), |x: I32, y: I32| x + y)
+}
+{
+    combine_pair(combine_pair(a, b, |x: I32, y: I32| x + y), c, |x: I32, y: I32| x + y)
+}
+```
+
+Or you can reuse the shipped helpers directly:
+
+```spore
+import spore.laws
+
+fn unique_ids(xs: List[I32]) -> List[I32] {
+    canonical_members_i32(xs)
+}
+
+fn total(a: I32, b: I32, c: I32) -> I32 {
+    sum3_left_assoc_i32(a, b, c)
+}
+```
+
+That is the current model for law tooling: executable helpers, reusable
+stdlib examples, and documented `spec` patterns — not a new core proof system.
 
 Older shipped stdlib helpers still live on the prelude or legacy root-module
 surface (`math`, `set`, `dict`, ...); this new `spore.*` naming is the current
