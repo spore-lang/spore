@@ -604,6 +604,27 @@ fn ast_cost_to_cost_expr(ce: &ast::CostExpr) -> CostExpr {
         ast::CostExpr::Literal(n) => CostExpr::Const(*n),
         ast::CostExpr::Var(v) => CostExpr::Var(v.clone()),
         ast::CostExpr::Linear(v) => CostExpr::Linear(v.clone()),
+        ast::CostExpr::Add(a, b) => CostExpr::Add(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
+        ast::CostExpr::Mul(a, b) => CostExpr::Mul(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
+        ast::CostExpr::Log(expr) => CostExpr::Log(Box::new(ast_cost_to_cost_expr(expr))),
+        ast::CostExpr::Max(a, b) => CostExpr::Max(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
+        ast::CostExpr::Min(a, b) => CostExpr::Min(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
+        ast::CostExpr::Span(a, b) => CostExpr::Max(
+            Box::new(ast_cost_to_cost_expr(a)),
+            Box::new(ast_cost_to_cost_expr(b)),
+        ),
     }
 }
 

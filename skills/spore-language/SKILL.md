@@ -176,7 +176,7 @@ cargo build                       # build the compiler
 cargo test --all                  # run all tests
 ```
 
-The global help surface is not fully reliable yet: `spore --help` currently trips a CLI parser bug in the checked-in binary, so prefer the repo docs or `crates/spore/src/main.rs` as the source of truth for command inventory.
+The repo build's global help surface works again, but the latest published PyPI CLI still trips a `spore --help` parser bug. For install docs prefer `spore --version`, and use the repo docs or `crates/spore/src/main.rs` as the source of truth for command inventory until the next public release ships.
 
 ## Language features
 

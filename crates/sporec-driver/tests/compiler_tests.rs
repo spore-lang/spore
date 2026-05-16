@@ -174,6 +174,15 @@ fn check_verbose_uses_cost_vector_syntax() {
 }
 
 #[test]
+fn check_verbose_preserves_composed_symbolic_cost_vector() {
+    let output = check_verbose("fn f(n: I32) -> I32 cost [n + 1, 0, 0, 0] { n }").unwrap();
+    assert!(
+        output.contains("cost [(n + 1), 0, 0, 0]"),
+        "verbose output should preserve symbolic cost expressions, got: {output}"
+    );
+}
+
+#[test]
 fn check_verbose_hides_synthetic_hole_names() {
     let output = check_verbose(
         r#"
@@ -318,6 +327,84 @@ fn compile_rejects_non_prelude_stdlib_by_default() {
     assert!(
         err.contains("undefined variable `clamp`"),
         "expected clamp to stay unavailable by default, got: {err}"
+    );
+}
+
+#[test]
+fn compile_project_resolves_embedded_compositional_stdlib_module() {
+    let project = TempProject::new("project-import-embedded-stdlib");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "main.sp"
+        "#,
+    );
+    project.write("src/main.sp", "fn main() -> () { return }\n");
+    project.write(
+        "src/lib/stdlib_merge.sp",
+        r#"
+        import spore.merge
+
+        pub fn merged_size() -> I32 {
+            len(merge_unique_i32([1, 2], [2, 3]))
+        }
+        "#,
+    );
+
+    let output = compile_project(project.root(), "lib/stdlib_merge.sp")
+        .expect("embedded stdlib module imports should resolve");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
+    );
+}
+
+#[test]
+fn compile_project_resolves_transitive_embedded_compositional_stdlib_module() {
+    let project = TempProject::new("project-import-embedded-stdlib-transitive");
+    project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "main.sp"
+        "#,
+    );
+    project.write("src/main.sp", "fn main() -> () { return }\n");
+    project.write(
+        "src/lib/stdlib_laws.sp",
+        r#"
+        import spore.laws
+
+        pub fn merged_size() -> I32 {
+            len(merge_self_i32([1, 1, 2]))
+        }
+        "#,
+    );
+
+    let output = compile_project(project.root(), "lib/stdlib_laws.sp")
+        .expect("transitive embedded stdlib imports should resolve");
+    assert!(
+        output.warnings.is_empty(),
+        "expected no warnings, got: {:?}",
+        output.warnings
     );
 }
 

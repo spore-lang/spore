@@ -315,12 +315,39 @@ impl Parser {
     }
 
     fn parse_cost_expr(&mut self) -> Result<CostExpr, ParseError> {
-        let expr = self.parse_cost_atom()?;
-        if matches!(self.peek(), Token::Plus | Token::Star | Token::LParen) {
-            return Err(self.error(
-                "cost slot expressions only support integer literals, parameter variables, or linear `O(n)`; composed expressions are deferred"
-                    .into(),
-            ));
+        let expr = self.parse_cost_additive()?;
+        match self.peek() {
+            Token::Comma | Token::RBracket | Token::RParen => Ok(expr),
+            Token::Minus => Err(self.error("cost expressions do not support subtraction".into())),
+            Token::Slash | Token::Percent => {
+                Err(self.error("cost expressions do not support division or remainder".into()))
+            }
+            Token::If | Token::Question => {
+                Err(self.error("cost expressions do not support conditionals".into()))
+            }
+            _ => Err(self.error(format!(
+                "unsupported token in cost expression: {:?}",
+                self.peek()
+            ))),
+        }
+    }
+
+    fn parse_cost_additive(&mut self) -> Result<CostExpr, ParseError> {
+        let mut expr = self.parse_cost_multiplicative()?;
+        while self.at(&Token::Plus) {
+            self.advance();
+            let rhs = self.parse_cost_multiplicative()?;
+            expr = CostExpr::Add(Box::new(expr), Box::new(rhs));
+        }
+        Ok(expr)
+    }
+
+    fn parse_cost_multiplicative(&mut self) -> Result<CostExpr, ParseError> {
+        let mut expr = self.parse_cost_atom()?;
+        while self.at(&Token::Star) {
+            self.advance();
+            let rhs = self.parse_cost_atom()?;
+            expr = CostExpr::Mul(Box::new(expr), Box::new(rhs));
         }
         Ok(expr)
     }
@@ -329,7 +356,9 @@ impl Parser {
         match self.peek().clone() {
             Token::Int(n) => {
                 self.advance();
-                Ok(CostExpr::Literal(n as u64))
+                u64::try_from(n)
+                    .map(CostExpr::Literal)
+                    .map_err(|_| self.error("cost literals must be non-negative integers".into()))
             }
             Token::Ident(s) => {
                 if s == "O"
@@ -344,9 +373,52 @@ impl Parser {
                     self.expect(&Token::RParen)?;
                     return Ok(CostExpr::Linear(var));
                 }
+                if s == "log"
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.node),
+                        Some(Token::LParen)
+                    )
+                {
+                    self.advance();
+                    self.expect(&Token::LParen)?;
+                    let expr = self.parse_cost_expr()?;
+                    self.expect(&Token::RParen)?;
+                    return Ok(CostExpr::Log(Box::new(expr)));
+                }
+                if (s == "max" || s == "min" || s == "span")
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.node),
+                        Some(Token::LParen)
+                    )
+                {
+                    self.advance();
+                    self.expect(&Token::LParen)?;
+                    let lhs = self.parse_cost_expr()?;
+                    self.expect(&Token::Comma)?;
+                    let rhs = self.parse_cost_expr()?;
+                    self.expect(&Token::RParen)?;
+                    return Ok(match s.as_str() {
+                        "max" => CostExpr::Max(Box::new(lhs), Box::new(rhs)),
+                        "min" => CostExpr::Min(Box::new(lhs), Box::new(rhs)),
+                        "span" => CostExpr::Span(Box::new(lhs), Box::new(rhs)),
+                        _ => unreachable!(),
+                    });
+                }
                 self.advance();
+                if self.at(&Token::LParen) {
+                    return Err(self.error(format!(
+                        "unsupported cost function `{s}`; only `log`, `max`, `min`, and `span` are accepted"
+                    )));
+                }
                 Ok(CostExpr::Var(s))
             }
+            Token::LParen => {
+                self.advance();
+                let expr = self.parse_cost_expr()?;
+                self.expect(&Token::RParen)?;
+                Ok(expr)
+            }
+            Token::If => Err(self.error("cost expressions do not support conditionals".into())),
             _ => Err(self.error(format!("expected cost expression, found {:?}", self.peek()))),
         }
     }
