@@ -4,7 +4,7 @@ use sporec_parser::parse;
 use sporec_typeck::check::Checker;
 use sporec_typeck::error::ErrorCode;
 use sporec_typeck::module::{ModuleInterface, ModuleRegistry, SymbolVisibility};
-use sporec_typeck::types::Ty;
+use sporec_typeck::types::{Ty, canonical_error_set};
 use sporec_typeck::{build_module_interface, type_check_with_registry};
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -448,4 +448,50 @@ fn f() -> () uses [Console] { perform Console.println("hello") }
         errs.iter().any(|(code, _)| *code == ErrorCode::M0303),
         "expected M0303 (ambiguous import), got: {errs:?}"
     );
+}
+
+#[test]
+fn equivalent_imported_function_error_sets_are_not_ambiguous() {
+    let mut registry = ModuleRegistry::new();
+
+    let mut mod_a = ModuleInterface::new(vec!["ModA".into()]);
+    mod_a
+        .functions
+        .insert("read".into(), (vec![Ty::Str], Ty::Str));
+    mod_a.function_errors.insert(
+        "read".into(),
+        canonical_error_set(["ParseError", "IoError"]),
+    );
+    mod_a.set_visibility("read", SymbolVisibility::Pub);
+    registry.register(mod_a);
+
+    let mut mod_b = ModuleInterface::new(vec!["ModB".into()]);
+    mod_b
+        .functions
+        .insert("read".into(), (vec![Ty::Str], Ty::Str));
+    mod_b.function_errors.insert(
+        "read".into(),
+        canonical_error_set(["IoError", "ParseError", "IoError"]),
+    );
+    mod_b.set_visibility("read", SymbolVisibility::Pub);
+    registry.register(mod_b);
+
+    let src = r#"
+import ModA as A
+import ModB as B
+
+fn caller() -> Str ! IoError | ParseError {
+    read("input")?
+}
+"#;
+
+    check_with_registry(src, registry).unwrap_or_else(|errs| {
+        panic!(
+            "expected no errors, got:\n{}",
+            errs.iter()
+                .map(|(c, m)| format!("[{c}] {m}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    });
 }

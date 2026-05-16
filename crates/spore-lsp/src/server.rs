@@ -304,7 +304,7 @@ impl LspServer {
                         items.push(json!({
                             "label": &h.name,
                             "kind": 6, // Method
-                            "detail": format!("handler for {}", h.effect),
+                            "detail": format!("handler handles {}", h.handles_clause.effects.join(", ")),
                         }));
                     }
                     Item::Const(c) => {
@@ -796,12 +796,38 @@ fn format_hole_hover(hole: &sporec_driver::HoleInfoJson) -> String {
         parts.push(format!("**Bindings in scope**\n```spore\n{bindings}\n```"));
     }
 
+    if let Some(residual) = &hole.residual_context {
+        if let Some(remaining) = &residual.budget_residual {
+            parts.push(format!(
+                "**Checked residual** `cost [{}, {}, {}, {}]`",
+                remaining.compute, remaining.alloc, remaining.io, remaining.parallel
+            ));
+        } else if let Some(note) = &residual.note {
+            parts.push(format!("**Cost context:** {note}"));
+        }
+    }
+
     if !hole.candidates.is_empty() {
         let candidates = hole
             .candidates
             .iter()
             .take(3)
-            .map(|candidate| format!("- `{}` ({:.2})", candidate.name, candidate.overall))
+            .map(|candidate| {
+                let reason = candidate
+                    .cost_check
+                    .as_ref()
+                    .and_then(|cost_check| cost_check.reason.as_deref())
+                    .or_else(|| candidate.adjustments.first().map(String::as_str));
+                match reason {
+                    Some(reason) => {
+                        format!(
+                            "- `{}` ({:.2}) — {}",
+                            candidate.name, candidate.overall, reason
+                        )
+                    }
+                    None => format!("- `{}` ({:.2})", candidate.name, candidate.overall),
+                }
+            })
             .collect::<Vec<_>>()
             .join("\n");
         parts.push(format!("**Top candidates**\n{candidates}"));
@@ -874,7 +900,10 @@ pub fn collect_document_symbols(source: &str) -> Vec<SymbolInfo> {
             Item::HandlerDef(h) => (
                 h.name.clone(),
                 SK_FUNCTION,
-                Some(format!("handler for {}", h.effect)),
+                Some(format!(
+                    "handler handles {}",
+                    h.handles_clause.effects.join(", ")
+                )),
             ),
             Item::Const(c) => (c.name.clone(), SK_CONSTANT, Some("const".into())),
             _ => continue,
@@ -1110,9 +1139,39 @@ pub fn format_type_expr(ty: &TypeExpr) -> String {
 }
 
 pub fn format_cost_expr(cost: &CostExpr) -> String {
-    match cost {
-        CostExpr::Literal(n) => n.to_string(),
-        CostExpr::Var(v) => v.clone(),
-        CostExpr::Linear(v) => format!("O({v})"),
+    fn format_prec(cost: &CostExpr, parent_prec: u8) -> String {
+        let (prec, rendered) = match cost {
+            CostExpr::Literal(n) => (4, n.to_string()),
+            CostExpr::Var(v) => (4, v.clone()),
+            CostExpr::Linear(v) => (4, format!("O({v})")),
+            CostExpr::Add(lhs, rhs) => (
+                1,
+                format!("{} + {}", format_prec(lhs, 1), format_prec(rhs, 1)),
+            ),
+            CostExpr::Mul(lhs, rhs) => (
+                2,
+                format!("{} * {}", format_prec(lhs, 2), format_prec(rhs, 2)),
+            ),
+            CostExpr::Log(expr) => (4, format!("log({})", format_prec(expr, 0))),
+            CostExpr::Max(lhs, rhs) => (
+                4,
+                format!("max({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
+            ),
+            CostExpr::Min(lhs, rhs) => (
+                4,
+                format!("min({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
+            ),
+            CostExpr::Span(lhs, rhs) => (
+                4,
+                format!("span({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
+            ),
+        };
+        if prec < parent_prec {
+            format!("({rendered})")
+        } else {
+            rendered
+        }
     }
+
+    format_prec(cost, 0)
 }

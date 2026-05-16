@@ -20,7 +20,7 @@ pub mod types;
 use std::collections::HashMap;
 
 use check::Checker;
-use cost::{CostAnalyzer, CostChecker, CostResult, CostVector};
+use cost::{CostAnalyzer, CostChecker, CostResult, CostVector, enrich_hole_report};
 use error::{ErrorCode, TypeError};
 use hole::HoleReport;
 use module::{ModuleRegistry, PreludeOptions};
@@ -86,6 +86,7 @@ pub fn type_check_with_registry_and_prelude(
     // Build four-dimensional cost vectors
     let mut cost_checker = CostChecker::new();
     cost_checker.check_all(&cost_analyzer);
+    enrich_hole_report(module, &cost_checker.costs, &mut checker.hole_report);
 
     // Convert cost budget violations into K0101 warnings (SEP-0004)
     let mut warnings = Vec::new();
@@ -188,14 +189,7 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     checker.declared_effects(f.uses_clause.as_ref()),
                 );
                 if !f.errors.is_empty() {
-                    let error_set: types::ErrorSet = f
-                        .errors
-                        .iter()
-                        .filter_map(|te| match te {
-                            sporec_parser::ast::TypeExpr::Named(name) => Some(name.clone()),
-                            _ => None,
-                        })
-                        .collect();
+                    let error_set = types::declared_error_set(&f.errors);
                     iface.function_errors.insert(f.name.clone(), error_set);
                 }
                 let mut type_params = f.type_params.clone();
@@ -310,27 +304,36 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     .iter()
                     .map(|field| (field.name.clone(), checker.resolve_type(&field.ty)))
                     .collect();
-                let methods = handler
-                    .methods
-                    .iter()
-                    .map(|method| {
-                        let param_tys = method
-                            .params
-                            .iter()
-                            .map(|param| checker.resolve_type(&param.ty))
-                            .collect();
-                        let ret_ty = method
-                            .return_type
-                            .as_ref()
-                            .map(|ty| checker.resolve_type(ty))
-                            .unwrap_or(types::Ty::Unit);
-                        (method.name.clone(), param_tys, ret_ty)
-                    })
-                    .collect();
+                let mut methods = std::collections::HashMap::new();
+                for handler_impl in &handler.impls {
+                    let impl_methods = handler_impl
+                        .methods
+                        .iter()
+                        .map(|method| {
+                            let param_tys = method
+                                .params
+                                .iter()
+                                .map(|param| checker.resolve_type(&param.ty))
+                                .collect();
+                            let ret_ty = method
+                                .return_type
+                                .as_ref()
+                                .map(|ty| checker.resolve_type(ty))
+                                .unwrap_or(types::Ty::Unit);
+                            (method.name.clone(), param_tys, ret_ty)
+                        })
+                        .collect();
+                    methods.insert(handler_impl.effect.clone(), impl_methods);
+                }
                 iface.handlers.insert(
                     handler.name.clone(),
                     env::HandlerInfo {
-                        effect: handler.effect.clone(),
+                        handled_effects: checker.declared_effects(Some(
+                            &sporec_parser::ast::UsesClause {
+                                resources: handler.handles_clause.effects.clone(),
+                            },
+                        )),
+                        uses_effects: checker.declared_effects(handler.uses_clause.as_ref()),
                         fields,
                         methods,
                     },

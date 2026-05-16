@@ -16,15 +16,17 @@ Spore is a compiled language where function signatures are "gravity centers" —
 
 ## Install
 
-Published CLI artifacts are distributed on PyPI as `spore-lang` and attached to
-[GitHub Releases](https://github.com/spore-lang/spore/releases).
-PyPI-based installs require Python 3.13 or newer.
+Published alpha CLI packages are currently distributed on PyPI as `spore-lang`.
+The tag-driven GitHub Releases upload flow is configured in CI, but the next
+public `spore` release has not been cut yet, so the
+[GitHub Releases](https://github.com/spore-lang/spore/releases) page may lag
+behind PyPI. PyPI-based installs require Python 3.13 or newer.
 
-Install the latest published CLI with:
+Install the latest published alpha CLI with:
 
 ```bash
 uv tool install spore-lang
-spore --help
+spore --version
 ```
 
 If you prefer `pipx`, use:
@@ -33,8 +35,9 @@ If you prefer `pipx`, use:
 pipx install spore-lang
 ```
 
-If you need unreleased changes, keep using the source-based quick start below.
-Source builds currently require Rust 1.95 or newer.
+If you need main-branch changes—or anything newer than the latest published
+alpha—keep using the source-based quick start below. Source builds currently
+require Rust 1.95 or newer.
 
 ## Canonical Surface Syntax
 
@@ -313,12 +316,13 @@ just package-cli-sdist  # build a source distribution into dist/
 ```
 
 GitHub Actions builds wheel artifacts for Linux x86_64, macOS x86_64, macOS
-arm64, and Windows x86_64 on every push and pull request. Pushing a `v*` tag
-runs `.github/workflows/cd-publish.yml`, which builds the same wheel matrix plus
-an sdist, smoke-tests the packaged artifacts, uploads those artifacts to GitHub
-Releases, and publishes the collected distributions to PyPI from the `pypi`
-environment via trusted publishing. The repository therefore also needs a
-matching PyPI trusted publisher configuration.
+arm64, and Windows x86_64 on every push and pull request. Pushing a `v*` tag is
+wired to run `.github/workflows/cd-publish.yml`, which builds the same wheel
+matrix plus an sdist, smoke-tests the packaged artifacts, uploads those
+artifacts to GitHub Releases, and publishes the collected distributions to PyPI
+from the `pypi` environment via trusted publishing. The next public tag-driven
+release is still blocked until that GitHub `pypi` environment and the matching
+PyPI trusted publisher configuration are in place.
 
 The current MSRV is Rust 1.95, matching `Cargo.toml`, `rust-toolchain.toml`,
 CI, and `just msrv`.

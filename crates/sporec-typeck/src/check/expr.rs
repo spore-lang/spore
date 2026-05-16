@@ -333,12 +333,48 @@ impl Checker {
                 // Build scored candidates from simple suggestions
                 let candidates: Vec<crate::hole::CandidateScore> = suggestions
                     .into_iter()
-                    .map(|s| crate::hole::CandidateScore {
-                        name: s,
-                        type_match: 1.0,
-                        cost_fit: 0.5,
-                        required_effects_fit: 1.0,
-                        error_coverage: 0.5,
+                    .map(|name| {
+                        let required_effects_fit = self
+                            .registry
+                            .functions
+                            .get(&name)
+                            .map(|(_, _, effects)| {
+                                if effects
+                                    .iter()
+                                    .all(|effect| self.current_effects.contains(effect))
+                                {
+                                    1.0
+                                } else {
+                                    0.0
+                                }
+                            })
+                            .unwrap_or(1.0);
+                        let error_coverage = self
+                            .registry
+                            .fn_errors
+                            .get(&name)
+                            .map(|errors| {
+                                if errors.is_empty() {
+                                    1.0
+                                } else {
+                                    let covered = errors
+                                        .iter()
+                                        .filter(|error| self.current_errors.contains(*error))
+                                        .count();
+                                    covered as f64 / errors.len() as f64
+                                }
+                            })
+                            .unwrap_or(1.0);
+
+                        crate::hole::CandidateScore {
+                            name,
+                            type_match: 1.0,
+                            cost_fit: 0.5,
+                            required_effects_fit,
+                            error_coverage,
+                            adjustments: Vec::new(),
+                            cost_check: None,
+                        }
                     })
                     .collect();
 
@@ -359,6 +395,7 @@ impl Checker {
                     available_effects,
                     errors_to_handle,
                     cost_budget: None,
+                    residual_context: None,
                     candidates,
                     dependent_holes: Vec::new(),
                     confidence: None,
@@ -369,6 +406,7 @@ impl Checker {
             }
 
             Expr::Spawn(expr) => {
+                self.observe_effect("Spawn");
                 if !self.current_effects.contains("Spawn") {
                     self.err(
                         ErrorCode::C0001,
@@ -542,6 +580,7 @@ impl Checker {
                 operation,
                 args,
             } => {
+                self.observe_effect(effect.clone());
                 // Verify the required effect is in the current function's uses set.
                 if !self.current_effects.contains(effect) {
                     self.err(
@@ -592,8 +631,10 @@ impl Checker {
             }
 
             Expr::Handle { body, handlers } => {
-                let mut provided_effects = EffectSet::new();
+                let mut handled_effects = EffectSet::new();
                 let mut seen_operations: HashSet<(String, String)> = HashSet::new();
+                let mut named_handler_effects = EffectSet::new();
+                let mut inline_effects: HashMap<String, HashSet<String>> = HashMap::new();
 
                 for binding in handlers {
                     match binding {
@@ -605,7 +646,11 @@ impl Checker {
                                 );
                                 continue;
                             }
-                            provided_effects.insert(arm.effect.clone());
+                            handled_effects.insert(arm.effect.clone());
+                            inline_effects
+                                .entry(arm.effect.clone())
+                                .or_default()
+                                .insert(arm.operation.clone());
                             let key = (arm.effect.clone(), arm.operation.clone());
                             if !seen_operations.insert(key.clone()) {
                                 self.err(
@@ -628,18 +673,39 @@ impl Checker {
                                 continue;
                             };
 
-                            provided_effects.insert(info.effect.clone());
-                            for (operation, _, _) in &info.methods {
-                                let key = (info.effect.clone(), operation.clone());
-                                if !seen_operations.insert(key.clone()) {
-                                    self.err(
-                                    ErrorCode::E0014,
+                            handled_effects = handled_effects.union(&info.handled_effects);
+                            named_handler_effects = named_handler_effects.union(&info.uses_effects);
+                            for (effect, methods) in &info.methods {
+                                for (operation, _, _) in methods {
+                                    let key = (effect.clone(), operation.clone());
+                                    if !seen_operations.insert(key.clone()) {
+                                        self.err(
+                                            ErrorCode::E0014,
+                                            format!(
+                                                "duplicate handler binding for `{}.{}` in one `with` block",
+                                                key.0, key.1
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for (effect, operations) in &inline_effects {
+                    if let Some((_type_params, expected_operations)) =
+                        self.registry.interfaces.get(effect).cloned()
+                    {
+                        for (operation, _, _) in &expected_operations {
+                            if !operations.contains(operation) {
+                                self.err(
+                                    ErrorCode::E0013,
                                     format!(
-                                        "duplicate handler binding for `{}.{}` in one `with` block",
-                                        key.0, key.1
+                                        "handle block is missing handler arm `{}.{}`",
+                                        effect, operation
                                     ),
                                 );
-                                }
                             }
                         }
                     }
@@ -706,9 +772,13 @@ impl Checker {
                 }
 
                 let prev_effects = self.current_effects.clone();
-                self.current_effects = self.current_effects.union(&provided_effects);
-
+                self.current_effects = prev_effects.union(&handled_effects);
+                self.push_effect_observer();
                 let body_ty = self.check_expr(body);
+                let body_effects = self.pop_effect_observer();
+                let mut handler_effects = named_handler_effects;
+
+                self.current_effects = prev_effects.clone();
 
                 for binding in handlers {
                     let HandleBinding::On(arm) = binding else {
@@ -741,7 +811,10 @@ impl Checker {
                                 self.env.define(param.clone(), var);
                             }
 
+                            self.push_effect_observer();
                             let arm_ty = self.check_expr(&arm.body);
+                            let arm_effects = self.pop_effect_observer();
+                            handler_effects = handler_effects.union(&arm_effects);
                             self.unify(
                                 &ret_ty,
                                 &arm_ty,
@@ -752,18 +825,38 @@ impl Checker {
                                 let var = self.fresh_var();
                                 self.env.define(param.clone(), var);
                             }
+                            self.push_effect_observer();
                             let _ = self.check_expr(&arm.body);
+                            let arm_effects = self.pop_effect_observer();
+                            handler_effects = handler_effects.union(&arm_effects);
                         }
                     } else {
                         for param in &arm.params {
                             let var = self.fresh_var();
                             self.env.define(param.clone(), var);
                         }
+                        self.push_effect_observer();
                         let _ = self.check_expr(&arm.body);
+                        let arm_effects = self.pop_effect_observer();
+                        handler_effects = handler_effects.union(&arm_effects);
                     }
                     self.env.pop_scope();
                 }
 
+                let discharged_effects = body_effects
+                    .difference(&handled_effects)
+                    .union(&handler_effects);
+                self.observe_effects(&discharged_effects);
+                let leaked_outer_effects = discharged_effects.difference(&prev_effects);
+                if !leaked_outer_effects.is_empty() {
+                    self.err(
+                        ErrorCode::C0001,
+                        format!(
+                            "handle block leaks outer effects {}; add them to the surrounding `uses [...]` or discharge them with another handler",
+                            leaked_outer_effects
+                        ),
+                    );
+                }
                 self.current_effects = prev_effects;
                 body_ty
             }

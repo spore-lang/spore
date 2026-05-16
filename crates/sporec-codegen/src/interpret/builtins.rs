@@ -112,31 +112,33 @@ impl Interpreter {
                     let mut captured_env = env.snapshot();
                     captured_env.insert("self".to_string(), self_value);
 
-                    for method in &handler_def.methods {
-                        let key = (handler_def.effect.clone(), method.name.clone());
-                        if !seen.insert(key.clone()) {
-                            return Err(RuntimeError::new(format!(
-                                "duplicate handler binding for `{}.{}` in one `with` block",
-                                key.0, key.1
-                            )));
+                    for handler_impl in &handler_def.impls {
+                        for method in &handler_impl.methods {
+                            let key = (handler_impl.effect.clone(), method.name.clone());
+                            if !seen.insert(key.clone()) {
+                                return Err(RuntimeError::new(format!(
+                                    "duplicate handler binding for `{}.{}` in one `with` block",
+                                    key.0, key.1
+                                )));
+                            }
+                            let Some(body) = &method.body else {
+                                return Err(RuntimeError::new(format!(
+                                    "handler `{}` method `{}` has no body",
+                                    handler_def.name, method.name
+                                )));
+                            };
+                            frame.push(RuntimeEffectArm {
+                                effect: handler_impl.effect.clone(),
+                                operation: method.name.clone(),
+                                params: method
+                                    .params
+                                    .iter()
+                                    .map(|param| param.name.clone())
+                                    .collect(),
+                                body: body.clone(),
+                                captured_env: captured_env.clone(),
+                            });
                         }
-                        let Some(body) = &method.body else {
-                            return Err(RuntimeError::new(format!(
-                                "handler `{}` method `{}` has no body",
-                                handler_def.name, method.name
-                            )));
-                        };
-                        frame.push(RuntimeEffectArm {
-                            effect: handler_def.effect.clone(),
-                            operation: method.name.clone(),
-                            params: method
-                                .params
-                                .iter()
-                                .map(|param| param.name.clone())
-                                .collect(),
-                            body: body.clone(),
-                            captured_env: captured_env.clone(),
-                        });
                     }
                 }
             }

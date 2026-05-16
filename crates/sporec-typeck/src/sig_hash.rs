@@ -5,8 +5,6 @@
 //! - **SigHash**: covers function signature (name, params, return, caps, errors, type_params)
 //! - **ImplHash**: covers function body (implementation AST)
 
-use std::collections::BTreeSet;
-
 use crate::types::Ty;
 
 /// A 256-bit BLAKE3 signature hash.
@@ -24,7 +22,7 @@ impl SigHash {
         params: &[Ty],
         ret: &Ty,
         effects: &crate::effect_set::EffectSet,
-        errors: &BTreeSet<String>,
+        errors: &crate::types::ErrorSet,
         type_params: &[String],
     ) -> Self {
         let mut hasher = blake3::Hasher::new();
@@ -197,9 +195,7 @@ impl SigHashMap {
 mod tests {
     use super::*;
     use crate::effect_set::EffectSet;
-    use std::collections::BTreeSet;
-
-    use crate::types::Ty;
+    use crate::types::{Ty, canonical_error_set};
 
     #[test]
     fn same_signature_same_hash() {
@@ -208,7 +204,7 @@ mod tests {
             &[Ty::I32],
             &Ty::Bool,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
         let h2 = SigHash::compute(
@@ -216,7 +212,7 @@ mod tests {
             &[Ty::I32],
             &Ty::Bool,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
         assert_eq!(h1, h2);
@@ -229,7 +225,7 @@ mod tests {
             &[Ty::I32],
             &Ty::Bool,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
         let h2 = SigHash::compute(
@@ -237,7 +233,7 @@ mod tests {
             &[Ty::Str],
             &Ty::Bool,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
         assert_ne!(h1, h2);
@@ -246,9 +242,23 @@ mod tests {
     #[test]
     fn caps_affect_hash() {
         let mut caps = EffectSet::new();
-        let h1 = SigHash::compute("foo", &[], &Ty::Unit, &caps, &BTreeSet::new(), &[]);
+        let h1 = SigHash::compute(
+            "foo",
+            &[],
+            &Ty::Unit,
+            &caps,
+            &crate::types::ErrorSet::new(),
+            &[],
+        );
         caps.insert("NetConnect".into());
-        let h2 = SigHash::compute("foo", &[], &Ty::Unit, &caps, &BTreeSet::new(), &[]);
+        let h2 = SigHash::compute(
+            "foo",
+            &[],
+            &Ty::Unit,
+            &caps,
+            &crate::types::ErrorSet::new(),
+            &[],
+        );
         assert_ne!(h1, h2);
     }
 
@@ -259,7 +269,7 @@ mod tests {
             &[],
             &Ty::Unit,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
         let hash_b = SigHash::compute(
@@ -267,7 +277,7 @@ mod tests {
             &[],
             &Ty::Unit,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
         let hash_c = SigHash::compute(
@@ -275,7 +285,7 @@ mod tests {
             &[],
             &Ty::Unit,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
         let hash_b2 = SigHash::compute(
@@ -283,7 +293,7 @@ mod tests {
             &[],
             &Ty::I32,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
 
@@ -309,11 +319,20 @@ mod tests {
             &[],
             &Ty::Unit,
             &EffectSet::new(),
-            &BTreeSet::new(),
+            &crate::types::ErrorSet::new(),
             &[],
         );
         let s = h.to_string();
         assert_eq!(s.len(), 64); // 32 bytes × 2 hex chars
+    }
+
+    #[test]
+    fn canonical_error_sets_hash_the_same() {
+        let errors_a = canonical_error_set(["ParseError", "IoError", "ParseError"]);
+        let errors_b = canonical_error_set(["IoError", "ParseError"]);
+        let h1 = SigHash::compute("foo", &[], &Ty::Unit, &EffectSet::new(), &errors_a, &[]);
+        let h2 = SigHash::compute("foo", &[], &Ty::Unit, &EffectSet::new(), &errors_b, &[]);
+        assert_eq!(h1, h2);
     }
 
     #[test]

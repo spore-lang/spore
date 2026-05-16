@@ -148,6 +148,14 @@ pub struct UsesClause {
     pub resources: Vec<String>,
 }
 
+/// Effect coverage introduced by `handles`.
+///
+/// Example: `handles [Console, FileRead]`
+#[derive(Debug, Clone)]
+pub struct HandlesClause {
+    pub effects: Vec<String>,
+}
+
 /// Behavioral contract introduced by `spec`.
 ///
 /// Contains example assertions and property-based invariants:
@@ -195,7 +203,7 @@ pub struct TypeConstraint {
     pub bound: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CostExpr {
     /// Integer constant.
     Literal(u64),
@@ -203,6 +211,18 @@ pub enum CostExpr {
     Var(String),
     /// Big-O linear notation: `O(n)`.
     Linear(String),
+    /// Addition of two symbolic cost expressions.
+    Add(Box<CostExpr>, Box<CostExpr>),
+    /// Multiplication of two symbolic cost expressions.
+    Mul(Box<CostExpr>, Box<CostExpr>),
+    /// Logarithm of a symbolic cost expression.
+    Log(Box<CostExpr>),
+    /// Maximum of two symbolic cost expressions.
+    Max(Box<CostExpr>, Box<CostExpr>),
+    /// Minimum of two symbolic cost expressions.
+    Min(Box<CostExpr>, Box<CostExpr>),
+    /// Span/distance between two symbolic cost expressions.
+    Span(Box<CostExpr>, Box<CostExpr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -459,13 +479,22 @@ pub struct EffectAlias {
     pub span: Option<Span>,
 }
 
-/// Handler implementation: `handler Console as MockConsole(prefix: Str) { ... }`
+/// Handler implementation block: `impl Console { ... }`
+#[derive(Debug, Clone)]
+pub struct HandlerImpl {
+    pub effect: String,
+    pub methods: Vec<FnDef>,
+    pub span: Option<Span>,
+}
+
+/// Unified handler definition.
 #[derive(Debug, Clone)]
 pub struct HandlerDef {
     pub name: String,
-    pub effect: String,
     pub fields: Vec<FieldDef>,
-    pub methods: Vec<FnDef>,
+    pub handles_clause: HandlesClause,
+    pub uses_clause: Option<UsesClause>,
+    pub impls: Vec<HandlerImpl>,
     pub span: Option<Span>,
 }
 

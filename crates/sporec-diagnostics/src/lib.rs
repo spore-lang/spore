@@ -284,6 +284,23 @@ pub struct HoleCostBudgetJson {
     pub budget_remaining: Option<f64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleCostVectorJson {
+    pub compute: String,
+    pub alloc: String,
+    pub io: String,
+    pub parallel: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleResidualContextJson {
+    pub budget_declared: Option<HoleCostVectorJson>,
+    pub cost_before: HoleCostVectorJson,
+    pub budget_residual: Option<HoleCostVectorJson>,
+    pub fit_rule: Option<String>,
+    pub note: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HoleCandidateJson {
     pub name: String,
@@ -292,6 +309,17 @@ pub struct HoleCandidateJson {
     pub required_effects_fit: f64,
     pub error_coverage: f64,
     pub overall: f64,
+    pub adjustments: Vec<String>,
+    pub cost_check: Option<HoleCandidateCostCheckJson>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleCandidateCostCheckJson {
+    pub candidate_cost: Option<HoleCostVectorJson>,
+    pub projected_cost: Option<HoleCostVectorJson>,
+    pub fits_budget: Option<bool>,
+    pub exceeded_dimensions: Vec<String>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -362,6 +390,7 @@ pub struct HoleInfoJson {
     pub available_effects: Vec<String>,
     pub errors_to_handle: Vec<String>,
     pub cost_budget: Option<HoleCostBudgetJson>,
+    pub residual_context: Option<HoleResidualContextJson>,
     pub candidates: Vec<HoleCandidateJson>,
     pub dependent_holes: Vec<String>,
     pub confidence: Option<HoleConfidenceJson>,

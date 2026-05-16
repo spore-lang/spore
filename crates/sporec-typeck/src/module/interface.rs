@@ -14,7 +14,7 @@ pub struct ModuleInterface {
     pub functions: HashMap<String, (Vec<Ty>, Ty)>,
     /// Exported function required effects: name → declared/normalized `uses [...]`
     pub function_required_effects: HashMap<String, EffectSet>,
-    /// Exported function error sets: name → declared `! E1 | E2`
+    /// Exported function error sets: name → canonicalized declared `! E1 | E2`
     pub function_errors: HashMap<String, ErrorSet>,
     /// Exported generic function type parameters.
     pub function_type_params: HashMap<String, Vec<String>>,

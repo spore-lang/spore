@@ -333,8 +333,6 @@ impl<'a> Formatter<'a> {
     pub(super) fn fmt_handler_def(&mut self, h: &HandlerDef) {
         self.write_indent();
         self.write("handler ");
-        self.write(&h.effect);
-        self.write(" as ");
         self.write(&h.name);
         if !h.fields.is_empty() {
             self.write("(");
@@ -348,12 +346,29 @@ impl<'a> Formatter<'a> {
             }
             self.write(")");
         }
+        self.write(" handles [");
+        self.write(&h.handles_clause.effects.join(", "));
+        self.write("]");
+        if let Some(uses_clause) = &h.uses_clause {
+            self.write(" ");
+            self.fmt_uses_clause(uses_clause);
+        }
         self.write(" {");
         self.newline();
         self.indent += 1;
-        for m in &h.methods {
+        for handler_impl in &h.impls {
             self.write_indent();
-            self.fmt_fn_def(m);
+            self.write("impl ");
+            self.write(&handler_impl.effect);
+            self.write(" {");
+            self.newline();
+            self.indent += 1;
+            for method in &handler_impl.methods {
+                self.fmt_fn_def(method);
+            }
+            self.indent -= 1;
+            self.write_indent();
+            self.write("}");
             self.newline();
         }
         self.indent -= 1;
@@ -438,6 +453,25 @@ impl<'a> Formatter<'a> {
     }
 
     pub(super) fn fmt_cost_expr(&mut self, ce: &CostExpr) {
+        self.fmt_cost_expr_prec(ce, 0);
+    }
+
+    fn fmt_cost_expr_prec(&mut self, ce: &CostExpr, parent_prec: u8) {
+        let prec = match ce {
+            CostExpr::Add(_, _) => 1,
+            CostExpr::Mul(_, _) => 2,
+            CostExpr::Literal(_)
+            | CostExpr::Var(_)
+            | CostExpr::Linear(_)
+            | CostExpr::Log(_)
+            | CostExpr::Max(_, _)
+            | CostExpr::Min(_, _)
+            | CostExpr::Span(_, _) => 4,
+        };
+        let needs_parens = prec < parent_prec;
+        if needs_parens {
+            self.write("(");
+        }
         match ce {
             CostExpr::Literal(n) => self.write(&n.to_string()),
             CostExpr::Var(v) => self.write(v),
@@ -446,6 +480,45 @@ impl<'a> Formatter<'a> {
                 self.write(v);
                 self.write(")");
             }
+            CostExpr::Add(lhs, rhs) => {
+                self.fmt_cost_expr_prec(lhs, prec);
+                self.write(" + ");
+                self.fmt_cost_expr_prec(rhs, prec);
+            }
+            CostExpr::Mul(lhs, rhs) => {
+                self.fmt_cost_expr_prec(lhs, prec);
+                self.write(" * ");
+                self.fmt_cost_expr_prec(rhs, prec);
+            }
+            CostExpr::Log(expr) => {
+                self.write("log(");
+                self.fmt_cost_expr_prec(expr, 0);
+                self.write(")");
+            }
+            CostExpr::Max(lhs, rhs) => {
+                self.write("max(");
+                self.fmt_cost_expr_prec(lhs, 0);
+                self.write(", ");
+                self.fmt_cost_expr_prec(rhs, 0);
+                self.write(")");
+            }
+            CostExpr::Min(lhs, rhs) => {
+                self.write("min(");
+                self.fmt_cost_expr_prec(lhs, 0);
+                self.write(", ");
+                self.fmt_cost_expr_prec(rhs, 0);
+                self.write(")");
+            }
+            CostExpr::Span(lhs, rhs) => {
+                self.write("span(");
+                self.fmt_cost_expr_prec(lhs, 0);
+                self.write(", ");
+                self.fmt_cost_expr_prec(rhs, 0);
+                self.write(")");
+            }
+        }
+        if needs_parens {
+            self.write(")");
         }
     }
 

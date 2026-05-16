@@ -31,6 +31,10 @@ pub struct CandidateScore {
     pub required_effects_fit: f64,
     /// Error coverage [0,1]
     pub error_coverage: f64,
+    /// Human-readable ranking notes or rejection explanations.
+    pub adjustments: Vec<String>,
+    /// Checked cost reasoning, when available.
+    pub cost_check: Option<CandidateCostCheck>,
 }
 
 impl CandidateScore {
@@ -87,6 +91,35 @@ pub struct CostBudget {
     pub budget_remaining: Option<f64>,
 }
 
+/// Four-dimensional cost vector rendered on the shared hole-report surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CostVectorSurface {
+    pub compute: String,
+    pub alloc: String,
+    pub io: String,
+    pub parallel: String,
+}
+
+/// Checked residual budget context for a hole.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResidualContext {
+    pub budget_declared: Option<CostVectorSurface>,
+    pub cost_before: CostVectorSurface,
+    pub budget_residual: Option<CostVectorSurface>,
+    pub fit_rule: Option<String>,
+    pub note: Option<String>,
+}
+
+/// Checked cost reasoning attached to one candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CandidateCostCheck {
+    pub candidate_cost: Option<CostVectorSurface>,
+    pub projected_cost: Option<CostVectorSurface>,
+    pub fits_budget: Option<bool>,
+    pub exceeded_dimensions: Vec<String>,
+    pub reason: Option<String>,
+}
+
 // ── HoleInfo v0.3 ───────────────────────────────────────────────────
 
 /// Information collected about a single hole (SEP-0005 v0.3).
@@ -116,6 +149,8 @@ pub struct HoleInfo {
     pub errors_to_handle: Vec<String>,
     /// Cost budget information
     pub cost_budget: Option<CostBudget>,
+    /// Checked residual context on the current v0.x lineage.
+    pub residual_context: Option<ResidualContext>,
     /// Scored candidate list (replaces old `suggestions`)
     pub candidates: Vec<CandidateScore>,
     /// Other holes that depend on this hole
@@ -253,14 +288,51 @@ impl HoleReport {
                 out.push_str("      \"cost_budget\": null,\n");
             }
 
+            // residual_context (nullable, additive v0.x extension)
+            if let Some(ref residual) = h.residual_context {
+                out.push_str("      \"residual_context\": {");
+                match residual.budget_declared {
+                    Some(ref budget) => {
+                        out.push_str("\"budget_declared\": ");
+                        push_cost_vector_surface_json(&mut out, budget);
+                    }
+                    None => out.push_str("\"budget_declared\": null"),
+                }
+                out.push_str(", \"cost_before\": ");
+                push_cost_vector_surface_json(&mut out, &residual.cost_before);
+                match residual.budget_residual {
+                    Some(ref remaining) => {
+                        out.push_str(", \"budget_residual\": ");
+                        push_cost_vector_surface_json(&mut out, remaining);
+                    }
+                    None => out.push_str(", \"budget_residual\": null"),
+                }
+                match residual.fit_rule {
+                    Some(ref rule) => {
+                        out.push_str(&format!(", \"fit_rule\": {}", json_escape(rule)));
+                    }
+                    None => out.push_str(", \"fit_rule\": null"),
+                }
+                match residual.note {
+                    Some(ref note) => {
+                        out.push_str(&format!(", \"note\": {}", json_escape(note)));
+                    }
+                    None => out.push_str(", \"note\": null"),
+                }
+                out.push_str("},\n");
+            } else {
+                out.push_str("      \"residual_context\": null,\n");
+            }
+
             // candidates (v0.3 scored candidates)
             out.push_str("      \"candidates\": [");
             for (j, cs) in h.candidates.iter().enumerate() {
                 if j > 0 {
                     out.push_str(", ");
                 }
+                out.push('{');
                 out.push_str(&format!(
-                    "{{\"name\": {}, \"type_match\": {:.2}, \"cost_fit\": {:.2}, \"required_effects_fit\": {:.2}, \"error_coverage\": {:.2}, \"overall\": {:.2}}}",
+                    "\"name\": {}, \"type_match\": {:.2}, \"cost_fit\": {:.2}, \"required_effects_fit\": {:.2}, \"error_coverage\": {:.2}, \"overall\": {:.2}",
                     json_escape(&cs.name),
                     cs.type_match,
                     cs.cost_fit,
@@ -268,6 +340,21 @@ impl HoleReport {
                     cs.error_coverage,
                     cs.overall(),
                 ));
+                out.push_str(", \"adjustments\": [");
+                for (k, adjustment) in cs.adjustments.iter().enumerate() {
+                    if k > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&json_escape(adjustment));
+                }
+                out.push(']');
+                if let Some(ref cost_check) = cs.cost_check {
+                    out.push_str(", \"cost_check\": ");
+                    push_candidate_cost_check_json(&mut out, cost_check);
+                } else {
+                    out.push_str(", \"cost_check\": null");
+                }
+                out.push('}');
             }
             out.push_str("],\n");
 
@@ -729,6 +816,51 @@ fn json_escape(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+fn push_cost_vector_surface_json(out: &mut String, cost: &CostVectorSurface) {
+    out.push_str(&format!(
+        "{{\"compute\": {}, \"alloc\": {}, \"io\": {}, \"parallel\": {}}}",
+        json_escape(&cost.compute),
+        json_escape(&cost.alloc),
+        json_escape(&cost.io),
+        json_escape(&cost.parallel),
+    ));
+}
+
+fn push_candidate_cost_check_json(out: &mut String, cost_check: &CandidateCostCheck) {
+    out.push('{');
+    match cost_check.candidate_cost {
+        Some(ref candidate_cost) => {
+            out.push_str("\"candidate_cost\": ");
+            push_cost_vector_surface_json(out, candidate_cost);
+        }
+        None => out.push_str("\"candidate_cost\": null"),
+    }
+    match cost_check.projected_cost {
+        Some(ref projected_cost) => {
+            out.push_str(", \"projected_cost\": ");
+            push_cost_vector_surface_json(out, projected_cost);
+        }
+        None => out.push_str(", \"projected_cost\": null"),
+    }
+    match cost_check.fits_budget {
+        Some(value) => out.push_str(&format!(", \"fits_budget\": {value}")),
+        None => out.push_str(", \"fits_budget\": null"),
+    }
+    out.push_str(", \"exceeded_dimensions\": [");
+    for (index, dimension) in cost_check.exceeded_dimensions.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(&json_escape(dimension));
+    }
+    out.push(']');
+    match cost_check.reason {
+        Some(ref reason) => out.push_str(&format!(", \"reason\": {}", json_escape(reason))),
+        None => out.push_str(", \"reason\": null"),
+    }
+    out.push('}');
 }
 
 #[cfg(test)]
