@@ -1,6 +1,5 @@
 import spore.combine
 import spore.merge
-import spore.order
 
 // Spore compositional stdlib — reusable law-oriented helpers built with today's
 // `spec { example ... property ... }` surface. These are executable patterns,
@@ -38,4 +37,9 @@ spec {
     example "reflexive": compare_self_i32(7) == true
     example "zero": compare_self_i32(0) == true
 }
-{ ordering_is_eq(compare_i32(value, value)) }
+{
+    match compare(value, value) {
+        Equal => true,
+        _ => false,
+    }
+}
