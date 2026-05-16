@@ -23,6 +23,7 @@ pub enum CostExpr {
     Log(Box<CostExpr>),
     Max(Box<CostExpr>, Box<CostExpr>),
     Min(Box<CostExpr>, Box<CostExpr>),
+    Span(Box<CostExpr>, Box<CostExpr>),
     /// Linear in a named variable — represents O(n) cost.
     Linear(String),
     /// Unbounded / unknown cost — analysis could not determine a bound.
@@ -40,6 +41,7 @@ impl std::fmt::Display for CostExpr {
             CostExpr::Log(e) => write!(f, "log({e})"),
             CostExpr::Max(a, b) => write!(f, "max({a}, {b})"),
             CostExpr::Min(a, b) => write!(f, "min({a}, {b})"),
+            CostExpr::Span(a, b) => write!(f, "span({a}, {b})"),
             CostExpr::Linear(v) => write!(f, "O({v})"),
             CostExpr::Unbounded => write!(f, "∞"),
         }
@@ -621,7 +623,7 @@ fn ast_cost_to_cost_expr(ce: &ast::CostExpr) -> CostExpr {
             Box::new(ast_cost_to_cost_expr(a)),
             Box::new(ast_cost_to_cost_expr(b)),
         ),
-        ast::CostExpr::Span(a, b) => CostExpr::Max(
+        ast::CostExpr::Span(a, b) => CostExpr::Span(
             Box::new(ast_cost_to_cost_expr(a)),
             Box::new(ast_cost_to_cost_expr(b)),
         ),
