@@ -11,7 +11,7 @@ pub fn merge_self_i32(items: List[I32]) -> List[I32] cost [O(items), O(items), 0
 spec {
     example "deduplicates_overlap": len(merge_self_i32([1, 1, 2])) == 2
     example "keeps_members": contains(merge_self_i32([1, 1, 2]), 2) == true
-    property "idempotent_self_merge": |items: List[I32]| merge_unique_i32([], items)
+    property "idempotent_self_merge": |items: List[I32]| merge_self_i32(merge_self_i32(items))
 }
 { merge_unique_i32([], items) }
 
