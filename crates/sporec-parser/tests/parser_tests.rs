@@ -328,26 +328,72 @@ fn test_scalar_cost_syntax_is_rejected() {
 }
 
 #[test]
-fn test_composed_cost_slot_syntax_is_rejected() {
-    let errs = parse("fn f(n: I64) -> I64 cost [n + 1, 0, 0, 0] { n }")
-        .expect_err("composed cost slot syntax should be rejected");
-    assert!(
-        errs.iter().any(|e| e.message.contains(
-            "cost slot expressions only support integer literals, parameter variables, or linear `O(n)`"
-        )),
-        "unexpected errors: {errs:?}"
-    );
+fn test_composed_cost_slot_syntax_parses() {
+    let m = parse_ok("fn f(n: I64) -> I64 cost [n + 1, n * log(n), max(n, 1), span(n, 1)] { n }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
+            assert_eq!(
+                cost.compute,
+                sporec_parser::ast::CostExpr::Add(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                )
+            );
+            assert_eq!(
+                cost.alloc,
+                sporec_parser::ast::CostExpr::Mul(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Log(Box::new(
+                        sporec_parser::ast::CostExpr::Var("n".into()),
+                    ))),
+                )
+            );
+            assert_eq!(
+                cost.io,
+                sporec_parser::ast::CostExpr::Max(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                )
+            );
+            assert_eq!(
+                cost.parallel,
+                sporec_parser::ast::CostExpr::Span(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                )
+            );
+        }
+        _ => panic!("expected function"),
+    }
 }
 
 #[test]
-fn test_parenthesized_cost_slot_syntax_is_rejected() {
-    let errs = parse("fn f(n: I64) -> I64 cost [(n), 0, 0, 0] { n }")
-        .expect_err("parenthesized cost slot syntax should be rejected");
-    assert!(
-        errs.iter()
-            .any(|e| e.message.contains("expected cost expression, found LParen")),
-        "unexpected errors: {errs:?}"
-    );
+fn test_parenthesized_cost_slot_syntax_parses() {
+    let m = parse_ok("fn f(n: I64) -> I64 cost [(n + 1) * 2, min(n, 1), 0, 0] { n }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
+            assert_eq!(
+                cost.compute,
+                sporec_parser::ast::CostExpr::Mul(
+                    Box::new(sporec_parser::ast::CostExpr::Add(
+                        Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                        Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                    )),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(2)),
+                )
+            );
+            assert_eq!(
+                cost.alloc,
+                sporec_parser::ast::CostExpr::Min(
+                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
+                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
+                )
+            );
+        }
+        _ => panic!("expected function"),
+    }
 }
 
 #[test]

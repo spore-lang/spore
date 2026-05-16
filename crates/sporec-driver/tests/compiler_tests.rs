@@ -354,8 +354,8 @@ fn compile_project_resolves_embedded_compositional_stdlib_module() {
         r#"
         import spore.merge
 
-        pub fn merged_size() -> I32 {
-            len(merge_unique_i32([1, 2], [2, 3]))
+        pub fn merged_size() -> I64 {
+            len(merge_unique_i32([1i32, 2i32], [2i32, 3i32]))
         }
         "#,
     );
@@ -393,8 +393,8 @@ fn compile_project_resolves_transitive_embedded_compositional_stdlib_module() {
         r#"
         import spore.laws
 
-        pub fn merged_size() -> I32 {
-            len(merge_self_i32([1, 1, 2]))
+        pub fn merged_size() -> I64 {
+            len(merge_self_i32([1i32, 1i32, 2i32]))
         }
         "#,
     );

@@ -246,6 +246,15 @@ impl CostAnalyzer {
     fn analyze_function_vector(&mut self, fn_def: &FnDef) {
         let fn_name = &fn_def.name;
 
+        if let Some(declared) = fn_def
+            .cost_clause
+            .as_ref()
+            .map(ast_cost_clause_to_cost_vector)
+        {
+            self.cost_vectors.insert(fn_name.clone(), declared);
+            return;
+        }
+
         if fn_def.is_unbounded {
             let expected = fn_def
                 .cost_clause
