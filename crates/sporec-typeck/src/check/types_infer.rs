@@ -38,16 +38,7 @@ impl Checker {
                     .iter()
                     .map(|p| self.resolve_signature_type(p, signature_holes))
                     .collect();
-                let errors: ErrorSet = error_exprs
-                    .iter()
-                    .filter_map(|te| {
-                        if let TypeExpr::Named(n) = te {
-                            Some(n.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+                let errors = crate::types::declared_error_set(error_exprs);
                 Ty::Fn(
                     ptys,
                     Box::new(self.resolve_signature_type(ret, signature_holes)),
@@ -114,16 +105,7 @@ impl Checker {
             }
             TypeExpr::Function(params, ret, error_exprs) => {
                 let ptys: Vec<Ty> = params.iter().map(|p| self.resolve_type(p)).collect();
-                let errors: ErrorSet = error_exprs
-                    .iter()
-                    .filter_map(|te| {
-                        if let TypeExpr::Named(n) = te {
-                            Some(n.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+                let errors = crate::types::declared_error_set(error_exprs);
                 Ty::Fn(
                     ptys,
                     Box::new(self.resolve_type(ret)),

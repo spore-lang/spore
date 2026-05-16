@@ -2,9 +2,10 @@ use crate::diagnostics::source_file;
 use std::collections::BTreeMap;
 
 use sporec_diagnostics::{
-    HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson, HoleCostBudgetJson,
-    HoleDependencyEdgeJson, HoleDependencyGraphJson, HoleDependencyKind, HoleErrorClusterJson,
-    HoleInfoJson, HoleLocationJson, HoleReportJson, HoleSummary, HoleTypeInferenceJson, SourceFile,
+    HoleCandidateCostCheckJson, HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson,
+    HoleCostBudgetJson, HoleCostVectorJson, HoleDependencyEdgeJson, HoleDependencyGraphJson,
+    HoleDependencyKind, HoleErrorClusterJson, HoleInfoJson, HoleLocationJson, HoleReportJson,
+    HoleResidualContextJson, HoleSummary, HoleTypeInferenceJson, SourceFile,
 };
 use sporec_typeck::hole::{
     CandidateRanking, EdgeKind, HoleInfo as TypeckHoleInfo, HoleReport as TypeckHoleReport,
@@ -80,6 +81,15 @@ fn hole_location_json(source: &SourceFile, hole: &TypeckHoleInfo) -> Option<Hole
         })
 }
 
+fn hole_cost_vector_json(cost: &sporec_typeck::hole::CostVectorSurface) -> HoleCostVectorJson {
+    HoleCostVectorJson {
+        compute: cost.compute.clone(),
+        alloc: cost.alloc.clone(),
+        io: cost.io.clone(),
+        parallel: cost.parallel.clone(),
+    }
+}
+
 fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
     HoleInfoJson {
         name: hole.name.clone(),
@@ -102,6 +112,16 @@ fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
             cost_before_hole: budget.cost_before_hole,
             budget_remaining: budget.budget_remaining,
         }),
+        residual_context: hole
+            .residual_context
+            .as_ref()
+            .map(|context| HoleResidualContextJson {
+                budget_declared: context.budget_declared.as_ref().map(hole_cost_vector_json),
+                cost_before: hole_cost_vector_json(&context.cost_before),
+                budget_residual: context.budget_residual.as_ref().map(hole_cost_vector_json),
+                fit_rule: context.fit_rule.clone(),
+                note: context.note.clone(),
+            }),
         candidates: hole
             .candidates
             .iter()
@@ -112,6 +132,22 @@ fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
                 required_effects_fit: candidate.required_effects_fit,
                 error_coverage: candidate.error_coverage,
                 overall: candidate.overall(),
+                adjustments: candidate.adjustments.clone(),
+                cost_check: candidate.cost_check.as_ref().map(|cost_check| {
+                    HoleCandidateCostCheckJson {
+                        candidate_cost: cost_check
+                            .candidate_cost
+                            .as_ref()
+                            .map(hole_cost_vector_json),
+                        projected_cost: cost_check
+                            .projected_cost
+                            .as_ref()
+                            .map(hole_cost_vector_json),
+                        fits_budget: cost_check.fits_budget,
+                        exceeded_dimensions: cost_check.exceeded_dimensions.clone(),
+                        reason: cost_check.reason.clone(),
+                    }
+                }),
             })
             .collect(),
         dependent_holes: hole.dependent_holes.clone(),

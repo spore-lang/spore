@@ -305,6 +305,48 @@ fn query_hole_json_finds_named_hole() {
 }
 
 #[test]
+fn query_hole_json_includes_checked_residual_context() {
+    let temp = TempDir::new("query-hole-cost");
+    let file = temp.write(
+        "main.sp",
+        r#"
+        fn cheap() -> I32 cost [1, 0, 0, 0] { 1 + 1 }
+        fn costly() -> I32 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
+        fn main() -> I32 cost [6, 0, 0, 0] {
+            let seed = cheap();
+            ?todo
+        }
+        "#,
+    );
+
+    let output = sporec_cmd()
+        .args(["query-hole", "--json", file.to_str().unwrap(), "?todo"])
+        .output()
+        .expect("run sporec query-hole");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"residual_context\""), "stdout: {stdout}");
+    assert!(
+        stdout.contains("\"fit_rule\":\"before + candidate <= budget\"")
+            || stdout.contains("\"fit_rule\": \"before + candidate <= budget\""),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("\"fits_budget\":false") || stdout.contains("\"fits_budget\": false"),
+        "stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("exceeds budget in compute"),
+        "stdout: {stdout}"
+    );
+}
+
+#[test]
 fn query_hole_missing_exits_non_zero() {
     let temp = TempDir::new("query-hole-missing");
     let file = temp.write("main.sp", "fn main() -> I32 { 42 }\n");

@@ -796,12 +796,38 @@ fn format_hole_hover(hole: &sporec_driver::HoleInfoJson) -> String {
         parts.push(format!("**Bindings in scope**\n```spore\n{bindings}\n```"));
     }
 
+    if let Some(residual) = &hole.residual_context {
+        if let Some(remaining) = &residual.budget_residual {
+            parts.push(format!(
+                "**Checked residual** `cost [{}, {}, {}, {}]`",
+                remaining.compute, remaining.alloc, remaining.io, remaining.parallel
+            ));
+        } else if let Some(note) = &residual.note {
+            parts.push(format!("**Cost context:** {note}"));
+        }
+    }
+
     if !hole.candidates.is_empty() {
         let candidates = hole
             .candidates
             .iter()
             .take(3)
-            .map(|candidate| format!("- `{}` ({:.2})", candidate.name, candidate.overall))
+            .map(|candidate| {
+                let reason = candidate
+                    .cost_check
+                    .as_ref()
+                    .and_then(|cost_check| cost_check.reason.as_deref())
+                    .or_else(|| candidate.adjustments.first().map(String::as_str));
+                match reason {
+                    Some(reason) => {
+                        format!(
+                            "- `{}` ({:.2}) — {}",
+                            candidate.name, candidate.overall, reason
+                        )
+                    }
+                    None => format!("- `{}` ({:.2})", candidate.name, candidate.overall),
+                }
+            })
             .collect::<Vec<_>>()
             .join("\n");
         parts.push(format!("**Top candidates**\n{candidates}"));

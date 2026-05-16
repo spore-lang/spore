@@ -7,7 +7,7 @@ use sporec_parser::{
 use sporec_stdlib::prelude;
 
 use crate::env::HandlerInfo;
-use crate::types::{EffectSet, ErrorSet, Ty};
+use crate::types::{EffectSet, Ty};
 
 use super::{ModuleInterface, SymbolVisibility};
 
@@ -62,13 +62,7 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
             }
         }
         TypeExpr::Function(params, ret, error_exprs) => {
-            let errors: ErrorSet = error_exprs
-                .iter()
-                .filter_map(|te| match te {
-                    TypeExpr::Named(name) => Some(name.clone()),
-                    _ => None,
-                })
-                .collect();
+            let errors = crate::types::declared_error_set(error_exprs);
             Ty::Fn(
                 params
                     .iter()
@@ -124,14 +118,7 @@ pub(super) fn build_prelude_interface() -> ModuleInterface {
                     checker.declared_effects(f.uses_clause.as_ref()),
                 );
                 if !f.errors.is_empty() {
-                    let error_set: ErrorSet = f
-                        .errors
-                        .iter()
-                        .filter_map(|te| match te {
-                            TypeExpr::Named(name) => Some(name.clone()),
-                            _ => None,
-                        })
-                        .collect();
+                    let error_set = crate::types::declared_error_set(&f.errors);
                     iface.function_errors.insert(f.name.clone(), error_set);
                 }
                 let mut fn_type_params = f.type_params.clone();

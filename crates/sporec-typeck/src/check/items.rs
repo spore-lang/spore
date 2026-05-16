@@ -24,17 +24,7 @@ impl Checker {
                     .functions
                     .insert(f.name.clone(), (param_tys, ret_ty, effects));
                 if !f.errors.is_empty() {
-                    let error_set: ErrorSet = f
-                        .errors
-                        .iter()
-                        .filter_map(|te| {
-                            if let TypeExpr::Named(n) = te {
-                                Some(n.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+                    let error_set = crate::types::declared_error_set(&f.errors);
                     self.registry.fn_errors.insert(f.name.clone(), error_set);
                 }
                 let mut type_params = f.type_params.clone();
@@ -558,16 +548,7 @@ impl Checker {
 
         let prev_errors = std::mem::replace(
             &mut self.current_errors,
-            f.errors
-                .iter()
-                .filter_map(|te| {
-                    if let TypeExpr::Named(n) = te {
-                        Some(n.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
+            crate::types::declared_error_set(&f.errors),
         );
 
         let prev_function = std::mem::replace(&mut self.current_function, f.name.clone());

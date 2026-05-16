@@ -412,10 +412,38 @@ fn render_hole(hole: &HoleInfo) -> String {
         ));
     }
 
+    if let Some(residual) = &hole.residual_context {
+        if let Some(budget) = &residual.budget_declared {
+            lines.push(format!(
+                "  checked budget: cost [{}, {}, {}, {}]",
+                budget.compute, budget.alloc, budget.io, budget.parallel
+            ));
+        }
+        lines.push(format!(
+            "  cost before hole: cost [{}, {}, {}, {}]",
+            residual.cost_before.compute,
+            residual.cost_before.alloc,
+            residual.cost_before.io,
+            residual.cost_before.parallel
+        ));
+        if let Some(remaining) = &residual.budget_residual {
+            lines.push(format!(
+                "  checked residual: cost [{}, {}, {}, {}]",
+                remaining.compute, remaining.alloc, remaining.io, remaining.parallel
+            ));
+        }
+        if let Some(rule) = &residual.fit_rule {
+            lines.push(format!("  fit rule: {rule}"));
+        }
+        if let Some(note) = &residual.note {
+            lines.push(format!("  cost note: {note}"));
+        }
+    }
+
     if !hole.candidates.is_empty() {
         lines.push("  candidates:".to_string());
         for candidate in &hole.candidates {
-            lines.push(format!(
+            let mut line = format!(
                 "    - {} (overall {:.2}, type {:.2}, cost {:.2}, required effects {:.2}, error {:.2})",
                 candidate.name,
                 candidate.overall(),
@@ -423,7 +451,16 @@ fn render_hole(hole: &HoleInfo) -> String {
                 candidate.cost_fit,
                 candidate.required_effects_fit,
                 candidate.error_coverage
-            ));
+            );
+            if let Some(cost_check) = &candidate.cost_check
+                && let Some(reason) = &cost_check.reason
+            {
+                line.push_str(&format!(" — {reason}"));
+            }
+            lines.push(line);
+            for adjustment in &candidate.adjustments {
+                lines.push(format!("      note: {adjustment}"));
+            }
         }
     }
 

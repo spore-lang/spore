@@ -20,7 +20,7 @@ pub mod types;
 use std::collections::HashMap;
 
 use check::Checker;
-use cost::{CostAnalyzer, CostChecker, CostResult, CostVector};
+use cost::{CostAnalyzer, CostChecker, CostResult, CostVector, enrich_hole_report};
 use error::{ErrorCode, TypeError};
 use hole::HoleReport;
 use module::{ModuleRegistry, PreludeOptions};
@@ -86,6 +86,7 @@ pub fn type_check_with_registry_and_prelude(
     // Build four-dimensional cost vectors
     let mut cost_checker = CostChecker::new();
     cost_checker.check_all(&cost_analyzer);
+    enrich_hole_report(module, &cost_checker.costs, &mut checker.hole_report);
 
     // Convert cost budget violations into K0101 warnings (SEP-0004)
     let mut warnings = Vec::new();
@@ -188,14 +189,7 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     checker.declared_effects(f.uses_clause.as_ref()),
                 );
                 if !f.errors.is_empty() {
-                    let error_set: types::ErrorSet = f
-                        .errors
-                        .iter()
-                        .filter_map(|te| match te {
-                            sporec_parser::ast::TypeExpr::Named(name) => Some(name.clone()),
-                            _ => None,
-                        })
-                        .collect();
+                    let error_set = types::declared_error_set(&f.errors);
                     iface.function_errors.insert(f.name.clone(), error_set);
                 }
                 let mut type_params = f.type_params.clone();
