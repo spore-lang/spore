@@ -12,6 +12,7 @@ name = "spore"
 path = "src/main.rs"
 
 [dependencies]
+blake3 = { workspace = true }
 bpaf = { workspace = true }
 notify = { workspace = true }
 notify-debouncer-mini = { workspace = true }

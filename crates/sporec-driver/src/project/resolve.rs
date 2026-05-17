@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use sporec_typeck::platform::PlatformRegistry;
@@ -38,7 +38,11 @@ pub fn resolve_project_target_by_path(
                 .map(|path| path == normalized)
                 .unwrap_or(false)
         }) else {
-            return module_only_target(root, &normalized, dependency_source_roots(root, &manifest));
+            return module_only_target(
+                root,
+                &normalized,
+                dependency_source_roots(root, &manifest)?,
+            );
         };
         return resolve_declared_entry(root, &manifest, entry_name);
     }
@@ -66,7 +70,7 @@ fn resolve_declared_entry(
     let entry_path = normalize_entry_path(&entry.path)?;
     let source_roots = manifest.source_roots();
     let entry_source_root = resolve_entry_source_root(root, &source_roots, &entry_path)?;
-    let dependency_source_roots = dependency_source_roots(root, manifest);
+    let dependency_source_roots = dependency_source_roots(root, manifest)?;
 
     let (startup_function, platform_contract) =
         resolve_platform_binding(root, manifest, &project.platform)?;
@@ -87,7 +91,7 @@ fn legacy_default_target(
     root: &Path,
     manifest: &ProjectManifest,
 ) -> Result<ResolvedProjectTarget, String> {
-    let dependency_source_roots = dependency_source_roots(root, manifest);
+    let dependency_source_roots = dependency_source_roots(root, manifest)?;
     match manifest.package_type.as_deref() {
         Some("application") => legacy_named_target(
             root,
@@ -116,7 +120,7 @@ fn legacy_target_for_path(
     entry_path: &str,
 ) -> Result<ResolvedProjectTarget, String> {
     resolve_entry_source_root(root, &["src".to_string()], entry_path)?;
-    let dependency_source_roots = dependency_source_roots(root, manifest);
+    let dependency_source_roots = dependency_source_roots(root, manifest)?;
 
     match manifest.package_type.as_deref() {
         Some("application") if entry_path == "main.sp" => legacy_named_target(
@@ -270,19 +274,20 @@ fn resolve_platform_dependency(
     dep: &DependencySpec,
 ) -> Result<ResolvedPlatformContract, String> {
     let manifest_path = root.join("spore.toml");
-    let dep_path = dep.path.as_deref().ok_or_else(|| {
-        format!(
-            "platform `{platform_name}` in `{}` must be backed by a dependency with `path = ...`",
-            manifest_path.display()
-        )
-    })?;
-    let dep_root = resolve_dependency_root(root, dep_path);
+    let dep_root =
+        resolve_dependency_root_for(root, root, platform_name, dep).map_err(|error| {
+            format!(
+                "cannot resolve platform dependency `{platform_name}` in `{}`: {error}",
+                manifest_path.display()
+            )
+        })?;
     if !dep_root.is_dir() {
         return Err(format!(
             "platform dependency `{platform_name}` resolves to `{}` which is not a directory",
             dep_root.display()
         ));
     }
+    let dep_root = dep_root.canonicalize().unwrap_or(dep_root);
 
     let dep_manifest = load_project_manifest(&dep_root)?;
     if dep_manifest.package_type.as_deref() != Some("platform") {
@@ -359,29 +364,126 @@ fn resolve_dependency_root(root: &Path, dep_path: &str) -> PathBuf {
     }
 }
 
+fn resolve_dependency_root_for(
+    project_root: &Path,
+    package_root: &Path,
+    dep_name: &str,
+    dep: &DependencySpec,
+) -> Result<PathBuf, String> {
+    if let Some(dep_path) = dep.path.as_deref()
+        && !is_locked_store_package(project_root, package_root)
+    {
+        return Ok(resolve_dependency_root(package_root, dep_path));
+    }
+
+    let lock = load_lockfile(project_root)?;
+    let Some(entry) = lock.get(dep_name) else {
+        return Err(format!(
+            "dependency `{dep_name}` has no `path = ...` and no matching package entry in `{}`",
+            project_root.join(".spore-lock").display()
+        ));
+    };
+    if entry.store_path.trim().is_empty() {
+        return Err(format!(
+            "locked dependency `{dep_name}` in `{}` has no `store-path`",
+            project_root.join(".spore-lock").display()
+        ));
+    }
+    Ok(resolve_dependency_root(project_root, &entry.store_path))
+}
+
+fn is_locked_store_package(project_root: &Path, package_root: &Path) -> bool {
+    package_root.starts_with(project_root.join(".spore-store/packages"))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LockPackageEntry {
+    store_path: String,
+}
+
+fn load_lockfile(root: &Path) -> Result<BTreeMap<String, LockPackageEntry>, String> {
+    let path = root.join(".spore-lock");
+    let source = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read `{}`: {e}", path.display()))?;
+    let mut packages = BTreeMap::new();
+    let mut current_name: Option<String> = None;
+    let mut current_store_path: Option<String> = None;
+
+    let flush = |packages: &mut BTreeMap<String, LockPackageEntry>,
+                 current_name: &mut Option<String>,
+                 current_store_path: &mut Option<String>| {
+        if let Some(name) = current_name.take() {
+            packages.insert(
+                name,
+                LockPackageEntry {
+                    store_path: current_store_path.take().unwrap_or_default(),
+                },
+            );
+        }
+        *current_store_path = None;
+    };
+
+    for raw_line in source.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line == "[[package]]" {
+            flush(&mut packages, &mut current_name, &mut current_store_path);
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key.trim() {
+            "name" => current_name = Some(parse_lock_string(value)),
+            "store-path" => current_store_path = Some(parse_lock_string(value)),
+            _ => {}
+        }
+    }
+    flush(&mut packages, &mut current_name, &mut current_store_path);
+    Ok(packages)
+}
+
+fn parse_lock_string(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\")
+}
+
 fn project_source_roots(manifest: &ProjectManifest) -> Vec<String> {
     manifest.source_roots()
 }
 
-fn dependency_source_roots(root: &Path, manifest: &ProjectManifest) -> Vec<PathBuf> {
+fn dependency_source_roots(
+    root: &Path,
+    manifest: &ProjectManifest,
+) -> Result<Vec<PathBuf>, String> {
+    let project_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let mut roots = Vec::new();
     let mut seen = HashSet::new();
-    collect_dependency_source_roots(root, manifest, &mut roots, &mut seen);
-    roots
+    collect_dependency_source_roots(
+        &project_root,
+        &project_root,
+        manifest,
+        &mut roots,
+        &mut seen,
+    )?;
+    Ok(roots)
 }
 
 fn collect_dependency_source_roots(
-    root: &Path,
+    project_root: &Path,
+    package_root: &Path,
     manifest: &ProjectManifest,
     roots: &mut Vec<PathBuf>,
     seen: &mut HashSet<PathBuf>,
-) {
-    for dep_path in manifest
-        .dependencies
-        .values()
-        .filter_map(|dep| dep.path.as_deref())
-    {
-        let dep_root = resolve_dependency_root(root, dep_path);
+) -> Result<(), String> {
+    for (dep_name, dep) in &manifest.dependencies {
+        let dep_root = resolve_dependency_root_for(project_root, package_root, dep_name, dep)?;
         if !dep_root.is_dir() {
             continue;
         }
@@ -393,7 +495,14 @@ fn collect_dependency_source_roots(
             for source_root in dep_manifest.source_roots() {
                 roots.push(normalized_root.join(source_root));
             }
-            collect_dependency_source_roots(&normalized_root, &dep_manifest, roots, seen);
+            collect_dependency_source_roots(
+                project_root,
+                &normalized_root,
+                &dep_manifest,
+                roots,
+                seen,
+            )?;
         }
     }
+    Ok(())
 }
