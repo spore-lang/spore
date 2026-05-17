@@ -1,43 +1,43 @@
 # Spore (孢子)
 
-**A general-purpose programming language optimized for Agent-human intent interaction.**
+**A compiled, general-purpose programming language where the function signature is the single source of truth for intent — built for human–Agent collaborative development.**
 
-Spore is a compiled language where function signatures are "gravity centers" — complete specifications carrying type, error, required effect, and cost information. The compiler serves as a documentation assistant, and the hole system enables Agent-driven collaborative development.
+Spore treats every function signature as a complete specification: input/output types, error sets, required effects, computational cost budgets, and `spec` assertions live in one place and are verified by the compiler. Programs with `?holes` compile successfully, making "partially-implemented" a normal working state and giving humans and Agents a shared, structured collaboration surface (`HoleReport`).
 
 ## Key Features
 
-- **Hole System**: `?name` partial functions as first-class collaboration protocol with Agents
-- **Effect System**: IO effects gated by required effects, verified at compile time
-- **Cost Model**: 4-dimension cost analysis (compute, alloc, io, parallel) with compile-time budgets
-- **Module Hashes**: Internal dual hash (sig + impl) support for modules; `spore lock` provides the first local package content-hash lock/store slice while registry distribution remains roadmap
-- **Effect Handlers**: All IO through Platform-provided effect handlers, application code stays pure
-- **Structured Concurrency**: Task trees with cancellation propagation, channels for communication
-- **Expression-Based**: Everything is an expression, no loops (recursion + higher-order functions)
+- **Signatures as the single source of truth** — `where` / `uses` / `cost` / `spec` clauses carry constraints, required effects, cost budgets, and behavior assertions in one place; no scattered docs or stubs to keep in sync.
+- **Hole system as a collaboration protocol** — `?name` partial functions are first-class; the compiler emits the same structured context for humans and Agents to fill in dependency order.
+- **Effect system** — IO effects are declared on signatures and verified at compile time; all IO flows through Platform-provided effect handlers, keeping application code pure.
+- **Cost model** — 4-dimension cost vectors (`compute`, `alloc`, `io`, `parallel`) checked against compile-time budgets.
+- **Content-addressed modules** — dual signature/implementation hashes drive incremental compilation and caching; no semver, no diamond dependencies. `spore lock` ships the first local content-hash lock/store slice (registry distribution is roadmap).
+- **Structured concurrency** — `parallel_scope` / `spawn` / `Channel` / `select` with cancellation propagation; no async coloring.
+- **Expression-based** — everything is an expression; recursion and higher-order functions replace loops.
 
 ## Install
 
-Published alpha CLI packages are currently distributed on PyPI as `spore-lang`.
-The tag-driven GitHub Releases upload flow is configured in CI, but the next
-public `spore` release has not been cut yet, so the
-[GitHub Releases](https://github.com/spore-lang/spore/releases) page may lag
-behind PyPI. PyPI-based installs require Python 3.13 or newer.
+Spore is in alpha. Two install paths are supported:
 
-Install the latest published alpha CLI with:
+### `cargo` — for source / latest main
+
+Requires Rust 1.95+.
+
+```bash
+# install the latest commit on main
+cargo install --git https://github.com/spore-lang/spore spore --locked
+
+# or, from a local checkout
+cargo install --path crates/spore --locked
+```
+
+### `uv` — recommended for end users
+
+The alpha CLI is published to PyPI as `spore-lang`. Requires Python 3.13+.
 
 ```bash
 uv tool install spore-lang
 spore --version
 ```
-
-If you prefer `pipx`, use:
-
-```bash
-pipx install spore-lang
-```
-
-If you need main-branch changes—or anything newer than the latest published
-alpha—keep using the source-based quick start below. Source builds currently
-require Rust 1.95 or newer.
 
 ## Canonical Surface Syntax
 
@@ -385,12 +385,12 @@ Rust 1.95+ toolchain.
 ## Documentation
 
 ### Canonical design docs
-| Document | Description |
-|----------|-------------|
-| [SPARK.md](SPARK.md) | Project vision, design direction, and core principles |
-| [docs/specs/README.md](docs/specs/README.md) | Redirect for the retired per-topic spec drafts |
-| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts |
 
+| Document                                           | Description                                           |
+| -------------------------------------------------- | ----------------------------------------------------- |
+| [SPARK.md](SPARK.md)                               | Project vision, design direction, and core principles |
+| [docs/specs/README.md](docs/specs/README.md)       | Redirect for the retired per-topic spec drafts        |
+| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts              |
 
 ### SEP mapping
 
