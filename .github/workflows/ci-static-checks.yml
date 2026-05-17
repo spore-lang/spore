@@ -22,3 +22,5 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
       - uses: j178/prek-action@v2
+      - name: Validate published hook manifest
+        run: uvx prek validate-manifest .pre-commit-hooks.yaml
