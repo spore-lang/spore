@@ -2,7 +2,7 @@
 // Pure Spore dict implemented as List[Pair[K, V]].
 fn dict_new[K, V]() -> List[Pair[K, V]] cost [1, 1, 0, 0] { [] }
 
-fn dict_len[K, V](d: List[Pair[K, V]]) -> I32 cost [3, 0, 0, 0]
+fn dict_len[K, V](d: List[Pair[K, V]]) -> I64 cost [3, 0, 0, 0]
 spec {
     example "empty": dict_len(dict_new()) == 0
     example "one": dict_len(dict_insert(dict_new(), 1, 10)) == 1
@@ -20,7 +20,7 @@ spec {
 fn dict_insert[K, V](d: List[Pair[K, V]], key: K, value: V) -> List[Pair[K, V]] cost [O(d), O(d), 0, 0] { append(dict_remove(d, key), Pair { first: key, second: value }) }
 
 @unbounded
-fn dict_get[V](d: List[Pair[I32, V]], key: I32) -> Option[V] cost [O(d), 1, 0, 0]
+fn dict_get[V](d: List[Pair[I64, V]], key: I64) -> Option[V] cost [O(d), 1, 0, 0]
 spec {
     example "found": unwrap_or(dict_get(dict_insert(dict_new(), 1, 42), 1), 0) == 42
     example "missing": unwrap_or(dict_get(dict_new(), 1), 0) == 0

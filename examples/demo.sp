@@ -14,56 +14,56 @@
 // Run this file with: cargo run --bin spore -- run examples/demo.sp
 // (or `spore run examples/demo.sp` if the CLI is installed)
 // Expected output: 204
-fn add(a: I32, b: I32) -> I32
+fn add(a: I64, b: I64) -> I64
 spec {
     example "identity": add(0, 42) == 42
     example "basic": add(20, 22) == 42
-    property "left_identity": |a: I32, b: I32 when self == 0| a
+    property "left_identity": |a: I64, b: I64 when self == 0| a
 }
 { a + b }
 
-fn abs(x: I32) -> I32
+fn abs(x: I64) -> I64
 spec {
     example "positive": abs(5) == 5
     example "negative": abs(0 - 5) == 5
     example "zero": abs(0) == 0
-    property "non_negative_identity": |x: I32 when self >= 0| x
+    property "non_negative_identity": |x: I64 when self >= 0| x
 }
 {
     if x < 0 { 0 - x } else { x }
 }
 
 struct Point {
-    x: I32,
-    y: I32,
+    x: I64,
+    y: I64,
 }
 
-fn distance_squared(p: Point) -> I32
+fn distance_squared(p: Point) -> I64
 spec {
     example "origin": distance_squared(Point { x: 0, y: 0 }) == 0
     example "unit": distance_squared(Point { x: 3, y: 4 }) == 25
 }
 { p.x * p.x + p.y * p.y }
 
-fn translate(p: Point, dx: I32, dy: I32) -> Point { Point { x: p.x + dx, y: p.y + dy } }
+fn translate(p: Point, dx: I64, dy: I64) -> Point { Point { x: p.x + dx, y: p.y + dy } }
 
-fn apply(f: (I32) -> I32, x: I32) -> I32 { f(x) }
+fn apply(f: (I64) -> I64, x: I64) -> I64 { f(x) }
 
-fn double(x: I32) -> I32
+fn double(x: I64) -> I64
 spec {
     example "zero": double(0) == 0
     example "five": double(5) == 10
 }
 { x * 2 }
 
-fn compose(f: (I32) -> I32, g: (I32) -> I32) -> (I32) -> I32 { |x: I32| f(g(x)) }
+fn compose(f: (I64) -> I64, g: (I64) -> I64) -> (I64) -> I64 { |x: I64| f(g(x)) }
 
 type Shape {
-    Circle(I32),
-    Rect(I32, I32),
+    Circle(I64),
+    Rect(I64, I64),
 }
 
-fn area(s: Shape) -> I32
+fn area(s: Shape) -> I64
 spec {
     example "circle": area(Circle(5)) == 75
     example "rect": area(Rect(3, 4)) == 12
@@ -75,7 +75,7 @@ spec {
     }
 }
 
-fn factorial(n: I32) -> I32
+fn factorial(n: I64) -> I64
 spec {
     example "base": factorial(0) == 1
     example "five": factorial(5) == 120
@@ -87,7 +87,7 @@ spec {
     }
 }
 
-fn fibonacci(n: I32) -> I32
+fn fibonacci(n: I64) -> I64
 spec {
     example "base0": fibonacci(0) == 0
     example "base1": fibonacci(1) == 1
@@ -101,7 +101,7 @@ spec {
     }
 }
 
-fn is_even(n: I32) -> Bool
+fn is_even(n: I64) -> Bool
 spec {
     example "zero": is_even(0) == true
     example "one": is_even(1) == false
@@ -127,7 +127,7 @@ fn main() -> () {
     let sum = add(20, 22);
     let p = Point { x: 3, y: 4 };
     let d = distance_squared(p);
-    let tripled = apply(|x: I32| x * 3, 14);
+    let tripled = apply(|x: I64| x * 3, 14);
     let piped = 10 |> double;
     let c = Circle(5);
     let a = area(c);

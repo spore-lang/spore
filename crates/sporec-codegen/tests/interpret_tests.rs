@@ -84,14 +84,14 @@ fn run_project_outcome_on_platform(
 
 #[test]
 fn test_int_literal() {
-    let v = run_main("fn main() -> Int { 42 }");
+    let v = run_main("fn main() -> I64 { 42 }");
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 #[allow(clippy::approx_constant)]
 fn test_float_literal() {
-    let v = run_main("fn main() -> Float { 3.14 }");
+    let v = run_main("fn main() -> F64 { 3.14 }");
     assert_eq!(v.as_float(), Some(3.14));
 }
 
@@ -104,8 +104,8 @@ fn test_string_literal() {
 #[test]
 fn test_project_runtime_can_call_platform_adapter() {
     let v = run_project_with_adapter(
-        "fn main() -> Int { ?entry_should_not_run }",
-        "pub fn main_for_host(app_main: () -> Int) -> Int { 42 }",
+        "fn main() -> I64 { ?entry_should_not_run }",
+        "pub fn main_for_host(app_main: () -> I64) -> I64 { 42 }",
         "main",
         "platform_contract.main_for_host",
     );
@@ -113,11 +113,11 @@ fn test_project_runtime_can_call_platform_adapter() {
 }
 
 #[test]
-fn test_project_runtime_basic_cli_handler_supports_package_foreign_functions() {
+fn test_project_runtime_package_host_supports_custom_package_foreign_functions() {
     let temp_path = std::env::temp_dir().display().to_string();
     let entry_src = format!(
         r#"
-        import basic_cli.file
+        import custom_platform.file
 
         fn main() -> Bool {{
             file_exists("{temp_path}")
@@ -127,11 +127,11 @@ fn test_project_runtime_basic_cli_handler_supports_package_foreign_functions() {
     let v = run_project_on_platform(
         &entry_src,
         &[(
-            "basic_cli.file",
+            "custom_platform.file",
             "pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]",
         )],
         "main",
-        RuntimePlatform::BasicCli,
+        RuntimePlatform::PackageHost,
     );
     assert_eq!(v.as_bool(), Some(true));
 }
@@ -140,39 +140,39 @@ fn test_project_runtime_basic_cli_handler_supports_package_foreign_functions() {
 fn test_basic_cli_handler_does_not_intercept_non_foreign_functions() {
     let v = run_project_on_platform(
         r#"
-        fn file_exists(x: Int) -> Int {
+        fn file_exists(x: I64) -> I64 {
             x + 1
         }
 
-        fn main() -> Int {
+        fn main() -> I64 {
             file_exists(41)
         }
         "#,
         &[],
         "main",
-        RuntimePlatform::BasicCli,
+        RuntimePlatform::PackageHost,
     );
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
-fn test_project_runtime_basic_cli_exit_returns_structured_outcome() {
+fn test_project_runtime_package_host_exit_returns_structured_outcome() {
     let outcome = run_project_outcome_on_platform(
         r#"
-        import basic_cli.cmd
+        import custom_platform.cmd
 
-        fn exit_code() -> Int { 7 }
+        fn exit_code() -> U8 { 7u8 }
 
         fn main() -> () {
             exit(exit_code())
         }
         "#,
         &[(
-            "basic_cli.cmd",
-            "pub foreign fn exit(code: Int) -> Never uses [Exit]",
+            "custom_platform.cmd",
+            "pub foreign fn exit(code: U8) -> Never uses [Exit]",
         )],
         "main",
-        RuntimePlatform::BasicCli,
+        RuntimePlatform::PackageHost,
     );
     assert_eq!(outcome, ProjectRunOutcome::Exited(7));
 }
@@ -187,37 +187,37 @@ fn test_bool_literal() {
 
 #[test]
 fn test_addition() {
-    let v = run_main("fn main() -> Int { 10 + 32 }");
+    let v = run_main("fn main() -> I64 { 10 + 32 }");
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 fn test_precedence() {
-    let v = run_main("fn main() -> Int { 2 + 3 * 4 }");
+    let v = run_main("fn main() -> I64 { 2 + 3 * 4 }");
     assert_eq!(v.as_int(), Some(14));
 }
 
 #[test]
 fn test_subtraction() {
-    let v = run_main("fn main() -> Int { 50 - 8 }");
+    let v = run_main("fn main() -> I64 { 50 - 8 }");
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 fn test_division() {
-    let v = run_main("fn main() -> Int { 84 / 2 }");
+    let v = run_main("fn main() -> I64 { 84 / 2 }");
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 fn test_modulo() {
-    let v = run_main("fn main() -> Int { 10 % 3 }");
+    let v = run_main("fn main() -> I64 { 10 % 3 }");
     assert_eq!(v.as_int(), Some(1));
 }
 
 #[test]
 fn test_negation() {
-    let v = run_main("fn main() -> Int { -42 }");
+    let v = run_main("fn main() -> I64 { -42 }");
     assert_eq!(v.as_int(), Some(-42));
 }
 
@@ -225,7 +225,7 @@ fn test_negation() {
 
 #[test]
 fn test_let_binding() {
-    let v = run_main("fn main() -> Int { let x = 10; let y = 32; x + y }");
+    let v = run_main("fn main() -> I64 { let x = 10; let y = 32; x + y }");
     assert_eq!(v.as_int(), Some(42));
 }
 
@@ -234,8 +234,8 @@ fn test_let_binding() {
 #[test]
 fn test_function_call() {
     let v = run_main(
-        "fn double(x: Int) -> Int { x + x }
-         fn main() -> Int { double(21) }",
+        "fn double(x: I64) -> I64 { x + x }
+         fn main() -> I64 { double(21) }",
     );
     assert_eq!(v.as_int(), Some(42));
 }
@@ -243,8 +243,8 @@ fn test_function_call() {
 #[test]
 fn test_nested_calls() {
     let v = run_main(
-        "fn double(x: Int) -> Int { x + x }
-         fn main() -> Int { double(double(10)) + 2 }",
+        "fn double(x: I64) -> I64 { x + x }
+         fn main() -> I64 { double(double(10)) + 2 }",
     );
     assert_eq!(v.as_int(), Some(42));
 }
@@ -252,7 +252,7 @@ fn test_nested_calls() {
 #[test]
 fn test_call_with_args() {
     let v = run_fn(
-        "fn add(a: Int, b: Int) -> Int { a + b }",
+        "fn add(a: I64, b: I64) -> I64 { a + b }",
         "add",
         vec![Value::Int(20), Value::Int(22)],
     );
@@ -262,8 +262,8 @@ fn test_call_with_args() {
 #[test]
 fn test_project_run_uses_requested_startup_function() {
     let v = run_project_fn(
-        "fn boot() -> Int { 42 }
-         fn main() -> Int { 0 }",
+        "fn boot() -> I64 { 42 }
+         fn main() -> I64 { 0 }",
         "boot",
     );
     assert_eq!(v.as_int(), Some(42));
@@ -273,19 +273,19 @@ fn test_project_run_uses_requested_startup_function() {
 
 #[test]
 fn test_if_true() {
-    let v = run_main("fn main() -> Int { if true { 42 } else { 0 } }");
+    let v = run_main("fn main() -> I64 { if true { 42 } else { 0 } }");
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 fn test_if_false() {
-    let v = run_main("fn main() -> Int { if false { 0 } else { 42 } }");
+    let v = run_main("fn main() -> I64 { if false { 0 } else { 42 } }");
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 fn test_if_comparison() {
-    let v = run_main("fn main() -> Int { let x = 5; if x > 3 { 42 } else { 0 } }");
+    let v = run_main("fn main() -> I64 { let x = 5; if x > 3 { 42 } else { 0 } }");
     assert_eq!(v.as_int(), Some(42));
 }
 
@@ -308,7 +308,7 @@ fn test_match_int() {
 
 #[test]
 fn test_match_wildcard() {
-    let v = run_main("fn main() -> Int { match 99 { 0 => 0, _ => 42 } }");
+    let v = run_main("fn main() -> I64 { match 99 { 0 => 0, _ => 42 } }");
     assert_eq!(v.as_int(), Some(42));
 }
 
@@ -337,8 +337,8 @@ fn test_logical_or() {
 #[test]
 fn test_struct_create_and_access() {
     let v = run_main(
-        "struct Point { x: Int, y: Int }
-         fn main() -> Int { let p = Point { x: 40, y: 2 }; p.x + p.y }",
+        "struct Point { x: I64, y: I64 }
+         fn main() -> I64 { let p = Point { x: 40, y: 2 }; p.x + p.y }",
     );
     assert_eq!(v.as_int(), Some(42));
 }
@@ -348,8 +348,8 @@ fn test_struct_create_and_access() {
 #[test]
 fn test_lambda_call() {
     let v = run_main(
-        "fn apply(f: (Int) -> Int, x: Int) -> Int { f(x) }
-         fn main() -> Int { apply(|x: Int| x + 1, 41) }",
+        "fn apply(f: (I64) -> I64, x: I64) -> I64 { f(x) }
+         fn main() -> I64 { apply(|x: I64| x + 1, 41) }",
     );
     assert_eq!(v.as_int(), Some(42));
 }
@@ -357,8 +357,8 @@ fn test_lambda_call() {
 #[test]
 fn test_pipe() {
     let v = run_main(
-        "fn double(x: Int) -> Int { x + x }
-         fn main() -> Int { 21 |> double }",
+        "fn double(x: I64) -> I64 { x + x }
+         fn main() -> I64 { 21 |> double }",
     );
     assert_eq!(v.as_int(), Some(42));
 }
@@ -376,10 +376,10 @@ fn test_string_concat() {
 #[test]
 fn test_recursion() {
     let v = run_main(
-        "fn factorial(n: Int) -> Int {
+        "fn factorial(n: I64) -> I64 {
             if n <= 1 { 1 } else { n * factorial(n - 1) }
          }
-         fn main() -> Int { factorial(10) }",
+         fn main() -> I64 { factorial(10) }",
     );
     assert_eq!(v.as_int(), Some(3628800));
 }
@@ -388,7 +388,7 @@ fn test_recursion() {
 
 #[test]
 fn test_bitwise_and() {
-    let v = run_main("fn main() -> Int { 0xFF & 0x0F }");
+    let v = run_main("fn main() -> I64 { 0xFF & 0x0F }");
     assert_eq!(v.as_int(), Some(0x0F));
 }
 
@@ -407,7 +407,7 @@ fn test_enum_zero_arg() {
 fn test_enum_with_fields() {
     let v = run_main(
         "type Option[T] { Some(T), None }
-         fn main() -> Option[Int] { Some(42) }",
+         fn main() -> Option[I64] { Some(42) }",
     );
     assert_eq!(v.to_string(), "Some(42)");
 }
@@ -416,7 +416,7 @@ fn test_enum_with_fields() {
 fn test_enum_match() {
     let v = run_main(
         "type Option[T] { Some(T), None }
-         fn main() -> Int {
+         fn main() -> I64 {
              let x = Some(42);
              match x {
                  Some(n) => n,
@@ -431,7 +431,7 @@ fn test_enum_match() {
 fn test_enum_match_zero_arg() {
     let v = run_main(
         "type Option[T] { Some(T), None }
-         fn main() -> Int {
+         fn main() -> I64 {
              let x = None;
              match x {
                  Some(n) => n,
@@ -448,7 +448,7 @@ fn test_enum_match_zero_arg() {
 fn test_try_ok() {
     let v = run_main(
         "type Result[T, E] { Ok(T), Err(E) }
-         fn main() -> Int {
+         fn main() -> I64 {
              let r = Ok(42);
              r?
          }",
@@ -461,7 +461,7 @@ fn test_try_ok() {
 fn test_try_err() {
     run_main(
         r#"type Result[T, E] { Ok(T), Err(E) }
-         fn main() -> Int {
+         fn main() -> I64 {
              let r = Err("bad");
              r?
          }"#,
@@ -472,13 +472,13 @@ fn test_try_err() {
 
 #[test]
 fn test_len() {
-    let v = run_main("fn main() -> Int { len([1, 2, 3]) }");
+    let v = run_main("fn main() -> I64 { len([1, 2, 3]) }");
     assert_eq!(v.as_int(), Some(3));
 }
 
 #[test]
 fn test_map() {
-    let v = run_main("fn main() -> List[Int] { map([1, 2, 3], |x: Int| x * 2) }");
+    let v = run_main("fn main() -> List[I64] { map([1, 2, 3], |x: I64| x * 2) }");
     let list = v.as_list().unwrap();
     assert_eq!(list.len(), 3);
     assert_eq!(list[0].as_int(), Some(2));
@@ -488,7 +488,7 @@ fn test_map() {
 
 #[test]
 fn test_filter() {
-    let v = run_main("fn main() -> List[Int] { filter([1, 2, 3, 4], |x: Int| x > 2) }");
+    let v = run_main("fn main() -> List[I64] { filter([1, 2, 3, 4], |x: I64| x > 2) }");
     let list = v.as_list().unwrap();
     assert_eq!(list.len(), 2);
     assert_eq!(list[0].as_int(), Some(3));
@@ -497,13 +497,13 @@ fn test_filter() {
 
 #[test]
 fn test_fold() {
-    let v = run_main("fn main() -> Int { fold([1, 2, 3], 0, |acc: Int, x: Int| acc + x) }");
+    let v = run_main("fn main() -> I64 { fold([1, 2, 3], 0, |acc: I64, x: I64| acc + x) }");
     assert_eq!(v.as_int(), Some(6));
 }
 
 #[test]
 fn test_range() {
-    let v = run_main("fn main() -> List[Int] { range(0, 5) }");
+    let v = run_main("fn main() -> List[I64] { range(0, 5) }");
     let list = v.as_list().unwrap();
     assert_eq!(list.len(), 5);
     for (i, item) in list.iter().enumerate() {
@@ -513,7 +513,7 @@ fn test_range() {
 
 #[test]
 fn test_append() {
-    let v = run_main("fn main() -> List[Int] { append([1, 2], 3) }");
+    let v = run_main("fn main() -> List[I64] { append([1, 2], 3) }");
     let list = v.as_list().unwrap();
     assert_eq!(list.len(), 3);
     assert_eq!(list[2].as_int(), Some(3));
@@ -521,7 +521,7 @@ fn test_append() {
 
 #[test]
 fn test_reverse() {
-    let v = run_main("fn main() -> List[Int] { reverse([1, 2, 3]) }");
+    let v = run_main("fn main() -> List[I64] { reverse([1, 2, 3]) }");
     let list = v.as_list().unwrap();
     assert_eq!(list[0].as_int(), Some(3));
     assert_eq!(list[1].as_int(), Some(2));
@@ -531,8 +531,8 @@ fn test_reverse() {
 #[test]
 fn test_head_tail() {
     // head returns Option: Some(value) for non-empty list
-    let v = run_main("fn main() -> Option[Int] { head([10, 20, 30]) }");
-    // Value is Enum("Some", [Int(10)])
+    let v = run_main("fn main() -> Option[I64] { head([10, 20, 30]) }");
+    // Value is Enum("Some", [I64(10)])
     match &v {
         sporec_codegen::value::Value::Enum(name, fields) => {
             assert_eq!(name, "Some");
@@ -543,7 +543,7 @@ fn test_head_tail() {
     }
 
     // tail returns Option: Some(list) for non-empty list
-    let v2 = run_main("fn main() -> Option[List[Int]] { tail([10, 20, 30]) }");
+    let v2 = run_main("fn main() -> Option[List[I64]] { tail([10, 20, 30]) }");
     match &v2 {
         sporec_codegen::value::Value::Enum(name, fields) => {
             assert_eq!(name, "Some");
@@ -571,7 +571,7 @@ fn test_contains() {
 
 #[test]
 fn test_head_empty_returns_none() {
-    let v = run_main("fn main() -> Option[Int] { head([]) }");
+    let v = run_main("fn main() -> Option[I64] { head([]) }");
     match &v {
         Value::Enum(name, fields) => {
             assert_eq!(name, "None");
@@ -583,7 +583,7 @@ fn test_head_empty_returns_none() {
 
 #[test]
 fn test_tail_empty_returns_none() {
-    let v = run_main("fn main() -> Option[List[Int]] { tail([]) }");
+    let v = run_main("fn main() -> Option[List[I64]] { tail([]) }");
     match &v {
         Value::Enum(name, fields) => {
             assert_eq!(name, "None");
@@ -612,7 +612,7 @@ fn test_to_string_float() {
 
 #[test]
 fn test_string_length() {
-    let v = run_main(r#"fn main() -> Int { string_length("hello") }"#);
+    let v = run_main(r#"fn main() -> I64 { string_length("hello") }"#);
     assert_eq!(v.as_int(), Some(5));
 }
 
@@ -671,16 +671,16 @@ fn test_substring() {
 
 #[test]
 fn test_abs() {
-    let v = run_main("fn main() -> Int { abs(-5) }");
+    let v = run_main("fn main() -> I64 { abs(-5) }");
     assert_eq!(v.as_int(), Some(5));
 }
 
 #[test]
 fn test_min_max() {
-    let v = run_main("fn main() -> Int { min(3, 7) }");
+    let v = run_main("fn main() -> I64 { min(3, 7) }");
     assert_eq!(v.as_int(), Some(3));
 
-    let v2 = run_main("fn main() -> Int { max(3, 7) }");
+    let v2 = run_main("fn main() -> I64 { max(3, 7) }");
     assert_eq!(v2.as_int(), Some(7));
 }
 
@@ -698,7 +698,7 @@ fn test_println_runs() {
 #[test]
 fn test_each() {
     // each should return Unit; we just verify it doesn't crash
-    let v = run_main(r#"fn main() -> Unit { each([1, 2, 3], |x: Int| println(to_string(x))) }"#);
+    let v = run_main(r#"fn main() -> Unit { each([1, 2, 3], |x: I64| println(to_string(x))) }"#);
     assert_eq!(v.to_string(), "()");
 }
 
@@ -709,8 +709,8 @@ fn test_placeholder_single() {
     // `add(_, 5)` creates a unary closure; calling it with 3 yields 8
     let v = run_main(
         r#"
-        fn add(a: Int, b: Int) -> Int { a + b }
-        fn main() -> Int {
+        fn add(a: I64, b: I64) -> I64 { a + b }
+        fn main() -> I64 {
             let add5 = add(_, 5);
             add5(3)
         }
@@ -724,8 +724,8 @@ fn test_placeholder_multi() {
     // `sub(_, _)` with two placeholders creates a binary closure
     let v = run_main(
         r#"
-        fn sub(a: Int, b: Int) -> Int { a - b }
-        fn main() -> Int {
+        fn sub(a: I64, b: I64) -> I64 { a - b }
+        fn main() -> I64 {
             let f = sub(_, _);
             f(1, 2)
         }
@@ -739,8 +739,8 @@ fn test_placeholder_pipe() {
     // `5 |> add(_, 3)` desugars rhs to a closure, then pipe calls it with 5
     let v = run_main(
         r#"
-        fn add(a: Int, b: Int) -> Int { a + b }
-        fn main() -> Int {
+        fn add(a: I64, b: I64) -> I64 { a + b }
+        fn main() -> I64 {
             5 |> add(_, 3)
         }
     "#,
@@ -753,9 +753,9 @@ fn test_placeholder_nested_calls() {
     // Nested partial application with composition
     let v = run_main(
         r#"
-        fn add(a: Int, b: Int) -> Int { a + b }
-        fn mul(a: Int, b: Int) -> Int { a * b }
-        fn main() -> Int {
+        fn add(a: I64, b: I64) -> I64 { a + b }
+        fn mul(a: I64, b: I64) -> I64 { a * b }
+        fn main() -> I64 {
             let f = add(_, 10);
             let g = mul(_, 3);
             f(g(2))
@@ -770,9 +770,9 @@ fn test_placeholder_nested_calls() {
 fn test_placeholder_pipe_chain() {
     let v = run_main(
         r#"
-        fn add(a: Int, b: Int) -> Int { a + b }
-        fn mul(a: Int, b: Int) -> Int { a * b }
-        fn main() -> Int {
+        fn add(a: I64, b: I64) -> I64 { a + b }
+        fn mul(a: I64, b: I64) -> I64 { a * b }
+        fn main() -> I64 {
             1 |> add(_, 2) |> mul(_, 3)
         }
     "#,
@@ -799,25 +799,25 @@ fn test_stdlib_sources_parse() {
 #[test]
 fn test_stdlib_unwrap_or_some() {
     // unwrap_or comes from prelude stdlib; no need to redefine Option/unwrap_or
-    let v = run_main("fn main() -> Int { unwrap_or(Some(42), 0) }");
+    let v = run_main("fn main() -> I64 { unwrap_or(Some(42), 0) }");
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 fn test_stdlib_unwrap_or_none() {
-    let v = run_main("fn main() -> Int { unwrap_or(None, 0) }");
+    let v = run_main("fn main() -> I64 { unwrap_or(None, 0) }");
     assert_eq!(v.as_int(), Some(0));
 }
 
 #[test]
 fn test_stdlib_unwrap_or_result_ok() {
-    let v = run_main("fn main() -> Int { unwrap_or_result(Ok(42), 0) }");
+    let v = run_main("fn main() -> I64 { unwrap_or_result(Ok(42), 0) }");
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
 fn test_stdlib_unwrap_or_result_err() {
-    let v = run_main(r#"fn main() -> Int { unwrap_or_result(Err("bad"), 0) }"#);
+    let v = run_main(r#"fn main() -> I64 { unwrap_or_result(Err("bad"), 0) }"#);
     assert_eq!(v.as_int(), Some(0));
 }
 
@@ -850,7 +850,7 @@ fn test_handle_intercepts_effect() {
     // handle block intercepts the perform and returns 99 instead
     let v = run_main(
         r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             handle {
                 perform StdIO.println("intercepted");
                 42
@@ -871,7 +871,7 @@ fn test_handle_intercepts_effect() {
 fn test_handle_handler_sees_args() {
     let v = run_main(
         r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             handle {
                 perform Math.double(21)
             } with {
@@ -887,7 +887,7 @@ fn test_handle_handler_sees_args() {
 fn test_handler_result_becomes_perform_value() {
     let v = run_main(
         r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             let doubled = handle {
                 perform Math.double(21)
             } with {
@@ -905,14 +905,14 @@ fn test_named_handler_instance_uses_payload_and_self() {
     let v = run_main(
         r#"
         effect Math {
-            fn double(x: Int) -> Int
+            fn double(x: I64) -> I64
         }
-        handler Math as DoubleMath(multiplier: Int) {
-            fn double(x: Int) -> Int {
+        handler Math as DoubleMath(multiplier: I64) {
+            fn double(x: I64) -> I64 {
                 x * self.multiplier
             }
         }
-        fn main() -> Int {
+        fn main() -> I64 {
             handle {
                 perform Math.double(21)
             } with {
@@ -929,12 +929,12 @@ fn test_named_handler_and_inline_on_can_mix_for_different_effects() {
     let v = run_main(
         r#"
         effect Math {
-            fn double(x: Int) -> Int
+            fn double(x: I64) -> I64
         }
-        handler Math as DoubleMath(multiplier: Int) {
-            fn double(x: Int) -> Int { x * self.multiplier }
+        handler Math as DoubleMath(multiplier: I64) {
+            fn double(x: I64) -> I64 { x * self.multiplier }
         }
-        fn main() -> Int {
+        fn main() -> I64 {
             handle {
                 perform StdIO.println("hello");
                 perform Math.double(21)
@@ -953,8 +953,8 @@ fn test_named_handler_and_inline_on_can_mix_for_different_effects() {
 #[test]
 fn test_stdlib_map_option_some() {
     let v = run_main(
-        "fn main() -> Int {
-             let x = map_option(Some(21), |v: Int| v * 2);
+        "fn main() -> I64 {
+             let x = map_option(Some(21), |v: I64| v * 2);
              unwrap_or(x, 0)
          }",
     );
@@ -965,7 +965,7 @@ fn test_stdlib_map_option_some() {
 fn test_nested_handlers_inner_shadows_outer() {
     let v = run_main(
         r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             handle {
                 handle {
                     perform Math.value()
@@ -985,7 +985,7 @@ fn test_nested_handlers_inner_shadows_outer() {
 fn test_handler_arm_runs_with_current_handler_stack() {
     let v = run_main(
         r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             handle {
                 handle {
                     perform Math.a()
@@ -1006,7 +1006,7 @@ fn test_handler_arm_runs_with_current_handler_stack() {
 fn test_handler_scope_does_not_escape_block() {
     let module = sporec_parser::parse(
         r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             handle {
                 perform Math.value()
             } with {
@@ -1027,8 +1027,8 @@ fn test_handler_scope_does_not_escape_block() {
 #[test]
 fn test_stdlib_map_option_none() {
     let v = run_main(
-        "fn main() -> Int {
-             let x = map_option(None, |v: Int| v * 2);
+        "fn main() -> I64 {
+             let x = map_option(None, |v: I64| v * 2);
              unwrap_or(x, 0)
          }",
     );
@@ -1038,8 +1038,8 @@ fn test_stdlib_map_option_none() {
 #[test]
 fn test_stdlib_map_result_ok() {
     let v = run_main(
-        "fn main() -> Int {
-             let x = map_result(Ok(21), |v: Int| v * 2);
+        "fn main() -> I64 {
+             let x = map_result(Ok(21), |v: I64| v * 2);
              unwrap_or_result(x, 0)
          }",
     );
@@ -1060,7 +1060,7 @@ fn test_unhandled_effect_error() {
 
 #[test]
 fn test_shift_left_out_of_range_negative() {
-    let module = sporec_parser::parse("fn main() -> Int { 1 << -1 }").unwrap();
+    let module = sporec_parser::parse("fn main() -> I64 { 1 << -1 }").unwrap();
     let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
@@ -1070,7 +1070,7 @@ fn test_shift_left_out_of_range_negative() {
 
 #[test]
 fn test_shift_left_out_of_range_large() {
-    let module = sporec_parser::parse("fn main() -> Int { 1 << 64 }").unwrap();
+    let module = sporec_parser::parse("fn main() -> I64 { 1 << 64 }").unwrap();
     let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
@@ -1080,7 +1080,7 @@ fn test_shift_left_out_of_range_large() {
 
 #[test]
 fn test_shift_right_out_of_range() {
-    let module = sporec_parser::parse("fn main() -> Int { 1 >> 100 }").unwrap();
+    let module = sporec_parser::parse("fn main() -> I64 { 1 >> 100 }").unwrap();
     let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("shift amount"),
@@ -1090,10 +1090,10 @@ fn test_shift_right_out_of_range() {
 
 #[test]
 fn test_shift_valid_amounts() {
-    let v = run_main("fn main() -> Int { 1 << 3 }");
+    let v = run_main("fn main() -> I64 { 1 << 3 }");
     assert_eq!(v.as_int(), Some(8));
 
-    let v = run_main("fn main() -> Int { 16 >> 2 }");
+    let v = run_main("fn main() -> I64 { 16 >> 2 }");
     assert_eq!(v.as_int(), Some(4));
 }
 
@@ -1106,21 +1106,21 @@ fn run_main_err(src: &str) -> String {
 
 #[test]
 fn test_add_overflow() {
-    let src = &format!("fn main() -> Int {{ {} + 1 }}", i64::MAX);
+    let src = &format!("fn main() -> I64 {{ {} + 1 }}", i64::MAX);
     let err = run_main_err(src);
     assert!(err.contains("integer overflow"), "got: {err}");
 }
 
 #[test]
 fn test_sub_overflow() {
-    let src = &format!("fn main() -> Int {{ {} - 2 }}", i64::MIN + 1);
+    let src = &format!("fn main() -> I64 {{ {} - 2 }}", i64::MIN + 1);
     let err = run_main_err(src);
     assert!(err.contains("integer overflow"), "got: {err}");
 }
 
 #[test]
 fn test_mul_overflow() {
-    let src = &format!("fn main() -> Int {{ {} * 2 }}", i64::MAX);
+    let src = &format!("fn main() -> I64 {{ {} * 2 }}", i64::MAX);
     let err = run_main_err(src);
     assert!(err.contains("integer overflow"), "got: {err}");
 }
@@ -1128,14 +1128,14 @@ fn test_mul_overflow() {
 #[test]
 fn test_neg_overflow() {
     // Construct i64::MIN at runtime then negate it — that overflows.
-    let src = "fn main() -> Int { let x: Int = 0 - 9223372036854775807 - 1; -x }";
+    let src = "fn main() -> I64 { let x: I64 = 0 - 9223372036854775807 - 1; -x }";
     let err = run_main_err(src);
     assert!(err.contains("integer overflow"), "got: {err}");
 }
 
 #[test]
 fn test_range_too_large() {
-    let src = "fn main() -> Int { let xs = range(0, 20000000); len(xs) }";
+    let src = "fn main() -> I64 { let xs = range(0, 20000000); len(xs) }";
     let err = run_main_err(src);
     assert!(err.contains("range too large"), "got: {err}");
 }
@@ -1143,8 +1143,8 @@ fn test_range_too_large() {
 #[test]
 fn test_stdlib_map_result_err() {
     let v = run_main(
-        r#"fn main() -> Int {
-             let x = map_result(Err("bad"), |v: Int| v * 2);
+        r#"fn main() -> I64 {
+             let x = map_result(Err("bad"), |v: I64| v * 2);
              unwrap_or_result(x, 0)
          }"#,
     );
@@ -1204,8 +1204,8 @@ fn test_stdlib_is_err_false() {
 #[test]
 fn test_stdlib_and_then_option_some() {
     let v = run_main(
-        "fn safe_div(x: Int) -> Option[Int] { if x == 0 { None } else { Some(100 / x) } }
-         fn main() -> Option[Int] { and_then(Some(5), |x: Int| safe_div(x)) }",
+        "fn safe_div(x: I64) -> Option[I64] { if x == 0 { None } else { Some(100 / x) } }
+         fn main() -> Option[I64] { and_then(Some(5), |x: I64| safe_div(x)) }",
     );
     assert_eq!(v.to_string(), "Some(20)");
 }
@@ -1213,8 +1213,8 @@ fn test_stdlib_and_then_option_some() {
 #[test]
 fn test_stdlib_and_then_option_none() {
     let v = run_main(
-        "fn safe_div(x: Int) -> Option[Int] { if x == 0 { None } else { Some(100 / x) } }
-         fn main() -> Option[Int] { and_then(None, |x: Int| safe_div(x)) }",
+        "fn safe_div(x: I64) -> Option[I64] { if x == 0 { None } else { Some(100 / x) } }
+         fn main() -> Option[I64] { and_then(None, |x: I64| safe_div(x)) }",
     );
     assert_eq!(v.to_string(), "None");
 }
@@ -1222,35 +1222,35 @@ fn test_stdlib_and_then_option_none() {
 #[test]
 fn test_stdlib_and_then_option_chain_to_none() {
     let v = run_main(
-        "fn safe_div(x: Int) -> Option[Int] { if x == 0 { None } else { Some(100 / x) } }
-         fn main() -> Option[Int] { and_then(Some(0), |x: Int| safe_div(x)) }",
+        "fn safe_div(x: I64) -> Option[I64] { if x == 0 { None } else { Some(100 / x) } }
+         fn main() -> Option[I64] { and_then(Some(0), |x: I64| safe_div(x)) }",
     );
     assert_eq!(v.to_string(), "None");
 }
 
 #[test]
 fn test_stdlib_flatten_option_some_some() {
-    let v = run_main("fn main() -> Option[Int] { flatten_option(Some(Some(42))) }");
+    let v = run_main("fn main() -> Option[I64] { flatten_option(Some(Some(42))) }");
     assert_eq!(v.to_string(), "Some(42)");
 }
 
 #[test]
 fn test_stdlib_flatten_option_some_none() {
-    let v = run_main("fn main() -> Option[Int] { flatten_option(Some(None)) }");
+    let v = run_main("fn main() -> Option[I64] { flatten_option(Some(None)) }");
     assert_eq!(v.to_string(), "None");
 }
 
 #[test]
 fn test_stdlib_flatten_option_none() {
-    let v = run_main("fn main() -> Option[Int] { flatten_option(None) }");
+    let v = run_main("fn main() -> Option[I64] { flatten_option(None) }");
     assert_eq!(v.to_string(), "None");
 }
 
 #[test]
 fn test_stdlib_and_then_result_ok() {
     let v = run_main(
-        "fn safe(x: Int) -> Result[Int, String] { if x > 0 { Ok(x * 2) } else { Err(\"neg\") } }
-         fn main() -> Result[Int, String] { and_then_result(Ok(5), |x: Int| safe(x)) }",
+        "fn safe(x: I64) -> Result[I64, String] { if x > 0 { Ok(x * 2) } else { Err(\"neg\") } }
+         fn main() -> Result[I64, String] { and_then_result(Ok(5), |x: I64| safe(x)) }",
     );
     assert_eq!(v.to_string(), "Ok(10)");
 }
@@ -1258,8 +1258,8 @@ fn test_stdlib_and_then_result_ok() {
 #[test]
 fn test_stdlib_and_then_result_err() {
     let v = run_main(
-        "fn safe(x: Int) -> Result[Int, String] { if x > 0 { Ok(x * 2) } else { Err(\"neg\") } }
-         fn main() -> Result[Int, String] { and_then_result(Err(\"bad\"), |x: Int| safe(x)) }",
+        "fn safe(x: I64) -> Result[I64, String] { if x > 0 { Ok(x * 2) } else { Err(\"neg\") } }
+         fn main() -> Result[I64, String] { and_then_result(Err(\"bad\"), |x: I64| safe(x)) }",
     );
     assert_eq!(v.to_string(), "Err(bad)");
 }
@@ -1267,7 +1267,7 @@ fn test_stdlib_and_then_result_err() {
 #[test]
 fn test_stdlib_map_err_err() {
     let v = run_main(
-        "fn main() -> Int { match map_err(Err(\"bad\"), |e: String| string_length(e)) { Ok(_) => 0, Err(n) => n } }",
+        "fn main() -> I64 { match map_err(Err(\"bad\"), |e: String| string_length(e)) { Ok(_) => 0, Err(n) => n } }",
     );
     assert_eq!(v.as_int(), Some(3));
 }
@@ -1275,7 +1275,7 @@ fn test_stdlib_map_err_err() {
 #[test]
 fn test_stdlib_map_err_ok() {
     let v = run_main(
-        "fn main() -> Int { match map_err(Ok(42), |e: String| string_length(e)) { Ok(n) => n, Err(_) => 0 } }",
+        "fn main() -> I64 { match map_err(Ok(42), |e: String| string_length(e)) { Ok(n) => n, Err(_) => 0 } }",
     );
     assert_eq!(v.as_int(), Some(42));
 }
@@ -1283,7 +1283,7 @@ fn test_stdlib_map_err_ok() {
 #[test]
 fn test_stdlib_flatten_result_ok_ok() {
     let v = run_main(
-        "fn main() -> Int { match flatten_result(Ok(Ok(42))) { Ok(n) => n, Err(_) => 0 } }",
+        "fn main() -> I64 { match flatten_result(Ok(Ok(42))) { Ok(n) => n, Err(_) => 0 } }",
     );
     assert_eq!(v.as_int(), Some(42));
 }
@@ -1291,7 +1291,7 @@ fn test_stdlib_flatten_result_ok_ok() {
 #[test]
 fn test_stdlib_flatten_result_ok_err() {
     let v = run_main(
-        "fn main() -> Int { match flatten_result(Ok(Err(\"bad\"))) { Ok(_) => 0, Err(_) => 1 } }",
+        "fn main() -> I64 { match flatten_result(Ok(Err(\"bad\"))) { Ok(_) => 0, Err(_) => 1 } }",
     );
     assert_eq!(v.as_int(), Some(1));
 }
@@ -1299,7 +1299,7 @@ fn test_stdlib_flatten_result_ok_err() {
 #[test]
 fn test_stdlib_flatten_result_err() {
     let v = run_main(
-        "fn main() -> Int { match flatten_result(Err(\"bad\")) { Ok(_) => 0, Err(_) => 1 } }",
+        "fn main() -> I64 { match flatten_result(Err(\"bad\")) { Ok(_) => 0, Err(_) => 1 } }",
     );
     assert_eq!(v.as_int(), Some(1));
 }
@@ -1316,7 +1316,7 @@ fn test_stdlib_compare_int() {
 
 #[test]
 fn test_stdlib_pair() {
-    let v = run_main("fn main() -> Int { let p = Pair { first: 42, second: \"hello\" }; p.first }");
+    let v = run_main("fn main() -> I64 { let p = Pair { first: 42, second: \"hello\" }; p.first }");
     assert_eq!(v.as_int(), Some(42));
     let v =
         run_main("fn main() -> String { let p = Pair { first: 42, second: \"hello\" }; p.second }");
@@ -1325,7 +1325,7 @@ fn test_stdlib_pair() {
 
 #[test]
 fn test_stdlib_identity() {
-    let v = run_main("fn main() -> Int { identity(42) }");
+    let v = run_main("fn main() -> I64 { identity(42) }");
     assert_eq!(v.as_int(), Some(42));
 }
 
@@ -1336,16 +1336,16 @@ fn test_fn_with_spec_clause_parses_and_runs() {
     // A function with a spec clause should parse and execute normally.
     // The spec block is recorded but not executed during normal interpretation.
     let src = r#"
-        fn add(a: Int, b: Int) -> Int
+        fn add(a: I64, b: I64) -> I64
         spec {
             example "positive inputs": add(2, 3) == 5
             example "identity":        add(0, 42) == 42
-            property "left_identity":  |a: Int, b: Int when self == 0| a
+            property "left_identity":  |a: I64, b: I64 when self == 0| a
         }
         {
             a + b
         }
-        fn main() -> Int { add(10, 32) }
+        fn main() -> I64 { add(10, 32) }
     "#;
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(42));
@@ -1354,7 +1354,7 @@ fn test_fn_with_spec_clause_parses_and_runs() {
 #[test]
 fn test_fn_with_spec_examples_only() {
     let src = r#"
-        fn double(x: Int) -> Int
+        fn double(x: I64) -> I64
         spec {
             example "zero": double(0) == 0
             example "one":  double(1) == 2
@@ -1362,7 +1362,7 @@ fn test_fn_with_spec_examples_only() {
         {
             x * 2
         }
-        fn main() -> Int { double(21) }
+        fn main() -> I64 { double(21) }
     "#;
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(42));
@@ -1371,14 +1371,14 @@ fn test_fn_with_spec_examples_only() {
 #[test]
 fn test_fn_with_spec_properties_only() {
     let src = r#"
-        fn id(x: Int) -> Int
+        fn id(x: I64) -> I64
         spec {
-            property "identity": |x: Int| x
+            property "identity": |x: I64| x
         }
         {
             x
         }
-        fn main() -> Int { id(42) }
+        fn main() -> I64 { id(42) }
     "#;
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(42));
@@ -1410,7 +1410,7 @@ fn test_refined_property_uses_filtered_inputs() {
 #[test]
 fn test_fn_with_block_spec_example_parses_and_runs() {
     let src = r#"
-        fn add(a: Int, b: Int) -> Int
+        fn add(a: I64, b: I64) -> I64
         spec {
             example "block" {
                 let sum = add(2, 3);
@@ -1420,7 +1420,7 @@ fn test_fn_with_block_spec_example_parses_and_runs() {
         {
             a + b
         }
-        fn main() -> Int { add(10, 32) }
+        fn main() -> I64 { add(10, 32) }
     "#;
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(42));
@@ -1429,7 +1429,7 @@ fn test_fn_with_block_spec_example_parses_and_runs() {
 #[test]
 fn test_fn_without_spec_still_works() {
     // Backward compatibility: functions without spec must still work
-    let src = "fn main() -> Int { 42 }";
+    let src = "fn main() -> I64 { 42 }";
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(42));
 }
@@ -1437,13 +1437,13 @@ fn test_fn_without_spec_still_works() {
 #[test]
 fn test_fn_with_empty_spec() {
     let src = r#"
-        fn noop() -> Int
+        fn noop() -> I64
         spec {
         }
         {
             0
         }
-        fn main() -> Int { noop() }
+        fn main() -> I64 { noop() }
     "#;
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(0));
@@ -1452,7 +1452,7 @@ fn test_fn_with_empty_spec() {
 #[test]
 fn test_task_await_executes_spawned_expression() {
     let src = r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             let t = spawn { 40 + 2 };
             t.await
         }
@@ -1464,8 +1464,8 @@ fn test_task_await_executes_spawned_expression() {
 #[test]
 fn test_channel_new_send_then_select_recv_arm() {
     let src = r#"
-        fn main() -> Int {
-            let pair = Channel.new[Int](buffer: 1);
+        fn main() -> I64 {
+            let pair = Channel.new[I64](buffer: 1);
             match head(pair) {
                 Some(tx) => match tail(pair) {
                     Some(rest) => match head(rest) {
@@ -1491,8 +1491,8 @@ fn test_channel_new_send_then_select_recv_arm() {
 #[test]
 fn test_select_timeout_arm_runs_when_no_message_ready() {
     let src = r#"
-        fn main() -> Int {
-            let pair = Channel.new[Int](buffer: 1);
+        fn main() -> I64 {
+            let pair = Channel.new[I64](buffer: 1);
             match tail(pair) {
                 Some(rest) => match head(rest) {
                     Some(rx) => select {
@@ -1512,8 +1512,8 @@ fn test_select_timeout_arm_runs_when_no_message_ready() {
 #[test]
 fn test_parallel_scope_drains_spawned_tasks_on_exit() {
     let src = r#"
-        fn main() -> Int {
-            let pair = Channel.new[Int](buffer: 1);
+        fn main() -> I64 {
+            let pair = Channel.new[I64](buffer: 1);
             match head(pair) {
                 Some(tx) => match tail(pair) {
                     Some(rest) => match head(rest) {
@@ -1542,7 +1542,7 @@ fn test_parallel_scope_drains_spawned_tasks_on_exit() {
 #[test]
 fn test_parallel_scope_cancels_pending_tasks_when_body_errors() {
     let src = r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             parallel_scope {
                 let _task = spawn { throw 99 };
                 throw 1
@@ -1556,9 +1556,9 @@ fn test_parallel_scope_cancels_pending_tasks_when_body_errors() {
 #[test]
 fn test_select_rotates_across_ready_recv_arms() {
     let src = r#"
-        fn main() -> Int {
-            let pair1 = Channel.new[Int](buffer: 2);
-            let pair2 = Channel.new[Int](buffer: 2);
+        fn main() -> I64 {
+            let pair1 = Channel.new[I64](buffer: 2);
+            let pair2 = Channel.new[I64](buffer: 2);
             match head(pair1) {
                 Some(tx1) => match tail(pair1) {
                     Some(rest1) => match head(rest1) {

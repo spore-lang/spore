@@ -583,12 +583,8 @@ impl Checker {
         let mut observed_effects = EffectSet::new();
         if let Some(body) = &f.body {
             self.push_effect_observer();
-            let body_ty = self.check_expr(body);
+            let _ = self.check_expr_against(&declared_ret, body, &format!("function `{}`", f.name));
             observed_effects = self.pop_effect_observer();
-            let body_ty = self.apply_subst(&body_ty);
-            let declared_ret = self.apply_subst(&declared_ret);
-
-            self.unify(&declared_ret, &body_ty, &format!("function `{}`", f.name));
         }
 
         if let Some(spec) = &f.spec_clause {

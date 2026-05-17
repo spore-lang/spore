@@ -31,9 +31,9 @@ pub struct CandidateScore {
     pub required_effects_fit: f64,
     /// Error coverage [0,1]
     pub error_coverage: f64,
-    /// Human-readable ranking notes or rejection explanations.
+    pub rejection_reasons: Vec<String>,
+    pub explanation: Option<String>,
     pub adjustments: Vec<String>,
-    /// Checked cost reasoning, when available.
     pub cost_check: Option<CandidateCostCheck>,
 }
 
@@ -43,6 +43,25 @@ impl CandidateScore {
             + 0.20 * self.cost_fit
             + 0.25 * self.required_effects_fit
             + 0.15 * self.error_coverage
+    }
+
+    pub fn push_rejection_reason(&mut self, reason: impl Into<String>) {
+        let reason = reason.into();
+        if !self.rejection_reasons.contains(&reason) {
+            self.rejection_reasons.push(reason.clone());
+        }
+        if !self.adjustments.contains(&reason) {
+            self.adjustments.push(reason.clone());
+        }
+        if self.explanation.is_none() {
+            self.explanation = Some(reason);
+        }
+    }
+
+    pub fn set_explanation_if_missing(&mut self, explanation: impl Into<String>) {
+        if self.explanation.is_none() {
+            self.explanation = Some(explanation.into());
+        }
     }
 }
 
@@ -91,7 +110,6 @@ pub struct CostBudget {
     pub budget_remaining: Option<f64>,
 }
 
-/// Four-dimensional cost vector rendered on the shared hole-report surface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CostVectorSurface {
     pub compute: String,
@@ -100,7 +118,6 @@ pub struct CostVectorSurface {
     pub parallel: String,
 }
 
-/// Checked residual budget context for a hole.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResidualContext {
     pub budget_declared: Option<CostVectorSurface>,
@@ -110,7 +127,12 @@ pub struct ResidualContext {
     pub note: Option<String>,
 }
 
-/// Checked cost reasoning attached to one candidate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectContext {
+    pub discharged_effects: crate::effect_set::EffectSet,
+    pub surviving_effects: crate::effect_set::EffectSet,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CandidateCostCheck {
     pub candidate_cost: Option<CostVectorSurface>,
@@ -147,9 +169,9 @@ pub struct HoleInfo {
     pub available_effects: crate::effect_set::EffectSet,
     /// Error types that must be handled
     pub errors_to_handle: Vec<String>,
+    pub effect_context: Option<EffectContext>,
     /// Cost budget information
     pub cost_budget: Option<CostBudget>,
-    /// Checked residual context on the current v0.x lineage.
     pub residual_context: Option<ResidualContext>,
     /// Scored candidate list (replaces old `suggestions`)
     pub candidates: Vec<CandidateScore>,
@@ -261,6 +283,27 @@ impl HoleReport {
             }
             out.push_str("],\n");
 
+            if let Some(ref effect_context) = h.effect_context {
+                out.push_str("      \"effect_context\": {");
+                out.push_str("\"discharged_effects\": [");
+                for (j, effect) in effect_context.discharged_effects.iter().enumerate() {
+                    if j > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&json_escape(effect));
+                }
+                out.push_str("], \"surviving_effects\": [");
+                for (j, effect) in effect_context.surviving_effects.iter().enumerate() {
+                    if j > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&json_escape(effect));
+                }
+                out.push_str("]},\n");
+            } else {
+                out.push_str("      \"effect_context\": null,\n");
+            }
+
             // errors_to_handle
             out.push_str("      \"errors_to_handle\": [");
             for (j, e) in h.errors_to_handle.iter().enumerate() {
@@ -288,7 +331,6 @@ impl HoleReport {
                 out.push_str("      \"cost_budget\": null,\n");
             }
 
-            // residual_context (nullable, additive v0.x extension)
             if let Some(ref residual) = h.residual_context {
                 out.push_str("      \"residual_context\": {");
                 match residual.budget_declared {
@@ -340,6 +382,19 @@ impl HoleReport {
                     cs.error_coverage,
                     cs.overall(),
                 ));
+                out.push_str(", \"rejection_reasons\": [");
+                for (k, reason) in cs.rejection_reasons.iter().enumerate() {
+                    if k > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&json_escape(reason));
+                }
+                out.push(']');
+                if let Some(ref explanation) = cs.explanation {
+                    out.push_str(&format!(", \"explanation\": {}", json_escape(explanation)));
+                } else {
+                    out.push_str(", \"explanation\": null");
+                }
                 out.push_str(", \"adjustments\": [");
                 for (k, adjustment) in cs.adjustments.iter().enumerate() {
                     if k > 0 {
@@ -824,7 +879,7 @@ fn push_cost_vector_surface_json(out: &mut String, cost: &CostVectorSurface) {
         json_escape(&cost.compute),
         json_escape(&cost.alloc),
         json_escape(&cost.io),
-        json_escape(&cost.parallel),
+        json_escape(&cost.parallel)
     ));
 }
 
@@ -845,7 +900,8 @@ fn push_candidate_cost_check_json(out: &mut String, cost_check: &CandidateCostCh
         None => out.push_str(", \"projected_cost\": null"),
     }
     match cost_check.fits_budget {
-        Some(value) => out.push_str(&format!(", \"fits_budget\": {value}")),
+        Some(true) => out.push_str(", \"fits_budget\": true"),
+        Some(false) => out.push_str(", \"fits_budget\": false"),
         None => out.push_str(", \"fits_budget\": null"),
     }
     out.push_str(", \"exceeded_dimensions\": [");

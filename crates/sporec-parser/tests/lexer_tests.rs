@@ -42,12 +42,15 @@ fn test_whitespace_only() {
 #[test]
 fn test_integer_literals() {
     assert_eq!(
-        toks_no_eof("42 0xFF 0b1010 0o77"),
+        toks_no_eof("42 0xFF 0b1010 0o77 7u8 255i64 0xFFu8"),
         vec![
             Token::Int(42),
             Token::Int(0xFF),
             Token::Int(0b1010),
             Token::Int(0o77),
+            Token::SuffixedInt(7, "u8".into()),
+            Token::SuffixedInt(255, "i64".into()),
+            Token::SuffixedInt(0xFF, "u8".into()),
         ]
     );
 }
@@ -372,7 +375,7 @@ fn test_spans() {
 
 #[test]
 fn test_complete_function() {
-    let src = "fn add(a: Int, b: Int) -> Int { a + b }";
+    let src = "fn add(a: I64, b: I64) -> I64 { a + b }";
     assert_eq!(
         toks_no_eof(src),
         vec![
@@ -381,14 +384,14 @@ fn test_complete_function() {
             Token::LParen,
             Token::Ident("a".into()),
             Token::Colon,
-            Token::Ident("Int".into()),
+            Token::Ident("I64".into()),
             Token::Comma,
             Token::Ident("b".into()),
             Token::Colon,
-            Token::Ident("Int".into()),
+            Token::Ident("I64".into()),
             Token::RParen,
             Token::Arrow,
-            Token::Ident("Int".into()),
+            Token::Ident("I64".into()),
             Token::LBrace,
             Token::Ident("a".into()),
             Token::Plus,

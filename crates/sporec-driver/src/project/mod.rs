@@ -846,7 +846,7 @@ mod tests {
         );
         project.write(
             "src/lib.sp",
-            "pub fn add(a: I32, b: I32) -> I32 { a + b }\n",
+            "pub fn add(a: I64, b: I64) -> I64 { a + b }\n",
         );
 
         let target = resolve_default_project_target(project.root()).expect("legacy package target");

@@ -10,10 +10,14 @@ pub trait TotalOrder[T] {
 
 pub fn compare_i32(left: I32, right: I32) -> Ordering cost [3, 0, 0, 0]
 spec {
-    example "less": ordering_is_lt(compare_i32(1, 2)) == true
-    example "equal": ordering_is_eq(compare_i32(2, 2)) == true
+    example "less": ordering_is_lt(compare_i32(1i32, 2i32)) == true
+    example "equal": ordering_is_eq(compare_i32(2i32, 2i32)) == true
 }
-{ compare(left, right) }
+{
+    if left < right { Less } else {
+        if right < left { Greater } else { Equal }
+    }
+}
 
 pub fn compare_bool(left: Bool, right: Bool) -> Ordering cost [4, 0, 0, 0]
 spec {
@@ -21,8 +25,15 @@ spec {
     example "equal": ordering_is_eq(compare_bool(true, true)) == true
 }
 {
-    if left == right { Equal } else {
-        if left { Greater } else { Less }
+    match left {
+        true => match right {
+            true => Equal,
+            false => Greater,
+        },
+        false => match right {
+            true => Less,
+            false => Equal,
+        },
     }
 }
 
@@ -36,8 +47,8 @@ pub fn ordering_is_lt(ordering: Ordering) -> Bool cost [3, 0, 0, 0] {
 
 pub fn ordering_is_eq(ordering: Ordering) -> Bool cost [3, 0, 0, 0] {
     match ordering {
-        Less => false,
         Equal => true,
+        Less => false,
         Greater => false,
     }
 }

@@ -112,6 +112,29 @@ const BASIC_CLI_SCAFFOLD_STDOUT: &str = "\
 pub foreign fn println(s: Str) -> () uses [Console]
 ";
 
+const PLATFORM_SCAFFOLD_METADATA: &str = "\
+\n[platform]
+contract-module = \"platform_contract\"
+startup-contract = \"main\"
+adapter-function = \"main_for_host\"
+handled-effects = []
+";
+
+const PLATFORM_SCAFFOLD_CONTRACT: &str = "\
+/// Platform contract exposed to application packages.
+/// Applications targeting this Platform must implement the same `main`
+/// signature in their entry module.
+pub fn main() -> () {
+    ?platform_startup_contract
+}
+
+/// Platform-owned startup adapter.
+pub fn main_for_host(app_main: () -> ()) -> () {
+    app_main();
+    return
+}
+";
+
 fn write_basic_cli_scaffold(dir: &Path) -> std::io::Result<()> {
     let basic_cli_root = dir.join("vendor").join("basic-cli");
     std::fs::create_dir_all(basic_cli_root.join("src").join("basic_cli"))?;
@@ -158,13 +181,19 @@ spore-version = \">=0.1.0\"
         "application" => "basic-cli = { path = \"vendor/basic-cli\" }\n",
         _ => "",
     };
-    let toml = format!("{manifest_header}{project_config}\n[dependencies]\n{dependencies}");
+    let platform_metadata = match project_type {
+        "platform" => PLATFORM_SCAFFOLD_METADATA,
+        _ => "",
+    };
+    let toml = format!(
+        "{manifest_header}{project_config}{platform_metadata}\n[dependencies]\n{dependencies}"
+    );
     std::fs::write(dir.join("spore.toml"), toml)?;
 
     let (filename, content) = match project_type {
         "package" => (
             "lib.sp",
-            "/// Add two integers.\npub fn add(a: I32, b: I32) -> I32 cost [1, 0, 0, 0] {\n    a + b\n}\n"
+            "/// Add two integers.\npub fn add(a: I64, b: I64) -> I64 cost [1, 0, 0, 0] {\n    a + b\n}\n"
                 .to_string(),
         ),
         "platform" => (
@@ -182,6 +211,11 @@ spore-version = \">=0.1.0\"
     std::fs::write(dir.join("src").join(filename), content)?;
     if project_type == "application" {
         write_basic_cli_scaffold(dir)?;
+    } else if project_type == "platform" {
+        std::fs::write(
+            dir.join("src").join("platform_contract.sp"),
+            PLATFORM_SCAFFOLD_CONTRACT,
+        )?;
     }
     std::fs::write(dir.join(".gitignore"), "/target\n/.spore-store\n")?;
     Ok(())

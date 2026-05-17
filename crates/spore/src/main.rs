@@ -99,13 +99,21 @@ mod tests {
         let project_dir = tmp.path().join("my-platform");
         create_project(&project_dir, "my-platform", "platform").unwrap();
         assert!(project_dir.join("src/host.sp").exists());
+        assert!(project_dir.join("src/platform_contract.sp").exists());
         let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
         assert!(toml.contains("type = \"platform\""));
         assert!(toml.contains("[project]"));
         assert!(toml.contains("default-entry = \"host\""));
         assert!(toml.contains("[entries.host]"));
+        assert!(toml.contains("[platform]"));
+        assert!(toml.contains("contract-module = \"platform_contract\""));
+        assert!(toml.contains("startup-contract = \"main\""));
+        assert!(toml.contains("adapter-function = \"main_for_host\""));
         let host = fs::read_to_string(project_dir.join("src/host.sp")).unwrap();
         assert!(host.contains("pub fn main() -> ()"));
+        let contract = fs::read_to_string(project_dir.join("src/platform_contract.sp")).unwrap();
+        assert!(contract.contains("pub fn main() -> ()"));
+        assert!(contract.contains("pub fn main_for_host"));
     }
 
     #[test]
@@ -147,16 +155,60 @@ mod tests {
     }
 
     #[test]
+    fn test_scaffolded_platform_can_back_application_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let platform_dir = tmp.path().join("my-platform");
+        create_project(&platform_dir, "my-platform", "platform").unwrap();
+
+        let app_dir = tmp.path().join("consumer");
+        fs::create_dir_all(app_dir.join("src")).unwrap();
+        fs::write(
+            app_dir.join("spore.toml"),
+            r#"
+            [package]
+            name = "consumer"
+            type = "application"
+
+            [project]
+            platform = "my-platform"
+            default-entry = "app"
+
+            [entries.app]
+            path = "main.sp"
+
+            [dependencies]
+            my-platform = { path = "../my-platform" }
+            "#,
+        )
+        .unwrap();
+        fs::write(app_dir.join("src/main.sp"), "fn main() -> () { return }\n").unwrap();
+
+        let target = sporec_driver::resolve_default_project_target(&app_dir)
+            .expect("application target should resolve scaffolded platform dependency");
+        let contract = target
+            .platform_contract
+            .expect("scaffolded platform should expose package-backed contract metadata");
+        assert_eq!(contract.name, "my-platform");
+        assert_eq!(contract.contract_module, "platform_contract");
+        assert_eq!(contract.startup_function, "main");
+        assert_eq!(contract.adapter_function, "main_for_host");
+        assert!(
+            sporec_driver::compile_project(&app_dir, "main.sp").is_ok(),
+            "application should type-check against scaffolded platform package"
+        );
+    }
+
+    #[test]
     fn test_exec_test_accepts_valid_spec_file() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("sample.sp");
         fs::write(
             &file,
             r#"
-            fn add(a: I32, b: I32) -> I32
+            fn add(a: I64, b: I64) -> I64
             spec {
                 example "basic": add(2, 3) == 5
-                property "left_identity": |a: I32, b: I32 when self == 0| a
+                property "left_identity": |a: I64, b: I64 when self == 0| a
             }
             {
                 a + b
@@ -176,7 +228,7 @@ mod tests {
         fs::write(
             &file,
             r#"
-            fn add(a: I32, b: I32) -> I32
+            fn add(a: I64, b: I64) -> I64
             spec {
                 example "bad": 42
             }
@@ -198,7 +250,7 @@ mod tests {
         fs::write(
             &file,
             r#"
-            fn add(a: I32, b: I32) -> I32
+            fn add(a: I64, b: I64) -> I64
             spec {
                 example "basic": add(2, 3) == 5
             }
@@ -220,11 +272,11 @@ mod tests {
         fs::write(
             &file,
             r#"
-            fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] {
+            fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] {
                 x + x
             }
 
-            fn cheap(a: I32) -> I32 cost [2, 0, 0, 0]
+            fn cheap(a: I64) -> I64 cost [2, 0, 0, 0]
             spec {
                 example "basic": cheap(1) == 4
             }
@@ -246,11 +298,11 @@ mod tests {
         fs::write(
             &file,
             r#"
-            fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] {
+            fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] {
                 x + x
             }
 
-            fn cheap(a: I32) -> I32 cost [2, 0, 0, 0] {
+            fn cheap(a: I64) -> I64 cost [2, 0, 0, 0] {
                 expensive(expensive(a))
             }
             "#,
@@ -281,7 +333,7 @@ mod tests {
         create_project(&project_dir, "proj", "application").unwrap();
         let nested_dir = project_dir.join("src/lib");
         fs::create_dir_all(&nested_dir).unwrap();
-        fs::write(nested_dir.join("util.sp"), "pub fn x() -> I32 { 1 }\n").unwrap();
+        fs::write(nested_dir.join("util.sp"), "pub fn x() -> I64 { 1 }\n").unwrap();
 
         let target = find_project_target(project_dir.join("src/lib/util.sp").to_str().unwrap())
             .unwrap()
@@ -318,7 +370,7 @@ mod tests {
         .unwrap();
         fs::write(
             project_dir.join("host/lib/util.sp"),
-            "pub fn x() -> I32 { 1 }\n",
+            "pub fn x() -> I64 { 1 }\n",
         )
         .unwrap();
 
@@ -334,7 +386,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let project_dir = tmp.path().join("proj");
         create_project(&project_dir, "proj", "application").unwrap();
-        fs::write(project_dir.join("notes.sp"), "fn scratch() -> I32 { 1 }\n").unwrap();
+        fs::write(project_dir.join("notes.sp"), "fn scratch() -> I64 { 1 }\n").unwrap();
 
         assert!(
             find_project_target(project_dir.join("notes.sp").to_str().unwrap())
@@ -400,7 +452,7 @@ mod tests {
         let nested_dir = project_dir.join("src/lib");
         fs::create_dir_all(&nested_dir).unwrap();
         let file = nested_dir.join("util.sp");
-        fs::write(&file, "pub fn helper() -> I32 { 1 }\n").unwrap();
+        fs::write(&file, "pub fn helper() -> I64 { 1 }\n").unwrap();
 
         let target = resolve_build_target(Some(file.to_str().unwrap()), tmp.path()).unwrap();
         match target {
@@ -433,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_hole_graph_update_emits_json_event_for_sources_with_holes() {
-        let summary = hole_graph_update("fn main() -> I32 { ?todo }\n", true)
+        let summary = hole_graph_update("fn main() -> I64 { ?todo }\n", true)
             .expect("hole-bearing source should produce a watch summary");
         let value = serde_json::to_value(&summary).expect("serialize hole summary");
 
@@ -447,8 +499,8 @@ mod tests {
 
     #[test]
     fn test_hole_graph_update_skips_non_json_and_hole_free_sources() {
-        assert!(hole_graph_update("fn main() -> I32 { ?todo }\n", false).is_none());
-        assert!(hole_graph_update("fn main() -> I32 { 42 }\n", true).is_none());
+        assert!(hole_graph_update("fn main() -> I64 { ?todo }\n", false).is_none());
+        assert!(hole_graph_update("fn main() -> I64 { 42 }\n", true).is_none());
     }
 
     // --- resolve_sp_targets tests ---
@@ -457,8 +509,8 @@ mod tests {
     fn test_resolve_sp_targets_empty_paths_collects_from_cwd() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
-        fs::write(dir.join("a.sp"), "fn a() -> I32 { 1 }\n").unwrap();
-        fs::write(dir.join("b.sp"), "fn b() -> I32 { 2 }\n").unwrap();
+        fs::write(dir.join("a.sp"), "fn a() -> I64 { 1 }\n").unwrap();
+        fs::write(dir.join("b.sp"), "fn b() -> I64 { 2 }\n").unwrap();
         fs::write(dir.join("readme.txt"), "not a spore file").unwrap();
 
         let result = resolve_sp_targets(&[], dir).unwrap();
@@ -488,7 +540,7 @@ mod tests {
         )
         .unwrap();
         fs::write(dir.join("src/main.sp"), "fn main() -> () { return }\n").unwrap();
-        fs::write(dir.join("notes.sp"), "fn scratch() -> I32 { 1 }\n").unwrap();
+        fs::write(dir.join("notes.sp"), "fn scratch() -> I64 { 1 }\n").unwrap();
 
         let result = resolve_sp_targets(&[], dir).unwrap();
         assert_eq!(
@@ -520,8 +572,8 @@ mod tests {
         )
         .unwrap();
         fs::write(dir.join("host/main.sp"), "fn main() -> () { return }\n").unwrap();
-        fs::write(dir.join("notes.sp"), "fn scratch() -> I32 { 1 }\n").unwrap();
-        fs::write(dir.join("examples/hello.sp"), "fn stray() -> I32 { 1 }\n").unwrap();
+        fs::write(dir.join("notes.sp"), "fn scratch() -> I64 { 1 }\n").unwrap();
+        fs::write(dir.join("examples/hello.sp"), "fn stray() -> I64 { 1 }\n").unwrap();
         fs::write(
             dir.join("examples/hello-app/spore.toml"),
             r#"
@@ -620,8 +672,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
         fs::create_dir_all(dir.join("sub")).unwrap();
-        fs::write(dir.join("top.sp"), "fn t() -> I32 { 0 }\n").unwrap();
-        fs::write(dir.join("sub/nested.sp"), "fn n() -> I32 { 1 }\n").unwrap();
+        fs::write(dir.join("top.sp"), "fn t() -> I64 { 0 }\n").unwrap();
+        fs::write(dir.join("sub/nested.sp"), "fn n() -> I64 { 1 }\n").unwrap();
         fs::write(dir.join("sub/ignore.txt"), "not spore").unwrap();
 
         let paths = vec![dir.to_string_lossy().into_owned()];
@@ -635,7 +687,7 @@ mod tests {
     fn test_resolve_sp_targets_explicit_file_passes_through() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("single.sp");
-        fs::write(&file, "fn x() -> I32 { 42 }\n").unwrap();
+        fs::write(&file, "fn x() -> I64 { 42 }\n").unwrap();
 
         let paths = vec![file.to_string_lossy().into_owned()];
         let result = resolve_sp_targets(&paths, tmp.path()).unwrap();
@@ -656,7 +708,7 @@ mod tests {
         let dir = tmp.path();
         // Write a file that needs formatting (extra spaces)
         let file = dir.join("needs_fmt.sp");
-        fs::write(&file, "fn add(a: I32, b: I32) -> I32 { a + b }\n").unwrap();
+        fs::write(&file, "fn add(a: I64, b: I64) -> I64 { a + b }\n").unwrap();
 
         let dir_arg = vec![dir.to_string_lossy().into_owned()];
         // check mode: should succeed (file is already formatted or any exit)
@@ -670,7 +722,7 @@ mod tests {
     fn test_exec_check_with_directory_checks_all_sp_files() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path();
-        fs::write(dir.join("ok.sp"), "fn x() -> I32 { 1 }\n").unwrap();
+        fs::write(dir.join("ok.sp"), "fn x() -> I64 { 1 }\n").unwrap();
 
         let dir_arg = vec![dir.to_string_lossy().into_owned()];
         let code = exec_check(&dir_arg, false, false, false);
@@ -742,7 +794,7 @@ mod tests {
         fs::write(
             dir.join("spec.sp"),
             r#"
-fn add(a: I32, b: I32) -> I32
+fn add(a: I64, b: I64) -> I64
 spec {
     example "basic": add(1, 2) == 3
 }

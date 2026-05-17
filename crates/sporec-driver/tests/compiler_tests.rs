@@ -120,7 +120,7 @@ fn write_basic_cli_cmd_module(project: &TempProject) {
     project.write(
         "vendor/basic-cli/src/basic_cli/cmd.sp",
         r#"
-        pub foreign fn exit(code: I32) -> Never uses [Exit]
+        pub foreign fn exit(code: U8) -> Never uses [Exit]
         "#,
     );
 }
@@ -129,7 +129,7 @@ fn write_basic_cli_cmd_module(project: &TempProject) {
 
 #[test]
 fn check_verbose_ok_includes_section_headers() {
-    let output = check_verbose("fn f() -> I32 { 42 }").unwrap();
+    let output = check_verbose("fn f() -> I64 { 42 }").unwrap();
     assert!(
         output.contains("✓ no errors"),
         "verbose output should start with success marker, got: {output}"
@@ -144,7 +144,7 @@ fn check_verbose_ok_includes_section_headers() {
 fn check_verbose_reports_holes() {
     let output = check_verbose(
         r#"
-        fn f() -> I32 {
+        fn f() -> I64 {
             ?todo
         }
     "#,
@@ -162,7 +162,7 @@ fn check_verbose_reports_holes() {
 
 #[test]
 fn check_verbose_uses_cost_vector_syntax() {
-    let output = check_verbose("fn f(x: I32) -> I32 cost [2, 0, 0, 0] { x + x }").unwrap();
+    let output = check_verbose("fn f(x: I64) -> I64 cost [2, 0, 0, 0] { x + x }").unwrap();
     assert!(
         output.contains("cost ["),
         "verbose output should use vector syntax, got: {output}"
@@ -186,14 +186,14 @@ fn check_verbose_preserves_composed_symbolic_cost_vector() {
 fn check_verbose_hides_synthetic_hole_names() {
     let output = check_verbose(
         r#"
-        fn f() -> I32 {
+        fn f() -> I64 {
             ?
         }
     "#,
     )
     .unwrap();
     assert!(
-        output.contains("?: expected I32"),
+        output.contains("?: expected I64"),
         "verbose output should render unnamed holes as `?`, got: {output}"
     );
     assert!(
@@ -206,21 +206,21 @@ fn check_verbose_hides_synthetic_hole_names() {
 fn check_verbose_keeps_user_named_hole_names() {
     let output = check_verbose(
         r#"
-        fn f() -> I32 {
+        fn f() -> I64 {
             ?_hole_manual
         }
     "#,
     )
     .unwrap();
     assert!(
-        output.contains("?_hole_manual: expected I32"),
+        output.contains("?_hole_manual: expected I64"),
         "verbose output should keep user-authored hole names, got: {output}"
     );
 }
 
 #[test]
 fn check_verbose_returns_error_on_invalid() {
-    let result = check_verbose(r#"fn f() -> I32 { "oops" }"#);
+    let result = check_verbose(r#"fn f() -> I64 { "oops" }"#);
     assert!(result.is_err(), "type error should produce Err");
     let msg = result.unwrap_err();
     assert!(
@@ -233,7 +233,7 @@ fn check_verbose_returns_error_on_invalid() {
 
 #[test]
 fn hole_summary_none_when_no_holes() {
-    let summary = hole_summary("fn f() -> I32 { 42 }");
+    let summary = hole_summary("fn f() -> I64 { 42 }");
     assert!(summary.is_none(), "no holes should produce None");
 }
 
@@ -241,7 +241,7 @@ fn hole_summary_none_when_no_holes() {
 fn hole_summary_present_with_holes() {
     let summary = hole_summary(
         r#"
-        fn f() -> I32 {
+        fn f() -> I64 {
             ?todo
         }
     "#,
@@ -256,7 +256,7 @@ fn hole_summary_present_with_holes() {
 fn hole_summary_json_format() {
     let summary = hole_summary(
         r#"
-        fn f() -> I32 {
+        fn f() -> I64 {
             ?todo
         }
     "#,
@@ -288,7 +288,7 @@ fn hole_summary_json_format() {
 
 #[test]
 fn compile_error_uses_new_codes() {
-    let err = compile(r#"fn f() -> I32 { "oops" }"#).unwrap_err();
+    let err = compile(r#"fn f() -> I64 { "oops" }"#).unwrap_err();
     assert!(
         err.contains("[E0001]"),
         "compile error should use 4-digit code, got: {err}"
@@ -303,7 +303,7 @@ fn compile_error_uses_new_codes() {
 fn compile_accepts_source_defined_prelude_items() {
     let output = compile(
         r#"
-        fn main() -> I32 {
+        fn main() -> I64 {
             match compare(identity(2), bool_to_int(not(false))) {
                 Less => 0,
                 Equal => 1,
@@ -322,7 +322,7 @@ fn compile_accepts_source_defined_prelude_items() {
 
 #[test]
 fn compile_rejects_non_prelude_stdlib_by_default() {
-    let err = compile("fn main() -> I32 { clamp(5, 0, 10) }")
+    let err = compile("fn main() -> I64 { clamp(5, 0, 10) }")
         .expect_err("non-prelude stdlib should not be globally injected");
     assert!(
         err.contains("undefined variable `clamp`"),
@@ -354,8 +354,8 @@ fn compile_project_resolves_embedded_compositional_stdlib_module() {
         r#"
         import spore.merge
 
-        pub fn merged_size() -> I32 {
-            len(merge_unique_i32([1, 2], [2, 3]))
+        pub fn merged_size() -> I64 {
+            len(merge_unique_i32([1i32, 2i32], [2i32, 3i32]))
         }
         "#,
     );
@@ -393,8 +393,12 @@ fn compile_project_resolves_transitive_embedded_compositional_stdlib_module() {
         r#"
         import spore.laws
 
-        pub fn merged_size() -> I32 {
-            len(merge_self_i32([1, 1, 2]))
+        pub fn merged_size() -> I64 {
+            len(canonical_members_i32([1i32, 1i32, 2i32]))
+        }
+
+        pub fn summed() -> I32 {
+            sum3_left_assoc_i32(20i32, 10i32, 12i32)
         }
         "#,
     );
@@ -412,10 +416,10 @@ fn compile_project_resolves_transitive_embedded_compositional_stdlib_module() {
 fn compile_accepts_spec_clause_syntax() {
     let output = compile(
         r#"
-        fn add(a: I32, b: I32) -> I32
+        fn add(a: I64, b: I64) -> I64
         spec {
             example "basic": add(2, 3) == 5
-            property "left_identity": |a: I32, b: I32 when self == 0| a
+            property "left_identity": |a: I64, b: I64 when self == 0| a
         }
         {
             a + b
@@ -440,7 +444,7 @@ fn compile_accepts_effect_and_handler_items() {
         handler MockConsole for Console {
             fn println(msg: Str) -> () { return }
         }
-        fn main() -> I32 { 0 }
+        fn main() -> I64 { 0 }
     "#,
     )
     .expect("effect and handler items should compile through sporec");
@@ -640,7 +644,7 @@ fn build_project_native_object_uses_platform_adapter_startup_semantics() {
         r#"
         import basic_cli.runtime_inner
 
-        pub fn value() -> Int {
+        pub fn value() -> I64 {
             helper()
         }
         "#,
@@ -648,7 +652,7 @@ fn build_project_native_object_uses_platform_adapter_startup_semantics() {
     project.write(
         "vendor/basic-cli/src/basic_cli/runtime_inner.sp",
         r#"
-        pub fn helper() -> Int {
+        pub fn helper() -> I64 {
             42
         }
         "#,
@@ -658,11 +662,11 @@ fn build_project_native_object_uses_platform_adapter_startup_semantics() {
         r#"
         import basic_cli.runtime
 
-        pub fn main() -> Int {
+        pub fn main() -> I64 {
             ?platform_startup_contract
         }
 
-        pub fn main_for_host(app_main: () -> Int) -> Int {
+        pub fn main_for_host(app_main: () -> I64) -> I64 {
             value()
         }
         "#,
@@ -670,7 +674,7 @@ fn build_project_native_object_uses_platform_adapter_startup_semantics() {
     project.write(
         "src/app.sp",
         r#"
-        fn main() -> Int {
+        fn main() -> I64 {
             ?entry_startup_should_not_be_reachable
         }
         "#,
@@ -811,7 +815,7 @@ fn compile_project_rejects_type_error_in_imported_module() {
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: I32) -> I32 { "oops" }
+        pub fn double(x: I64) -> I64 { "oops" }
         "#,
     );
 
@@ -840,7 +844,7 @@ fn check_project_returns_canonical_diagnostics_for_imported_module_type_error() 
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: I32) -> I32 { "oops" }
+        pub fn double(x: I64) -> I64 { "oops" }
         "#,
     );
 
@@ -878,7 +882,7 @@ fn check_project_returns_canonical_parse_diagnostics_for_imported_module() {
         fn main() -> () { return }
         "#,
     );
-    project.write("src/utils.sp", "pub fn double(x: I32) -> I32 { \n");
+    project.write("src/utils.sp", "pub fn double(x: I64) -> I64 { \n");
 
     match check_project(project.root(), "main.sp") {
         CheckReport::Failure(CheckFailure::Diagnostics { diagnostics, .. }) => {
@@ -903,7 +907,7 @@ fn check_project_anchors_missing_module_diagnostic_to_entry_import() {
     let project = TempProject::new("project-report-import-missing-module");
     project.write(
         "src/main.sp",
-        "fn helper() -> I32 { 1 }\nimport missing.absent\nfn main() -> () { return }\n",
+        "fn helper() -> I64 { 1 }\nimport missing.absent\nfn main() -> () { return }\n",
     );
 
     match check_project(project.root(), "main.sp") {
@@ -929,7 +933,7 @@ fn check_project_anchors_transitive_missing_module_diagnostic_to_import_site() {
     project.write("src/main.sp", "import utils\nfn main() -> () { return }\n");
     project.write(
         "src/utils.sp",
-        "\nimport missing.absent\npub fn util() -> I32 { 1 }\n",
+        "\nimport missing.absent\npub fn util() -> I64 { 1 }\n",
     );
 
     match check_project(project.root(), "main.sp") {
@@ -953,8 +957,8 @@ fn check_project_anchors_transitive_missing_module_diagnostic_to_import_site() {
 fn check_project_anchors_circular_dependency_diagnostic_to_cycle_edge_import() {
     let project = TempProject::new("project-report-circular-import");
     project.write("src/main.sp", "import a\nfn main() -> () { return }\n");
-    project.write("src/a.sp", "\nimport b\npub fn fa() -> I32 { 1 }\n");
-    project.write("src/b.sp", "\nimport a\npub fn fb() -> I32 { 2 }\n");
+    project.write("src/a.sp", "\nimport b\npub fn fa() -> I64 { 1 }\n");
+    project.write("src/b.sp", "\nimport a\npub fn fb() -> I64 { 2 }\n");
 
     match check_project(project.root(), "main.sp") {
         CheckReport::Failure(CheckFailure::Diagnostics { diagnostics, .. }) => {
@@ -1063,7 +1067,7 @@ fn run_project_rejects_type_error_in_imported_module_before_execution() {
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: I32) -> I32 { "oops" }
+        pub fn double(x: I64) -> I64 { "oops" }
         "#,
     );
 
@@ -1086,13 +1090,13 @@ fn check_project_verbose_rejects_type_error_in_imported_module() {
         "src/main.sp",
         r#"
         import utils
-        fn main() -> I32 { double(21) }
+        fn main() -> I64 { double(21) }
         "#,
     );
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: I32) -> I32 { "oops" }
+        pub fn double(x: I64) -> I64 { "oops" }
         "#,
     );
 
@@ -1121,7 +1125,7 @@ fn check_project_verbose_includes_imported_module_sections() {
     project.write(
         "src/utils.sp",
         r#"
-        pub fn double(x: I32) -> I32 { x + x }
+        pub fn double(x: I64) -> I64 { x + x }
         "#,
     );
 
@@ -1509,7 +1513,7 @@ fn compile_project_rejects_wrong_args_for_imported_effect_operations() {
         .expect_err("imported effect operation signatures should still be typechecked");
     assert!(
         err.contains("argument 1 of `Console.println`")
-            || err.contains("expected `Str`, got `I32`"),
+            || err.contains("expected `Str`, got `I64`"),
         "expected imported effect argument type error, got: {err}"
     );
 }
@@ -1706,7 +1710,7 @@ fn run_project_routes_package_platforms_through_adapter() {
         r#"
         import basic_cli.runtime_inner
 
-        pub fn value() -> I32 {
+        pub fn value() -> I64 {
             helper()
         }
         "#,
@@ -1714,7 +1718,7 @@ fn run_project_routes_package_platforms_through_adapter() {
     project.write(
         "vendor/basic-cli/src/basic_cli/runtime_inner.sp",
         r#"
-        pub fn helper() -> I32 {
+        pub fn helper() -> I64 {
             42
         }
         "#,
@@ -1724,11 +1728,11 @@ fn run_project_routes_package_platforms_through_adapter() {
         r#"
         import basic_cli.runtime
 
-        pub fn main() -> I32 {
+        pub fn main() -> I64 {
             ?platform_startup_contract
         }
 
-        pub fn main_for_host(app_main: () -> I32) -> I32 {
+        pub fn main_for_host(app_main: () -> I64) -> I64 {
             value()
         }
         "#,
@@ -1736,11 +1740,11 @@ fn run_project_routes_package_platforms_through_adapter() {
     project.write(
         "src/app.sp",
         r#"
-        fn main() -> I32 {
+        fn main() -> I64 {
             ?entry_startup_should_not_run_directly
         }
 
-        fn main_for_host(app_main: () -> I32) -> I32 {
+        fn main_for_host(app_main: () -> I64) -> I64 {
             ?entry_adapter_shadow_should_not_run
         }
         "#,
@@ -1815,7 +1819,7 @@ fn run_project_with_outcome_returns_basic_cli_exit_code() {
         r#"
         import basic_cli.cmd
 
-        fn exit_code() -> I32 { 7 }
+        fn exit_code() -> U8 { 7u8 }
 
         fn main() -> () uses [Exit] {
             exit(exit_code())
@@ -1829,7 +1833,7 @@ fn run_project_with_outcome_returns_basic_cli_exit_code() {
 }
 
 #[test]
-fn run_project_rejects_unknown_package_platform_host_binding() {
+fn run_project_supports_generic_package_platform_host_binding() {
     let project = TempProject::new("project-unknown-package-platform-runtime");
     project.write(
         "spore.toml",
@@ -1860,30 +1864,44 @@ fn run_project_rejects_unknown_package_platform_host_binding() {
         contract-module = "platform_contract"
         startup-contract = "main"
         adapter-function = "main_for_host"
-        handled-effects = ["NetConnect"]
+        handled-effects = ["FileRead"]
         "#,
     );
     project.write(
         "vendor/custom-platform/src/platform_contract.sp",
         r#"
-        pub fn main() -> () {
+        pub fn main() -> Bool {
             ?platform_startup_contract
         }
 
-        pub fn main_for_host(app_main: () -> ()) -> () {
-            app_main();
-            return
+        pub fn main_for_host(app_main: () -> Bool) -> Bool {
+            app_main()
         }
         "#,
     );
-    project.write("src/app.sp", "fn main() -> () { return }\n");
-
-    let err = run_project(project.root(), "app.sp")
-        .expect_err("unsupported package platforms should fail explicitly at runtime");
-    assert!(
-        err.contains("runtime host binding for package platform `custom-platform`"),
-        "expected explicit package platform runtime error, got: {err}"
+    project.write(
+        "vendor/custom-platform/src/custom_platform/file.sp",
+        r#"
+        pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]
+        "#,
     );
+    let temp_path = std::env::temp_dir().display().to_string();
+    project.write(
+        "src/app.sp",
+        &format!(
+            r#"
+            import custom_platform.file
+
+            fn main() -> Bool uses [FileRead] {{
+                file_exists("{temp_path}")
+            }}
+            "#
+        ),
+    );
+
+    let value = run_project(project.root(), "app.sp")
+        .expect("generic package host binding should handle supported foreign functions");
+    assert_eq!(value, Value::Bool(true));
 }
 
 #[test]
@@ -2069,7 +2087,7 @@ fn compile_project_allows_non_entry_module_in_manifest_project() {
         "#,
     );
     project.write("src/main.sp", "fn main() -> () { return }\n");
-    project.write("src/lib/util.sp", "pub fn helper() -> I32 { 42 }\n");
+    project.write("src/lib/util.sp", "pub fn helper() -> I64 { 42 }\n");
 
     let output = compile_project(project.root(), "lib/util.sp")
         .expect("non-entry modules should still compile in project context");
@@ -2110,7 +2128,7 @@ fn compile_project_supports_custom_source_root() {
         }
         "#,
     );
-    project.write("host/support/util.sp", "pub fn helper() -> I32 { 42 }\n");
+    project.write("host/support/util.sp", "pub fn helper() -> I64 { 42 }\n");
 
     let output =
         compile_project(project.root(), "main.sp").expect("custom source root should compile");
@@ -2140,7 +2158,7 @@ fn run_project_rejects_non_entry_module_in_manifest_project() {
         "#,
     );
     project.write("src/main.sp", "fn main() -> () { return }\n");
-    project.write("src/lib/util.sp", "pub fn helper() -> I32 { 42 }\n");
+    project.write("src/lib/util.sp", "pub fn helper() -> I64 { 42 }\n");
 
     let err = run_project(project.root(), "lib/util.sp")
         .expect_err("non-entry module should not become runnable");
@@ -2193,7 +2211,7 @@ fn run_project_rejects_non_runnable_legacy_package_entry() {
     );
     project.write(
         "src/lib.sp",
-        "pub fn add(a: I32, b: I32) -> I32 { a + b }\n",
+        "pub fn add(a: I64, b: I64) -> I64 { a + b }\n",
     );
 
     let err = run_project(project.root(), "lib.sp")
@@ -2212,8 +2230,8 @@ fn cost_violation_emits_warning_not_error() {
     // should succeed (warnings are not errors) but include a K0101 warning.
     let output = compile(
         r#"
-        fn expensive(x: I32) -> I32 cost [100, 0, 0, 0] { x + x }
-        fn cheap(a: I32) -> I32 cost [2, 0, 0, 0] { expensive(expensive(a)) }
+        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] { x + x }
+        fn cheap(a: I64) -> I64 cost [2, 0, 0, 0] { expensive(expensive(a)) }
     "#,
     )
     .expect("cost violations should be warnings, not errors");
@@ -2235,7 +2253,7 @@ fn cost_violation_emits_warning_not_error() {
 #[test]
 fn no_cost_annotation_no_warning() {
     // A function with no cost annotation should produce no warnings.
-    let output = compile("fn f(x: I32) -> I32 { x + x }").unwrap();
+    let output = compile("fn f(x: I64) -> I64 { x + x }").unwrap();
     assert!(
         output.warnings.is_empty(),
         "expected no warnings for unannotated function, got: {:?}",
@@ -2246,7 +2264,7 @@ fn no_cost_annotation_no_warning() {
 #[test]
 fn cost_within_budget_no_warning() {
     // A function whose inferred cost fits within the budget.
-    let output = compile("fn f(x: I32) -> I32 cost [1000, 0, 0, 0] { x + x }").unwrap();
+    let output = compile("fn f(x: I64) -> I64 cost [1000, 0, 0, 0] { x + x }").unwrap();
     assert!(
         output.warnings.is_empty(),
         "expected no warnings when within budget, got: {:?}",

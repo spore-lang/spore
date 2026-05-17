@@ -201,15 +201,15 @@ mod tests {
 
     #[test]
     fn fingerprint_deterministic() {
-        let f1 = Fingerprint::of("fn foo() -> Int { 42 }");
-        let f2 = Fingerprint::of("fn foo() -> Int { 42 }");
+        let f1 = Fingerprint::of("fn foo() -> I64 { 42 }");
+        let f2 = Fingerprint::of("fn foo() -> I64 { 42 }");
         assert_eq!(f1, f2);
     }
 
     #[test]
     fn fingerprint_changes_with_content() {
-        let f1 = Fingerprint::of("fn foo() -> Int { 42 }");
-        let f2 = Fingerprint::of("fn foo() -> Int { 43 }");
+        let f1 = Fingerprint::of("fn foo() -> I64 { 42 }");
+        let f2 = Fingerprint::of("fn foo() -> I64 { 43 }");
         assert_ne!(f1, f2);
     }
 
@@ -223,7 +223,7 @@ mod tests {
     #[test]
     fn cache_hit_and_miss() {
         let mut db = IncrementalDb::new();
-        let fp = Fingerprint::of("fn foo() -> Int { 42 }");
+        let fp = Fingerprint::of("fn foo() -> I64 { 42 }");
 
         // Miss
         assert!(db.query_type_check("foo", fp).is_none());

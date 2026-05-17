@@ -7,7 +7,7 @@ pub mod interpret;
 pub mod native;
 pub mod value;
 
-use effect_handler::{BasicCliPlatformHandler, CliPlatformHandler, RuntimeSignal};
+use effect_handler::{CliPlatformHandler, PackageHostHandler, RuntimeSignal};
 use interpret::{Interpreter, RuntimeError};
 use sporec_parser::ast::{Module, SpecItem, TypeExpr};
 use value::Value;
@@ -62,8 +62,8 @@ pub fn call(module: &Module, name: &str, args: Vec<Value>) -> Result<Value, Runt
 fn register_project_runtime_handler(interp: &mut Interpreter, runtime_platform: RuntimePlatform) {
     match runtime_platform {
         RuntimePlatform::Cli => interp.register_effect_handler(Box::new(CliPlatformHandler)),
-        RuntimePlatform::BasicCli => {
-            interp.register_effect_handler(Box::new(BasicCliPlatformHandler))
+        RuntimePlatform::PackageHost => {
+            // Registered by `project_interpreter`, which has access to the module graph.
         }
     }
 }
@@ -75,6 +75,9 @@ fn project_interpreter(
 ) -> Interpreter {
     let mut interp = Interpreter::new();
     register_project_runtime_handler(&mut interp, runtime_platform);
+    if matches!(runtime_platform, RuntimePlatform::PackageHost) {
+        interp.register_effect_handler(Box::new(PackageHostHandler::from_modules(entry, imports)));
+    }
     interp.load_prelude();
 
     for (path, module) in imports {
@@ -211,18 +214,22 @@ fn project_run_outcome(
 fn test_values_for_type(interp: &mut Interpreter, ty: &TypeExpr) -> Vec<Value> {
     match ty {
         TypeExpr::Named(name) => match name.as_str() {
-            "I8" | "I16" | "I32" | "I64" | "U8" | "U16" | "U32" | "U64" | "Int" => vec![
+            "I8" | "I16" | "I32" | "I64" => vec![
                 Value::Int(0),
                 Value::Int(1),
                 Value::Int(-1),
                 Value::Int(42),
                 Value::Int(100),
             ],
+            "U8" | "U16" | "U32" | "U64" => vec![
+                Value::Int(0),
+                Value::Int(1),
+                Value::Int(42),
+                Value::Int(100),
+            ],
             "Bool" => vec![Value::Bool(true), Value::Bool(false)],
             "Str" => vec![Value::Str(String::new()), Value::Str("hello".into())],
-            "F32" | "F64" | "Float" => {
-                vec![Value::Float(0.0), Value::Float(1.0), Value::Float(-1.0)]
-            }
+            "F32" | "F64" => vec![Value::Float(0.0), Value::Float(1.0), Value::Float(-1.0)],
             _ => vec![],
         },
         TypeExpr::Refinement(base, binding, predicate) => test_values_for_type(interp, base)

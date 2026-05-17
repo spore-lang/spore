@@ -5,23 +5,21 @@
 //! 2. **Semi-auto**: Read `cost [compute, alloc, io, parallel]` clauses.
 //! 3. **Escape**: `@unbounded` annotation skips cost checking.
 
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use sporec_parser::ast::Span;
-use sporec_parser::ast::{self, BinOp, Expr, FnDef, HandleBinding, Item, Module, SelectArm, Stmt};
-
 use crate::hole::{CandidateCostCheck, CostBudget, CostVectorSurface, HoleReport, ResidualContext};
+use sporec_parser::ast::{self, BinOp, Expr, FnDef, HandleBinding, Item, Module, SelectArm, Stmt};
 
 /// Cost expression — a symbolic representation of computational cost.
 ///
-/// Grammar: `+, *, log, max, min, span` — no division or conditionals.
+/// Grammar: `+, *, ^const, log, max, min` — no division or conditionals.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CostExpr {
     Const(u64),
     Var(String),
     Add(Box<CostExpr>, Box<CostExpr>),
     Mul(Box<CostExpr>, Box<CostExpr>),
+    Pow(Box<CostExpr>, u32),
     Log(Box<CostExpr>),
     Max(Box<CostExpr>, Box<CostExpr>),
     Min(Box<CostExpr>, Box<CostExpr>),
@@ -39,6 +37,7 @@ impl std::fmt::Display for CostExpr {
             CostExpr::Var(v) => write!(f, "{v}"),
             CostExpr::Add(a, b) => write!(f, "({a} + {b})"),
             CostExpr::Mul(a, b) => write!(f, "({a} * {b})"),
+            CostExpr::Pow(base, exp) => write!(f, "{base}^{exp}"),
             CostExpr::Log(e) => write!(f, "log({e})"),
             CostExpr::Max(a, b) => write!(f, "max({a}, {b})"),
             CostExpr::Min(a, b) => write!(f, "min({a}, {b})"),
@@ -246,6 +245,7 @@ impl CostAnalyzer {
     /// Compute the four-dimensional [`CostVector`] for a single function.
     fn analyze_function_vector(&mut self, fn_def: &FnDef) {
         let fn_name = &fn_def.name;
+
         if let Some(declared) = fn_def
             .cost_clause
             .as_ref()
@@ -294,7 +294,9 @@ impl CostAnalyzer {
     fn analyze_expr_cost(&self, expr: &Expr) -> CostVector {
         match expr {
             // --- Leaves (zero cost) ---
-            Expr::IntLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) => CostVector::zero(),
+            Expr::IntLit(_) | Expr::SuffixedIntLit(_, _) | Expr::FloatLit(_) | Expr::BoolLit(_) => {
+                CostVector::zero()
+            }
             Expr::Var(_) => CostVector::zero(),
 
             // String literal: alloc = ⌈len/8⌉
@@ -836,6 +838,7 @@ where
         }
         // Leaves — no recursion
         Expr::IntLit(_)
+        | Expr::SuffixedIntLit(_, _)
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
@@ -876,7 +879,7 @@ fn classify_arg(expr: &Expr) -> CallArg {
 
 /// Check if an expression is a positive integer literal.
 fn is_positive_int(expr: &Expr) -> bool {
-    matches!(expr, Expr::IntLit(n) if *n > 0)
+    matches!(expr, Expr::IntLit(n) | Expr::SuffixedIntLit(n, _) if *n > 0)
 }
 
 /// Walk the AST collecting names of non-recursive function calls.
@@ -981,16 +984,6 @@ impl CostVector {
             alloc: max_cost(&self.alloc, &other.alloc),
             io: max_cost(&self.io, &other.io),
             parallel: max_cost(&self.parallel, &other.parallel),
-        }
-    }
-
-    /// Pointwise addition used by checked residual budgeting.
-    pub fn checked_add(&self, other: &CostVector) -> CostVector {
-        CostVector {
-            compute: add_cost(&self.compute, &other.compute),
-            alloc: add_cost(&self.alloc, &other.alloc),
-            io: add_cost(&self.io, &other.io),
-            parallel: add_cost(&self.parallel, &other.parallel),
         }
     }
 
@@ -1138,600 +1131,28 @@ impl Default for CostChecker {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct HoleCostContext {
     function: String,
-    span: Span,
-    display_budget: Option<CostVector>,
+    span: ast::Span,
     checked_budget: Option<CostVector>,
+    display_budget: Option<CostVector>,
     cost_before: CostVector,
     budget_residual: Option<CostVector>,
     note: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum BudgetRelation {
     Fits,
     Reject,
     Unknown,
 }
 
-#[derive(Debug, Clone)]
 struct BudgetCheckSummary {
     relation: BudgetRelation,
     rejected_dimensions: Vec<&'static str>,
     unknown_dimensions: Vec<&'static str>,
-}
-
-struct HoleCostCollector<'a> {
-    costs: &'a HashMap<String, CostVector>,
-    contexts: Vec<HoleCostContext>,
-}
-
-impl<'a> HoleCostCollector<'a> {
-    fn new(costs: &'a HashMap<String, CostVector>) -> Self {
-        Self {
-            costs,
-            contexts: Vec::new(),
-        }
-    }
-
-    fn collect_module(mut self, module: &Module) -> Vec<HoleCostContext> {
-        for item in &module.items {
-            let Item::Function(fn_def) = item else {
-                continue;
-            };
-            self.collect_function(fn_def);
-        }
-        self.contexts
-    }
-
-    fn collect_function(&mut self, fn_def: &FnDef) {
-        let Some(body) = &fn_def.body else {
-            return;
-        };
-
-        let (display_budget, checked_budget, note) = if fn_def.is_unbounded {
-            (
-                fn_def
-                    .cost_clause
-                    .as_ref()
-                    .map(ast_cost_clause_to_cost_vector),
-                None,
-                Some(
-                    "@unbounded disables checked residual budgeting for this function".to_string(),
-                ),
-            )
-        } else if let Some(cost_clause) = &fn_def.cost_clause {
-            let budget = ast_cost_clause_to_cost_vector(cost_clause);
-            (Some(budget.clone()), Some(budget), None)
-        } else {
-            (
-                None,
-                None,
-                Some("function has no declared checked cost budget".to_string()),
-            )
-        };
-
-        self.collect_expr(
-            body,
-            CostVector::zero(),
-            display_budget.as_ref(),
-            checked_budget.as_ref(),
-            note.as_deref(),
-            &fn_def.name,
-        );
-    }
-
-    fn record_hole(
-        &mut self,
-        function: &str,
-        span: Span,
-        cost_before: &CostVector,
-        display_budget: Option<&CostVector>,
-        checked_budget: Option<&CostVector>,
-        note: Option<&str>,
-    ) {
-        let checked_budget = checked_budget.cloned();
-        let budget_residual = checked_budget
-            .as_ref()
-            .and_then(|budget| residual_budget_vector(budget, cost_before));
-        self.contexts.push(HoleCostContext {
-            function: function.to_string(),
-            span,
-            display_budget: display_budget.cloned(),
-            checked_budget,
-            cost_before: cost_before.clone(),
-            budget_residual,
-            note: note.map(ToOwned::to_owned),
-        });
-    }
-
-    fn collect_stmt(
-        &mut self,
-        stmt: &Stmt,
-        prefix: CostVector,
-        display_budget: Option<&CostVector>,
-        checked_budget: Option<&CostVector>,
-        note: Option<&str>,
-        function: &str,
-    ) -> CostVector {
-        match stmt {
-            Stmt::Let(_, _, expr) | Stmt::Expr(expr) => {
-                self.collect_expr(expr, prefix, display_budget, checked_budget, note, function)
-            }
-        }
-    }
-
-    fn collect_expr(
-        &mut self,
-        expr: &Expr,
-        prefix: CostVector,
-        display_budget: Option<&CostVector>,
-        checked_budget: Option<&CostVector>,
-        note: Option<&str>,
-        function: &str,
-    ) -> CostVector {
-        match expr {
-            Expr::IntLit(_) | Expr::FloatLit(_) | Expr::BoolLit(_) | Expr::Var(_) => {
-                CostVector::zero()
-            }
-            Expr::StrLit(s) => CostVector::constant(0, (s.len() as u64).div_ceil(8), 0, 0),
-            Expr::BinOp(lhs, op, rhs) => {
-                let lhs_cost = self.collect_expr(
-                    lhs,
-                    prefix.clone(),
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                let rhs_prefix = prefix.seq(&lhs_cost);
-                let rhs_cost = self.collect_expr(
-                    rhs,
-                    rhs_prefix,
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                let is_float = is_float_expr(lhs) || is_float_expr(rhs);
-                lhs_cost.seq(&rhs_cost).seq(&CostVector::constant(
-                    binop_compute_cost(op, is_float),
-                    0,
-                    0,
-                    0,
-                ))
-            }
-            Expr::UnaryOp(_, inner) => self
-                .collect_expr(
-                    inner,
-                    prefix,
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                )
-                .seq(&CostVector::constant(1, 0, 0, 0)),
-            Expr::Call(callee, args) => {
-                let mut total = CostVector::zero();
-                let mut running_prefix = prefix.clone();
-                for arg in args {
-                    let arg_cost = self.collect_expr(
-                        arg,
-                        running_prefix.clone(),
-                        display_budget,
-                        checked_budget,
-                        note,
-                        function,
-                    );
-                    total = total.seq(&arg_cost);
-                    running_prefix = prefix.seq(&total);
-                }
-                let _ = self.collect_expr(
-                    callee,
-                    running_prefix,
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                total = total.seq(&CostVector::constant(3, 0, 0, 0));
-                if let Expr::Var(name) = callee.as_ref() {
-                    if is_io_function(name) {
-                        total = total.seq(&CostVector::constant(0, 0, 1, 0));
-                    }
-                    if let Some(callee_cost) = self.costs.get(name) {
-                        total = total.seq(callee_cost);
-                    }
-                }
-                total
-            }
-            Expr::If(cond, then_branch, else_branch) => {
-                let cond_cost = self.collect_expr(
-                    cond,
-                    prefix.clone(),
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                let branch_prefix = prefix.seq(&cond_cost);
-                let then_cost = self.collect_expr(
-                    then_branch,
-                    branch_prefix.clone(),
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                let else_cost = else_branch
-                    .as_ref()
-                    .map(|else_expr| {
-                        self.collect_expr(
-                            else_expr,
-                            branch_prefix.clone(),
-                            display_budget,
-                            checked_budget,
-                            note,
-                            function,
-                        )
-                    })
-                    .unwrap_or_else(CostVector::zero);
-                cond_cost.seq(&then_cost.max(&else_cost))
-            }
-            Expr::Match(scrutinee, arms) => {
-                let scrutinee_cost = self.collect_expr(
-                    scrutinee,
-                    prefix.clone(),
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                let branch_prefix = prefix.seq(&scrutinee_cost);
-                let mut max_arm = CostVector::zero();
-                for arm in arms {
-                    let mut arm_prefix = branch_prefix.clone();
-                    let mut arm_cost = CostVector::zero();
-                    if let Some(guard) = &arm.guard {
-                        let guard_cost = self.collect_expr(
-                            guard,
-                            arm_prefix.clone(),
-                            display_budget,
-                            checked_budget,
-                            note,
-                            function,
-                        );
-                        arm_prefix = arm_prefix.seq(&guard_cost);
-                        arm_cost = arm_cost.seq(&guard_cost);
-                    }
-                    let body_cost = self.collect_expr(
-                        &arm.body,
-                        arm_prefix,
-                        display_budget,
-                        checked_budget,
-                        note,
-                        function,
-                    );
-                    arm_cost = arm_cost.seq(&body_cost);
-                    max_arm = max_arm.max(&arm_cost);
-                }
-                scrutinee_cost
-                    .seq(&max_arm)
-                    .seq(&CostVector::constant(arms.len() as u64, 0, 0, 0))
-            }
-            Expr::Block(stmts, tail) => {
-                let mut total = CostVector::zero();
-                let mut running_prefix = prefix.clone();
-                for stmt in stmts {
-                    let stmt_cost = self.collect_stmt(
-                        stmt,
-                        running_prefix.clone(),
-                        display_budget,
-                        checked_budget,
-                        note,
-                        function,
-                    );
-                    total = total.seq(&stmt_cost);
-                    running_prefix = prefix.seq(&total);
-                }
-                if let Some(tail_expr) = tail {
-                    let tail_cost = self.collect_expr(
-                        tail_expr,
-                        running_prefix,
-                        display_budget,
-                        checked_budget,
-                        note,
-                        function,
-                    );
-                    total = total.seq(&tail_cost);
-                }
-                total
-            }
-            Expr::StructLit(_, fields) => {
-                let mut total = CostVector::zero();
-                let mut running_prefix = prefix.clone();
-                for (_, expr) in fields {
-                    let expr_cost = self.collect_expr(
-                        expr,
-                        running_prefix.clone(),
-                        display_budget,
-                        checked_budget,
-                        note,
-                        function,
-                    );
-                    total = total.seq(&expr_cost);
-                    running_prefix = prefix.seq(&total);
-                }
-                total.seq(&CostVector::constant(0, fields.len() as u64, 0, 0))
-            }
-            Expr::List(elements) => {
-                let mut total = CostVector::zero();
-                let mut running_prefix = prefix.clone();
-                for element in elements {
-                    let element_cost = self.collect_expr(
-                        element,
-                        running_prefix.clone(),
-                        display_budget,
-                        checked_budget,
-                        note,
-                        function,
-                    );
-                    total = total.seq(&element_cost);
-                    running_prefix = prefix.seq(&total);
-                }
-                total.seq(&CostVector::constant(0, elements.len() as u64 + 1, 0, 0))
-            }
-            Expr::Lambda(params, body) => {
-                let _ =
-                    self.collect_expr(body, prefix, display_budget, checked_budget, note, function);
-                CostVector::constant(0, params.len() as u64, 0, 0)
-            }
-            Expr::Spawn(inner) => self
-                .collect_expr(
-                    inner,
-                    prefix,
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                )
-                .seq(&CostVector::constant(0, 0, 0, 1)),
-            Expr::Await(inner)
-            | Expr::Try(inner)
-            | Expr::Throw(inner)
-            | Expr::FieldAccess(inner, _) => self.collect_expr(
-                inner,
-                prefix,
-                display_budget,
-                checked_budget,
-                note,
-                function,
-            ),
-            Expr::ChannelNew { buffer, .. } => self.collect_expr(
-                buffer,
-                prefix,
-                display_budget,
-                checked_budget,
-                note,
-                function,
-            ),
-            Expr::Return(inner) => inner
-                .as_ref()
-                .map(|expr| {
-                    self.collect_expr(expr, prefix, display_budget, checked_budget, note, function)
-                })
-                .unwrap_or_else(CostVector::zero),
-            Expr::Pipe(lhs, rhs) => {
-                let lhs_cost = self.collect_expr(
-                    lhs,
-                    prefix.clone(),
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                let rhs_prefix = prefix.seq(&lhs_cost);
-                let rhs_cost = self.collect_expr(
-                    rhs,
-                    rhs_prefix,
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                lhs_cost.seq(&rhs_cost)
-            }
-            Expr::FString(parts) => {
-                let mut total = CostVector::zero();
-                let mut running_prefix = prefix.clone();
-                for part in parts {
-                    if let ast::FStringPart::Expr(expr) = part {
-                        let expr_cost = self.collect_expr(
-                            expr,
-                            running_prefix.clone(),
-                            display_budget,
-                            checked_budget,
-                            note,
-                            function,
-                        );
-                        total = total.seq(&expr_cost);
-                        running_prefix = prefix.seq(&total);
-                    }
-                }
-                total.seq(&CostVector::constant(0, 1, 0, 0))
-            }
-            Expr::TString(parts) => {
-                let mut total = CostVector::zero();
-                let mut running_prefix = prefix.clone();
-                for part in parts {
-                    if let ast::TStringPart::Expr(expr) = part {
-                        let expr_cost = self.collect_expr(
-                            expr,
-                            running_prefix.clone(),
-                            display_budget,
-                            checked_budget,
-                            note,
-                            function,
-                        );
-                        total = total.seq(&expr_cost);
-                        running_prefix = prefix.seq(&total);
-                    }
-                }
-                total.seq(&CostVector::constant(0, 1, 0, 0))
-            }
-            Expr::ParallelScope { lanes, body } => {
-                let mut total = CostVector::zero();
-                let mut running_prefix = prefix.clone();
-                if let Some(lanes_expr) = lanes {
-                    let lanes_cost = self.collect_expr(
-                        lanes_expr,
-                        running_prefix.clone(),
-                        display_budget,
-                        checked_budget,
-                        note,
-                        function,
-                    );
-                    total = total.seq(&lanes_cost);
-                    running_prefix = prefix.seq(&total);
-                }
-                total = total.seq(&self.collect_expr(
-                    body,
-                    running_prefix,
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                ));
-                total.seq(&CostVector::constant(0, 0, 0, 1))
-            }
-            Expr::Select(arms) => {
-                let mut max_arm = CostVector::zero();
-                for arm in arms {
-                    let arm_cost = match arm {
-                        SelectArm::Recv { source, body, .. } => {
-                            let source_cost = self.collect_expr(
-                                source,
-                                prefix.clone(),
-                                display_budget,
-                                checked_budget,
-                                note,
-                                function,
-                            );
-                            let body_prefix = prefix.seq(&source_cost);
-                            let body_cost = self.collect_expr(
-                                body,
-                                body_prefix,
-                                display_budget,
-                                checked_budget,
-                                note,
-                                function,
-                            );
-                            source_cost.seq(&body_cost)
-                        }
-                        SelectArm::Timeout { duration, body } => {
-                            let duration_cost = self.collect_expr(
-                                duration,
-                                prefix.clone(),
-                                display_budget,
-                                checked_budget,
-                                note,
-                                function,
-                            );
-                            let body_prefix = prefix.seq(&duration_cost);
-                            let body_cost = self.collect_expr(
-                                body,
-                                body_prefix,
-                                display_budget,
-                                checked_budget,
-                                note,
-                                function,
-                            );
-                            duration_cost.seq(&body_cost)
-                        }
-                    };
-                    max_arm = max_arm.max(&arm_cost);
-                }
-                max_arm
-            }
-            Expr::Hole(_, _, _, span) => {
-                if let Some(span) = span {
-                    self.record_hole(
-                        function,
-                        *span,
-                        &prefix,
-                        display_budget,
-                        checked_budget,
-                        note,
-                    );
-                }
-                CostVector::constant(1, 0, 0, 0)
-            }
-            Expr::Placeholder => {
-                unreachable!("Placeholder should be desugared before cost analysis")
-            }
-            Expr::Perform { args, .. } => {
-                let mut total = CostVector::zero();
-                let mut running_prefix = prefix.clone();
-                for arg in args {
-                    let arg_cost = self.collect_expr(
-                        arg,
-                        running_prefix.clone(),
-                        display_budget,
-                        checked_budget,
-                        note,
-                        function,
-                    );
-                    total = total.seq(&arg_cost);
-                    running_prefix = prefix.seq(&total);
-                }
-                total.seq(&CostVector::constant(1, 0, 1, 0))
-            }
-            Expr::Handle { body, handlers } => {
-                let mut body_cost = self.collect_expr(
-                    body,
-                    prefix.clone(),
-                    display_budget,
-                    checked_budget,
-                    note,
-                    function,
-                );
-                let mut max_arm = CostVector::zero();
-                for binding in handlers {
-                    match binding {
-                        HandleBinding::Use(handler_use) => {
-                            let mut running_prefix = prefix.seq(&body_cost);
-                            for (_, value) in &handler_use.payload {
-                                let value_cost = self.collect_expr(
-                                    value,
-                                    running_prefix.clone(),
-                                    display_budget,
-                                    checked_budget,
-                                    note,
-                                    function,
-                                );
-                                body_cost = body_cost.seq(&value_cost);
-                                running_prefix = prefix.seq(&body_cost);
-                            }
-                        }
-                        HandleBinding::On(arm) => {
-                            let arm_cost = self.collect_expr(
-                                &arm.body,
-                                prefix.seq(&body_cost),
-                                display_budget,
-                                checked_budget,
-                                note,
-                                function,
-                            );
-                            max_arm = max_arm.max(&arm_cost);
-                        }
-                    }
-                }
-                body_cost.seq(&max_arm)
-            }
-        }
-    }
 }
 
 fn cost_vector_surface(cost: &CostVector) -> CostVectorSurface {
@@ -1744,81 +1165,78 @@ fn cost_vector_surface(cost: &CostVector) -> CostVectorSurface {
 }
 
 fn legacy_scalar_projection(cost: &CostVector) -> Option<f64> {
-    Some(
-        cost_expr_const(&cost.compute)? as f64
-            + (cost_expr_const(&cost.alloc)? as f64 * 2.0)
-            + (cost_expr_const(&cost.io)? as f64 * 100.0),
-    )
-}
-
-fn cost_expr_const(cost: &CostExpr) -> Option<u64> {
-    match cost {
-        CostExpr::Const(value) => Some(*value),
+    match cost.compute {
+        CostExpr::Const(value) => Some(value as f64),
         _ => None,
     }
 }
 
-fn residual_cost_expr(budget: &CostExpr, before: &CostExpr) -> Option<CostExpr> {
-    match (budget, before) {
-        (CostExpr::Const(budget), CostExpr::Const(before)) if before <= budget => {
-            Some(CostExpr::Const(budget - before))
+fn checked_sub_cost(lhs: &CostExpr, rhs: &CostExpr) -> Option<CostExpr> {
+    match (lhs, rhs) {
+        (CostExpr::Const(left), CostExpr::Const(right)) if left >= right => {
+            Some(CostExpr::Const(left - right))
         }
-        (left, right) if left == right => Some(CostExpr::Const(0)),
-        (CostExpr::Unbounded, _) => Some(CostExpr::Unbounded),
         _ => None,
     }
 }
 
-fn residual_budget_vector(budget: &CostVector, before: &CostVector) -> Option<CostVector> {
+fn checked_sub_cost_vector(lhs: &CostVector, rhs: &CostVector) -> Option<CostVector> {
     Some(CostVector {
-        compute: residual_cost_expr(&budget.compute, &before.compute)?,
-        alloc: residual_cost_expr(&budget.alloc, &before.alloc)?,
-        io: residual_cost_expr(&budget.io, &before.io)?,
-        parallel: residual_cost_expr(&budget.parallel, &before.parallel)?,
+        compute: checked_sub_cost(&lhs.compute, &rhs.compute)?,
+        alloc: checked_sub_cost(&lhs.alloc, &rhs.alloc)?,
+        io: checked_sub_cost(&lhs.io, &rhs.io)?,
+        parallel: checked_sub_cost(&lhs.parallel, &rhs.parallel)?,
     })
 }
 
-fn compare_cost_expr(actual: &CostExpr, budget: &CostExpr) -> BudgetRelation {
+fn compare_dimension(
+    actual: &CostExpr,
+    budget: &CostExpr,
+    name: &'static str,
+    rejected: &mut Vec<&'static str>,
+    unknown: &mut Vec<&'static str>,
+) {
     match (actual, budget) {
-        (CostExpr::Const(actual), CostExpr::Const(budget)) => {
-            if actual <= budget {
-                BudgetRelation::Fits
-            } else {
-                BudgetRelation::Reject
+        (CostExpr::Const(left), CostExpr::Const(right)) => {
+            if left > right {
+                rejected.push(name);
             }
         }
-        (_, CostExpr::Unbounded) => BudgetRelation::Fits,
-        (CostExpr::Unbounded, _) => BudgetRelation::Reject,
-        (left, right) if left == right => BudgetRelation::Fits,
-        (_, CostExpr::Const(_)) => BudgetRelation::Reject,
-        _ => BudgetRelation::Unknown,
+        _ => unknown.push(name),
     }
 }
 
 fn compare_cost_vector(actual: &CostVector, budget: &CostVector) -> BudgetCheckSummary {
-    let dimensions = [
-        (
-            "compute",
-            compare_cost_expr(&actual.compute, &budget.compute),
-        ),
-        ("alloc", compare_cost_expr(&actual.alloc, &budget.alloc)),
-        ("io", compare_cost_expr(&actual.io, &budget.io)),
-        (
-            "parallel",
-            compare_cost_expr(&actual.parallel, &budget.parallel),
-        ),
-    ];
-
     let mut rejected_dimensions = Vec::new();
     let mut unknown_dimensions = Vec::new();
-    for (name, relation) in dimensions {
-        match relation {
-            BudgetRelation::Fits => {}
-            BudgetRelation::Reject => rejected_dimensions.push(name),
-            BudgetRelation::Unknown => unknown_dimensions.push(name),
-        }
-    }
-
+    compare_dimension(
+        &actual.compute,
+        &budget.compute,
+        "compute",
+        &mut rejected_dimensions,
+        &mut unknown_dimensions,
+    );
+    compare_dimension(
+        &actual.alloc,
+        &budget.alloc,
+        "alloc",
+        &mut rejected_dimensions,
+        &mut unknown_dimensions,
+    );
+    compare_dimension(
+        &actual.io,
+        &budget.io,
+        "io",
+        &mut rejected_dimensions,
+        &mut unknown_dimensions,
+    );
+    compare_dimension(
+        &actual.parallel,
+        &budget.parallel,
+        "parallel",
+        &mut rejected_dimensions,
+        &mut unknown_dimensions,
+    );
     let relation = if !rejected_dimensions.is_empty() {
         BudgetRelation::Reject
     } else if !unknown_dimensions.is_empty() {
@@ -1826,7 +1244,6 @@ fn compare_cost_vector(actual: &CostVector, budget: &CostVector) -> BudgetCheckS
     } else {
         BudgetRelation::Fits
     };
-
     BudgetCheckSummary {
         relation,
         rejected_dimensions,
@@ -1837,7 +1254,7 @@ fn compare_cost_vector(actual: &CostVector, budget: &CostVector) -> BudgetCheckS
 fn candidate_sort(
     left: &crate::hole::CandidateScore,
     right: &crate::hole::CandidateScore,
-) -> Ordering {
+) -> std::cmp::Ordering {
     right
         .overall()
         .total_cmp(&left.overall())
@@ -1853,9 +1270,7 @@ fn enrich_candidate_cost(
 ) {
     let Some(candidate_cost) = costs.get(&candidate.name) else {
         candidate.cost_fit = 0.5;
-        candidate
-            .adjustments
-            .push("candidate cost unavailable".to_string());
+        candidate.push_rejection_reason("candidate cost unavailable");
         candidate.cost_check = Some(CandidateCostCheck {
             candidate_cost: None,
             projected_cost: None,
@@ -1866,9 +1281,8 @@ fn enrich_candidate_cost(
         return;
     };
 
+    let projected = context.cost_before.seq(candidate_cost);
     let candidate_cost_surface = cost_vector_surface(candidate_cost);
-    let projected = context.cost_before.checked_add(candidate_cost);
-
     match context.checked_budget.as_ref() {
         Some(budget) => {
             let summary = compare_cost_vector(&projected, budget);
@@ -1907,7 +1321,14 @@ fn enrich_candidate_cost(
             };
             candidate.cost_fit = cost_fit;
             if let Some(reason) = &reason {
-                candidate.adjustments.push(reason.clone());
+                if fits_budget == Some(true) {
+                    candidate.set_explanation_if_missing(reason.clone());
+                    if !candidate.adjustments.contains(reason) {
+                        candidate.adjustments.push(reason.clone());
+                    }
+                } else {
+                    candidate.push_rejection_reason(reason.clone());
+                }
             }
             candidate.cost_check = Some(CandidateCostCheck {
                 candidate_cost: Some(candidate_cost_surface),
@@ -1923,7 +1344,7 @@ fn enrich_candidate_cost(
                 .note
                 .clone()
                 .unwrap_or_else(|| "checked residual budget unavailable".to_string());
-            candidate.adjustments.push(reason.clone());
+            candidate.push_rejection_reason(reason.clone());
             candidate.cost_check = Some(CandidateCostCheck {
                 candidate_cost: Some(candidate_cost_surface),
                 projected_cost: None,
@@ -1935,7 +1356,374 @@ fn enrich_candidate_cost(
     }
 }
 
-/// Enrich the hole report with checked residual cost context and candidate fit.
+struct HoleCostCollector<'a> {
+    costs: &'a HashMap<String, CostVector>,
+    contexts: Vec<HoleCostContext>,
+}
+
+impl<'a> HoleCostCollector<'a> {
+    fn new(costs: &'a HashMap<String, CostVector>) -> Self {
+        Self {
+            costs,
+            contexts: Vec::new(),
+        }
+    }
+
+    fn collect_module(mut self, module: &Module) -> Vec<HoleCostContext> {
+        for item in &module.items {
+            let Item::Function(fn_def) = item else {
+                continue;
+            };
+            let Some(body) = &fn_def.body else {
+                continue;
+            };
+            let (checked_budget, note) = if fn_def.is_unbounded {
+                (
+                    None,
+                    Some(
+                        "@unbounded disables checked residual budgeting for this function"
+                            .to_string(),
+                    ),
+                )
+            } else {
+                let checked_budget = fn_def
+                    .cost_clause
+                    .as_ref()
+                    .map(ast_cost_clause_to_cost_vector);
+                let note = checked_budget
+                    .is_none()
+                    .then_some("checked residual budget unavailable".to_string());
+                (checked_budget, note)
+            };
+            self.walk_expr(
+                body,
+                &fn_def.name,
+                &CostVector::zero(),
+                checked_budget.as_ref(),
+                note.as_deref(),
+            );
+        }
+        self.contexts
+    }
+
+    fn record_hole(
+        &mut self,
+        function: &str,
+        span: ast::Span,
+        cost_before: &CostVector,
+        budget: Option<&CostVector>,
+        note: Option<&str>,
+    ) {
+        let checked_budget = budget.cloned();
+        let budget_residual =
+            budget.and_then(|budget| checked_sub_cost_vector(budget, cost_before));
+        self.contexts.push(HoleCostContext {
+            function: function.to_string(),
+            span,
+            checked_budget: checked_budget.clone(),
+            display_budget: checked_budget,
+            cost_before: cost_before.clone(),
+            budget_residual,
+            note: note.map(str::to_string),
+        });
+    }
+
+    fn walk_stmt(
+        &mut self,
+        stmt: &Stmt,
+        function: &str,
+        cost_before: &CostVector,
+        budget: Option<&CostVector>,
+        note: Option<&str>,
+    ) {
+        match stmt {
+            Stmt::Let(_, _, expr) | Stmt::Expr(expr) => {
+                self.walk_expr(expr, function, cost_before, budget, note)
+            }
+        }
+    }
+
+    fn walk_expr(
+        &mut self,
+        expr: &Expr,
+        function: &str,
+        cost_before: &CostVector,
+        budget: Option<&CostVector>,
+        note: Option<&str>,
+    ) {
+        match expr {
+            Expr::Hole(_, _, _, Some(span)) => {
+                self.record_hole(function, *span, cost_before, budget, note)
+            }
+            Expr::Call(callee, args) => {
+                self.walk_expr(callee, function, cost_before, budget, note);
+                let mut prefix = cost_before.seq(&self.expr_cost(callee));
+                for arg in args {
+                    self.walk_expr(arg, function, &prefix, budget, note);
+                    prefix = prefix.seq(&self.expr_cost(arg));
+                }
+            }
+            Expr::BinOp(lhs, _, rhs) | Expr::Pipe(lhs, rhs) => {
+                self.walk_expr(lhs, function, cost_before, budget, note);
+                let rhs_prefix = cost_before.seq(&self.expr_cost(lhs));
+                self.walk_expr(rhs, function, &rhs_prefix, budget, note);
+            }
+            Expr::UnaryOp(_, inner)
+            | Expr::FieldAccess(inner, _)
+            | Expr::Try(inner)
+            | Expr::Await(inner)
+            | Expr::Throw(inner)
+            | Expr::Return(Some(inner))
+            | Expr::Spawn(inner) => self.walk_expr(inner, function, cost_before, budget, note),
+            Expr::Lambda(_, body) => self.walk_expr(body, function, cost_before, budget, note),
+            Expr::If(cond, then_branch, else_branch) => {
+                self.walk_expr(cond, function, cost_before, budget, note);
+                let branch_prefix = cost_before.seq(&self.expr_cost(cond));
+                self.walk_expr(then_branch, function, &branch_prefix, budget, note);
+                if let Some(else_branch) = else_branch {
+                    self.walk_expr(else_branch, function, &branch_prefix, budget, note);
+                }
+            }
+            Expr::Match(scrutinee, arms) => {
+                self.walk_expr(scrutinee, function, cost_before, budget, note);
+                let arm_prefix = cost_before.seq(&self.expr_cost(scrutinee));
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.walk_expr(guard, function, &arm_prefix, budget, note);
+                    }
+                    self.walk_expr(&arm.body, function, &arm_prefix, budget, note);
+                }
+            }
+            Expr::Block(stmts, tail) => {
+                let mut prefix = cost_before.clone();
+                for stmt in stmts {
+                    self.walk_stmt(stmt, function, &prefix, budget, note);
+                    prefix = prefix.seq(&self.stmt_cost(stmt));
+                }
+                if let Some(tail) = tail {
+                    self.walk_expr(tail, function, &prefix, budget, note);
+                }
+            }
+            Expr::StructLit(_, fields) => {
+                let mut prefix = cost_before.clone();
+                for (_, value) in fields {
+                    self.walk_expr(value, function, &prefix, budget, note);
+                    prefix = prefix.seq(&self.expr_cost(value));
+                }
+            }
+            Expr::List(items) => {
+                let mut prefix = cost_before.clone();
+                for item in items {
+                    self.walk_expr(item, function, &prefix, budget, note);
+                    prefix = prefix.seq(&self.expr_cost(item));
+                }
+            }
+            Expr::Select(arms) => {
+                for arm in arms {
+                    match arm {
+                        SelectArm::Recv { source, body, .. } => {
+                            self.walk_expr(source, function, cost_before, budget, note);
+                            let body_prefix = cost_before.seq(&self.expr_cost(source));
+                            self.walk_expr(body, function, &body_prefix, budget, note);
+                        }
+                        SelectArm::Timeout { duration, body } => {
+                            self.walk_expr(duration, function, cost_before, budget, note);
+                            let body_prefix = cost_before.seq(&self.expr_cost(duration));
+                            self.walk_expr(body, function, &body_prefix, budget, note);
+                        }
+                    }
+                }
+            }
+            Expr::ParallelScope { lanes, body } => {
+                if let Some(lanes) = lanes {
+                    self.walk_expr(lanes, function, cost_before, budget, note);
+                    let body_prefix = cost_before.seq(&self.expr_cost(lanes));
+                    self.walk_expr(body, function, &body_prefix, budget, note);
+                } else {
+                    self.walk_expr(body, function, cost_before, budget, note);
+                }
+            }
+            Expr::Handle { body, handlers } => {
+                self.walk_expr(body, function, cost_before, budget, note);
+                for handler in handlers {
+                    match handler {
+                        HandleBinding::Use(use_handler) => {
+                            let mut prefix = cost_before.clone();
+                            for (_, value) in &use_handler.payload {
+                                self.walk_expr(value, function, &prefix, budget, note);
+                                prefix = prefix.seq(&self.expr_cost(value));
+                            }
+                        }
+                        HandleBinding::On(arm) => {
+                            self.walk_expr(&arm.body, function, cost_before, budget, note);
+                        }
+                    }
+                }
+            }
+            Expr::Perform { args, .. } => {
+                let mut prefix = cost_before.clone();
+                for arg in args {
+                    self.walk_expr(arg, function, &prefix, budget, note);
+                    prefix = prefix.seq(&self.expr_cost(arg));
+                }
+            }
+            Expr::ChannelNew { buffer, .. } => {
+                self.walk_expr(buffer, function, cost_before, budget, note)
+            }
+            Expr::FString(parts) => {
+                let mut prefix = cost_before.clone();
+                for part in parts {
+                    if let ast::FStringPart::Expr(expr) = part {
+                        self.walk_expr(expr, function, &prefix, budget, note);
+                        prefix = prefix.seq(&self.expr_cost(expr));
+                    }
+                }
+            }
+            Expr::TString(parts) => {
+                let mut prefix = cost_before.clone();
+                for part in parts {
+                    if let ast::TStringPart::Expr(expr) = part {
+                        self.walk_expr(expr, function, &prefix, budget, note);
+                        prefix = prefix.seq(&self.expr_cost(expr));
+                    }
+                }
+            }
+            Expr::Return(None)
+            | Expr::IntLit(_)
+            | Expr::SuffixedIntLit(_, _)
+            | Expr::FloatLit(_)
+            | Expr::StrLit(_)
+            | Expr::BoolLit(_)
+            | Expr::Var(_)
+            | Expr::Placeholder => {}
+            Expr::Hole(_, _, _, None) => {}
+        }
+    }
+
+    fn stmt_cost(&self, stmt: &Stmt) -> CostVector {
+        match stmt {
+            Stmt::Let(_, _, expr) | Stmt::Expr(expr) => self.expr_cost(expr),
+        }
+    }
+
+    fn expr_cost(&self, expr: &Expr) -> CostVector {
+        match expr {
+            Expr::Call(callee, args) => {
+                let mut total = CostVector::zero();
+                for arg in args {
+                    total = total.seq(&self.expr_cost(arg));
+                }
+                total = total.seq(&CostVector::constant(3, 0, 0, 0));
+                if let Expr::Var(name) = &**callee
+                    && let Some(cost) = self.costs.get(name)
+                {
+                    total = total.seq(cost);
+                }
+                total
+            }
+            Expr::BinOp(lhs, _, rhs) | Expr::Pipe(lhs, rhs) => {
+                self.expr_cost(lhs).seq(&self.expr_cost(rhs))
+            }
+            Expr::UnaryOp(_, inner)
+            | Expr::FieldAccess(inner, _)
+            | Expr::Try(inner)
+            | Expr::Await(inner)
+            | Expr::Throw(inner)
+            | Expr::Return(Some(inner))
+            | Expr::Spawn(inner) => self.expr_cost(inner),
+            Expr::Lambda(_, _) => CostVector::zero(),
+            Expr::If(cond, then_branch, else_branch) => {
+                let mut total = self.expr_cost(cond);
+                total = total.seq(&self.expr_cost(then_branch));
+                if let Some(else_branch) = else_branch {
+                    total = total.max(&self.expr_cost(else_branch));
+                }
+                total
+            }
+            Expr::Match(scrutinee, arms) => {
+                let mut total = self.expr_cost(scrutinee);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        total = total.max(&self.expr_cost(guard));
+                    }
+                    total = total.max(&self.expr_cost(&arm.body));
+                }
+                total
+            }
+            Expr::Block(stmts, tail) => {
+                let mut total = CostVector::zero();
+                for stmt in stmts {
+                    total = total.seq(&self.stmt_cost(stmt));
+                }
+                if let Some(tail) = tail {
+                    total = total.seq(&self.expr_cost(tail));
+                }
+                total
+            }
+            Expr::StructLit(_, fields) => {
+                fields.iter().fold(CostVector::zero(), |acc, (_, value)| {
+                    acc.seq(&self.expr_cost(value))
+                })
+            }
+            Expr::List(items) => items.iter().fold(CostVector::zero(), |acc, item| {
+                acc.seq(&self.expr_cost(item))
+            }),
+            Expr::ChannelNew { buffer, .. } => self.expr_cost(buffer),
+            Expr::ParallelScope { lanes, body } => lanes
+                .as_ref()
+                .map(|lanes| self.expr_cost(lanes).seq(&self.expr_cost(body)))
+                .unwrap_or_else(|| self.expr_cost(body)),
+            Expr::Select(arms) => arms.iter().fold(CostVector::zero(), |acc, arm| match arm {
+                SelectArm::Recv { source, body, .. } => {
+                    acc.max(&self.expr_cost(source).seq(&self.expr_cost(body)))
+                }
+                SelectArm::Timeout { duration, body } => {
+                    acc.max(&self.expr_cost(duration).seq(&self.expr_cost(body)))
+                }
+            }),
+            Expr::Handle { body, handlers } => {
+                let mut total = self.expr_cost(body);
+                for handler in handlers {
+                    total = total.max(&match handler {
+                        HandleBinding::Use(use_handler) => use_handler
+                            .payload
+                            .iter()
+                            .fold(CostVector::zero(), |acc, (_, value)| {
+                                acc.seq(&self.expr_cost(value))
+                            }),
+                        HandleBinding::On(arm) => self.expr_cost(&arm.body),
+                    });
+                }
+                total
+            }
+            Expr::Perform { args, .. } => args
+                .iter()
+                .fold(CostVector::zero(), |acc, arg| acc.seq(&self.expr_cost(arg))),
+            Expr::FString(parts) => parts
+                .iter()
+                .fold(CostVector::zero(), |acc, part| match part {
+                    ast::FStringPart::Literal(_) => acc,
+                    ast::FStringPart::Expr(expr) => acc.seq(&self.expr_cost(expr)),
+                }),
+            Expr::TString(parts) => parts
+                .iter()
+                .fold(CostVector::zero(), |acc, part| match part {
+                    ast::TStringPart::Literal(_) => acc,
+                    ast::TStringPart::Expr(expr) => acc.seq(&self.expr_cost(expr)),
+                }),
+            Expr::Hole(_, _, _, _) => CostVector::constant(1, 0, 0, 0),
+            Expr::Return(None)
+            | Expr::IntLit(_)
+            | Expr::SuffixedIntLit(_, _)
+            | Expr::FloatLit(_)
+            | Expr::StrLit(_)
+            | Expr::BoolLit(_)
+            | Expr::Var(_)
+            | Expr::Placeholder => CostVector::zero(),
+        }
+    }
+}
+
 pub fn enrich_hole_report(
     module: &Module,
     costs: &HashMap<String, CostVector>,
@@ -2005,11 +1793,8 @@ mod tests {
         );
         assert_eq!(e.to_string(), "(n + 1)");
 
-        let e2 = CostExpr::Span(
-            Box::new(CostExpr::Var("hi".into())),
-            Box::new(CostExpr::Var("lo".into())),
-        );
-        assert_eq!(e2.to_string(), "span(hi, lo)");
+        let e2 = CostExpr::Pow(Box::new(CostExpr::Var("n".into())), 2);
+        assert_eq!(e2.to_string(), "n^2");
 
         let e3 = CostExpr::Log(Box::new(CostExpr::Var("n".into())));
         assert_eq!(e3.to_string(), "log(n)");

@@ -357,7 +357,7 @@ mod tests {
         let mut entry = ModuleInterface::new(vec!["app".into()]);
         entry
             .functions
-            .insert("main".into(), (vec![], crate::types::Ty::I32));
+            .insert("main".into(), (vec![], crate::types::Ty::I64));
 
         let err = platform
             .validate_entry_startup(&entry)

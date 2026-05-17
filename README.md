@@ -46,7 +46,7 @@ require Rust 1.95 or newer.
 - Stable generic bounds use a single comma-separated clause: `where T: Trait, U: Trait`.
 - Effect operations use explicit `effect` declarations plus `perform Effect.op(...)`; reusable unions use `effect Name = A | B`.
 - Error sets are checked contracts: `throw expr` must match the current `! E1 | E2`, calling a throwing function requires compatible caller errors, and `?` is propagation sugar.
-- Current implementation primitives are `I32`/`I64`/`U32`/`U64`/`F32`/`F64`/`Bool`/`Str`/`()`. The locked surface also keeps `Int`/`Float` as `I64`/`F64` aliases; implementation catch-up is tracked separately.
+- Current implementation primitives are fixed-width only: `I8`/`I16`/`I32`/`I64`, `U8`/`U16`/`U32`/`U64`, `F32`/`F64`, `Bool`, `Str`, `Never`, and `()`. `Int` and `Float` are not built-in aliases.
 - The live structured-concurrency surface includes `parallel_scope { ... }`, `spawn { ... }`, postfix `task.await`, `Channel.new[...]`, and `select { ... timeout(...) => ... }`.
 
 ## Quick Start
@@ -107,6 +107,16 @@ fn main() -> () uses [Console] {
 
 Applications declare `fn main() -> ()` and require effects that are handled by the Platform.
 The `basic-cli` Platform handles effect operations like `Console` for terminal IO.
+
+Platform packages can be scaffolded too:
+
+```bash
+spore new --type platform my-platform
+```
+
+That scaffold now includes `src/platform_contract.sp` plus matching `[platform]`
+metadata in `spore.toml`, so application projects can point at it via a path
+dependency while `src/host.sp` remains a local smoke entry.
 
 ### Standalone File Mode
 
@@ -234,7 +244,7 @@ import spore.merge
 import spore.laws
 
 fn canonical_members(xs: List[I32]) -> List[I32] {
-    merge_self_i32(xs)
+    canonical_members_i32(xs)
 }
 ```
 
@@ -243,8 +253,44 @@ Today this is intentionally small and truthful to the live implementation:
 - `spore.combine` provides higher-order combine helpers plus a `Combine[T]` trait
 - `spore.merge` provides list-backed unique merge helpers plus a `Merge[T]` trait
 - `spore.order` layers small helpers over the current prelude `Ordering`
-- `spore.laws` hosts executable law-shaped examples, including an idempotent
-  self-merge example via `spec { property ... }`
+- `spore.laws` hosts executable law-oriented helpers such as
+  `canonical_members_i32` and `sum3_left_assoc_i32`, expressed with ordinary
+  `spec { example ... property ... }` clauses
+
+`spore.laws` does **not** add trusted optimizer rules or new `law` syntax yet.
+It gives you reusable helpers plus patterns you can copy into your own APIs
+today. For example, you can encode an associative check for a local combine step
+with existing surface syntax:
+
+```spore
+import spore.combine
+
+fn sum3(a: I32, b: I32, c: I32) -> I32
+spec {
+    property "associative": |a: I32, b: I32, c: I32|
+        combine_pair(a, combine_pair(b, c, |x: I32, y: I32| x + y), |x: I32, y: I32| x + y)
+}
+{
+    combine_pair(combine_pair(a, b, |x: I32, y: I32| x + y), c, |x: I32, y: I32| x + y)
+}
+```
+
+Or you can reuse the shipped helpers directly:
+
+```spore
+import spore.laws
+
+fn unique_ids(xs: List[I32]) -> List[I32] {
+    canonical_members_i32(xs)
+}
+
+fn total(a: I32, b: I32, c: I32) -> I32 {
+    sum3_left_assoc_i32(a, b, c)
+}
+```
+
+That is the current model for law tooling: executable helpers, reusable
+stdlib examples, and documented `spec` patterns — not a new core proof system.
 
 Older shipped stdlib helpers still live on the prelude or legacy root-module
 surface (`math`, `set`, `dict`, ...); this new `spore.*` naming is the current
@@ -283,7 +329,7 @@ Native build support is experimental: the current backend emits object files for
 the supported scalar/object subset and rejects unsupported language features
 explicitly. General native compilation remains future work.
 
-See [docs/DESIGN.md](docs/DESIGN.md) for the canonical in-repo design document. Topic-level normative proposals live in the sibling [`spore-evolution`](https://github.com/spore-lang/spore-evolution/tree/main/seps) repo under `seps/`.
+See [SPARK.md](SPARK.md) for the project vision and design direction. Topic-level normative proposals live in the sibling [`spore-evolution`](https://github.com/spore-lang/spore-evolution/tree/main/seps) repo under `seps/`.
 
 ## Packaging
 
@@ -339,12 +385,12 @@ Rust 1.95+ toolchain.
 ## Documentation
 
 ### Canonical design docs
+| Document | Description |
+|----------|-------------|
+| [SPARK.md](SPARK.md) | Project vision, design direction, and core principles |
+| [docs/specs/README.md](docs/specs/README.md) | Redirect for the retired per-topic spec drafts |
+| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts |
 
-| Document                                           | Description                                                                   |
-| -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| [docs/DESIGN.md](docs/DESIGN.md)                   | Primary in-repo design document, syntax authority, and durable design summary |
-| [docs/specs/README.md](docs/specs/README.md)       | Redirect for the retired per-topic spec drafts                                |
-| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts                                      |
 
 ### SEP mapping
 

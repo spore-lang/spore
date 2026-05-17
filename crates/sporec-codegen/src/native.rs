@@ -53,7 +53,7 @@ impl NativeType {
         match ty {
             None => Ok(Self::Unit),
             Some(TypeExpr::Named(name)) => match name.as_str() {
-                "I64" | "Int" => Ok(Self::I64),
+                "I64" => Ok(Self::I64),
                 "Bool" => Ok(Self::Bool),
                 "Unit" => Ok(Self::Unit),
                 other => Err(NativeError::unsupported(format!(
@@ -107,6 +107,23 @@ impl fmt::Display for NativeType {
             Self::Bool => write!(f, "Bool"),
             Self::Unit => write!(f, "()"),
         }
+    }
+}
+
+fn native_type_from_integer_suffix(
+    function: &str,
+    suffix: &str,
+) -> Result<NativeType, NativeError> {
+    match suffix {
+        "i64" => Ok(NativeType::I64),
+        "i8" | "i16" | "i32" | "u8" | "u16" | "u32" | "u64" => Err(NativeError::for_function(
+            function,
+            format!("unsupported scalar type `{}`", suffix.to_ascii_uppercase()),
+        )),
+        _ => Err(NativeError::for_function(
+            function,
+            format!("unknown integer literal suffix `{suffix}`"),
+        )),
     }
 }
 
@@ -791,6 +808,7 @@ fn validate_expr(
 ) -> Result<NativeType, NativeError> {
     match expr {
         Expr::IntLit(_) => Ok(NativeType::I64),
+        Expr::SuffixedIntLit(_, suffix) => native_type_from_integer_suffix(function, suffix),
         Expr::BoolLit(_) => Ok(NativeType::Bool),
         Expr::Var(name) => scopes
             .iter()
@@ -1114,6 +1132,10 @@ fn compile_expr<M: Module>(
         Expr::IntLit(value) => Ok(BoundValue {
             value: builder.ins().iconst(types::I64, *value),
             ty: NativeType::I64,
+        }),
+        Expr::SuffixedIntLit(value, suffix) => Ok(BoundValue {
+            value: builder.ins().iconst(types::I64, *value),
+            ty: native_type_from_integer_suffix(current_function, suffix)?,
         }),
         Expr::BoolLit(value) => Ok(BoundValue {
             value: builder.ins().iconst(types::I64, i64::from(*value)),
