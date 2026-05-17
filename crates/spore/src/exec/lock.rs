@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -62,6 +62,12 @@ struct LockSummary {
     package_count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExistingLockEntry {
+    source: String,
+    store_path: String,
+}
+
 fn lock_project(root: &Path, check: bool) -> Result<LockSummary, String> {
     let root = root
         .canonicalize()
@@ -99,6 +105,7 @@ fn lock_project(root: &Path, check: bool) -> Result<LockSummary, String> {
 }
 
 fn collect_packages(root: &Path) -> Result<Vec<PackageLockEntry>, String> {
+    let existing_lock = load_existing_lock(root).unwrap_or_default();
     let mut entries = Vec::new();
     let mut queue = VecDeque::from([(root.to_path_buf(), ".".to_string())]);
     let mut seen = BTreeSet::new();
@@ -138,14 +145,27 @@ fn collect_packages(root: &Path) -> Result<Vec<PackageLockEntry>, String> {
         });
 
         for (dep_name, dep) in manifest.dependencies {
-            let Some(dep_path) = dep.path else {
-                return Err(format!(
-                    "dependency `{dep_name}` in `{}` is missing `path = ...`; this MVP lock command only supports local path dependencies",
-                    package_root.join("spore.toml").display()
-                ));
+            let (dep_root, dep_source) = if let Some(dep_path) = dep.path {
+                let dep_root = resolve_path_dependency(&package_root, &dep_path);
+                let dep_root = dep_root.canonicalize().map_err(|e| {
+                    format!(
+                        "cannot resolve dependency `{dep_name}` from `{}` at `{}`: {e}",
+                        package_root.join("spore.toml").display(),
+                        dep_root.display()
+                    )
+                })?;
+                let dep_source = lock_source_path(root, &dep_root);
+                (dep_root, dep_source)
+            } else {
+                let Some(locked) = existing_lock.get(&dep_name) else {
+                    return Err(format!(
+                        "dependency `{dep_name}` in `{}` is missing `path = ...` and has no matching entry in `{}`; add a local path before first lock generation",
+                        package_root.join("spore.toml").display(),
+                        root.join(".spore-lock").display()
+                    ));
+                };
+                (root.join(&locked.store_path), locked.source.clone())
             };
-            let dep_root = resolve_path_dependency(&package_root, &dep_path);
-            let dep_source = relative_to_root(root, &dep_root).unwrap_or(dep_path);
             queue.push_back((dep_root, dep_source));
         }
     }
@@ -212,11 +232,7 @@ fn collect_sp_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) -> Result
 
 fn materialize_store(root: &Path, packages: &[PackageLockEntry]) -> Result<(), String> {
     for package in packages {
-        let source_root = if package.source == "." {
-            root.to_path_buf()
-        } else {
-            root.join(&package.source)
-        };
+        let source_root = resolve_lock_source(root, &package.source);
         let manifest = load_project_manifest(&source_root)?;
         let files = package_files(&source_root, &manifest.source_roots())?;
         let dest_root = root.join(&package.store_path);
@@ -241,6 +257,55 @@ fn materialize_store(root: &Path, packages: &[PackageLockEntry]) -> Result<(), S
         }
     }
     Ok(())
+}
+
+fn load_existing_lock(root: &Path) -> Result<BTreeMap<String, ExistingLockEntry>, String> {
+    let path = root.join(".spore-lock");
+    let source =
+        fs::read_to_string(&path).map_err(|e| format!("cannot read `{}`: {e}", path.display()))?;
+    let mut packages = BTreeMap::new();
+    let mut name: Option<String> = None;
+    let mut source_path: Option<String> = None;
+    let mut store_path: Option<String> = None;
+
+    let flush = |packages: &mut BTreeMap<String, ExistingLockEntry>,
+                 name: &mut Option<String>,
+                 source_path: &mut Option<String>,
+                 store_path: &mut Option<String>| {
+        if let Some(name) = name.take() {
+            packages.insert(
+                name,
+                ExistingLockEntry {
+                    source: source_path.take().unwrap_or_default(),
+                    store_path: store_path.take().unwrap_or_default(),
+                },
+            );
+        }
+        *source_path = None;
+        *store_path = None;
+    };
+
+    for raw_line in source.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if line == "[[package]]" {
+            flush(&mut packages, &mut name, &mut source_path, &mut store_path);
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key.trim() {
+            "name" => name = Some(parse_lock_string(value)),
+            "source" => source_path = Some(parse_lock_string(value)),
+            "store-path" => store_path = Some(parse_lock_string(value)),
+            _ => {}
+        }
+    }
+    flush(&mut packages, &mut name, &mut source_path, &mut store_path);
+    Ok(packages)
 }
 
 fn render_lockfile(packages: &[PackageLockEntry]) -> String {
@@ -287,10 +352,33 @@ fn resolve_path_dependency(root: &Path, dep_path: &str) -> PathBuf {
     }
 }
 
+fn resolve_lock_source(root: &Path, source: &str) -> PathBuf {
+    if source == "." {
+        root.to_path_buf()
+    } else {
+        resolve_path_dependency(root, source)
+    }
+}
+
+fn lock_source_path(root: &Path, path: &Path) -> String {
+    relative_to_root(root, path)
+        .filter(|source| !source.is_empty())
+        .unwrap_or_else(|| path.to_string_lossy().replace('\\', "/"))
+}
+
 fn relative_to_root(root: &Path, path: &Path) -> Option<String> {
     path.strip_prefix(root)
         .ok()
         .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+}
+
+fn parse_lock_string(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\")
 }
 
 fn escape_toml_string(value: &str) -> String {
@@ -352,6 +440,86 @@ mod tests {
         assert!(root.join(".spore-store/packages").is_dir());
 
         lock_project(root, true).unwrap();
+
+        fs::write(
+            root.join("spore.toml"),
+            r#"
+            [package]
+            name = "app"
+            type = "application"
+
+            [project]
+            platform = "basic-cli"
+            default-entry = "app"
+
+            [dependencies]
+            basic-cli = { content-hash = "locked" }
+
+            [entries.app]
+            path = "main.sp"
+            "#,
+        )
+        .unwrap();
+        lock_project(root, false).unwrap();
+        lock_project(root, true).unwrap();
+    }
+
+    #[test]
+    fn lock_project_materializes_transitive_dependency_paths_relative_to_dependency_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("app");
+        let deps = tmp.path().join("deps");
+        fs::create_dir_all(app.join("src")).unwrap();
+        fs::create_dir_all(deps.join("dep-a/src")).unwrap();
+        fs::create_dir_all(deps.join("dep-b/src")).unwrap();
+        fs::write(
+            app.join("spore.toml"),
+            r#"
+            [package]
+            name = "app"
+            type = "package"
+
+            [dependencies]
+            dep-a = { path = "../deps/dep-a" }
+            "#,
+        )
+        .unwrap();
+        fs::write(app.join("src/lib.sp"), "pub fn app() -> I32 { 1 }\n").unwrap();
+        fs::write(
+            deps.join("dep-a/spore.toml"),
+            r#"
+            [package]
+            name = "dep-a"
+            type = "package"
+
+            [dependencies]
+            dep-b = { path = "../dep-b" }
+            "#,
+        )
+        .unwrap();
+        fs::write(deps.join("dep-a/src/dep_a.sp"), "pub fn a() -> I32 { 1 }\n").unwrap();
+        fs::write(
+            deps.join("dep-b/spore.toml"),
+            r#"
+            [package]
+            name = "dep-b"
+            type = "package"
+            "#,
+        )
+        .unwrap();
+        fs::write(deps.join("dep-b/src/dep_b.sp"), "pub fn b() -> I32 { 2 }\n").unwrap();
+
+        let summary = lock_project(&app, false).unwrap();
+        assert_eq!(summary.package_count, 3);
+        let dep_b_source = deps
+            .join("dep-b")
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let lock = fs::read_to_string(app.join(".spore-lock")).unwrap();
+        assert!(lock.contains("name = \"dep-b\""));
+        assert!(lock.contains(&format!("source = \"{dep_b_source}\"")));
     }
 
     #[test]

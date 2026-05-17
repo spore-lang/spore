@@ -75,8 +75,11 @@ cargo run --bin spore -- lock --check path/to/project # CI check for lock freshn
 ```
 
 This MVP snapshots the root package plus local path dependencies by deterministic
-content hash. Registry backends, signature-level dependency acceptance, and full
-package update workflows remain roadmap items.
+content hash. The project resolver can also use `.spore-lock` entries to resolve
+manifest dependencies that omit `path = ...`, loading their stored source roots
+from `.spore-store/packages/<content-hash>`. Registry backends,
+signature-level dependency acceptance, and full package update workflows remain
+roadmap items.
 
 If `spore` is installed on your `PATH`, you can replace the explicit Cargo or
 `target/debug/spore` invocations above with bare `spore ...`.
