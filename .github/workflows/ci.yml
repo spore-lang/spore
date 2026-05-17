@@ -1,0 +1,50 @@
+name: "CI"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.95"
+          components: clippy, rustfmt, llvm-tools
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Check
+        run: cargo check --all-targets
+
+      - name: Prek checks
+        run: uvx prek run --all-files
+
+      - name: Doc tests
+        run: cargo test --doc --all-features
+
+      - name: Test with coverage
+        run: cargo llvm-cov test --lcov --output-path lcov.info -- --no-capture
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: false

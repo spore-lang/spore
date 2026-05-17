@@ -287,7 +287,12 @@ fn resolve_platform_dependency(
             dep_root.display()
         ));
     }
-    let dep_root = dep_root.canonicalize().unwrap_or(dep_root);
+    let dep_root = dep_root.canonicalize().map_err(|e| {
+        format!(
+            "cannot resolve platform dependency `{platform_name}` at `{}`: {e}",
+            dep_root.display()
+        )
+    })?;
 
     let dep_manifest = load_project_manifest(&dep_root)?;
     if dep_manifest.package_type.as_deref() != Some("platform") {
@@ -462,7 +467,9 @@ fn dependency_source_roots(
     root: &Path,
     manifest: &ProjectManifest,
 ) -> Result<Vec<PathBuf>, String> {
-    let project_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let project_root = root
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve project root `{}`: {e}", root.display()))?;
     let mut roots = Vec::new();
     let mut seen = HashSet::new();
     collect_dependency_source_roots(
@@ -487,7 +494,12 @@ fn collect_dependency_source_roots(
         if !dep_root.is_dir() {
             continue;
         }
-        let normalized_root = std::fs::canonicalize(&dep_root).unwrap_or_else(|_| dep_root.clone());
+        let normalized_root = std::fs::canonicalize(&dep_root).map_err(|e| {
+            format!(
+                "cannot resolve dependency root `{}`: {e}",
+                dep_root.display()
+            )
+        })?;
         if !seen.insert(normalized_root.clone()) {
             continue;
         }
