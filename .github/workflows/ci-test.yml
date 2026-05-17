@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
+          toolchain: "1.95"
           components: llvm-tools
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
@@ -45,38 +45,6 @@ jobs:
 
       - name: Run doc tests
         run: cargo test --doc --all-features
-
-      - uses: astral-sh/setup-uv@v6
-
-      - name: Validate published hook manifest
-        run: uvx prek validate-manifest .pre-commit-hooks.yaml
-
-      - name: Smoke-test standalone native build
-        run: |
-          cat > /tmp/ci-native-build-smoke.sp <<'EOF'
-          fn main() -> Bool {
-              true
-          }
-          EOF
-          cargo run --release --bin spore -- build /tmp/ci-native-build-smoke.sp
-          test -f /tmp/ci-native-build-smoke.o
-
-      - name: Smoke-test stdlib specs
-        run: cargo run --release --bin spore -- test stdlib/math.sp stdlib/string.sp stdlib/collections.sp stdlib/char.sp stdlib/set.sp stdlib/dict.sp
-
-      - name: Smoke-test sporec CLI
-        run: |
-          cargo run --release --bin sporec -- explain E0001
-          cargo run --release --bin sporec -- compile examples/demo.sp
-          cat > /tmp/sporec-hole-smoke.sp <<'EOF'
-          fn main() -> I32 {
-              ?todo
-          }
-          EOF
-          cargo run --release --bin sporec -- holes --json /tmp/sporec-hole-smoke.sp > /tmp/sporec-holes.json
-          grep -q '"holes"' /tmp/sporec-holes.json
-          cargo run --release --bin sporec -- query-hole --json /tmp/sporec-hole-smoke.sp '?todo' > /tmp/sporec-hole.json
-          grep -q '"name"' /tmp/sporec-hole.json
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5

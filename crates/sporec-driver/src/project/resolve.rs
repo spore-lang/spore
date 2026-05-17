@@ -33,21 +33,36 @@ pub fn resolve_project_target_by_path(
     let normalized = normalize_entry_path(entry_path)?;
 
     if manifest.project.is_some() {
-        let Some((entry_name, _)) = manifest.entries.iter().find(|(_, entry)| {
-            normalize_entry_path(&entry.path)
-                .map(|path| path == normalized)
-                .unwrap_or(false)
-        }) else {
+        let Some(entry_name) = declared_entry_name_for_path(root, &manifest, &normalized)? else {
             return module_only_target(
                 root,
                 &normalized,
                 dependency_source_roots(root, &manifest)?,
             );
         };
-        return resolve_declared_entry(root, &manifest, entry_name);
+        return resolve_declared_entry(root, &manifest, &entry_name);
     }
 
     legacy_target_for_path(root, &manifest, &normalized)
+}
+
+fn declared_entry_name_for_path(
+    root: &Path,
+    manifest: &ProjectManifest,
+    normalized_entry_path: &str,
+) -> Result<Option<String>, String> {
+    for (entry_name, entry) in &manifest.entries {
+        let entry_path = normalize_entry_path(&entry.path).map_err(|error| {
+            format!(
+                "invalid `[entries.{entry_name}].path` in `{}`: {error}",
+                root.join("spore.toml").display()
+            )
+        })?;
+        if entry_path == normalized_entry_path {
+            return Ok(Some(entry_name.clone()));
+        }
+    }
+    Ok(None)
 }
 
 fn resolve_declared_entry(
@@ -287,7 +302,12 @@ fn resolve_platform_dependency(
             dep_root.display()
         ));
     }
-    let dep_root = dep_root.canonicalize().unwrap_or(dep_root);
+    let dep_root = dep_root.canonicalize().map_err(|e| {
+        format!(
+            "cannot resolve platform dependency `{platform_name}` at `{}`: {e}",
+            dep_root.display()
+        )
+    })?;
 
     let dep_manifest = load_project_manifest(&dep_root)?;
     if dep_manifest.package_type.as_deref() != Some("platform") {
@@ -462,7 +482,9 @@ fn dependency_source_roots(
     root: &Path,
     manifest: &ProjectManifest,
 ) -> Result<Vec<PathBuf>, String> {
-    let project_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let project_root = root
+        .canonicalize()
+        .map_err(|e| format!("cannot resolve project root `{}`: {e}", root.display()))?;
     let mut roots = Vec::new();
     let mut seen = HashSet::new();
     collect_dependency_source_roots(
@@ -485,24 +507,36 @@ fn collect_dependency_source_roots(
     for (dep_name, dep) in &manifest.dependencies {
         let dep_root = resolve_dependency_root_for(project_root, package_root, dep_name, dep)?;
         if !dep_root.is_dir() {
-            continue;
+            return Err(format!(
+                "dependency `{dep_name}` resolves to `{}` which is not a directory",
+                dep_root.display()
+            ));
         }
-        let normalized_root = std::fs::canonicalize(&dep_root).unwrap_or_else(|_| dep_root.clone());
+        let normalized_root = std::fs::canonicalize(&dep_root).map_err(|e| {
+            format!(
+                "cannot resolve dependency root `{}`: {e}",
+                dep_root.display()
+            )
+        })?;
         if !seen.insert(normalized_root.clone()) {
             continue;
         }
-        if let Ok(dep_manifest) = load_project_manifest(&normalized_root) {
-            for source_root in dep_manifest.source_roots() {
-                roots.push(normalized_root.join(source_root));
-            }
-            collect_dependency_source_roots(
-                project_root,
-                &normalized_root,
-                &dep_manifest,
-                roots,
-                seen,
-            )?;
+        let dep_manifest = load_project_manifest(&normalized_root).map_err(|error| {
+            format!(
+                "cannot load dependency `{dep_name}` manifest at `{}`: {error}",
+                normalized_root.join("spore.toml").display()
+            )
+        })?;
+        for source_root in dep_manifest.source_roots() {
+            roots.push(normalized_root.join(source_root));
         }
+        collect_dependency_source_roots(
+            project_root,
+            &normalized_root,
+            &dep_manifest,
+            roots,
+            seen,
+        )?;
     }
     Ok(())
 }
