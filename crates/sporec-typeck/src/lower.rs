@@ -258,6 +258,7 @@ impl Lowering {
     fn lower_expr(&mut self, expr: &ast::Expr) -> HirExpr {
         match expr {
             ast::Expr::IntLit(v) => HirExpr::IntLit(*v),
+            ast::Expr::SuffixedIntLit(v, _) => HirExpr::IntLit(*v),
             ast::Expr::FloatLit(v) => HirExpr::FloatLit(*v),
             ast::Expr::StrLit(v) => HirExpr::StrLit(v.clone()),
             ast::Expr::BoolLit(v) => HirExpr::BoolLit(*v),

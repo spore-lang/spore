@@ -39,12 +39,12 @@ pub fn eval_refinement_predicate(
 /// Try to extract a `ConstValue` from a literal expression.
 pub fn expr_to_const(expr: &Expr) -> Option<ConstValue> {
     match expr {
-        Expr::IntLit(n) => Some(ConstValue::Int(*n)),
+        Expr::IntLit(n) | Expr::SuffixedIntLit(n, _) => Some(ConstValue::Int(*n)),
         Expr::FloatLit(f) => Some(ConstValue::Float(*f)),
         Expr::BoolLit(b) => Some(ConstValue::Bool(*b)),
         Expr::StrLit(s) => Some(ConstValue::Str(s.clone())),
         Expr::UnaryOp(UnaryOp::Neg, inner) => match inner.as_ref() {
-            Expr::IntLit(n) => n.checked_neg().map(ConstValue::Int),
+            Expr::IntLit(n) | Expr::SuffixedIntLit(n, _) => n.checked_neg().map(ConstValue::Int),
             Expr::FloatLit(f) => Some(ConstValue::Float(-f)),
             _ => None,
         },
@@ -54,7 +54,7 @@ pub fn expr_to_const(expr: &Expr) -> Option<ConstValue> {
 
 fn describe(v: &ConstValue) -> &'static str {
     match v {
-        ConstValue::Int(_) => "I32",
+        ConstValue::Int(_) => "I64",
         ConstValue::Float(_) => "F64",
         ConstValue::Bool(_) => "Bool",
         ConstValue::Str(_) => "Str",
@@ -67,7 +67,7 @@ fn eval_expr(expr: &Expr, var_name: &str, value: &ConstValue) -> Result<ConstVal
         Expr::Var(name) if name == var_name || name == "self" => Ok(value.clone()),
 
         // Literals
-        Expr::IntLit(n) => Ok(ConstValue::Int(*n)),
+        Expr::IntLit(n) | Expr::SuffixedIntLit(n, _) => Ok(ConstValue::Int(*n)),
         Expr::FloatLit(f) => Ok(ConstValue::Float(*f)),
         Expr::BoolLit(b) => Ok(ConstValue::Bool(*b)),
         Expr::StrLit(s) => Ok(ConstValue::Str(s.clone())),
@@ -114,7 +114,7 @@ fn eval_expr(expr: &Expr, var_name: &str, value: &ConstValue) -> Result<ConstVal
 
 fn eval_binop(l: &ConstValue, op: &BinOp, r: &ConstValue) -> Result<ConstValue, String> {
     match (l, r) {
-        // Int × Int
+        // Integer x integer
         (ConstValue::Int(a), ConstValue::Int(b)) => match op {
             BinOp::Add => a
                 .checked_add(*b)
@@ -134,9 +134,9 @@ fn eval_binop(l: &ConstValue, op: &BinOp, r: &ConstValue) -> Result<ConstValue, 
             BinOp::Ge => Ok(ConstValue::Bool(*a >= *b)),
             BinOp::Eq => Ok(ConstValue::Bool(*a == *b)),
             BinOp::Ne => Ok(ConstValue::Bool(*a != *b)),
-            _ => Err(format!("unsupported op `{op:?}` on Int")),
+            _ => Err(format!("unsupported op `{op:?}` on integer constants")),
         },
-        // Float × Float
+        // Floating-point x floating-point
         (ConstValue::Float(a), ConstValue::Float(b)) => match op {
             BinOp::Add => Ok(ConstValue::Float(a + b)),
             BinOp::Sub => Ok(ConstValue::Float(a - b)),
@@ -147,7 +147,9 @@ fn eval_binop(l: &ConstValue, op: &BinOp, r: &ConstValue) -> Result<ConstValue, 
             BinOp::Ge => Ok(ConstValue::Bool(*a >= *b)),
             BinOp::Eq => Ok(ConstValue::Bool(*a == *b)),
             BinOp::Ne => Ok(ConstValue::Bool(*a != *b)),
-            _ => Err(format!("unsupported op `{op:?}` on Float")),
+            _ => Err(format!(
+                "unsupported op `{op:?}` on floating-point constants"
+            )),
         },
         // Bool × Bool (logical connectives)
         (ConstValue::Bool(a), ConstValue::Bool(b)) => match op {

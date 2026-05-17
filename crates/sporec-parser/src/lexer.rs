@@ -72,6 +72,7 @@ pub enum TemplatePart {
 pub enum Token {
     // ── Literals ──
     Int(i64),
+    SuffixedInt(i64, String),
     Float(f64),
     Str(String),
     Bool(bool),
@@ -509,7 +510,7 @@ impl<'a> Lexer<'a> {
                         message: format!("invalid hex literal: {e}"),
                         span: Span::new(start, self.pos),
                     })?;
-                    return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
+                    return self.finish_integer_literal(start, val);
                 }
                 b'b' | b'B' => {
                     self.pos += 1;
@@ -526,7 +527,7 @@ impl<'a> Lexer<'a> {
                         message: format!("invalid binary literal: {e}"),
                         span: Span::new(start, self.pos),
                     })?;
-                    return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
+                    return self.finish_integer_literal(start, val);
                 }
                 b'o' | b'O' => {
                     self.pos += 1;
@@ -543,7 +544,7 @@ impl<'a> Lexer<'a> {
                         message: format!("invalid octal literal: {e}"),
                         span: Span::new(start, self.pos),
                     })?;
-                    return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
+                    return self.finish_integer_literal(start, val);
                 }
                 _ => {}
             }
@@ -604,7 +605,39 @@ impl<'a> Lexer<'a> {
                 message: format!("invalid integer literal: {e}"),
                 span: Span::new(start, self.pos),
             })?;
-            Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)))
+            self.finish_integer_literal(start, val)
+        }
+    }
+
+    fn finish_integer_literal(
+        &mut self,
+        start: usize,
+        val: i64,
+    ) -> Result<Spanned<Token>, LexError> {
+        let suffix_start = self.pos;
+        if !matches!(self.peek(), Some(b'i' | b'u')) {
+            return Ok(Spanned::new(Token::Int(val), Span::new(start, self.pos)));
+        }
+
+        self.pos += 1;
+        while let Some(b) = self.peek() {
+            if b.is_ascii_digit() {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+
+        let suffix = &self.source[suffix_start..self.pos];
+        match suffix {
+            "i8" | "i16" | "i32" | "i64" | "u8" | "u16" | "u32" | "u64" => Ok(Spanned::new(
+                Token::SuffixedInt(val, suffix.into()),
+                Span::new(start, self.pos),
+            )),
+            _ => Err(LexError {
+                message: format!("invalid integer literal suffix: {suffix}"),
+                span: Span::new(suffix_start, self.pos),
+            }),
         }
     }
 

@@ -98,7 +98,7 @@ pub struct TypeRegistry {
     /// Trait implementations: (trait_name, type_name) → method impls: [(method_name, param_types, return_type)]
     #[allow(clippy::type_complexity)]
     pub impls: HashMap<(String, String), Vec<(String, Vec<Ty>, Ty)>>,
-    /// Type aliases: name → resolved Ty (supports refinement aliases like `alias Port = Int when ...`)
+    /// Type aliases: name → resolved Ty (supports refinement aliases like `alias Port = I64 when ...`)
     pub type_aliases: HashMap<String, Ty>,
     /// Named handlers: handler name → handler metadata.
     pub handlers: HashMap<String, HandlerInfo>,

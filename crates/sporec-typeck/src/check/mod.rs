@@ -38,6 +38,12 @@ fn handler_self_type_name(name: &str) -> String {
     format!("__handler::{name}")
 }
 
+#[derive(Clone)]
+pub(super) struct EnclosingHandlerEffectContext {
+    pub surviving_effects: EffectSet,
+    pub discharged_effects: EffectSet,
+}
+
 pub struct Checker {
     pub errors: Vec<TypeError>,
     pub registry: TypeRegistry,
@@ -68,6 +74,8 @@ pub struct Checker {
     concurrency: ConcurrencyAnalyzer,
     /// Nested effect observations used for handle discharge and leak diagnostics.
     effect_observation_stack: Vec<EffectSet>,
+    /// Enclosing handler discharge context used to enrich hole reports.
+    hole_effect_context_stack: Vec<EnclosingHandlerEffectContext>,
 }
 
 impl Checker {
@@ -90,6 +98,7 @@ impl Checker {
             hierarchy: default_effect_hierarchy(),
             concurrency: ConcurrencyAnalyzer::new(),
             effect_observation_stack: Vec::new(),
+            hole_effect_context_stack: Vec::new(),
         }
     }
 
@@ -113,6 +122,7 @@ impl Checker {
             hierarchy: default_effect_hierarchy(),
             concurrency: ConcurrencyAnalyzer::new(),
             effect_observation_stack: Vec::new(),
+            hole_effect_context_stack: Vec::new(),
         }
     }
 

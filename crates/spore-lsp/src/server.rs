@@ -807,6 +807,21 @@ fn format_hole_hover(hole: &sporec_driver::HoleInfoJson) -> String {
         }
     }
 
+    if let Some(effect_context) = &hole.effect_context {
+        if !effect_context.discharged_effects.is_empty() {
+            parts.push(format!(
+                "**Discharged by enclosing handlers:** `{}`",
+                effect_context.discharged_effects.join(", ")
+            ));
+        }
+        if !effect_context.surviving_effects.is_empty() {
+            parts.push(format!(
+                "**Effects after handler discharge:** `{}`",
+                effect_context.surviving_effects.join(", ")
+            ));
+        }
+    }
+
     if !hole.candidates.is_empty() {
         let candidates = hole
             .candidates
@@ -814,9 +829,14 @@ fn format_hole_hover(hole: &sporec_driver::HoleInfoJson) -> String {
             .take(3)
             .map(|candidate| {
                 let reason = candidate
-                    .cost_check
-                    .as_ref()
-                    .and_then(|cost_check| cost_check.reason.as_deref())
+                    .explanation
+                    .as_deref()
+                    .or_else(|| {
+                        candidate
+                            .cost_check
+                            .as_ref()
+                            .and_then(|cost_check| cost_check.reason.as_deref())
+                    })
                     .or_else(|| candidate.adjustments.first().map(String::as_str));
                 match reason {
                     Some(reason) => {

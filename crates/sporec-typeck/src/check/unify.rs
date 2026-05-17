@@ -47,13 +47,23 @@ impl Checker {
         }
 
         match (&e, &a) {
-            (Ty::Fn(p1, r1, _, _), Ty::Fn(p2, r2, _, _)) if p1.len() == p2.len() => {
+            (Ty::Fn(p1, r1, c1, _), Ty::Fn(p2, r2, c2, _)) if p1.len() == p2.len() => {
                 let pairs: Vec<(Ty, Ty)> = p1.iter().cloned().zip(p2.iter().cloned()).collect();
                 let ret_pair = ((**r1).clone(), (**r2).clone());
                 for (x, y) in &pairs {
                     self.unify(x, y, context);
                 }
                 self.unify(&ret_pair.0, &ret_pair.1, context);
+                let missing_effects = c1.missing_from(c2);
+                if !missing_effects.is_empty() {
+                    self.err(
+                        ErrorCode::C0001,
+                        format!(
+                            "function effect mismatch in {context}: expected `{e}` but got `{a}` requiring effects [{}]",
+                            missing_effects.join(", ")
+                        ),
+                    );
+                }
             }
             (Ty::App(n1, a1), Ty::App(n2, a2)) if n1 == n2 && a1.len() == a2.len() => {
                 let pairs: Vec<(Ty, Ty)> = a1.iter().cloned().zip(a2.iter().cloned()).collect();

@@ -123,7 +123,7 @@ mod tests {
 
     #[test]
     fn check_source_file_returns_canonical_type_diagnostics() {
-        let report = check_source_file("src/main.sp", "fn main() -> I32 { \"oops\" }\n");
+        let report = check_source_file("src/main.sp", "fn main() -> I64 { \"oops\" }\n");
 
         match report {
             SourceCheckReport::Success { .. } => panic!("expected failure"),
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn converts_parse_error_into_canonical_diagnostic() {
-        let source = source_file("src/main.sp", "fn main( -> I32 { 42 }\n");
+        let source = source_file("src/main.sp", "fn main( -> I64 { 42 }\n");
         let error = ParseError {
             message: "expected `)`".to_string(),
             span: Span::new(8, 9),

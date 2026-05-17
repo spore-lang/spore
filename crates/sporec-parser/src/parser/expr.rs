@@ -126,6 +126,10 @@ impl Parser {
                 self.advance();
                 Ok(Expr::IntLit(n))
             }
+            Token::SuffixedInt(n, suffix) => {
+                self.advance();
+                Ok(Expr::SuffixedIntLit(n, suffix))
+            }
             Token::Float(f) => {
                 self.advance();
                 Ok(Expr::FloatLit(f))

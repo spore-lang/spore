@@ -127,7 +127,7 @@ fn help_output_does_not_panic() {
 #[test]
 fn standalone_run_ignores_return_value_by_default() {
     let project = TempProject::new();
-    let file = project.write("main.sp", "fn main() -> I32 { 42 }\n");
+    let file = project.write("main.sp", "fn main() -> I64 { 42 }\n");
 
     let output = spore_cmd()
         .args(["run", file.to_str().expect("utf-8 path")])
@@ -174,7 +174,7 @@ fn standalone_run_rejects_console_builtins() {
 #[test]
 fn standalone_run_json_omits_completion_value() {
     let project = TempProject::new();
-    let file = project.write("main.sp", "fn main() -> I32 { 42 }\n");
+    let file = project.write("main.sp", "fn main() -> I64 { 42 }\n");
 
     let output = spore_cmd()
         .args(["run", "--json", file.to_str().expect("utf-8 path")])
@@ -397,7 +397,7 @@ fn project_basic_cli_exit_returns_requested_code_without_printing_value() {
     project.write(
         "vendor/basic-cli/src/basic_cli/cmd.sp",
         r#"
-        pub foreign fn exit(code: I32) -> Never uses [Exit]
+        pub foreign fn exit(code: U8) -> Never uses [Exit]
         "#,
     );
     let entry = project.write(
@@ -405,7 +405,7 @@ fn project_basic_cli_exit_returns_requested_code_without_printing_value() {
         r#"
         import basic_cli.cmd
 
-        fn exit_code() -> I32 { 7 }
+        fn exit_code() -> U8 { 7u8 }
 
         fn main() -> () uses [Exit] {
             exit(exit_code())
@@ -490,7 +490,7 @@ fn project_test_reuses_project_aware_import_resolution() {
         r#"
         import basic_cli.stdout as stdout
 
-        fn local_identity(x: I32) -> I32
+        fn local_identity(x: I64) -> I64
         spec {
             example "basic": local_identity(42) == 42
         }
@@ -548,8 +548,8 @@ fn project_test_runs_specs_in_imported_embedded_law_modules() {
         import spore.laws
 
         fn main() -> () {
-            canonical_members_i32([1, 1, 2]);
-            sum3_left_assoc_i32(20, 10, 12);
+            canonical_members_i32([1i32, 1i32, 2i32]);
+            sum3_left_assoc_i32(20i32, 10i32, 12i32);
             return
         }
         "#,

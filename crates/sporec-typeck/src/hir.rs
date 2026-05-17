@@ -60,7 +60,7 @@ pub enum HirTypeRef {
     Named(String, DefId),
     Generic(String, Vec<HirTypeRef>),
     Function(Vec<HirTypeRef>, Box<HirTypeRef>),
-    /// Anonymous record type: `{ x: Int, y: Int }`
+    /// Anonymous record type: `{ x: I64, y: I64 }`
     Record(Vec<(String, Box<HirTypeRef>)>),
 }
 

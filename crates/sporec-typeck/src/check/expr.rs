@@ -3,7 +3,8 @@ use super::*;
 impl Checker {
     pub(super) fn check_expr(&mut self, expr: &Expr) -> Ty {
         match expr {
-            Expr::IntLit(_) => Ty::I32,
+            Expr::IntLit(_) => Ty::I64,
+            Expr::SuffixedIntLit(n, suffix) => self.check_suffixed_int_literal(*n, suffix),
             Expr::FloatLit(_) => Ty::F64,
             Expr::StrLit(_) => Ty::Str,
             Expr::BoolLit(_) => Ty::Bool,
@@ -78,14 +79,11 @@ impl Checker {
                         ty
                     })
                     .collect();
+                self.push_effect_observer();
                 let ret_ty = self.check_expr(body);
+                let caps = self.pop_effect_observer();
                 self.env.pop_scope();
-                Ty::Fn(
-                    param_tys,
-                    Box::new(ret_ty),
-                    EffectSet::new(),
-                    ErrorSet::new(),
-                )
+                Ty::Fn(param_tys, Box::new(ret_ty), caps, ErrorSet::new())
             }
 
             Expr::If(cond, then_branch, else_branch) => {
@@ -334,21 +332,32 @@ impl Checker {
                 let candidates: Vec<crate::hole::CandidateScore> = suggestions
                     .into_iter()
                     .map(|name| {
-                        let required_effects_fit = self
+                        let missing_effects = self
                             .registry
                             .functions
                             .get(&name)
                             .map(|(_, _, effects)| {
-                                if effects
+                                effects
                                     .iter()
-                                    .all(|effect| self.current_effects.contains(effect))
-                                {
-                                    1.0
-                                } else {
-                                    0.0
-                                }
+                                    .filter(|effect| !self.current_effects.contains(effect))
+                                    .cloned()
+                                    .collect::<Vec<_>>()
                             })
-                            .unwrap_or(1.0);
+                            .unwrap_or_default();
+                        let required_effects_fit =
+                            if missing_effects.is_empty() { 1.0 } else { 0.0 };
+                        let missing_errors = self
+                            .registry
+                            .fn_errors
+                            .get(&name)
+                            .map(|errors| {
+                                errors
+                                    .iter()
+                                    .filter(|error| !self.current_errors.contains(error.as_str()))
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                            })
+                            .unwrap_or_default();
                         let error_coverage = self
                             .registry
                             .fn_errors
@@ -357,14 +366,22 @@ impl Checker {
                                 if errors.is_empty() {
                                     1.0
                                 } else {
-                                    let covered = errors
-                                        .iter()
-                                        .filter(|error| self.current_errors.contains(*error))
-                                        .count();
+                                    let covered = errors.len() - missing_errors.len();
                                     covered as f64 / errors.len() as f64
                                 }
                             })
                             .unwrap_or(1.0);
+                        let mut rejection_reasons = Vec::new();
+                        if !missing_effects.is_empty() {
+                            rejection_reasons
+                                .push(format!("requires effects [{}]", missing_effects.join(", ")));
+                        }
+                        if !missing_errors.is_empty() {
+                            rejection_reasons.push(format!(
+                                "propagates unhandled errors [{}]",
+                                missing_errors.join(", ")
+                            ));
+                        }
 
                         crate::hole::CandidateScore {
                             name,
@@ -372,7 +389,9 @@ impl Checker {
                             cost_fit: 0.5,
                             required_effects_fit,
                             error_coverage,
-                            adjustments: Vec::new(),
+                            rejection_reasons: rejection_reasons.clone(),
+                            explanation: rejection_reasons.first().cloned(),
+                            adjustments: rejection_reasons,
                             cost_check: None,
                         }
                     })
@@ -381,6 +400,12 @@ impl Checker {
                 // Collect available effects and errors in scope
                 let available_effects = self.current_effects.clone();
                 let errors_to_handle: Vec<String> = self.current_errors.iter().cloned().collect();
+                let effect_context = self.hole_effect_context_stack.last().map(|context| {
+                    crate::hole::EffectContext {
+                        discharged_effects: context.discharged_effects.clone(),
+                        surviving_effects: context.surviving_effects.clone(),
+                    }
+                });
 
                 self.hole_report.holes.push(HoleInfo {
                     name: hole_name,
@@ -394,6 +419,7 @@ impl Checker {
                     binding_dependencies: std::collections::BTreeMap::new(),
                     available_effects,
                     errors_to_handle,
+                    effect_context,
                     cost_budget: None,
                     residual_context: None,
                     candidates,
@@ -447,8 +473,7 @@ impl Checker {
             }
 
             Expr::ChannelNew { elem_type, buffer } => {
-                let buffer_ty = self.check_expr(buffer);
-                self.unify(&Ty::I32, &buffer_ty, "Channel.new buffer");
+                let _ = self.check_expr_against(&Ty::I64, buffer, "Channel.new buffer");
                 let elem_ty = self.resolve_type(elem_type);
                 Ty::Tuple(vec![
                     Ty::App("Sender".into(), vec![elem_ty.clone()]),
@@ -458,9 +483,10 @@ impl Checker {
 
             Expr::Return(expr) => {
                 if let Some(inner) = expr {
-                    let ret_val_ty = self.check_expr(inner);
                     if let Some(expected) = self.expected_return_type.clone() {
-                        self.unify(&expected, &ret_val_ty, "return");
+                        let _ = self.check_expr_against(&expected, inner, "return");
+                    } else {
+                        let _ = self.check_expr(inner);
                     }
                 }
                 Ty::Never
@@ -488,10 +514,10 @@ impl Checker {
             Expr::ParallelScope { lanes, body } => {
                 if let Some(lanes_expr) = lanes {
                     let lanes_ty = self.check_expr(lanes_expr);
-                    if lanes_ty != Ty::I32 && !lanes_ty.is_error() {
+                    if lanes_ty != Ty::I64 && !lanes_ty.is_error() {
                         self.err(
                             ErrorCode::E0002,
-                            format!("parallel_scope lanes must be I32, got `{lanes_ty}`"),
+                            format!("parallel_scope lanes must be I64, got `{lanes_ty}`"),
                         );
                     }
                     if let Expr::IntLit(n) = lanes_expr.as_ref()
@@ -555,8 +581,7 @@ impl Checker {
                             arm_ty
                         }
                         SelectArm::Timeout { duration, body } => {
-                            let duration_ty = self.check_expr(duration);
-                            self.unify(&Ty::I32, &duration_ty, "select timeout");
+                            let _ = self.check_expr_against(&Ty::I64, duration, "select timeout");
                             self.check_expr(body)
                         }
                     };
@@ -615,10 +640,9 @@ impl Checker {
                         return self.apply_subst(&ret_ty);
                     }
                     for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
-                        let arg_ty = self.check_expr(arg_expr);
-                        self.unify(
+                        let _ = self.check_expr_against(
                             expected,
-                            &arg_ty,
+                            arg_expr,
                             &format!("argument {} of `{effect}.{operation}`", i + 1),
                         );
                     }
@@ -773,9 +797,25 @@ impl Checker {
 
                 let prev_effects = self.current_effects.clone();
                 self.current_effects = prev_effects.union(&handled_effects);
+                let enclosing_effect_context = if let Some(parent) =
+                    self.hole_effect_context_stack.last()
+                {
+                    super::EnclosingHandlerEffectContext {
+                        surviving_effects: parent.surviving_effects.difference(&handled_effects),
+                        discharged_effects: parent.discharged_effects.union(&handled_effects),
+                    }
+                } else {
+                    super::EnclosingHandlerEffectContext {
+                        surviving_effects: prev_effects.difference(&handled_effects),
+                        discharged_effects: handled_effects.clone(),
+                    }
+                };
+                self.hole_effect_context_stack
+                    .push(enclosing_effect_context);
                 self.push_effect_observer();
                 let body_ty = self.check_expr(body);
                 let body_effects = self.pop_effect_observer();
+                self.hole_effect_context_stack.pop();
                 let mut handler_effects = named_handler_effects;
 
                 self.current_effects = prev_effects.clone();
@@ -975,6 +1015,7 @@ impl Checker {
             }
             Expr::Hole(_, _, _, _)
             | Expr::IntLit(_)
+            | Expr::SuffixedIntLit(_, _)
             | Expr::FloatLit(_)
             | Expr::StrLit(_)
             | Expr::BoolLit(_)
@@ -1028,6 +1069,88 @@ impl Checker {
         }
     }
 
+    pub(super) fn check_expr_against(&mut self, expected: &Ty, expr: &Expr, context: &str) -> Ty {
+        let expected = self.apply_subst(expected);
+        if let Expr::Block(stmts, tail) = expr {
+            self.env.push_scope();
+            for stmt in stmts {
+                self.check_stmt(stmt);
+            }
+            let actual = if let Some(tail_expr) = tail {
+                self.check_expr_against(&expected, tail_expr, context)
+            } else {
+                self.unify(&expected, &Ty::Unit, context);
+                Ty::Unit
+            };
+            self.env.pop_scope();
+            return actual;
+        }
+
+        if let Expr::IntLit(n) = expr
+            && let Some(fits) = Self::integer_literal_fits(&expected, *n)
+        {
+            if fits {
+                return expected;
+            }
+            self.err(
+                ErrorCode::E0001,
+                format!("integer literal `{n}` does not fit `{expected}` in {context}"),
+            );
+            return Ty::Error;
+        }
+
+        let actual = self.check_expr(expr);
+        self.unify(&expected, &actual, context);
+        actual
+    }
+
+    fn integer_literal_fits(expected: &Ty, n: i64) -> Option<bool> {
+        match expected.base_type() {
+            Ty::I8 => Some(i8::try_from(n).is_ok()),
+            Ty::I16 => Some(i16::try_from(n).is_ok()),
+            Ty::I32 => Some(i32::try_from(n).is_ok()),
+            Ty::I64 => Some(true),
+            Ty::U8 => Some(u8::try_from(n).is_ok()),
+            Ty::U16 => Some(u16::try_from(n).is_ok()),
+            Ty::U32 => Some(u32::try_from(n).is_ok()),
+            Ty::U64 => Some(n >= 0),
+            _ => None,
+        }
+    }
+
+    fn check_suffixed_int_literal(&mut self, n: i64, suffix: &str) -> Ty {
+        let Some(ty) = Self::integer_suffix_ty(suffix) else {
+            self.err(
+                ErrorCode::E0001,
+                format!("unknown integer literal suffix `{suffix}`"),
+            );
+            return Ty::Error;
+        };
+        if Self::integer_literal_fits(&ty, n).unwrap_or(false) {
+            ty
+        } else {
+            self.err(
+                ErrorCode::E0001,
+                format!("integer literal `{n}{suffix}` does not fit `{ty}`"),
+            );
+            Ty::Error
+        }
+    }
+
+    fn integer_suffix_ty(suffix: &str) -> Option<Ty> {
+        match suffix {
+            "i8" => Some(Ty::I8),
+            "i16" => Some(Ty::I16),
+            "i32" => Some(Ty::I32),
+            "i64" => Some(Ty::I64),
+            "u8" => Some(Ty::U8),
+            "u16" => Some(Ty::U16),
+            "u32" => Some(Ty::U32),
+            "u64" => Some(Ty::U64),
+            _ => None,
+        }
+    }
+
     // ── Function calls ──────────────────────────────────────────────
 
     pub(super) fn check_call(&mut self, callee: &Expr, args: &[Expr]) -> Ty {
@@ -1060,10 +1183,9 @@ impl Checker {
                 return self.apply_subst(&ret_ty);
             }
             for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
-                let arg_ty = self.check_expr(arg_expr);
-                self.unify(
+                let _ = self.check_expr_against(
                     expected,
-                    &arg_ty,
+                    arg_expr,
                     &format!("argument {} of `{name}`", i + 1),
                 );
             }
@@ -1091,10 +1213,9 @@ impl Checker {
                 return ret_ty;
             }
             for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
-                let arg_ty = self.check_expr(arg_expr);
-                self.unify(
+                let _ = self.check_expr_against(
                     expected,
-                    &arg_ty,
+                    arg_expr,
                     &format!("argument {} of `{name}`", i + 1),
                 );
             }
@@ -1119,8 +1240,11 @@ impl Checker {
                     );
                 } else {
                     for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
-                        let arg_ty = self.check_expr(arg_expr);
-                        self.unify(expected, &arg_ty, &format!("argument {}", i + 1));
+                        let _ = self.check_expr_against(
+                            expected,
+                            arg_expr,
+                            &format!("argument {}", i + 1),
+                        );
                     }
                 }
                 self.check_effect_propagation(&caps);
@@ -1143,17 +1267,17 @@ impl Checker {
     pub(super) fn check_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Let(name, ty_ann, init) => {
-                let init_ty = self.check_expr(init);
                 let ty = if let Some(te) = ty_ann {
                     let declared = self.resolve_type(te);
-                    self.unify(&declared, &init_ty, &format!("let binding `{name}`"));
+                    let _ =
+                        self.check_expr_against(&declared, init, &format!("let binding `{name}`"));
                     // Check refinement predicate on constant initializers
                     if let Ty::Refined(_, ref var_name, ref pred) = declared {
                         self.check_refinement_on_expr(init, var_name, pred, name);
                     }
                     declared
                 } else {
-                    init_ty
+                    self.check_expr(init)
                 };
                 self.env.define(name.clone(), ty);
             }

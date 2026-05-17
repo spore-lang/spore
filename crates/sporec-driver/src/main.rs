@@ -390,6 +390,31 @@ fn render_hole(hole: &HoleInfo) -> String {
         ));
     }
 
+    if let Some(effect_context) = &hole.effect_context {
+        if !effect_context.discharged_effects.is_empty() {
+            lines.push(format!(
+                "  discharged by enclosing handlers: {}",
+                effect_context
+                    .discharged_effects
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if !effect_context.surviving_effects.is_empty() {
+            lines.push(format!(
+                "  effects after handler discharge: {}",
+                effect_context
+                    .surviving_effects
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+    }
+
     if !hole.errors_to_handle.is_empty() {
         lines.push(format!(
             "  errors to handle: {}",
@@ -452,12 +477,23 @@ fn render_hole(hole: &HoleInfo) -> String {
                 candidate.required_effects_fit,
                 candidate.error_coverage
             );
-            if let Some(cost_check) = &candidate.cost_check
-                && let Some(reason) = &cost_check.reason
-            {
+            let reason = candidate
+                .explanation
+                .as_deref()
+                .or_else(|| {
+                    candidate
+                        .cost_check
+                        .as_ref()
+                        .and_then(|cost_check| cost_check.reason.as_deref())
+                })
+                .or_else(|| candidate.adjustments.first().map(String::as_str));
+            if let Some(reason) = reason {
                 line.push_str(&format!(" — {reason}"));
             }
             lines.push(line);
+            for reason in &candidate.rejection_reasons {
+                lines.push(format!("      rejection: {reason}"));
+            }
             for adjustment in &candidate.adjustments {
                 lines.push(format!("      note: {adjustment}"));
             }

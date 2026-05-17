@@ -88,6 +88,7 @@ impl<'a> Formatter<'a> {
     pub(super) fn fmt_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::IntLit(n) => self.write(&n.to_string()),
+            Expr::SuffixedIntLit(n, suffix) => self.write(&format!("{n}{suffix}")),
             Expr::FloatLit(n) => {
                 let s = format!("{n}");
                 if s.contains('.') {
