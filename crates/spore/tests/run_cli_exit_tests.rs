@@ -2,6 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use serde_json::Value;
+
 struct TempProject {
     root: tempfile::TempDir,
 }
@@ -29,6 +31,26 @@ impl TempProject {
 
 fn spore_cmd() -> Command {
     Command::new(env!("CARGO_BIN_EXE_spore"))
+}
+
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("crate should live under repo/crates/spore")
+        .to_path_buf()
+}
+
+fn stdout_json_lines(output: &Output) -> Vec<Value> {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            serde_json::from_str(line)
+                .unwrap_or_else(|error| panic!("expected JSON line ({error}), got: {line}"))
+        })
+        .collect()
 }
 
 fn assert_help_succeeds(args: &[&str], expected: &str) {
@@ -214,6 +236,48 @@ fn standalone_build_writes_native_object_file() {
         .expect("run spore build");
 
     assert_build_succeeded(&output, &artifact);
+}
+
+#[test]
+fn stdlib_spec_suite_passes_via_cli() {
+    let stdlib = repo_root().join("stdlib");
+    let files = [
+        "math.sp",
+        "string.sp",
+        "collections.sp",
+        "char.sp",
+        "set.sp",
+        "dict.sp",
+    ];
+    let mut cmd = spore_cmd();
+    cmd.args(["test", "--json"]);
+    for file in files {
+        cmd.arg(stdlib.join(file));
+    }
+
+    let output = cmd.output().expect("run spore test for stdlib specs");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let reports = stdout_json_lines(&output);
+    let (summary, events) = reports
+        .split_last()
+        .expect("stdlib spec run should emit a summary JSON line");
+    assert!(
+        events.iter().all(|event| event["severity"] == "warning"),
+        "non-warning event before summary: {reports:?}"
+    );
+    let json = summary;
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["failed"].as_u64(), Some(0));
+    assert!(
+        json["passed"].as_u64().is_some_and(|passed| passed >= 100),
+        "expected stdlib spec coverage, got: {json}"
+    );
 }
 
 #[test]

@@ -403,6 +403,40 @@ mod tests {
     }
 
     #[test]
+    fn resolve_project_target_by_path_rejects_invalid_declared_entry_path() {
+        let project = TempProject::new(
+            "invalid-entry-path",
+            r#"
+            [package]
+            name = "demo"
+
+            [project]
+            platform = "cli"
+            default-entry = "app"
+
+            [entries.app]
+            path = "main.sp"
+
+            [entries.bad]
+            path = "../escape.sp"
+            "#,
+        );
+        project.write("src/main.sp", "fn main() -> () { return }\n");
+        project.write("src/tools/repl.sp", "fn main() -> () { return }\n");
+
+        let err = resolve_project_target_by_path(project.root(), "tools/repl.sp")
+            .expect_err("invalid declared entry paths should not be ignored");
+        assert!(
+            err.contains("invalid `[entries.bad].path`"),
+            "expected invalid entry path context, got: {err}"
+        );
+        assert!(
+            err.contains("must stay within a configured source root"),
+            "expected normalization error, got: {err}"
+        );
+    }
+
+    #[test]
     fn resolve_default_target_legacy_package_type_application() {
         let project = TempProject::new(
             "legacy-app",
@@ -608,6 +642,61 @@ mod tests {
         assert_eq!(
             contract.source_roots,
             vec!["platform".to_string(), "core".to_string()]
+        );
+    }
+
+    #[test]
+    fn resolve_default_target_rejects_missing_path_dependency_root() {
+        let project = TempProject::new(
+            "missing-path-dependency",
+            r#"
+            [package]
+            name = "demo"
+            type = "application"
+
+            [dependencies]
+            helper = { path = "vendor/helper" }
+            "#,
+        );
+        project.write("src/main.sp", "fn main() -> () { return }\n");
+
+        let err = resolve_default_project_target(project.root())
+            .expect_err("missing path dependencies should be reported");
+        assert!(
+            err.contains("dependency `helper` resolves to"),
+            "expected dependency context, got: {err}"
+        );
+        assert!(
+            err.contains("which is not a directory"),
+            "expected missing directory error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_default_target_rejects_dependency_without_manifest() {
+        let project = TempProject::new(
+            "dependency-without-manifest",
+            r#"
+            [package]
+            name = "demo"
+            type = "application"
+
+            [dependencies]
+            helper = { path = "vendor/helper" }
+            "#,
+        );
+        project.write("src/main.sp", "fn main() -> () { return }\n");
+        project.write("vendor/helper/src/helper.sp", "pub fn helper() -> () {}\n");
+
+        let err = resolve_default_project_target(project.root())
+            .expect_err("dependencies without manifests should be reported");
+        assert!(
+            err.contains("cannot load dependency `helper` manifest"),
+            "expected dependency manifest context, got: {err}"
+        );
+        assert!(
+            err.contains("spore.toml"),
+            "expected manifest path, got: {err}"
         );
     }
 
