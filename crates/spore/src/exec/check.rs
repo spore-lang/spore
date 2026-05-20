@@ -7,6 +7,37 @@ use crate::report::{report_batch_check, report_single_file_check};
 use crate::target::{ResolvedSpTarget, resolve_project_aware_sp_targets};
 use crate::util::{fail_deny_warnings, fail_human, fail_message, read_source, read_source_message};
 
+fn report_warnings(
+    warnings: &[sporec_diagnostics::Diagnostic],
+    json_output: bool,
+    deny_warnings: bool,
+    render_human: impl FnOnce(),
+) -> Option<ExitCode> {
+    let warning_messages = sporec_diagnostics::diagnostic_message_lines(warnings);
+    if json_output {
+        for (warning, message) in warnings.iter().zip(warning_messages.iter()) {
+            sporec_diagnostics::print_json(
+                &sporec_diagnostics::JsonReport::new()
+                    .with_severity(sporec_diagnostics::Severity::Warning)
+                    .with_message(message.as_str())
+                    .with_diagnostic(warning),
+            );
+        }
+    } else {
+        render_human();
+    }
+
+    if !warnings.is_empty() && deny_warnings {
+        Some(fail_deny_warnings(
+            &warning_messages,
+            Some(warnings),
+            json_output,
+        ))
+    } else {
+        None
+    }
+}
+
 pub(crate) fn exec_check(
     files: &[String],
     verbose: bool,
@@ -112,17 +143,14 @@ pub(crate) fn exec_check(
                     if deny_warnings {
                         match sporec_driver::check_project(root, entry) {
                             sporec_driver::CheckReport::Success { sources, warnings } => {
-                                if !warnings.is_empty() {
-                                    let warning_messages =
-                                        sporec_diagnostics::diagnostic_message_lines(&warnings);
-                                    sporec_diagnostics::render_diagnostics_human_with_sources(
-                                        &sources, &warnings,
-                                    );
-                                    return fail_deny_warnings(
-                                        &warning_messages,
-                                        Some(&warnings),
-                                        false,
-                                    );
+                                if let Some(exit_code) =
+                                    report_warnings(&warnings, false, true, || {
+                                        sporec_diagnostics::render_diagnostics_human_with_sources(
+                                            &sources, &warnings,
+                                        );
+                                    })
+                                {
+                                    return exit_code;
                                 }
                             }
                             sporec_driver::CheckReport::Failure(
@@ -157,18 +185,15 @@ pub(crate) fn exec_check(
                                 source: canonical_source,
                                 warnings,
                             } => {
-                                if !warnings.is_empty() {
-                                    let warning_messages =
-                                        sporec_diagnostics::diagnostic_message_lines(&warnings);
-                                    sporec_diagnostics::render_diagnostics_human(
-                                        &canonical_source,
-                                        &warnings,
-                                    );
-                                    return fail_deny_warnings(
-                                        &warning_messages,
-                                        Some(&warnings),
-                                        false,
-                                    );
+                                if let Some(exit_code) =
+                                    report_warnings(&warnings, false, true, || {
+                                        sporec_diagnostics::render_diagnostics_human(
+                                            &canonical_source,
+                                            &warnings,
+                                        );
+                                    })
+                                {
+                                    return exit_code;
                                 }
                             }
                             sporec_driver::SourceCheckReport::Failure(
@@ -279,29 +304,14 @@ pub(crate) fn exec_test(
             } => {
                 match sporec_driver::check_project(root, entry) {
                     sporec_driver::CheckReport::Success { sources, warnings } => {
-                        let warning_messages =
-                            sporec_diagnostics::diagnostic_message_lines(&warnings);
-                        if json_output {
-                            for (warning, message) in warnings.iter().zip(warning_messages.iter()) {
-                                sporec_diagnostics::print_json(
-                                    &sporec_diagnostics::JsonReport::new()
-                                        .with_severity(sporec_diagnostics::Severity::Warning)
-                                        .with_message(message.as_str())
-                                        .with_diagnostic(warning),
+                        if let Some(exit_code) =
+                            report_warnings(&warnings, json_output, deny_warnings, || {
+                                sporec_diagnostics::render_diagnostics_human_with_sources(
+                                    &sources, &warnings,
                                 );
-                            }
-                        } else {
-                            sporec_diagnostics::render_diagnostics_human_with_sources(
-                                &sources, &warnings,
-                            );
-                        }
-
-                        if !warnings.is_empty() && deny_warnings {
-                            return fail_deny_warnings(
-                                &warning_messages,
-                                Some(&warnings),
-                                json_output,
-                            );
+                            })
+                        {
+                            return exit_code;
                         }
                     }
                     sporec_driver::CheckReport::Failure(
@@ -336,30 +346,15 @@ pub(crate) fn exec_test(
                         source: canonical_source,
                         warnings,
                     } => {
-                        let warning_messages =
-                            sporec_diagnostics::diagnostic_message_lines(&warnings);
-                        if json_output {
-                            for (warning, message) in warnings.iter().zip(warning_messages.iter()) {
-                                sporec_diagnostics::print_json(
-                                    &sporec_diagnostics::JsonReport::new()
-                                        .with_severity(sporec_diagnostics::Severity::Warning)
-                                        .with_message(message.as_str())
-                                        .with_diagnostic(warning),
+                        if let Some(exit_code) =
+                            report_warnings(&warnings, json_output, deny_warnings, || {
+                                sporec_diagnostics::render_diagnostics_human(
+                                    &canonical_source,
+                                    &warnings,
                                 );
-                            }
-                        } else {
-                            sporec_diagnostics::render_diagnostics_human(
-                                &canonical_source,
-                                &warnings,
-                            );
-                        }
-
-                        if !warnings.is_empty() && deny_warnings {
-                            return fail_deny_warnings(
-                                &warning_messages,
-                                Some(&warnings),
-                                json_output,
-                            );
+                            })
+                        {
+                            return exit_code;
                         }
                     }
                     sporec_driver::SourceCheckReport::Failure(
