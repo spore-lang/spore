@@ -177,16 +177,17 @@ caller signature, and `?` is sugar for
 that propagation rule.
 
 The parser accepts `where`, `uses`, `cost`, and `spec` clauses in any order.
-Documentation examples use the canonical order: `where`, `uses`, `cost`, `spec`,
-and stable `where` syntax is a single comma-separated clause such as
+Documentation examples use the formatter order: `where`, `uses`, `cost`,
+`spec`, and stable `where` syntax is a single comma-separated clause such as
 `where T: Trait, U: Trait`. Active cost syntax is the fixed-order vector
-`cost [compute, alloc, io, parallel]`; each slot currently uses the minimal
-subset only: integer constants, parameter variables, or linear `O(n)` terms.
-Old scalar `cost <= expr`, `log`/`max`/`min`, and richer algebraic terms are
-deferred. Functions marked `@unbounded` are still contagious and skip body
-budget verification, but they must declare an expected vector with the same
-`cost [compute, alloc, io, parallel]` syntax so callers and docs preserve an
-explicit cost intent.
+`cost [compute, alloc, io, parallel]`; each slot currently accepts integer
+constants, parameter variables, linear `O(n)` terms, `+`, `*`, and the
+`log`/`max`/`min`/`span` cost functions. Old scalar `cost <= expr` syntax is
+removed; ordinary subtraction, division, remainder, conditionals, and arbitrary
+runtime values remain deferred. Functions marked `@unbounded` are still
+contagious and skip body budget verification, but they must declare an expected
+vector with the same `cost [compute, alloc, io, parallel]` syntax so callers and
+docs preserve an explicit cost intent.
 
 ```spore
 effect NetConnect {
@@ -386,11 +387,11 @@ Rust 1.95+ toolchain.
 
 ### Canonical design docs
 
-| Document                                           | Description                                           |
-| -------------------------------------------------- | ----------------------------------------------------- |
-| [SPARK.md](SPARK.md)                               | Project vision, design direction, and core principles |
-| [docs/specs/README.md](docs/specs/README.md)       | Redirect for the retired per-topic spec drafts        |
-| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts              |
+| Document | Description |
+| --- | --- |
+| [SPARK.md](SPARK.md) | Project vision, design direction, and core principles |
+| [docs/decisions/syntax.md](docs/decisions/syntax.md) | Current accepted syntax decisions that the implementation and docs must follow |
+| [docs/research/cross-language-notes.md](docs/research/cross-language-notes.md) | Durable cross-language research notes that still shape Spore |
 
 ### SEP mapping
 
