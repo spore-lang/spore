@@ -684,6 +684,25 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_sp_targets_directory_skips_generated_state_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        for ignored in [".git", ".spark", ".spore-store", ".venv", "dist", "target"] {
+            fs::create_dir_all(dir.join(ignored)).unwrap();
+            fs::write(
+                dir.join(ignored).join("generated.sp"),
+                "fn generated() -> I64 { 1 }\n",
+            )
+            .unwrap();
+        }
+        fs::write(dir.join("source.sp"), "fn source() -> I64 { 0 }\n").unwrap();
+
+        let paths = vec![dir.to_string_lossy().into_owned()];
+        let result = resolve_sp_targets(&paths, dir).unwrap();
+        assert_eq!(result, vec![dir.join("source.sp")]);
+    }
+
+    #[test]
     fn test_resolve_sp_targets_explicit_file_passes_through() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("single.sp");
