@@ -103,3 +103,93 @@ pub struct TypeRegistry {
     /// Named handlers: handler name → handler metadata.
     pub handlers: HashMap<String, HandlerInfo>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Env scope management ────────────────────────────────────────
+
+    #[test]
+    fn define_and_lookup() {
+        let mut env = Env::new();
+        env.define("x".into(), Ty::I32);
+        assert_eq!(env.lookup("x"), Some(&Ty::I32));
+    }
+
+    #[test]
+    fn lookup_missing_returns_none() {
+        let env = Env::new();
+        assert_eq!(env.lookup("missing"), None);
+    }
+
+    #[test]
+    fn inner_scope_shadows_outer() {
+        let mut env = Env::new();
+        env.define("x".into(), Ty::I32);
+        env.push_scope();
+        env.define("x".into(), Ty::Bool);
+        assert_eq!(env.lookup("x"), Some(&Ty::Bool));
+        env.pop_scope();
+        assert_eq!(env.lookup("x"), Some(&Ty::I32));
+    }
+
+    #[test]
+    fn inner_scope_sees_outer() {
+        let mut env = Env::new();
+        env.define("x".into(), Ty::I32);
+        env.push_scope();
+        assert_eq!(env.lookup("x"), Some(&Ty::I32));
+        env.pop_scope();
+    }
+
+    #[test]
+    fn pop_scope_removes_bindings() {
+        let mut env = Env::new();
+        env.push_scope();
+        env.define("local".into(), Ty::Str);
+        assert_eq!(env.lookup("local"), Some(&Ty::Str));
+        env.pop_scope();
+        assert_eq!(env.lookup("local"), None);
+    }
+
+    #[test]
+    fn all_bindings_merges_scopes() {
+        let mut env = Env::new();
+        env.define("a".into(), Ty::I32);
+        env.push_scope();
+        env.define("b".into(), Ty::Bool);
+        let bindings = env.all_bindings();
+        assert_eq!(bindings.len(), 2);
+        assert_eq!(bindings.get("a"), Some(&Ty::I32));
+        assert_eq!(bindings.get("b"), Some(&Ty::Bool));
+    }
+
+    #[test]
+    fn all_bindings_inner_shadows_outer() {
+        let mut env = Env::new();
+        env.define("x".into(), Ty::I32);
+        env.push_scope();
+        env.define("x".into(), Ty::Bool);
+        let bindings = env.all_bindings();
+        assert_eq!(bindings.get("x"), Some(&Ty::Bool));
+    }
+
+    #[test]
+    fn nested_scopes_depth() {
+        let mut env = Env::new();
+        env.define("a".into(), Ty::I32);
+        env.push_scope();
+        env.define("b".into(), Ty::Bool);
+        env.push_scope();
+        env.define("c".into(), Ty::Str);
+        assert_eq!(env.lookup("a"), Some(&Ty::I32));
+        assert_eq!(env.lookup("b"), Some(&Ty::Bool));
+        assert_eq!(env.lookup("c"), Some(&Ty::Str));
+        env.pop_scope();
+        assert_eq!(env.lookup("c"), None);
+        assert_eq!(env.lookup("b"), Some(&Ty::Bool));
+        env.pop_scope();
+        assert_eq!(env.lookup("b"), None);
+    }
+}

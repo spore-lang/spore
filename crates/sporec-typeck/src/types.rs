@@ -334,3 +334,209 @@ impl fmt::Display for Ty {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sporec_parser::ast::Expr;
+
+    fn dummy_expr() -> Box<Expr> {
+        Box::new(Expr::BoolLit(true))
+    }
+
+    // ── is_integer / is_numeric / is_error ──────────────────────────
+
+    #[test]
+    fn integer_types() {
+        for ty in [
+            Ty::I8,
+            Ty::I16,
+            Ty::I32,
+            Ty::I64,
+            Ty::U8,
+            Ty::U16,
+            Ty::U32,
+            Ty::U64,
+        ] {
+            assert!(ty.is_integer(), "{ty} should be integer");
+            assert!(ty.is_numeric(), "{ty} should be numeric");
+        }
+    }
+
+    #[test]
+    fn float_types_are_numeric_not_integer() {
+        for ty in [Ty::F32, Ty::F64] {
+            assert!(!ty.is_integer(), "{ty} should not be integer");
+            assert!(ty.is_numeric(), "{ty} should be numeric");
+        }
+    }
+
+    #[test]
+    fn non_numeric_types() {
+        assert!(!Ty::Bool.is_numeric());
+        assert!(!Ty::Str.is_numeric());
+        assert!(!Ty::Unit.is_numeric());
+        assert!(!Ty::Never.is_numeric());
+    }
+
+    #[test]
+    fn error_sentinel() {
+        assert!(Ty::Error.is_error());
+        assert!(!Ty::I32.is_error());
+    }
+
+    // ── base_type ───────────────────────────────────────────────────
+
+    #[test]
+    fn base_type_strips_single_refinement() {
+        let refined = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        assert_eq!(*refined.base_type(), Ty::I32);
+    }
+
+    #[test]
+    fn base_type_strips_nested_refinement() {
+        let inner = Ty::Refined(Box::new(Ty::I32), "y".into(), dummy_expr());
+        let outer = Ty::Refined(Box::new(inner), "x".into(), dummy_expr());
+        assert_eq!(*outer.base_type(), Ty::I32);
+    }
+
+    #[test]
+    fn base_type_identity_for_non_refined() {
+        assert_eq!(*Ty::Bool.base_type(), Ty::Bool);
+        assert_eq!(*Ty::Str.base_type(), Ty::Str);
+    }
+
+    // ── PartialEq ───────────────────────────────────────────────────
+
+    #[test]
+    fn equality_same_primitives() {
+        assert_eq!(Ty::I32, Ty::I32);
+        assert_ne!(Ty::I32, Ty::I64);
+    }
+
+    #[test]
+    fn equality_named() {
+        assert_eq!(Ty::Named("Foo".into()), Ty::Named("Foo".into()));
+        assert_ne!(Ty::Named("Foo".into()), Ty::Named("Bar".into()));
+    }
+
+    #[test]
+    fn equality_app() {
+        let a = Ty::App("List".into(), vec![Ty::I32]);
+        let b = Ty::App("List".into(), vec![Ty::I32]);
+        let c = Ty::App("List".into(), vec![Ty::Bool]);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn equality_refined() {
+        let a = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        let b = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn equality_refined_vs_base() {
+        let refined = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        assert_ne!(refined, Ty::I32, "refined should not equal base type");
+    }
+
+    // ── Display ─────────────────────────────────────────────────────
+
+    #[test]
+    fn display_primitives() {
+        assert_eq!(Ty::I32.to_string(), "I32");
+        assert_eq!(Ty::Bool.to_string(), "Bool");
+        assert_eq!(Ty::Unit.to_string(), "()");
+        assert_eq!(Ty::Never.to_string(), "Never");
+    }
+
+    #[test]
+    fn display_app() {
+        let ty = Ty::App("List".into(), vec![Ty::I32]);
+        assert_eq!(ty.to_string(), "List[I32]");
+    }
+
+    #[test]
+    fn display_tuple() {
+        let ty = Ty::Tuple(vec![Ty::I32, Ty::Bool]);
+        assert_eq!(ty.to_string(), "(I32, Bool)");
+    }
+
+    #[test]
+    fn display_fn() {
+        let ty = Ty::Fn(
+            vec![Ty::I32],
+            Box::new(Ty::Bool),
+            EffectSet::new(),
+            BTreeSet::new(),
+        );
+        assert_eq!(ty.to_string(), "(I32) -> Bool");
+    }
+
+    #[test]
+    fn display_record() {
+        let ty = Ty::Record(vec![("x".into(), Ty::I32), ("y".into(), Ty::I32)]);
+        assert_eq!(ty.to_string(), "{ x: I32, y: I32 }");
+    }
+
+    #[test]
+    fn display_hole() {
+        assert_eq!(Ty::Hole("foo".into()).to_string(), "?foo");
+    }
+
+    #[test]
+    fn display_refinement() {
+        let ty = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        assert_eq!(ty.to_string(), "I32 when <predicate>");
+    }
+
+    // ── fold / visit ────────────────────────────────────────────────
+
+    #[test]
+    fn fold_transforms_bottom_up() {
+        // Replace all I32 with I64
+        let ty = Ty::Tuple(vec![Ty::I32, Ty::Bool, Ty::I32]);
+        let result = ty.fold(&mut |t| if t == Ty::I32 { Ty::I64 } else { t });
+        assert_eq!(result, Ty::Tuple(vec![Ty::I64, Ty::Bool, Ty::I64]));
+    }
+
+    #[test]
+    fn fold_ref_transforms_top_down() {
+        let ty = Ty::App("List".into(), vec![Ty::I32]);
+        let result = ty.fold_ref(&mut |t| match t {
+            Ty::App(name, _) if name == "List" => Some(Ty::Named("Vec".into())),
+            _ => None,
+        });
+        assert_eq!(result, Ty::Named("Vec".into()));
+    }
+
+    #[test]
+    fn visit_collects_types() {
+        let ty = Ty::Tuple(vec![Ty::I32, Ty::App("List".into(), vec![Ty::Bool])]);
+        let mut seen = Vec::new();
+        ty.visit(&mut |t| seen.push(format!("{t}")));
+        assert!(seen.contains(&"I32".to_string()));
+        assert!(seen.contains(&"Bool".to_string()));
+        assert!(seen.contains(&"List[Bool]".to_string()));
+    }
+
+    // ── ErrorSet helpers ────────────────────────────────────────────
+
+    #[test]
+    fn canonical_error_set_deduplicates() {
+        let set = canonical_error_set(vec!["A", "B", "A"]);
+        assert_eq!(set.len(), 2);
+        assert!(set.contains("A"));
+        assert!(set.contains("B"));
+    }
+
+    #[test]
+    fn missing_errors_finds_gap() {
+        let required = canonical_error_set(vec!["A", "B", "C"]);
+        let available = canonical_error_set(vec!["A"]);
+        let missing = missing_errors(&required, &available);
+        assert_eq!(missing, vec!["B", "C"]);
+    }
+}

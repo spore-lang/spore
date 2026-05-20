@@ -74,3 +74,158 @@ impl Checker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    fn checker_with_effects(effects: Vec<&str>) -> Checker {
+        let mut c = Checker::new();
+        c.current_function = "test_fn".into();
+        for e in effects {
+            c.current_effects.insert(e.into());
+        }
+        c
+    }
+
+    fn checker_with_errors(errors: Vec<&str>) -> Checker {
+        let mut c = Checker::new();
+        c.current_function = "test_fn".into();
+        for e in errors {
+            c.current_errors.insert(e.into());
+        }
+        c
+    }
+
+    // ── check_effect_propagation ────────────────────────────────────
+
+    #[test]
+    fn effect_propagation_ok_when_covered() {
+        let mut c = checker_with_effects(vec!["IO", "NetConnect"]);
+        c.check_effect_propagation(&{
+            let mut s = EffectSet::new();
+            s.insert("IO".into());
+            s
+        });
+        assert!(c.errors.is_empty());
+    }
+
+    #[test]
+    fn effect_propagation_fails_when_missing() {
+        let mut c = checker_with_effects(vec!["NetConnect"]);
+        c.check_effect_propagation(&{
+            let mut s = EffectSet::new();
+            s.insert("IO".into());
+            s
+        });
+        assert_eq!(c.errors.len(), 1);
+        assert!(c.errors[0].message.contains("IO"));
+    }
+
+    #[test]
+    fn effect_propagation_empty_callee_ok() {
+        let mut c = checker_with_effects(vec![]);
+        c.check_effect_propagation(&EffectSet::new());
+        assert!(c.errors.is_empty());
+    }
+
+    #[test]
+    fn effect_propagation_multiple_missing() {
+        let mut c = checker_with_effects(vec![]);
+        let mut required = EffectSet::new();
+        required.insert("IO".into());
+        required.insert("NetConnect".into());
+        c.check_effect_propagation(&required);
+        assert_eq!(c.errors.len(), 1);
+        assert!(c.errors[0].message.contains("IO"));
+        assert!(c.errors[0].message.contains("NetConnect"));
+    }
+
+    // ── check_error_propagation ─────────────────────────────────────
+
+    #[test]
+    fn error_propagation_ok_when_covered() {
+        let mut c = checker_with_errors(vec!["NotFound", "Timeout"]);
+        c.check_error_propagation(&{
+            let mut s = BTreeSet::new();
+            s.insert("NotFound".into());
+            s
+        });
+        assert!(c.errors.is_empty());
+    }
+
+    #[test]
+    fn error_propagation_fails_when_missing() {
+        let mut c = checker_with_errors(vec!["Timeout"]);
+        c.check_error_propagation(&{
+            let mut s = BTreeSet::new();
+            s.insert("NotFound".into());
+            s
+        });
+        assert_eq!(c.errors.len(), 1);
+        assert!(c.errors[0].message.contains("NotFound"));
+    }
+
+    // ── check_throw_coverage ────────────────────────────────────────
+
+    #[test]
+    fn throw_requires_error_set() {
+        let mut c = checker_with_errors(vec![]);
+        c.check_throw_coverage(&Expr::Var("NotFound".into()));
+        assert_eq!(c.errors.len(), 1);
+        assert!(c.errors[0].message.contains("error set"));
+    }
+
+    #[test]
+    fn throw_covered_by_declared_error() {
+        let mut c = checker_with_errors(vec!["NotFound"]);
+        c.check_throw_coverage(&Expr::Var("NotFound".into()));
+        assert!(c.errors.is_empty());
+    }
+
+    #[test]
+    fn throw_not_in_declared_errors() {
+        let mut c = checker_with_errors(vec!["Timeout"]);
+        c.check_throw_coverage(&Expr::Var("NotFound".into()));
+        assert_eq!(c.errors.len(), 1);
+        assert!(c.errors[0].message.contains("NotFound"));
+    }
+
+    // ── infer_thrown_error_name ─────────────────────────────────────
+
+    #[test]
+    fn infer_error_from_var() {
+        let c = Checker::new();
+        assert_eq!(
+            c.infer_thrown_error_name(&Expr::Var("NotFound".into())),
+            Some("NotFound".into())
+        );
+    }
+
+    #[test]
+    fn infer_error_from_call() {
+        let c = Checker::new();
+        let expr = Expr::Call(
+            Box::new(Expr::Var("NotFound".into())),
+            vec![Expr::StrLit("msg".into())],
+        );
+        assert_eq!(c.infer_thrown_error_name(&expr), Some("NotFound".into()));
+    }
+
+    #[test]
+    fn infer_error_from_struct_lit() {
+        let c = Checker::new();
+        let expr = Expr::StructLit("NotFound".into(), vec![]);
+        assert_eq!(c.infer_thrown_error_name(&expr), Some("NotFound".into()));
+    }
+
+    #[test]
+    fn infer_error_ignores_lowercase() {
+        let c = Checker::new();
+        assert_eq!(
+            c.infer_thrown_error_name(&Expr::Var("notFound".into())),
+            None
+        );
+    }
+}

@@ -1876,6 +1876,15 @@ mod tests {
         let b = CostVector::constant(1, 1, 1, 0);
         let c = a.seq(&b);
         assert_eq!(c.compute, CostExpr::Unbounded);
+
+        let lin = CostExpr::Linear("x".into());
+        assert_eq!(add_cost(&CostExpr::Unbounded, &lin), CostExpr::Unbounded);
+        assert_eq!(add_cost(&lin, &CostExpr::Unbounded), CostExpr::Unbounded);
+        assert_eq!(mul_cost(&CostExpr::Unbounded, &lin), CostExpr::Unbounded);
+        assert_eq!(
+            max_cost(&CostExpr::Unbounded, &CostExpr::Const(5)),
+            CostExpr::Unbounded
+        );
     }
 
     #[test]
@@ -1908,6 +1917,7 @@ mod tests {
 
     #[test]
     fn add_cost_identity() {
+        // Const identity
         assert_eq!(
             add_cost(&CostExpr::Const(0), &CostExpr::Const(7)),
             CostExpr::Const(7)
@@ -1916,10 +1926,15 @@ mod tests {
             add_cost(&CostExpr::Const(3), &CostExpr::Const(0)),
             CostExpr::Const(3)
         );
+        // Linear identity
+        let lin = CostExpr::Linear("x".into());
+        assert_eq!(add_cost(&lin, &CostExpr::Const(0)), lin);
+        assert_eq!(add_cost(&CostExpr::Const(0), &lin), lin);
     }
 
     #[test]
     fn mul_cost_identity_and_zero() {
+        // Const identity and zero
         assert_eq!(
             mul_cost(&CostExpr::Const(1), &CostExpr::Const(42)),
             CostExpr::Const(42)
@@ -1928,6 +1943,10 @@ mod tests {
             mul_cost(&CostExpr::Const(0), &CostExpr::Const(42)),
             CostExpr::Const(0)
         );
+        // Linear identity
+        let lin = CostExpr::Linear("x".into());
+        assert_eq!(mul_cost(&lin, &CostExpr::Const(1)), lin);
+        assert_eq!(mul_cost(&CostExpr::Const(1), &lin), lin);
     }
 
     #[test]
@@ -2221,32 +2240,6 @@ mod tests {
                 Box::new(CostExpr::Const(3)),
                 Box::new(CostExpr::Linear("n".into()))
             )
-        );
-    }
-
-    #[test]
-    fn test_add_identity() {
-        let lin = CostExpr::Linear("x".into());
-        assert_eq!(add_cost(&lin, &CostExpr::Const(0)), lin);
-        assert_eq!(add_cost(&CostExpr::Const(0), &lin), lin);
-    }
-
-    #[test]
-    fn test_mul_identity() {
-        let lin = CostExpr::Linear("x".into());
-        assert_eq!(mul_cost(&lin, &CostExpr::Const(1)), lin);
-        assert_eq!(mul_cost(&CostExpr::Const(1), &lin), lin);
-    }
-
-    #[test]
-    fn test_unbounded_propagation() {
-        let lin = CostExpr::Linear("x".into());
-        assert_eq!(add_cost(&CostExpr::Unbounded, &lin), CostExpr::Unbounded);
-        assert_eq!(add_cost(&lin, &CostExpr::Unbounded), CostExpr::Unbounded);
-        assert_eq!(mul_cost(&CostExpr::Unbounded, &lin), CostExpr::Unbounded);
-        assert_eq!(
-            max_cost(&CostExpr::Unbounded, &CostExpr::Const(5)),
-            CostExpr::Unbounded
         );
     }
 

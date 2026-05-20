@@ -368,3 +368,205 @@ impl Checker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn checker() -> Checker {
+        Checker::new()
+    }
+
+    // ── resolve_type ────────────────────────────────────────────────
+
+    #[test]
+    fn resolve_primitives() {
+        let mut c = checker();
+        assert_eq!(c.resolve_type(&TypeExpr::Named("I32".into())), Ty::I32);
+        assert_eq!(c.resolve_type(&TypeExpr::Named("Bool".into())), Ty::Bool);
+        assert_eq!(c.resolve_type(&TypeExpr::Named("Str".into())), Ty::Str);
+        assert_eq!(c.resolve_type(&TypeExpr::Named("Never".into())), Ty::Never);
+        assert_eq!(c.resolve_type(&TypeExpr::Named("F64".into())), Ty::F64);
+    }
+
+    #[test]
+    fn resolve_unknown_named_type() {
+        let mut c = checker();
+        assert_eq!(
+            c.resolve_type(&TypeExpr::Named("Foo".into())),
+            Ty::Named("Foo".into())
+        );
+    }
+
+    #[test]
+    fn resolve_type_alias() {
+        let mut c = checker();
+        c.registry.type_aliases.insert("Port".into(), Ty::I32);
+        assert_eq!(c.resolve_type(&TypeExpr::Named("Port".into())), Ty::I32);
+    }
+
+    #[test]
+    fn resolve_generic_type() {
+        let mut c = checker();
+        let te = TypeExpr::Generic("List".into(), vec![TypeExpr::Named("I32".into())]);
+        assert_eq!(c.resolve_type(&te), Ty::App("List".into(), vec![Ty::I32]));
+    }
+
+    #[test]
+    fn resolve_empty_tuple_is_unit() {
+        let mut c = checker();
+        assert_eq!(c.resolve_type(&TypeExpr::Tuple(vec![])), Ty::Unit);
+    }
+
+    #[test]
+    fn resolve_non_empty_tuple() {
+        let mut c = checker();
+        let te = TypeExpr::Tuple(vec![
+            TypeExpr::Named("I32".into()),
+            TypeExpr::Named("Bool".into()),
+        ]);
+        assert_eq!(c.resolve_type(&te), Ty::Tuple(vec![Ty::I32, Ty::Bool]));
+    }
+
+    #[test]
+    fn resolve_function_type() {
+        let mut c = checker();
+        let te = TypeExpr::Function(
+            vec![TypeExpr::Named("I32".into())],
+            Box::new(TypeExpr::Named("Bool".into())),
+            vec![],
+        );
+        let resolved = c.resolve_type(&te);
+        match resolved {
+            Ty::Fn(params, ret, effects, errors) => {
+                assert_eq!(params, vec![Ty::I32]);
+                assert_eq!(*ret, Ty::Bool);
+                assert!(effects.is_empty());
+                assert!(errors.is_empty());
+            }
+            other => panic!("expected Fn, got {other}"),
+        }
+    }
+
+    #[test]
+    fn resolve_hole_produces_fresh_var() {
+        let mut c = checker();
+        let v1 = c.resolve_type(&TypeExpr::Hole(None));
+        let v2 = c.resolve_type(&TypeExpr::Hole(None));
+        assert_ne!(v1, v2, "each hole should produce a distinct type variable");
+    }
+
+    // ── fresh_var ───────────────────────────────────────────────────
+
+    #[test]
+    fn fresh_var_increments() {
+        let mut c = checker();
+        let v0 = c.fresh_var();
+        let v1 = c.fresh_var();
+        assert_eq!(v0, Ty::Var(0));
+        assert_eq!(v1, Ty::Var(1));
+    }
+
+    // ── apply_subst ─────────────────────────────────────────────────
+
+    #[test]
+    fn apply_subst_resolves_chain() {
+        let mut c = checker();
+        c.substitution.insert(0, Ty::Var(1));
+        c.substitution.insert(1, Ty::I32);
+        assert_eq!(c.apply_subst(&Ty::Var(0)), Ty::I32);
+    }
+
+    #[test]
+    fn apply_subst_leaves_unbound_var() {
+        let c = checker();
+        assert_eq!(c.apply_subst(&Ty::Var(99)), Ty::Var(99));
+    }
+
+    #[test]
+    fn apply_subst_through_app() {
+        let mut c = checker();
+        c.substitution.insert(0, Ty::I32);
+        let ty = Ty::App("List".into(), vec![Ty::Var(0)]);
+        assert_eq!(c.apply_subst(&ty), Ty::App("List".into(), vec![Ty::I32]));
+    }
+
+    // ── occurs_in ───────────────────────────────────────────────────
+
+    #[test]
+    fn occurs_in_direct() {
+        let c = checker();
+        assert!(c.occurs_in(0, &Ty::Var(0)));
+    }
+
+    #[test]
+    fn occurs_in_nested() {
+        let c = checker();
+        let ty = Ty::App("List".into(), vec![Ty::Var(0)]);
+        assert!(c.occurs_in(0, &ty));
+    }
+
+    #[test]
+    fn occurs_in_absent() {
+        let c = checker();
+        let ty = Ty::App("List".into(), vec![Ty::Var(1)]);
+        assert!(!c.occurs_in(0, &ty));
+    }
+
+    #[test]
+    fn occurs_in_resolves_substitution() {
+        let mut c = checker();
+        c.substitution
+            .insert(0, Ty::App("List".into(), vec![Ty::Var(1)]));
+        assert!(c.occurs_in(1, &Ty::Var(0)));
+    }
+
+    // ── instantiate_sig ─────────────────────────────────────────────
+
+    #[test]
+    fn instantiate_sig_creates_fresh_vars() {
+        let mut c = checker();
+        let params = vec![Ty::Named("T".into())];
+        let ret = Ty::Named("T".into());
+        let (new_params, new_ret, mapping) = c.instantiate_sig(&["T".into()], &params, &ret);
+        // Both should be the same fresh var
+        assert_eq!(new_params[0], new_ret);
+        match &new_params[0] {
+            Ty::Var(_) => {} // ok
+            other => panic!("expected Var, got {other}"),
+        }
+        assert!(mapping.contains_key("T"));
+    }
+
+    // ── bound_target_names ──────────────────────────────────────────
+
+    #[test]
+    fn bound_target_names_primitives() {
+        let c = checker();
+        assert_eq!(c.bound_target_names(&Ty::I32), vec!["I32"]);
+        assert_eq!(c.bound_target_names(&Ty::Bool), vec!["Bool"]);
+        assert_eq!(c.bound_target_names(&Ty::Str), vec!["Str"]);
+    }
+
+    #[test]
+    fn bound_target_names_refined() {
+        let c = checker();
+        let refined = Ty::Refined(Box::new(Ty::I32), "x".into(), Box::new(Expr::BoolLit(true)));
+        assert_eq!(c.bound_target_names(&refined), vec!["I32"]);
+    }
+
+    #[test]
+    fn bound_target_names_named() {
+        let c = checker();
+        assert_eq!(c.bound_target_names(&Ty::Named("Foo".into())), vec!["Foo"]);
+    }
+
+    #[test]
+    fn bound_target_names_app() {
+        let c = checker();
+        assert_eq!(
+            c.bound_target_names(&Ty::App("List".into(), vec![Ty::I32])),
+            vec!["List"]
+        );
+    }
+}
