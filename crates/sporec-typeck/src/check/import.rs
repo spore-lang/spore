@@ -94,46 +94,34 @@ impl Checker {
                             .get(name)
                             .cloned()
                             .unwrap_or_default();
-                        let errors = module
-                            .function_errors
-                            .get(name)
-                            .map(crate::types::canonicalize_error_set)
-                            .unwrap_or_default();
                         let type_params = module
                             .function_type_params
                             .get(name)
                             .cloned()
                             .unwrap_or_default();
-                        let where_bounds = module
-                            .function_where_bounds
+                        let generic_bounds = module
+                            .function_generic_bounds
                             .get(name)
                             .cloned()
                             .unwrap_or_default();
                         if let Some(existing) = self.registry.functions.get(name) {
-                            let existing_errors = self
-                                .registry
-                                .fn_errors
-                                .get(name)
-                                .cloned()
-                                .unwrap_or_default();
                             let existing_type_params = self
                                 .registry
                                 .fn_type_params
                                 .get(name)
                                 .cloned()
                                 .unwrap_or_default();
-                            let existing_where_bounds = self
+                            let existing_generic_bounds = self
                                 .registry
-                                .fn_where_bounds
+                                .fn_generic_bounds
                                 .get(name)
                                 .cloned()
                                 .unwrap_or_default();
                             if existing.0 != *params
                                 || existing.1 != *ret
                                 || existing.2 != required_effects
-                                || existing_errors != errors
                                 || existing_type_params != type_params
-                                || existing_where_bounds != where_bounds
+                                || existing_generic_bounds != generic_bounds
                             {
                                 self.err(
                                     ErrorCode::M0303,
@@ -148,18 +136,15 @@ impl Checker {
                             name.clone(),
                             (params.clone(), ret.clone(), required_effects),
                         );
-                        if !errors.is_empty() {
-                            self.registry.fn_errors.insert(name.clone(), errors);
-                        }
                         if !type_params.is_empty() {
                             self.registry
                                 .fn_type_params
                                 .insert(name.clone(), type_params);
                         }
-                        if !where_bounds.is_empty() {
+                        if !generic_bounds.is_empty() {
                             self.registry
-                                .fn_where_bounds
-                                .insert(name.clone(), where_bounds);
+                                .fn_generic_bounds
+                                .insert(name.clone(), generic_bounds);
                         }
                     }
                 }
@@ -178,6 +163,25 @@ impl Checker {
                             .insert(name.clone(), type_params.clone());
                     }
                 }
+                ImportedSymbol::OpaqueType => {
+                    if let Some(type_params) = module.opaque_types.get(name) {
+                        self.registry
+                            .opaque_types
+                            .insert(name.clone(), type_params.clone());
+                    }
+                }
+                ImportedSymbol::Alias => {
+                    if let Some(target) = module.type_aliases.get(name) {
+                        self.registry
+                            .type_aliases
+                            .insert(name.clone(), target.clone());
+                    }
+                    if let Some((type_params, target)) = module.generic_type_aliases.get(name) {
+                        self.registry
+                            .generic_type_aliases
+                            .insert(name.clone(), (type_params.clone(), target.clone()));
+                    }
+                }
                 ImportedSymbol::Handler => {
                     if let Some(handler) = module.handlers.get(name) {
                         if let Some(existing) = self.registry.handlers.get(name)
@@ -192,6 +196,18 @@ impl Checker {
                             continue;
                         }
                         self.registry.handlers.insert(name.clone(), handler.clone());
+                    }
+                }
+                ImportedSymbol::Surface => {
+                    if let Some(effects) = module.surfaces.get(name) {
+                        self.registry.surfaces.insert(name.clone());
+                        if let Some(type_params) = module.surface_type_params.get(name) {
+                            self.registry
+                                .surface_type_params
+                                .insert(name.clone(), type_params.clone());
+                        }
+                        self.hierarchy
+                            .add_surface(name.clone(), effects.iter().cloned());
                     }
                 }
                 ImportedSymbol::Interface => {
@@ -213,6 +229,14 @@ impl Checker {
                             continue;
                         }
                         self.registry.interfaces.insert(name.clone(), methods);
+                        if module.effects.contains(name) {
+                            self.registry.effects.insert(name.clone());
+                            if let Some(type_params) = module.effect_type_params.get(name) {
+                                self.registry
+                                    .effect_type_params
+                                    .insert(name.clone(), type_params.clone());
+                            }
+                        }
                     }
                 }
             }

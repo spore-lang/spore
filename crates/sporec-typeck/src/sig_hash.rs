@@ -2,7 +2,7 @@
 //!
 //! Uses BLAKE3 for 256-bit content-addressed hashing per SEP-0006/SEP-0008.
 //! Two hash types:
-//! - **SigHash**: covers function signature (name, params, return, caps, errors, type_params)
+//! - **SigHash**: covers function signature (name, params, return, effects, type parameters)
 //! - **ImplHash**: covers function body (implementation AST)
 
 use crate::types::Ty;
@@ -22,7 +22,6 @@ impl SigHash {
         params: &[Ty],
         ret: &Ty,
         effects: &crate::effect_set::EffectSet,
-        errors: &crate::types::ErrorSet,
         type_params: &[String],
     ) -> Self {
         let mut hasher = blake3::Hasher::new();
@@ -41,10 +40,6 @@ impl SigHash {
         for effect in effects.iter() {
             hasher.update(b"|effect:");
             hasher.update(effect.as_bytes());
-        }
-        for e in errors {
-            hasher.update(b"|err:");
-            hasher.update(e.as_bytes());
         }
         SigHash(*hasher.finalize().as_bytes())
     }
@@ -195,107 +190,37 @@ impl SigHashMap {
 mod tests {
     use super::*;
     use crate::effect_set::EffectSet;
-    use crate::types::{Ty, canonical_error_set};
+    use crate::types::Ty;
 
     #[test]
     fn same_signature_same_hash() {
-        let h1 = SigHash::compute(
-            "foo",
-            &[Ty::I32],
-            &Ty::Bool,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
-        let h2 = SigHash::compute(
-            "foo",
-            &[Ty::I32],
-            &Ty::Bool,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
+        let h1 = SigHash::compute("foo", &[Ty::I32], &Ty::Bool, &EffectSet::new(), &[]);
+        let h2 = SigHash::compute("foo", &[Ty::I32], &Ty::Bool, &EffectSet::new(), &[]);
         assert_eq!(h1, h2);
     }
 
     #[test]
     fn different_param_different_hash() {
-        let h1 = SigHash::compute(
-            "foo",
-            &[Ty::I32],
-            &Ty::Bool,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
-        let h2 = SigHash::compute(
-            "foo",
-            &[Ty::Str],
-            &Ty::Bool,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
+        let h1 = SigHash::compute("foo", &[Ty::I32], &Ty::Bool, &EffectSet::new(), &[]);
+        let h2 = SigHash::compute("foo", &[Ty::Str], &Ty::Bool, &EffectSet::new(), &[]);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn caps_affect_hash() {
         let mut caps = EffectSet::new();
-        let h1 = SigHash::compute(
-            "foo",
-            &[],
-            &Ty::Unit,
-            &caps,
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
+        let h1 = SigHash::compute("foo", &[], &Ty::Unit, &caps, &[]);
         caps.insert("NetConnect".into());
-        let h2 = SigHash::compute(
-            "foo",
-            &[],
-            &Ty::Unit,
-            &caps,
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
+        let h2 = SigHash::compute("foo", &[], &Ty::Unit, &caps, &[]);
         assert_ne!(h1, h2);
     }
 
     #[test]
     fn hash_map_diff() {
-        let hash_a = SigHash::compute(
-            "a",
-            &[],
-            &Ty::Unit,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
-        let hash_b = SigHash::compute(
-            "b",
-            &[],
-            &Ty::Unit,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
-        let hash_c = SigHash::compute(
-            "c",
-            &[],
-            &Ty::Unit,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
-        let hash_b2 = SigHash::compute(
-            "b2",
-            &[],
-            &Ty::I32,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
+        let hash_a = SigHash::compute("a", &[], &Ty::Unit, &EffectSet::new(), &[]);
+        let hash_b = SigHash::compute("b", &[], &Ty::Unit, &EffectSet::new(), &[]);
+        let hash_c = SigHash::compute("c", &[], &Ty::Unit, &EffectSet::new(), &[]);
+        let hash_b2 = SigHash::compute("b2", &[], &Ty::I32, &EffectSet::new(), &[]);
 
         let mut old = SigHashMap::new();
         old.insert("foo".into(), hash_a);
@@ -314,25 +239,22 @@ mod tests {
 
     #[test]
     fn display_hex_64_chars() {
-        let h = SigHash::compute(
-            "test",
-            &[],
-            &Ty::Unit,
-            &EffectSet::new(),
-            &crate::types::ErrorSet::new(),
-            &[],
-        );
+        let h = SigHash::compute("test", &[], &Ty::Unit, &EffectSet::new(), &[]);
         let s = h.to_string();
         assert_eq!(s.len(), 64); // 32 bytes × 2 hex chars
     }
 
     #[test]
-    fn canonical_error_sets_hash_the_same() {
-        let errors_a = canonical_error_set(["ParseError", "IoError", "ParseError"]);
-        let errors_b = canonical_error_set(["IoError", "ParseError"]);
-        let h1 = SigHash::compute("foo", &[], &Ty::Unit, &EffectSet::new(), &errors_a, &[]);
-        let h2 = SigHash::compute("foo", &[], &Ty::Unit, &EffectSet::new(), &errors_b, &[]);
-        assert_eq!(h1, h2);
+    fn outcome_return_affects_hash() {
+        let h1 = SigHash::compute("foo", &[], &Ty::Unit, &EffectSet::new(), &[]);
+        let h2 = SigHash::compute(
+            "foo",
+            &[],
+            &Ty::Outcome(Box::new(Ty::Unit), Box::new(Ty::Named("IoError".into()))),
+            &EffectSet::new(),
+            &[],
+        );
+        assert_ne!(h1, h2);
     }
 
     #[test]

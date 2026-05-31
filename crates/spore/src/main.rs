@@ -8,8 +8,8 @@ use std::process::ExitCode;
 
 use cli::{Cmd, cli};
 use exec::{
-    exec_build, exec_check, exec_format, exec_holes, exec_init, exec_lock, exec_new, exec_run,
-    exec_test, exec_watch,
+    exec_build, exec_check, exec_explain, exec_format, exec_holes, exec_init, exec_lock, exec_new,
+    exec_run, exec_test, exec_watch,
 };
 
 fn main() -> ExitCode {
@@ -30,6 +30,7 @@ fn main() -> ExitCode {
         } => exec_test(&files, verbose, json, deny_warnings),
         Cmd::Format { files, check, diff } => exec_format(&files, check, diff),
         Cmd::Holes { file } => exec_holes(&file),
+        Cmd::Explain { query, list, json } => exec_explain(query.as_deref(), list, json),
         Cmd::Lock { path, check } => exec_lock(path.as_deref(), check),
         Cmd::Build { path } => exec_build(path.as_deref()),
         Cmd::Watch { file, json } => exec_watch(&file, json),

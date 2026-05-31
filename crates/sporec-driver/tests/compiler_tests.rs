@@ -102,7 +102,8 @@ fn write_basic_cli_stdout_module(project: &TempProject) {
     project.write(
         "vendor/basic-cli/src/basic_cli/stdout.sp",
         r#"
-        pub foreign fn println(s: Str) -> () uses [Console]
+        @foreign
+        pub fn println(s: Str) -> () uses [Console];
         "#,
     );
 }
@@ -111,7 +112,8 @@ fn write_basic_cli_file_module(project: &TempProject) {
     project.write(
         "vendor/basic-cli/src/basic_cli/file.sp",
         r#"
-        pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]
+        @foreign
+        pub fn file_exists(path: Str) -> Bool uses [FileRead];
         "#,
     );
 }
@@ -120,7 +122,8 @@ fn write_basic_cli_cmd_module(project: &TempProject) {
     project.write(
         "vendor/basic-cli/src/basic_cli/cmd.sp",
         r#"
-        pub foreign fn exit(code: U8) -> Never uses [Exit]
+        @foreign
+        pub fn exit(code: U8) -> Never uses [Exit];
         "#,
     );
 }
@@ -161,24 +164,11 @@ fn check_verbose_reports_holes() {
 }
 
 #[test]
-fn check_verbose_uses_cost_vector_syntax() {
-    let output = check_verbose("fn f(x: I64) -> I64 cost [2, 0, 0, 0] { x + x }").unwrap();
+fn check_verbose_accepts_budget_surface() {
+    let output = check_verbose("fn f(x: I64) -> I64 budget { calls: 0 } { x + x }").unwrap();
     assert!(
-        output.contains("cost ["),
-        "verbose output should use vector syntax, got: {output}"
-    );
-    assert!(
-        !output.contains("compute="),
-        "verbose output should avoid scalar-style fields, got: {output}"
-    );
-}
-
-#[test]
-fn check_verbose_preserves_composed_symbolic_cost_vector() {
-    let output = check_verbose("fn f(n: I32) -> I32 cost [n + 1, 0, 0, 0] { n }").unwrap();
-    assert!(
-        output.contains("cost [(n + 1), 0, 0, 0]"),
-        "verbose output should preserve symbolic cost expressions, got: {output}"
+        output.contains("✓ no errors"),
+        "verbose output should accept budget syntax, got: {output}"
     );
 }
 
@@ -413,20 +403,20 @@ fn compile_project_resolves_transitive_embedded_compositional_stdlib_module() {
 }
 
 #[test]
-fn compile_accepts_spec_clause_syntax() {
+fn compile_accepts_properties_clause_syntax() {
     let output = compile(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "basic": add(2, 3) == 5
-            property "left_identity": |a: I64, b: I64 when self == 0| a
+        properties {
+            basic(): add(2, 3) == 5
+            left_identity(b: I64): add(0, b) == b
         }
         {
             a + b
         }
     "#,
     )
-    .expect("spec clause should compile through sporec");
+    .expect("properties clause should compile through sporec");
     assert!(
         output.warnings.is_empty(),
         "expected no warnings, got: {:?}",
@@ -439,10 +429,10 @@ fn compile_accepts_effect_and_handler_items() {
     let output = compile(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
         handler MockConsole for Console {
-            fn println(msg: Str) -> () { return }
+            fn Console.println(msg: Str) -> () { return }
         }
         fn main() -> I64 { 0 }
     "#,
@@ -1058,6 +1048,21 @@ fn check_files_returns_canonical_parse_diagnostics() {
 fn run_project_rejects_type_error_in_imported_module_before_execution() {
     let project = TempProject::new("project-import-run-type-error");
     project.write(
+        "spore.toml",
+        r#"
+        [package]
+        name = "demo"
+        type = "application"
+
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
+        [entries.app]
+        path = "main.sp"
+        "#,
+    );
+    project.write(
         "src/main.sp",
         r#"
         import utils
@@ -1368,8 +1373,8 @@ fn compile_project_rejects_startup_effects_outside_platform_handled_effects() {
 }
 
 #[test]
-fn compile_project_rejects_legacy_platform_handles_manifest_key() {
-    let project = TempProject::new("project-legacy-platform-handles");
+fn compile_project_rejects_removed_platform_handles_manifest_key() {
+    let project = TempProject::new("project-removed-platform-handles");
     project.write("spore.toml", APP_MANIFEST_WITH_BASIC_CLI);
     project.write(
         "vendor/basic-cli/spore.toml",
@@ -1401,14 +1406,14 @@ fn compile_project_rejects_legacy_platform_handles_manifest_key() {
     project.write("src/app.sp", "fn main() -> () { return }\n");
 
     let err = compile_project(project.root(), "app.sp")
-        .expect_err("legacy [platform].handles should be rejected with a targeted manifest error");
+        .expect_err("removed [platform].handles should be rejected with a targeted manifest error");
     assert!(
         err.contains("vendor/basic-cli/spore.toml"),
         "expected dependency manifest path in error, got: {err}"
     );
     assert!(
         err.contains("[platform].handles"),
-        "expected legacy key in error, got: {err}"
+        "expected removed key in error, got: {err}"
     );
     assert!(
         err.contains("[platform].handled-effects"),
@@ -1454,7 +1459,7 @@ fn compile_project_accepts_imported_effect_operations() {
         "vendor/effects/src/effects/console.sp",
         r#"
         pub effect Console {
-            fn read_line() -> Str
+            fn read_line() -> Str;
         }
         "#,
     );
@@ -1504,7 +1509,7 @@ fn compile_project_rejects_wrong_args_for_imported_effect_operations() {
         "vendor/effects/src/effects/console.sp",
         r#"
         pub effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
         "#,
     );
@@ -1519,8 +1524,8 @@ fn compile_project_rejects_wrong_args_for_imported_effect_operations() {
 }
 
 #[test]
-fn compile_legacy_project_resolves_transitive_path_dependency_imports() {
-    let project = TempProject::new("legacy-project-transitive-path-deps");
+fn compile_project_resolves_transitive_path_dependency_imports() {
+    let project = TempProject::new("project-transitive-path-deps");
     project.write(
         "spore.toml",
         r#"
@@ -1528,8 +1533,15 @@ fn compile_legacy_project_resolves_transitive_path_dependency_imports() {
         name = "demo"
         type = "application"
 
+        [project]
+        platform = "cli"
+        default-entry = "app"
+
         [dependencies]
         dep-a = { path = "vendor/dep-a" }
+
+        [entries.app]
+        path = "main.sp"
         "#,
     );
     project.write(
@@ -1583,7 +1595,7 @@ fn compile_legacy_project_resolves_transitive_path_dependency_imports() {
     );
 
     let output = compile_project(project.root(), "main.sp")
-        .expect("legacy projects should resolve direct and transitive path dependency imports");
+        .expect("projects should resolve direct and transitive path dependency imports");
     assert!(
         output.warnings.is_empty(),
         "expected no warnings, got: {:?}",
@@ -1651,7 +1663,7 @@ fn compile_project_accepts_alias_equivalent_startup_signature() {
             return
         }
 
-        alias Unit = ()
+        type Unit = ()
         "#,
     );
 
@@ -1688,7 +1700,7 @@ fn compile_project_accepts_platform_dependency_startup_contract() {
             return
         }
 
-        alias Unit = ()
+        type Unit = ()
         "#,
     );
 
@@ -1882,7 +1894,8 @@ fn run_project_supports_generic_package_platform_host_binding() {
     project.write(
         "vendor/custom-platform/src/custom_platform/file.sp",
         r#"
-        pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]
+        @foreign
+        pub fn file_exists(path: Str) -> Bool uses [FileRead];
         "#,
     );
     let temp_path = std::env::temp_dir().display().to_string();
@@ -2023,8 +2036,8 @@ fn check_project_returns_invalid_platform_contract_diagnostic_for_non_hole_start
 }
 
 #[test]
-fn check_project_allows_legacy_platform_host_entry_without_cli_startup() {
-    let project = TempProject::new("legacy-platform-check");
+fn check_project_allows_module_only_platform_host_entry_without_cli_startup() {
+    let project = TempProject::new("module-only-platform-check");
     project.write(
         "spore.toml",
         r#"
@@ -2064,7 +2077,7 @@ fn check_project_allows_legacy_platform_host_entry_without_cli_startup() {
                 "expected no warnings, got: {warnings:?}"
             );
         }
-        other => panic!("expected legacy platform host check to succeed, got: {other:?}"),
+        other => panic!("expected module-only platform host check to succeed, got: {other:?}"),
     }
 }
 
@@ -2169,8 +2182,8 @@ fn run_project_rejects_non_entry_module_in_manifest_project() {
 }
 
 #[test]
-fn run_project_rejects_non_runnable_legacy_platform_entry() {
-    let project = TempProject::new("legacy-platform-run");
+fn run_project_rejects_non_runnable_module_only_platform_entry() {
+    let project = TempProject::new("module-only-platform-run");
     project.write(
         "spore.toml",
         r#"
@@ -2191,7 +2204,7 @@ fn run_project_rejects_non_runnable_legacy_platform_entry() {
     );
 
     let err = run_project(project.root(), "host.sp")
-        .expect_err("legacy platform host entry should not be runnable");
+        .expect_err("module-only platform host entry should not be runnable");
     assert!(
         err.contains("not runnable"),
         "expected non-runnable platform error, got: {err}"
@@ -2199,8 +2212,8 @@ fn run_project_rejects_non_runnable_legacy_platform_entry() {
 }
 
 #[test]
-fn run_project_rejects_non_runnable_legacy_package_entry() {
-    let project = TempProject::new("legacy-package-run");
+fn run_project_rejects_non_runnable_module_only_package_entry() {
+    let project = TempProject::new("module-only-package-run");
     project.write(
         "spore.toml",
         r#"
@@ -2215,44 +2228,32 @@ fn run_project_rejects_non_runnable_legacy_package_entry() {
     );
 
     let err = run_project(project.root(), "lib.sp")
-        .expect_err("legacy package entry should not be runnable");
+        .expect_err("module-only package entry should not be runnable");
     assert!(
         err.contains("not runnable"),
         "expected non-runnable package error, got: {err}"
     );
 }
 
-// ── Cost enforcement tests ──────────────────────────────────────────
+// ── Budget enforcement tests ────────────────────────────────────────
 
 #[test]
-fn cost_violation_emits_warning_not_error() {
-    // A function that declares cost [2, 0, 0, 0] but calls expensive(cost=100) twice
-    // should succeed (warnings are not errors) but include a K0101 warning.
-    let output = compile(
+fn budget_violation_is_an_error() {
+    let err = compile(
         r#"
-        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] { x + x }
-        fn cheap(a: I64) -> I64 cost [2, 0, 0, 0] { expensive(expensive(a)) }
+        fn checked(a: I64) -> I64
+        budget { branches: 0 }
+        {
+            if a == 0 { 1 } else { 2 }
+        }
     "#,
     )
-    .expect("cost violations should be warnings, not errors");
-    assert!(
-        output.warnings.iter().any(|w| w.contains("K0101")),
-        "expected K0101 warning, got warnings: {:?}",
-        output.warnings
-    );
-    assert!(
-        output
-            .warnings
-            .iter()
-            .any(|w| w.contains("actual cost [") && w.contains("declared cost [")),
-        "expected vector-native warning text, got warnings: {:?}",
-        output.warnings
-    );
+    .expect_err("budget violations should be errors");
+    assert!(err.contains("B0101"), "expected B0101 error, got: {err}");
 }
 
 #[test]
-fn no_cost_annotation_no_warning() {
-    // A function with no cost annotation should produce no warnings.
+fn no_budget_annotation_no_warning() {
     let output = compile("fn f(x: I64) -> I64 { x + x }").unwrap();
     assert!(
         output.warnings.is_empty(),
@@ -2262,9 +2263,8 @@ fn no_cost_annotation_no_warning() {
 }
 
 #[test]
-fn cost_within_budget_no_warning() {
-    // A function whose inferred cost fits within the budget.
-    let output = compile("fn f(x: I64) -> I64 cost [1000, 0, 0, 0] { x + x }").unwrap();
+fn budget_within_limit_no_warning() {
+    let output = compile("fn f(x: I64) -> I64 budget { calls: 0 } { x + x }").unwrap();
     assert!(
         output.warnings.is_empty(),
         "expected no warnings when within budget, got: {:?}",

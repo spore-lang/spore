@@ -94,6 +94,22 @@ impl RelatedDiagnostic {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DiagnosticRepair {
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replacement: Option<String>,
+}
+
+impl DiagnosticRepair {
+    pub fn new(message: impl Into<String>, replacement: Option<String>) -> Self {
+        Self {
+            message: message.into(),
+            replacement,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Diagnostic {
     pub code: String,
     pub severity: Severity,
@@ -103,6 +119,12 @@ pub struct Diagnostic {
     pub notes: Vec<String>,
     pub help: Option<String>,
     pub related: Vec<RelatedDiagnostic>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub concept_refs: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repair: Option<DiagnosticRepair>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub explanation_key: Option<String>,
 }
 
 impl Diagnostic {
@@ -116,6 +138,9 @@ impl Diagnostic {
             notes: Vec::new(),
             help: None,
             related: Vec::new(),
+            concept_refs: Vec::new(),
+            repair: None,
+            explanation_key: None,
         }
     }
 
@@ -141,6 +166,21 @@ impl Diagnostic {
 
     pub fn with_related(mut self, related: RelatedDiagnostic) -> Self {
         self.related.push(related);
+        self
+    }
+
+    pub fn with_concept_refs(mut self, refs: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.concept_refs = refs.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn with_repair(mut self, repair: DiagnosticRepair) -> Self {
+        self.repair = Some(repair);
+        self
+    }
+
+    pub fn with_explanation_key(mut self, explanation_key: impl Into<String>) -> Self {
+        self.explanation_key = Some(explanation_key.into());
         self
     }
 }
@@ -277,57 +317,47 @@ pub struct HoleLocationJson {
     pub column: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct HoleCostBudgetJson {
-    pub budget_total: Option<f64>,
-    pub cost_before_hole: f64,
-    pub budget_remaining: Option<f64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct HoleCostVectorJson {
-    pub compute: String,
-    pub alloc: String,
-    pub io: String,
-    pub parallel: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct HoleResidualContextJson {
-    pub budget_declared: Option<HoleCostVectorJson>,
-    pub cost_before: HoleCostVectorJson,
-    pub budget_residual: Option<HoleCostVectorJson>,
-    pub fit_rule: Option<String>,
-    pub note: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct HoleEffectContextJson {
     pub discharged_effects: Vec<String>,
     pub surviving_effects: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleBudgetConstraintJson {
+    pub field: String,
+    pub limit: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleBudgetObservationJson {
+    pub field: String,
+    pub observed: u64,
+    pub remaining: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HoleBudgetContextJson {
+    pub constraints: Vec<HoleBudgetConstraintJson>,
+    pub observations: Vec<HoleBudgetObservationJson>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct HolePropertyContextJson {
+    pub properties: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HoleCandidateJson {
     pub name: String,
     pub type_match: f64,
-    pub cost_fit: f64,
+    pub budget_fit: f64,
     pub required_effects_fit: f64,
     pub error_coverage: f64,
     pub overall: f64,
     pub rejection_reasons: Vec<String>,
     pub explanation: Option<String>,
     pub adjustments: Vec<String>,
-    pub cost_check: Option<HoleCandidateCostCheckJson>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct HoleCandidateCostCheckJson {
-    pub candidate_cost: Option<HoleCostVectorJson>,
-    pub projected_cost: Option<HoleCostVectorJson>,
-    pub fits_budget: Option<bool>,
-    pub exceeded_dimensions: Vec<String>,
-    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -366,7 +396,9 @@ pub struct HoleErrorClusterJson {
 pub enum HoleDependencyKind {
     Type,
     Value,
-    Cost,
+    Effect,
+    Budget,
+    Property,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -398,8 +430,8 @@ pub struct HoleInfoJson {
     pub available_effects: Vec<String>,
     pub errors_to_handle: Vec<String>,
     pub effect_context: Option<HoleEffectContextJson>,
-    pub cost_budget: Option<HoleCostBudgetJson>,
-    pub residual_context: Option<HoleResidualContextJson>,
+    pub budget_context: Option<HoleBudgetContextJson>,
+    pub property_context: Option<HolePropertyContextJson>,
     pub candidates: Vec<HoleCandidateJson>,
     pub dependent_holes: Vec<String>,
     pub confidence: Option<HoleConfidenceJson>,
@@ -984,7 +1016,7 @@ mod tests {
         let source = SourceFile::new("src/demo.sp", "alpha\nbeta\n");
         let diagnostic = Diagnostic::new("E0301", Severity::Error, "type mismatch")
             .with_primary_span(source.span(6..10));
-        let warnings = vec!["W0001: cost exceeded".to_string()];
+        let warnings = vec!["B0101: budget exceeded".to_string()];
         let empty: [Diagnostic; 0] = [];
         let report = JsonReport::new()
             .with_status(ReportStatus::Error)
@@ -998,7 +1030,7 @@ mod tests {
         assert_eq!(value["status"], "error");
         assert_eq!(value["message"], "type mismatch");
         assert_eq!(value["diagnostics"][0]["code"], "E0301");
-        assert_eq!(value["warnings"][0], "W0001: cost exceeded");
+        assert_eq!(value["warnings"][0], "B0101: budget exceeded");
         assert!(
             value["errors"]
                 .as_array()

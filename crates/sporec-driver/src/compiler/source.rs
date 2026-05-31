@@ -48,7 +48,7 @@ pub fn compile_diagnostics(source: &str) -> Vec<Diagnostic> {
 /// 2. Type check (AST → Typed AST)
 /// 3. Code gen (Typed AST → runtime-ready output)
 ///
-/// Returns warnings (e.g. cost budget violations) on success.
+/// Returns structured warnings emitted by verification passes on success.
 pub fn compile(source: &str) -> Result<CompileOutput, String> {
     let ast = parse(source).map_err(join_errors)?;
     let result = type_check(&ast).map_err(join_errors)?;
@@ -85,14 +85,11 @@ pub fn call_native(source: &str, name: &str, args: Vec<Value>) -> Result<Value, 
     sporec_codegen::call_native(&ast, name, args).map_err(|e| e.to_string())
 }
 
-/// Run spec clauses in source code and return test results.
-pub fn test_specs(source: &str) -> Result<Vec<sporec_codegen::SpecResult>, String> {
+/// Run source properties and return validation results.
+pub fn test_properties(source: &str) -> Result<Vec<sporec_codegen::PropertyResult>, String> {
     let ast = parse(source).map_err(join_errors)?;
-    // Type-check errors are non-fatal for spec evaluation — the type checker
-    // currently has known limitations with generics (Option[T], Pair[K,V])
-    // that would block spec testing of otherwise valid code.
     let _ = type_check(&ast);
-    sporec_codegen::test_specs(&ast).map_err(|e| e.to_string())
+    sporec_codegen::test_properties(&ast).map_err(|e| e.to_string())
 }
 
 /// Format Spore source code.
@@ -105,7 +102,7 @@ pub fn format(source: &str) -> Result<String, String> {
 }
 
 /// Type-check with verbose output: returns detailed analysis including type
-/// inference context, effect annotations, and cost summaries.
+/// inference context, effects, holes, and intent-signature budgets.
 pub fn check_verbose(source: &str) -> Result<String, String> {
     let ast = parse(source).map_err(join_errors)?;
     let result = type_check(&ast).map_err(|errs| {

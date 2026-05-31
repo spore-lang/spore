@@ -46,7 +46,9 @@ fn test_new_creates_package() {
     assert!(project_dir.join("src/lib.sp").exists());
     let toml = fs::read_to_string(project_dir.join("spore.toml")).unwrap();
     assert!(toml.contains("type = \"package\""));
-    assert!(!toml.contains("[project]"));
+    assert!(toml.contains("[project]"));
+    assert!(toml.contains("default-entry = \"lib\""));
+    assert!(toml.contains("[entries.lib]"));
 }
 
 #[test]
@@ -155,16 +157,16 @@ fn test_scaffolded_platform_can_back_application_target() {
 }
 
 #[test]
-fn test_exec_test_accepts_valid_spec_file() {
+fn test_exec_test_accepts_valid_property_file() {
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("sample.sp");
     fs::write(
         &file,
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "basic": add(2, 3) == 5
-            property "left_identity": |a: I64, b: I64 when self == 0| a
+        properties {
+            basic(): add(2, 3) == 5
+            left_identity(b: I64): add(0, b) == b
         }
         {
             a + b
@@ -178,15 +180,15 @@ fn test_exec_test_accepts_valid_spec_file() {
 }
 
 #[test]
-fn test_exec_test_rejects_invalid_spec_file() {
+fn test_exec_test_rejects_invalid_property_file() {
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("sample.sp");
     fs::write(
         &file,
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "bad": 42
+        properties {
+            bad(): 42
         }
         {
             a + b
@@ -200,15 +202,15 @@ fn test_exec_test_rejects_invalid_spec_file() {
 }
 
 #[test]
-fn test_exec_test_rejects_type_errors_before_running_specs() {
+fn test_exec_test_rejects_type_errors_before_running_properties() {
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("sample.sp");
     fs::write(
         &file,
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "basic": add(2, 3) == 5
+        properties {
+            basic(): add(2, 3) == 5
         }
         {
             "oops"
@@ -222,22 +224,19 @@ fn test_exec_test_rejects_type_errors_before_running_specs() {
 }
 
 #[test]
-fn test_exec_test_denies_warnings_when_requested() {
+fn test_exec_test_rejects_budget_errors() {
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("sample.sp");
     fs::write(
         &file,
         r#"
-        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] {
-            x + x
-        }
-
-        fn cheap(a: I64) -> I64 cost [2, 0, 0, 0]
-        spec {
-            example "basic": cheap(1) == 4
+        fn checked(a: I64) -> I64
+        budget { branches: 0 }
+        properties {
+            basic(): checked(1) == 2
         }
         {
-            expensive(expensive(a))
+            if a == 0 { 1 } else { 2 }
         }
         "#,
     )
@@ -248,18 +247,16 @@ fn test_exec_test_denies_warnings_when_requested() {
 }
 
 #[test]
-fn test_exec_check_verbose_denies_warnings_when_requested() {
+fn test_exec_check_verbose_rejects_budget_errors() {
     let tmp = tempfile::tempdir().unwrap();
     let file = tmp.path().join("sample.sp");
     fs::write(
         &file,
         r#"
-        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] {
-            x + x
-        }
-
-        fn cheap(a: I64) -> I64 cost [2, 0, 0, 0] {
-            expensive(expensive(a))
+        fn checked(a: I64) -> I64
+        budget { branches: 0 }
+        {
+            if a == 0 { 1 } else { 2 }
         }
         "#,
     )
@@ -421,7 +418,7 @@ fn test_resolve_build_target_accepts_file_inside_project() {
 }
 
 #[test]
-fn test_infer_project_entry_falls_back_to_single_default_file() {
+fn test_infer_project_entry_requires_declared_default_entry() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = tmp.path().join("proj");
     fs::create_dir_all(project_dir.join("src")).unwrap();
@@ -436,7 +433,12 @@ fn test_infer_project_entry_falls_back_to_single_default_file() {
     )
     .unwrap();
 
-    assert_eq!(infer_project_entry(&project_dir).unwrap(), "main.sp");
+    let err = infer_project_entry(&project_dir)
+        .expect_err("default entries must be declared in the project manifest");
+    assert!(
+        err.contains("has no `[project]` default target"),
+        "expected explicit project error, got: {err}"
+    );
 }
 
 #[test]
@@ -704,7 +706,7 @@ fn test_exec_check_with_directory_checks_all_sp_files() {
 }
 
 #[test]
-fn test_exec_check_legacy_platform_directory_skips_bogus_cli_startup() {
+fn test_exec_check_platform_directory_without_project_checks_modules_only() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
     fs::create_dir_all(dir.join("src")).unwrap();
@@ -762,18 +764,27 @@ fn test_exec_check_no_args_in_empty_dir_returns_success() {
 }
 
 #[test]
-fn test_exec_test_with_directory_runs_specs() {
+fn test_exec_test_with_directory_runs_properties() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
     fs::write(
-        dir.join("spec.sp"),
+        dir.join("math.sp"),
         r#"
-fn add(a: I64, b: I64) -> I64
-spec {
-example "basic": add(1, 2) == 3
+pub fn add(a: I64, b: I64) -> I64 { a + b }
+"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.join("properties.sp"),
+        r#"
+import math as math
+
+fn checked() -> I64
+properties {
+basic(): add(1, 2) == 3
 }
 {
-a + b
+0
 }
 "#,
     )

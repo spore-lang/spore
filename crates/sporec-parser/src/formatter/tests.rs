@@ -14,8 +14,14 @@ fn test_simple_function() {
 }
 
 #[test]
-fn test_function_with_errors_roundtrips() {
-    let src = "fn risky(path: Str) -> Str ! IoError | ParseError { path }\n";
+fn test_unit_value_roundtrips() {
+    let src = "fn main() -> () { () }\n";
+    assert_eq!(roundtrip(src), src);
+}
+
+#[test]
+fn test_function_with_outcome_roundtrips() {
+    let src = "fn risky(path: Str) -> Str ! ReadError { path }\n";
     assert_eq!(roundtrip(src), src);
 }
 
@@ -31,13 +37,13 @@ fn test_struct_def() {
 #[test]
 fn test_type_def_and_match() {
     let src = concat!(
-        "type Shape {\n",
+        "enum Shape {\n",
         "    Circle(I64),\n",
         "    Rect(I64, I64),\n",
         "}\n",
     );
     let out = roundtrip(src);
-    assert!(out.contains("type Shape {"));
+    assert!(out.contains("enum Shape {"));
     assert!(out.contains("Circle(I64),"));
     assert!(out.contains("Rect(I64, I64),"));
 }
@@ -52,6 +58,24 @@ fn test_pipe_operator() {
 #[test]
 fn test_lambda() {
     let src = "fn apply(f: (I64) -> I64, x: I64) -> I64 { f(x) }\n";
+    assert_eq!(roundtrip(src), src);
+}
+
+#[test]
+fn test_receiver_self_shorthand_roundtrips() {
+    let src = "trait Show {\n    fn show(self) -> Str;\n}\n";
+    assert_eq!(roundtrip(src), src);
+}
+
+#[test]
+fn test_generic_surface_and_impl_roundtrip() {
+    let src = concat!(
+        "surface StateIO[T] = [State[T], Log]\n",
+        "\n",
+        "impl[T: Eq + Hash] Set[T] {\n",
+        "    fn contains(self, item: T) -> Bool;\n",
+        "}\n",
+    );
     assert_eq!(roundtrip(src), src);
 }
 
@@ -128,84 +152,99 @@ fn test_nested_if_body_stays_multiline() {
 
 #[test]
 fn test_uses_clause() {
-    let src = "fn read() -> String uses [IO, FileRead] { ?todo }\n";
+    let src = "fn read() -> Str uses [IO, FileRead] { ?todo }\n";
     let out = roundtrip(src);
     assert!(out.contains("uses [IO, FileRead]"));
 }
 
 #[test]
 fn test_hole_syntax_roundtrip() {
-    let src = "fn f(x: ?) -> ? { ? }\n";
+    let src = "fn f(x: ?) -> ? { ?todo: I64 }\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
-fn test_allows_annotation_roundtrip() {
-    let src = "@allows[validate, sanitize]\nfn f() -> I64 { ?todo }\n";
+fn test_foreign_attribute_roundtrips() {
+    let src = "@foreign\nfn c_add(a: I64, b: I64) -> I64;\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
-fn test_hole_level_allows_roundtrip() {
-    let src = "fn f() -> I64 { ?todo @allows[validate, sanitize] }\n";
+fn test_foreign_attribute_with_uses_roundtrips() {
+    let src = "@foreign\nfn read_file(path: Str) -> Str uses [FileRead];\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
-fn test_foreign_fn_roundtrips() {
-    let src = "foreign fn c_add(a: I64, b: I64) -> I64\n";
+fn test_foreign_attribute_with_outcome_roundtrips() {
+    let src = "@foreign(\"host\", name = \"process_run\")\nfn process_run(cmd: Str, args: List[Str]) -> Str ! ProcessError uses [Spawn];\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
-fn test_foreign_fn_with_uses_roundtrips() {
-    let src = "foreign fn read_file(path: String) -> String uses [FileRead]\n";
+fn test_foreign_opaque_type_roundtrips() {
+    let src = "@foreign\ntype Map[K, V];\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
-fn test_foreign_fn_with_errors_roundtrips() {
-    let src = "foreign fn process_run(cmd: Str, args: List[Str]) -> Str ! IoError | ExecError uses [Spawn]\n";
+fn test_generic_alias_roundtrips() {
+    let src = "type PairOf[T] = Pair[T, T]\n";
     assert_eq!(roundtrip(src), src);
 }
 
 #[test]
-fn test_unbounded_fn_with_cost_roundtrips() {
-    let src = "@unbounded\nfn wild(n: I32) -> I32 cost [O(n), 1, 0, 0] { n }\n";
-    assert_eq!(roundtrip(src), src);
-}
-
-#[test]
-fn test_spec_clause_normalizes_clause_order_and_preserves_item_order() {
+fn test_budgeted_fn_roundtrips() {
     let src = concat!(
-        "fn show[T](x: T) -> T cost [5, 0, 0, 0] spec {\n",
-        "    property \"roundtrip\": |x: T| true\n",
-        "    example \"block\" {\n",
-        "        let y = x;\n",
-        "        y == x\n",
-        "    }\n",
-        "} uses [Console] where T: Display { x }\n",
+        "fn wild(n: I32) -> I32\n",
+        "budget {\n",
+        "    recursion: 0\n",
+        "    calls: 1\n",
+        "}\n",
+        "{ n }\n",
     );
-    let expected = concat!(
-        "fn show[T](x: T) -> T where T: Display uses [Console] cost [5, 0, 0, 0]\n",
-        "spec {\n",
-        "    property \"roundtrip\": |x: T| true\n",
-        "    example \"block\" {\n",
-        "        let y = x;\n",
-        "        y == x\n",
-        "    }\n",
+    assert_eq!(roundtrip(src), src);
+}
+
+#[test]
+fn test_intent_signature_budget_properties_and_inline_bounds_roundtrip() {
+    let src = concat!(
+        "fn member[T: Eq](xs: List[T], value: T) -> Bool uses [Console]\n",
+        "budget {\n",
+        "    branches: 2\n",
+        "    holes: 0\n",
+        "}\n",
+        "properties {\n",
+        "    empty(): true\n",
+        "    agrees(xs: List[T]): true\n",
+        "}\n",
+        "{ contains(xs, value) }\n",
+    );
+    assert_eq!(roundtrip(src), src);
+}
+
+#[test]
+fn test_intent_clause_order_preserves_property_order() {
+    let src = concat!(
+        "fn show[T: Display](x: T) -> T uses [Console]\n",
+        "budget {\n",
+        "    calls: 1\n",
+        "}\n",
+        "properties {\n",
+        "    roundtrip(x: T): true\n",
+        "    stable(x: T): true\n",
         "}\n",
         "{ x }\n",
     );
-    assert_eq!(roundtrip(src), expected);
+    assert_eq!(roundtrip(src), src);
 }
 
 #[test]
 fn test_refinement_type_roundtrips_in_property_params() {
     let src = concat!(
         "fn abs(x: I32) -> I32\n",
-        "spec {\n",
-        "    property \"non_negative_identity\": |x: I32 when self >= 0| x\n",
+        "properties {\n",
+        "    non_negative_identity(x: I32 when self >= 0): x >= 0\n",
         "}\n",
         "{\n",
         "    if x < 0 { 0 - x } else { x }\n",
@@ -218,9 +257,9 @@ fn test_refinement_type_roundtrips_in_property_params() {
 fn test_multiple_properties_roundtrip() {
     let src = concat!(
         "fn add(a: I32, b: I32) -> I32\n",
-        "spec {\n",
-        "    property \"left_identity\": |a: I32, b: I32 when self == 0| a\n",
-        "    property \"non_negative_identity\": |x: I32 when self >= 0| x\n",
+        "properties {\n",
+        "    left_identity(a: I32, b: I32): add(0, b) == b\n",
+        "    right_identity(a: I32, b: I32): add(a, 0) == a\n",
         "}\n",
         "{ a + b }\n",
     );
@@ -244,26 +283,25 @@ fn test_const_def() {
 fn test_keyword_item_forms_roundtrip() {
     let src = concat!(
         "trait Display[T] {\n",
-        "    fn show(self: T) -> String\n",
+        "    fn show(self: T) -> Str;\n",
         "}\n",
         "\n",
         "effect Console {\n",
-        "    fn println(msg: String) -> Unit\n",
+        "    fn println(msg: Str) -> Unit;\n",
         "}\n",
         "\n",
-        "effect IO = Console | FileRead\n",
+        "surface IO = [Console, FileRead]\n",
         "\n",
-        "handler MockConsole handles [Console] uses [Clock] {\n",
-        "    impl Console {\n",
-        "        fn println(msg: String) -> Unit {}\n",
-        "    }\n",
+        "handler MockConsole for Console {\n",
+        "    fn Console.println(msg: Str) -> Unit {}\n",
         "}\n",
     );
     let out = roundtrip(src);
     assert!(out.contains("trait Display[T] {"));
     assert!(out.contains("effect Console {"));
-    assert!(out.contains("effect IO = Console | FileRead"));
-    assert!(out.contains("handler MockConsole handles [Console] uses [Clock] {"));
+    assert!(out.contains("surface IO = [Console, FileRead]"));
+    assert!(out.contains("handler MockConsole for Console {"));
+    assert!(out.contains("fn Console.println(msg: Str) -> Unit {\n    }"));
 }
 
 #[test]

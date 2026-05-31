@@ -1,15 +1,16 @@
+pub mod budget;
 pub mod check;
 pub mod concurrency;
-pub mod cost;
 /// sporec-typeck — Spore type checker and analysis
 ///
-/// Performs type checking, effect verification, and cost analysis.
+/// Performs type checking, effect verification, and budget analysis.
 pub mod effect_set;
 pub mod env;
 pub mod error;
 pub mod hir;
 pub mod hole;
 pub mod incremental;
+pub mod intent;
 pub mod lower;
 pub mod module;
 pub mod platform;
@@ -17,14 +18,13 @@ pub mod refinement;
 pub mod sig_hash;
 pub mod types;
 
-use std::collections::HashMap;
-
+use budget::{check_module_budget_errors, enrich_hole_report_with_budgets};
 use check::Checker;
-use cost::{CostAnalyzer, CostChecker, CostResult, CostVector, enrich_hole_report};
-use error::{ErrorCode, TypeError};
+use error::TypeError;
 use hole::HoleReport;
+use intent::enrich_hole_report_with_properties;
 use module::{ModuleRegistry, PreludeOptions};
-use sporec_parser::ast::{Item, Module};
+use sporec_parser::ast::Module;
 use sporec_stdlib::prelude;
 
 pub fn is_synthetic_hole_name(name: &str) -> bool {
@@ -38,13 +38,11 @@ fn parse_embedded_prelude() -> Module {
     sporec_parser::parse(prelude().source).expect("embedded stdlib prelude must parse")
 }
 
-/// Result of a successful type check, including hole report and cost analysis.
+/// Result of a successful type check, including hole reports and warnings.
 #[derive(Debug, Clone)]
 pub struct CheckResult {
     pub hole_report: HoleReport,
-    pub cost_results: HashMap<String, CostResult>,
-    pub cost_vectors: HashMap<String, CostVector>,
-    /// Cost budget warnings (SEP-0004: violations are warnings, not errors).
+    /// Non-fatal checker diagnostics.
     pub warnings: Vec<TypeError>,
 }
 
@@ -77,60 +75,21 @@ pub fn type_check_with_registry_and_prelude(
     let mut checker = Checker::with_module_registry(registry);
     checker.load_prelude(&parse_embedded_prelude());
     checker.check_module(module);
-    checker.errors.extend(unbounded_policy_errors(module));
 
-    // Run cost analysis (independent of type checking)
-    let mut cost_analyzer = CostAnalyzer::new();
-    cost_analyzer.analyze_module(module);
+    enrich_hole_report_with_budgets(module, &mut checker.hole_report);
+    enrich_hole_report_with_properties(module, &mut checker.hole_report);
 
-    // Build four-dimensional cost vectors
-    let mut cost_checker = CostChecker::new();
-    cost_checker.check_all(&cost_analyzer);
-    enrich_hole_report(module, &cost_checker.costs, &mut checker.hole_report);
-
-    // Convert cost budget violations into K0101 warnings (SEP-0004)
-    let mut warnings = Vec::new();
-    for (fn_name, declared, actual) in cost_analyzer.violations() {
-        warnings.push(TypeError::new(
-            ErrorCode::K0101,
-            format!(
-                "function `{fn_name}` exceeds its declared cost budget: \
-                 actual {actual} exceeds declared {declared}"
-            ),
-        ));
-    }
+    let warnings = Vec::new();
+    checker.errors.extend(check_module_budget_errors(module));
 
     if checker.errors.is_empty() {
         Ok(CheckResult {
             hole_report: checker.hole_report,
-            cost_results: cost_analyzer.results().clone(),
-            cost_vectors: cost_checker.costs,
             warnings,
         })
     } else {
         Err(checker.errors)
     }
-}
-
-fn unbounded_policy_errors(module: &Module) -> Vec<TypeError> {
-    module
-        .items
-        .iter()
-        .filter_map(|item| {
-            let Item::Function(fn_def) = item else {
-                return None;
-            };
-            (fn_def.is_unbounded && fn_def.cost_clause.is_none()).then(|| {
-                TypeError::new(
-                    ErrorCode::K0303,
-                    format!(
-                        "@unbounded function `{}` must declare an expected cost vector with `cost [compute, alloc, io, parallel]`",
-                        fn_def.name
-                    ),
-                )
-            })
-        })
-        .collect()
 }
 
 /// Build a `ModuleInterface` from a parsed module (for multi-file compilation).
@@ -146,6 +105,11 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
     let mut iface = ModuleInterface::new(path);
 
     let mut checker = Checker::new();
+    for item in &module.items {
+        if matches!(item, Item::SurfaceDef(_)) {
+            checker.register_item(item);
+        }
+    }
     let aliases: Vec<_> = module
         .items
         .iter()
@@ -155,21 +119,12 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
         })
         .collect();
     for _ in 0..aliases.len() {
-        let mut changed = false;
         for alias_def in &aliases {
-            let resolved = checker.resolve_type(&alias_def.target);
-            let previous = checker
-                .registry
-                .type_aliases
-                .insert(alias_def.name.clone(), resolved.clone());
-            if previous.as_ref() != Some(&resolved) {
-                changed = true;
-            }
-        }
-        if !changed {
-            break;
+            checker.register_item(&Item::Alias((*alias_def).clone()));
         }
     }
+    iface.type_aliases = checker.registry.type_aliases.clone();
+    iface.generic_type_aliases = checker.registry.generic_type_aliases.clone();
     for item in &module.items {
         match item {
             Item::Function(f) => {
@@ -188,22 +143,17 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     f.name.clone(),
                     checker.declared_effects(f.uses_clause.as_ref()),
                 );
-                if !f.errors.is_empty() {
-                    let error_set = types::declared_error_set(&f.errors);
-                    iface.function_errors.insert(f.name.clone(), error_set);
-                }
                 let mut type_params = f.type_params.clone();
-                if let Some(wc) = &f.where_clause {
-                    type_params.extend(wc.constraints.iter().map(|c| c.type_var.clone()));
-                    if !wc.constraints.is_empty() {
-                        iface.function_where_bounds.insert(
-                            f.name.clone(),
-                            wc.constraints
-                                .iter()
-                                .map(|c| (c.type_var.clone(), c.bound.clone()))
-                                .collect(),
-                        );
-                    }
+                type_params.extend(f.type_param_bounds.iter().map(|c| c.type_var.clone()));
+                let generic_bounds = f
+                    .type_param_bounds
+                    .iter()
+                    .map(|c| (c.type_var.clone(), c.bound.clone()))
+                    .collect::<Vec<_>>();
+                if !generic_bounds.is_empty() {
+                    iface
+                        .function_generic_bounds
+                        .insert(f.name.clone(), generic_bounds);
                 }
                 type_params.sort();
                 type_params.dedup();
@@ -241,6 +191,15 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                 iface.types.insert(t.name.clone(), variants);
                 iface.set_visibility(&t.name, SymbolVisibility::from(&t.visibility));
             }
+            Item::OpaqueType(t) => {
+                iface
+                    .opaque_types
+                    .insert(t.name.clone(), t.type_params.clone());
+                iface.set_visibility(&t.name, SymbolVisibility::from(&t.visibility));
+            }
+            Item::Alias(alias) => {
+                iface.set_visibility(&alias.name, SymbolVisibility::from(&alias.visibility));
+            }
             Item::TraitDef(trait_def) => {
                 iface.interfaces.insert(trait_def.name.clone());
                 iface.interface_members.insert(
@@ -273,10 +232,14 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
             }
             Item::EffectDef(effect) => {
                 iface.interfaces.insert(effect.name.clone());
+                iface.effects.insert(effect.name.clone());
+                iface
+                    .effect_type_params
+                    .insert(effect.name.clone(), effect.type_params.clone());
                 iface.interface_members.insert(
                     effect.name.clone(),
                     (
-                        vec![],
+                        effect.type_params.clone(),
                         effect
                             .operations
                             .iter()
@@ -298,12 +261,19 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                 );
                 iface.set_visibility(&effect.name, SymbolVisibility::from(&effect.visibility));
             }
+            Item::SurfaceDef(surface) => {
+                iface.surfaces.insert(
+                    surface.name.clone(),
+                    checker.declared_effects(Some(&sporec_parser::ast::UsesClause {
+                        surface: surface.surface.clone(),
+                    })),
+                );
+                iface
+                    .surface_type_params
+                    .insert(surface.name.clone(), surface.type_params.clone());
+                iface.set_visibility(&surface.name, SymbolVisibility::from(&surface.visibility));
+            }
             Item::HandlerDef(handler) => {
-                let fields = handler
-                    .fields
-                    .iter()
-                    .map(|field| (field.name.clone(), checker.resolve_type(&field.ty)))
-                    .collect();
                 let mut methods = std::collections::HashMap::new();
                 for handler_impl in &handler.impls {
                     let impl_methods = handler_impl
@@ -330,14 +300,15 @@ pub fn build_module_interface(module: &Module) -> module::ModuleInterface {
                     env::HandlerInfo {
                         handled_effects: checker.declared_effects(Some(
                             &sporec_parser::ast::UsesClause {
-                                resources: handler.handles_clause.effects.clone(),
+                                surface: handler.surface.clone(),
                             },
                         )),
-                        uses_effects: checker.declared_effects(handler.uses_clause.as_ref()),
-                        fields,
+                        uses_effects: types::EffectSet::new(),
+                        fields: Vec::new(),
                         methods,
                     },
                 );
+                iface.set_visibility(&handler.name, SymbolVisibility::from(&handler.visibility));
             }
             _ => {}
         }

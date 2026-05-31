@@ -47,7 +47,7 @@ impl Checker {
         }
 
         match (&e, &a) {
-            (Ty::Fn(p1, r1, c1, _), Ty::Fn(p2, r2, c2, _)) if p1.len() == p2.len() => {
+            (Ty::Fn(p1, r1, c1), Ty::Fn(p2, r2, c2)) if p1.len() == p2.len() => {
                 let pairs: Vec<(Ty, Ty)> = p1.iter().cloned().zip(p2.iter().cloned()).collect();
                 let ret_pair = ((**r1).clone(), (**r2).clone());
                 for (x, y) in &pairs {
@@ -57,13 +57,17 @@ impl Checker {
                 let missing_effects = c1.missing_from(c2);
                 if !missing_effects.is_empty() {
                     self.err(
-                        ErrorCode::C0001,
+                        ErrorCode::F0001,
                         format!(
                             "function effect mismatch in {context}: expected `{e}` but got `{a}` requiring effects [{}]",
                             missing_effects.join(", ")
                         ),
                     );
                 }
+            }
+            (Ty::Outcome(success1, failure1), Ty::Outcome(success2, failure2)) => {
+                self.unify(success1, success2, context);
+                self.unify(failure1, failure2, context);
             }
             (Ty::App(n1, a1), Ty::App(n2, a2)) if n1 == n2 && a1.len() == a2.len() => {
                 let pairs: Vec<(Ty, Ty)> = a1.iter().cloned().zip(a2.iter().cloned()).collect();
@@ -115,7 +119,6 @@ impl Checker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
 
     fn checker() -> Checker {
         Checker::new()
@@ -186,18 +189,8 @@ mod tests {
     #[test]
     fn unify_fn_same_arity() {
         let mut c = checker();
-        let f1 = Ty::Fn(
-            vec![Ty::I32],
-            Box::new(Ty::Bool),
-            EffectSet::new(),
-            BTreeSet::new(),
-        );
-        let f2 = Ty::Fn(
-            vec![Ty::I32],
-            Box::new(Ty::Bool),
-            EffectSet::new(),
-            BTreeSet::new(),
-        );
+        let f1 = Ty::Fn(vec![Ty::I32], Box::new(Ty::Bool), EffectSet::new());
+        let f2 = Ty::Fn(vec![Ty::I32], Box::new(Ty::Bool), EffectSet::new());
         c.unify(&f1, &f2, "test");
         assert!(c.errors.is_empty());
     }
@@ -205,18 +198,8 @@ mod tests {
     #[test]
     fn unify_fn_mismatch_arity() {
         let mut c = checker();
-        let f1 = Ty::Fn(
-            vec![Ty::I32],
-            Box::new(Ty::Bool),
-            EffectSet::new(),
-            BTreeSet::new(),
-        );
-        let f2 = Ty::Fn(
-            vec![Ty::I32, Ty::I32],
-            Box::new(Ty::Bool),
-            EffectSet::new(),
-            BTreeSet::new(),
-        );
+        let f1 = Ty::Fn(vec![Ty::I32], Box::new(Ty::Bool), EffectSet::new());
+        let f2 = Ty::Fn(vec![Ty::I32, Ty::I32], Box::new(Ty::Bool), EffectSet::new());
         c.unify(&f1, &f2, "test");
         assert_eq!(c.errors.len(), 1);
     }
@@ -226,13 +209,8 @@ mod tests {
         let mut c = checker();
         let mut callee_effects = EffectSet::new();
         callee_effects.insert("IO".into());
-        let f1 = Ty::Fn(
-            vec![],
-            Box::new(Ty::Unit),
-            EffectSet::new(),
-            BTreeSet::new(),
-        );
-        let f2 = Ty::Fn(vec![], Box::new(Ty::Unit), callee_effects, BTreeSet::new());
+        let f1 = Ty::Fn(vec![], Box::new(Ty::Unit), EffectSet::new());
+        let f2 = Ty::Fn(vec![], Box::new(Ty::Unit), callee_effects);
         c.unify(&f1, &f2, "test");
         assert_eq!(c.errors.len(), 1);
         assert!(c.errors[0].message.contains("IO"));
@@ -245,6 +223,14 @@ mod tests {
         let t2 = Ty::Tuple(vec![Ty::I32, Ty::Bool]);
         c.unify(&t1, &t2, "test");
         assert!(c.errors.is_empty());
+    }
+
+    #[test]
+    fn unify_outcome_requires_an_outcome_on_both_sides() {
+        let mut c = checker();
+        let outcome = Ty::Outcome(Box::new(Ty::I32), Box::new(Ty::Str));
+        c.unify(&outcome, &Ty::I32, "test");
+        assert_eq!(c.errors.len(), 1);
     }
 
     #[test]

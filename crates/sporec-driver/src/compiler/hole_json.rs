@@ -2,10 +2,10 @@ use crate::diagnostics::source_file;
 use std::collections::BTreeMap;
 
 use sporec_diagnostics::{
-    HoleCandidateCostCheckJson, HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson,
-    HoleCostBudgetJson, HoleCostVectorJson, HoleDependencyEdgeJson, HoleDependencyGraphJson,
+    HoleBudgetConstraintJson, HoleBudgetContextJson, HoleBudgetObservationJson, HoleCandidateJson,
+    HoleCandidateRankingJson, HoleConfidenceJson, HoleDependencyEdgeJson, HoleDependencyGraphJson,
     HoleDependencyKind, HoleEffectContextJson, HoleErrorClusterJson, HoleInfoJson,
-    HoleLocationJson, HoleReportJson, HoleResidualContextJson, HoleSummary, HoleTypeInferenceJson,
+    HoleLocationJson, HolePropertyContextJson, HoleReportJson, HoleSummary, HoleTypeInferenceJson,
     SourceFile,
 };
 use sporec_typeck::hole::{
@@ -50,7 +50,9 @@ fn hole_dependency_kind_json(kind: &EdgeKind) -> HoleDependencyKind {
     match kind {
         EdgeKind::Type => HoleDependencyKind::Type,
         EdgeKind::Value => HoleDependencyKind::Value,
-        EdgeKind::Cost => HoleDependencyKind::Cost,
+        EdgeKind::Effect => HoleDependencyKind::Effect,
+        EdgeKind::Budget => HoleDependencyKind::Budget,
+        EdgeKind::Property => HoleDependencyKind::Property,
     }
 }
 
@@ -58,7 +60,9 @@ fn hole_dependency_kind_rank(kind: &HoleDependencyKind) -> u8 {
     match kind {
         HoleDependencyKind::Type => 0,
         HoleDependencyKind::Value => 1,
-        HoleDependencyKind::Cost => 2,
+        HoleDependencyKind::Effect => 2,
+        HoleDependencyKind::Budget => 3,
+        HoleDependencyKind::Property => 4,
     }
 }
 
@@ -80,15 +84,6 @@ fn hole_location_json(source: &SourceFile, hole: &TypeckHoleInfo) -> Option<Hole
                 }
             })
         })
-}
-
-fn hole_cost_vector_json(cost: &sporec_typeck::hole::CostVectorSurface) -> HoleCostVectorJson {
-    HoleCostVectorJson {
-        compute: cost.compute.clone(),
-        alloc: cost.alloc.clone(),
-        io: cost.io.clone(),
-        parallel: cost.parallel.clone(),
-    }
 }
 
 fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
@@ -115,20 +110,33 @@ fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
                 discharged_effects: context.discharged_effects.iter().cloned().collect(),
                 surviving_effects: context.surviving_effects.iter().cloned().collect(),
             }),
-        cost_budget: hole.cost_budget.as_ref().map(|budget| HoleCostBudgetJson {
-            budget_total: budget.budget_total,
-            cost_before_hole: budget.cost_before_hole,
-            budget_remaining: budget.budget_remaining,
-        }),
-        residual_context: hole
-            .residual_context
+        budget_context: hole
+            .budget_context
             .as_ref()
-            .map(|context| HoleResidualContextJson {
-                budget_declared: context.budget_declared.as_ref().map(hole_cost_vector_json),
-                cost_before: hole_cost_vector_json(&context.cost_before),
-                budget_residual: context.budget_residual.as_ref().map(hole_cost_vector_json),
-                fit_rule: context.fit_rule.clone(),
-                note: context.note.clone(),
+            .map(|context| HoleBudgetContextJson {
+                constraints: context
+                    .constraints
+                    .iter()
+                    .map(|constraint| HoleBudgetConstraintJson {
+                        field: constraint.field.clone(),
+                        limit: constraint.limit,
+                    })
+                    .collect(),
+                observations: context
+                    .observations
+                    .iter()
+                    .map(|observation| HoleBudgetObservationJson {
+                        field: observation.field.clone(),
+                        observed: observation.observed,
+                        remaining: observation.remaining,
+                    })
+                    .collect(),
+            }),
+        property_context: hole
+            .property_context
+            .as_ref()
+            .map(|context| HolePropertyContextJson {
+                properties: context.properties.clone(),
             }),
         candidates: hole
             .candidates
@@ -136,28 +144,13 @@ fn hole_info_json(source: &SourceFile, hole: &TypeckHoleInfo) -> HoleInfoJson {
             .map(|candidate| HoleCandidateJson {
                 name: candidate.name.clone(),
                 type_match: candidate.type_match,
-                cost_fit: candidate.cost_fit,
+                budget_fit: candidate.budget_fit,
                 required_effects_fit: candidate.required_effects_fit,
                 error_coverage: candidate.error_coverage,
                 overall: candidate.overall(),
                 rejection_reasons: candidate.rejection_reasons.clone(),
                 explanation: candidate.explanation.clone(),
                 adjustments: candidate.adjustments.clone(),
-                cost_check: candidate.cost_check.as_ref().map(|cost_check| {
-                    HoleCandidateCostCheckJson {
-                        candidate_cost: cost_check
-                            .candidate_cost
-                            .as_ref()
-                            .map(hole_cost_vector_json),
-                        projected_cost: cost_check
-                            .projected_cost
-                            .as_ref()
-                            .map(hole_cost_vector_json),
-                        fits_budget: cost_check.fits_budget,
-                        exceeded_dimensions: cost_check.exceeded_dimensions.clone(),
-                        reason: cost_check.reason.clone(),
-                    }
-                }),
             })
             .collect(),
         dependent_holes: hole.dependent_holes.clone(),

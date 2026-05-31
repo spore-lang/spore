@@ -1,8 +1,8 @@
 //! Type environment — maps names to types during type checking.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::types::{EffectSet, ErrorSet, Ty};
+use crate::types::{EffectSet, Ty};
 
 /// A scoped type environment (symbol table).
 ///
@@ -69,8 +69,37 @@ impl Default for Env {
 pub struct HandlerInfo {
     pub handled_effects: EffectSet,
     pub uses_effects: EffectSet,
+    /// Payload fields inferred from handler method access through `self`.
     pub fields: Vec<(String, Ty)>,
     pub methods: HashMap<String, Vec<(String, Vec<Ty>, Ty)>>,
+}
+
+/// Registered signature information for a method declared in an impl block.
+#[derive(Debug, Clone)]
+pub struct MethodInfo {
+    /// Type receiving the implementation, such as `Option[T]` or `Point`.
+    pub owner: Ty,
+    /// Trait name for trait implementations; absent for inherent methods.
+    pub trait_name: Option<String>,
+    /// Ordered type parameters introduced by the impl block and method.
+    pub type_params: Vec<String>,
+    /// Inline bounds attached to the registered type parameters.
+    pub generic_bounds: Vec<(String, String)>,
+    /// Full method parameter list. Receiver methods retain `self` as the first item.
+    pub params: Vec<Ty>,
+    pub return_type: Ty,
+    pub required_effects: EffectSet,
+    pub has_receiver: bool,
+}
+
+/// Method signature after owner and generic parameters have been instantiated.
+#[derive(Debug, Clone)]
+pub struct InstantiatedMethod {
+    pub params: Vec<Ty>,
+    pub return_type: Ty,
+    pub required_effects: EffectSet,
+    pub generic_bounds: Vec<(String, String)>,
+    pub type_mapping: HashMap<String, Ty>,
 }
 
 /// Top-level type registry — struct definitions, type defs, function signatures.
@@ -78,8 +107,6 @@ pub struct HandlerInfo {
 pub struct TypeRegistry {
     /// Function signatures: name → (param types, return type, required effects)
     pub functions: HashMap<String, (Vec<Ty>, Ty, EffectSet)>,
-    /// Error sets declared by functions: name → set of error type names
-    pub fn_errors: HashMap<String, ErrorSet>,
     /// Struct definitions: name → field list (name, type)
     pub structs: HashMap<String, Vec<(String, Ty)>>,
     /// Generic struct type parameters: name → ordered type parameter names
@@ -90,16 +117,30 @@ pub struct TypeRegistry {
     pub type_type_params: HashMap<String, Vec<String>>,
     /// Type parameter names for generic functions: name → [type param names]
     pub fn_type_params: HashMap<String, Vec<String>>,
-    /// `where` trait bounds for functions: name → [(type_var, trait_name)]
-    pub fn_where_bounds: HashMap<String, Vec<(String, String)>>,
+    /// Inline generic trait bounds for functions: name → [(type_var, trait_name)]
+    pub fn_generic_bounds: HashMap<String, Vec<(String, String)>>,
     /// Interface (trait) definitions: name → (type_params, methods: [(method_name, param_types, return_type)])
     #[allow(clippy::type_complexity)]
     pub interfaces: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
+    /// Atomic effect protocol names.
+    pub effects: HashSet<String>,
+    /// Generic parameters declared by atomic effect protocols.
+    pub effect_type_params: HashMap<String, Vec<String>>,
+    /// Named reusable effect surfaces.
+    pub surfaces: HashSet<String>,
+    /// Generic parameters declared by reusable effect surfaces.
+    pub surface_type_params: HashMap<String, Vec<String>>,
     /// Trait implementations: (trait_name, type_name) → method impls: [(method_name, param_types, return_type)]
     #[allow(clippy::type_complexity)]
     pub impls: HashMap<(String, String), Vec<(String, Vec<Ty>, Ty)>>,
-    /// Type aliases: name → resolved Ty (supports refinement aliases like `alias Port = I64 when ...`)
+    /// Methods declared by impl blocks, grouped by member name.
+    pub methods: HashMap<String, Vec<MethodInfo>>,
+    /// Type aliases: name → resolved Ty (supports refinement aliases like `type Port = I64 when ...`)
     pub type_aliases: HashMap<String, Ty>,
+    /// Generic type aliases: name → (ordered type parameters, resolved template).
+    pub generic_type_aliases: HashMap<String, (Vec<String>, Ty)>,
+    /// Externally-provided opaque types: name → ordered type parameter names.
+    pub opaque_types: HashMap<String, Vec<String>>,
     /// Named handlers: handler name → handler metadata.
     pub handlers: HashMap<String, HandlerInfo>,
 }

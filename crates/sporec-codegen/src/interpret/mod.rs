@@ -32,6 +32,8 @@ pub struct Interpreter {
     type_defs: BTreeMap<String, TypeDef>,
     /// Global named handler definitions.
     handlers: BTreeMap<String, HandlerDef>,
+    /// User-defined impl methods, keyed by owner type and member name.
+    methods: BTreeMap<(String, String), FnDef>,
     /// Effect handlers for effect-gated operations (e.g. I/O).
     effect_handlers: Vec<Box<dyn EffectHandler>>,
     /// Stack of handler frames installed by `handle ... with { ... }`.
@@ -49,6 +51,7 @@ impl Interpreter {
             structs: BTreeMap::new(),
             type_defs: BTreeMap::new(),
             handlers: BTreeMap::new(),
+            methods: BTreeMap::new(),
             effect_handlers: Vec::new(),
             handler_stack: Vec::new(),
             task_scopes: Vec::new(),
@@ -79,13 +82,14 @@ impl Interpreter {
                 Item::HandlerDef(h) => {
                     self.handlers.insert(h.name.clone(), h.clone());
                 }
-                Item::ImplDef(_)
-                | Item::Import(_)
+                Item::ImplDef(impl_def) => self.load_impl_methods(impl_def),
+                Item::Import(_)
                 | Item::Const(_)
                 | Item::Alias(_)
+                | Item::OpaqueType(_)
                 | Item::TraitDef(_)
                 | Item::EffectDef(_)
-                | Item::EffectAlias(_) => {}
+                | Item::SurfaceDef(_) => {}
             }
         }
     }
@@ -128,8 +132,25 @@ impl Interpreter {
                         .entry(h.name.clone())
                         .or_insert_with(|| h.clone());
                 }
+                Item::ImplDef(impl_def) => self.load_impl_methods(impl_def),
                 _ => {}
             }
+        }
+    }
+
+    fn load_impl_methods(&mut self, impl_def: &ImplDef) {
+        let owner = impl_def
+            .target_type
+            .as_ref()
+            .unwrap_or(&impl_def.interface_type);
+        let Some(owner_name) = type_expr_base_name(owner) else {
+            return;
+        };
+        for method in &impl_def.methods {
+            self.methods.insert(
+                (owner_name.to_string(), method.name.clone()),
+                method.clone(),
+            );
         }
     }
 
@@ -169,7 +190,10 @@ impl Interpreter {
         }
 
         match &func.body {
-            Some(body) => self.eval(body, &mut env),
+            Some(body) => eval::finish_function_result(
+                self.eval(body, &mut env),
+                matches!(func.return_type, Some(TypeExpr::Outcome(_, _))),
+            ),
             None if func.is_foreign => Err(RuntimeError::new(format!(
                 "foreign function `{name}` is not available in interpreter mode"
             ))),
@@ -179,7 +203,49 @@ impl Interpreter {
         }
     }
 
-    /// Evaluate an expression in a fresh environment (for spec clauses).
+    /// Call a method selected by the runtime owner type.
+    pub(super) fn call_method(
+        &mut self,
+        owner_name: &str,
+        method_name: &str,
+        args: Vec<Value>,
+    ) -> Result<Value> {
+        let method = self
+            .methods
+            .get(&(owner_name.to_string(), method_name.to_string()))
+            .ok_or_else(|| {
+                RuntimeError::new(format!("undefined method `{owner_name}.{method_name}`"))
+            })?
+            .clone();
+
+        if method.params.len() != args.len() {
+            return Err(RuntimeError::new(format!(
+                "method `{owner_name}.{method_name}` expects {} args, got {}",
+                method.params.len(),
+                args.len()
+            )));
+        }
+
+        let mut env = Env::new();
+        for (param, arg) in method.params.iter().zip(args) {
+            env.define(param.name.clone(), arg);
+        }
+
+        match &method.body {
+            Some(body) => eval::finish_function_result(
+                self.eval(body, &mut env),
+                matches!(method.return_type, Some(TypeExpr::Outcome(_, _))),
+            ),
+            None if method.is_foreign => Err(RuntimeError::new(format!(
+                "foreign method `{owner_name}.{method_name}` is not available in interpreter mode"
+            ))),
+            None => Err(RuntimeError::new(format!(
+                "method `{owner_name}.{method_name}` has no body (hole)"
+            ))),
+        }
+    }
+
+    /// Evaluate an expression in a fresh environment.
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<Value> {
         let mut env = Env::new();
         self.eval(expr, &mut env)
@@ -198,18 +264,25 @@ impl Interpreter {
         self.eval(expr, &mut env)
     }
 
-    /// Return all functions that have a spec clause, paired with their name.
-    pub fn functions_with_specs(&self) -> Vec<(String, FnDef)> {
+    /// Return all functions that have source-level properties.
+    pub fn functions_with_properties(&self) -> Vec<(String, FnDef)> {
         self.functions
             .iter()
-            .filter(|(_, f)| f.spec_clause.is_some())
+            .filter(|(_, f)| f.properties_clause.is_some())
             .map(|(name, f)| (name.clone(), f.clone()))
             .collect()
     }
 
-    /// Public wrapper around `call_value` for use by spec evaluation.
+    /// Public wrapper around `call_value` for validation evaluation.
     pub fn call_value_pub(&mut self, callee: &Value, args: Vec<Value>) -> Result<Value> {
         self.call_value(callee, args)
+    }
+}
+
+fn type_expr_base_name(ty: &TypeExpr) -> Option<&str> {
+    match ty {
+        TypeExpr::Named(name) | TypeExpr::Generic(name, _) => Some(name),
+        _ => None,
     }
 }
 

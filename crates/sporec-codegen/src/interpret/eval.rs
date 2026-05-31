@@ -9,6 +9,24 @@ use super::Interpreter;
 use super::env::{Env, named_function_closure};
 use super::error::{Result, RuntimeError, StringChunk};
 
+pub(super) fn finish_function_result(result: Result<Value>, outcome_return: bool) -> Result<Value> {
+    match result {
+        Ok(value) if outcome_return => match value {
+            Value::OutcomeOk(_) | Value::OutcomeFail(_) => Ok(value),
+            value => Ok(Value::OutcomeOk(Box::new(value))),
+        },
+        Ok(value) => Ok(value),
+        Err(error) if outcome_return => {
+            if let Some(failure) = error.propagated_outcome_failure() {
+                Ok(Value::OutcomeFail(Box::new(failure.clone())))
+            } else {
+                Err(error)
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
 impl Interpreter {
     /// Evaluate an interpolated string template (shared by f-strings and t-strings).
     pub(super) fn eval_interpolated_string<'a>(
@@ -37,6 +55,7 @@ impl Interpreter {
             Expr::FloatLit(f) => Ok(Value::Float(*f)),
             Expr::StrLit(s) => Ok(Value::Str(s.clone())),
             Expr::BoolLit(b) => Ok(Value::Bool(*b)),
+            Expr::Unit => Ok(Value::Unit),
             Expr::FString(parts) => {
                 self.eval_interpolated_string(parts.iter().map(StringChunk::from), env)
             }
@@ -127,11 +146,25 @@ impl Interpreter {
                 }
 
                 if let Expr::FieldAccess(receiver, method) = callee.as_ref() {
+                    if let Expr::Var(owner_name) = receiver.as_ref()
+                        && self
+                            .methods
+                            .contains_key(&(owner_name.clone(), method.clone()))
+                    {
+                        return self.call_method(owner_name, method, arg_vals);
+                    }
                     let recv_val = self.eval(receiver, env)?;
+                    let owner_name = self.runtime_owner_name(&recv_val);
                     let mut full_args = vec![recv_val];
                     full_args.extend(arg_vals.clone());
                     if let Some(result) = self.try_call_builtin(method, &full_args)? {
                         return Ok(result);
+                    }
+                    if self
+                        .methods
+                        .contains_key(&(owner_name.clone(), method.clone()))
+                    {
+                        return self.call_method(&owner_name, method, full_args);
                     }
                 }
 
@@ -144,6 +177,7 @@ impl Interpreter {
                     params: params.iter().map(|p| p.name.clone()).collect(),
                     body: *body.clone(),
                     env: captured,
+                    outcome_return: false,
                 }))
             }
             Expr::If(cond, then_branch, else_branch) => {
@@ -231,16 +265,16 @@ impl Interpreter {
             Expr::Try(expr) => {
                 let val = self.eval(expr, env)?;
                 match &val {
-                    Value::Enum(variant, fields) if variant == "Ok" && fields.len() == 1 => {
-                        Ok(fields[0].clone())
+                    Value::OutcomeOk(value) => Ok((**value).clone()),
+                    Value::OutcomeFail(value) => {
+                        Err(RuntimeError::outcome_failure((**value).clone()))
                     }
-                    Value::Enum(variant, _) if variant == "Err" => {
-                        Err(RuntimeError::new(format!("uncaught error: {val}")))
-                    }
-                    _ => Ok(val),
+                    _ => Err(RuntimeError::new(format!(
+                        "`?` expects an outcome value, got {val}"
+                    ))),
                 }
             }
-            Expr::Hole(name, _, _, _) => {
+            Expr::Hole(name, _, _) => {
                 let label = name.as_deref().unwrap_or("_");
                 Err(RuntimeError::new(format!("hit unfilled hole `?{label}`")))
             }
@@ -289,9 +323,9 @@ impl Interpreter {
                     Ok(Value::Unit)
                 }
             }
-            Expr::Throw(expr) => {
+            Expr::Fail(expr) => {
                 let val = self.eval(expr, env)?;
-                Err(RuntimeError::new(format!("throw: {val}")))
+                Ok(Value::OutcomeFail(Box::new(val)))
             }
             Expr::List(elems) => {
                 let vals: Vec<Value> = elems
@@ -546,7 +580,7 @@ impl Interpreter {
                 for (name, val) in closure.params.iter().zip(args) {
                     env.define(name.clone(), val);
                 }
-                self.eval(&closure.body, &mut env)
+                finish_function_result(self.eval(&closure.body, &mut env), closure.outcome_return)
             }
             Value::Builtin(name) => self
                 .try_call_builtin(name, &args)?
@@ -565,5 +599,20 @@ impl Interpreter {
             }
         }
         None
+    }
+
+    fn runtime_owner_name(&self, value: &Value) -> String {
+        if let Value::Enum(variant_name, _) = value {
+            for (type_name, type_def) in &self.type_defs {
+                if type_def
+                    .variants
+                    .iter()
+                    .any(|variant| variant.name == *variant_name)
+                {
+                    return type_name.clone();
+                }
+            }
+        }
+        value.type_name().to_string()
     }
 }

@@ -19,7 +19,7 @@ fn add(a: I64, b: I64) -> I64 {
 }
 
 /// Greet a user by name.
-fn greet(name: String) -> String {
+fn greet(name: Str) -> Str {
     f\"Hello, {name}!\"
 }
 
@@ -28,19 +28,22 @@ struct Point {
     y: I64,
 }
 
-type Color {
+enum Color {
     Red,
     Green,
     Blue,
 }
 
 trait Printable {
-    fn to_string(self: Self) -> String
+    fn to_string(self: Self) -> Str;
 }
 
-fn expensive(n: I64) -> I64
-  cost [100, 0, 0, 0]
-  uses [Memory] {
+effect Memory {}
+
+fn constrained(n: I64) -> I64
+  uses [Memory]
+  budget { calls: 0 }
+{
     n
 }
 ";
@@ -106,7 +109,7 @@ fn test_completion_returns_keywords() {
 
     let labels: Vec<&str> = items.iter().filter_map(|i| i["label"].as_str()).collect();
     for kw in &[
-        "fn", "let", "type", "struct", "trait", "effect", "match", "if", "import",
+        "fn", "let", "type", "enum", "struct", "trait", "effect", "match", "if", "import",
     ] {
         assert!(labels.contains(kw), "missing keyword: {kw}");
     }
@@ -203,8 +206,8 @@ fn test_document_symbols_functions() {
         "should contain function 'greet'"
     );
     assert!(
-        fn_names.contains(&"expensive"),
-        "should contain function 'expensive'"
+        fn_names.contains(&"constrained"),
+        "should contain function 'constrained'"
     );
 }
 
@@ -235,7 +238,7 @@ fn test_document_symbols_types() {
 
 #[test]
 fn test_build_diagnostics_capability_item_reports_generic_parse_error() {
-    let diags = build_diagnostics("capability Display { fn show(self: Self) -> String }");
+    let diags = build_diagnostics("capability Display { fn show(self: Self) -> Str }");
     assert!(
         diags.iter().any(|diag| diag["message"]
             .as_str()
@@ -259,17 +262,17 @@ fn test_hover_function_signature() {
 }
 
 #[test]
-fn test_hover_with_cost_annotation() {
-    let hover = build_hover_for_symbol(SAMPLE_SOURCE, "expensive");
-    assert!(hover.is_some(), "should have hover for 'expensive'");
+fn test_hover_with_budget_annotation() {
+    let hover = build_hover_for_symbol(SAMPLE_SOURCE, "constrained");
+    assert!(hover.is_some(), "should have hover for 'constrained'");
     let text = hover.unwrap();
     assert!(
-        text.contains("Cost"),
-        "hover should mention cost, got: {text}"
+        text.contains("budget"),
+        "hover should mention budget, got: {text}"
     );
     assert!(
-        text.contains("100"),
-        "hover should show cost value, got: {text}"
+        text.contains("calls: 0"),
+        "hover should show budget field, got: {text}"
     );
 }
 
@@ -316,7 +319,7 @@ fn test_hover_returns_hole_information() {
 fn test_hover_prefers_hole_in_current_function() {
     let source = "\
 fn first() -> I64 { ?todo }
-fn second() -> String { ?todo }
+fn second() -> Str { ?todo }
 ";
 
     let first = build_hover_for_position(source, 0, 20).expect("first hole hover");
@@ -327,7 +330,7 @@ fn second() -> String { ?todo }
         "expected first hole type, got: {first}"
     );
     assert!(
-        second.contains("?todo : String"),
+        second.contains("?todo : Str"),
         "expected second hole type, got: {second}"
     );
 }
@@ -396,12 +399,10 @@ fn test_hover_distinguishes_unnamed_holes_in_same_function() {
 }
 
 #[test]
-fn test_hover_shows_checked_residual_context() {
+fn test_hover_shows_hole_context() {
     let source = r#"
-fn cheap() -> I64 cost [1, 0, 0, 0] { 1 + 1 }
-fn costly() -> I64 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
-fn main() -> I64 cost [6, 0, 0, 0] {
-    let seed = cheap();
+fn main() -> I64 {
+    let seed = 2;
     ?todo
 }
 "#;
@@ -413,13 +414,32 @@ fn main() -> I64 cost [6, 0, 0, 0] {
     let hover = build_hover_for_position(source, line.0, line.1).expect("hole hover");
 
     assert!(
-        hover.contains("Checked residual"),
-        "expected checked residual section, got: {hover}"
+        hover.contains("?todo : I64"),
+        "expected hole type, got: {hover}"
     );
     assert!(
-        hover.contains("fits checked residual budget")
-            || hover.contains("exceeds budget in compute"),
-        "expected candidate cost reasoning, got: {hover}"
+        hover.contains("seed: I64"),
+        "expected visible binding, got: {hover}"
+    );
+}
+
+#[test]
+fn test_hover_shows_typed_hole_annotation() {
+    let source = r#"
+fn main() -> I64 {
+    ?todo: I64
+}
+"#;
+    let line = source
+        .lines()
+        .enumerate()
+        .find_map(|(index, text)| text.find("?todo").map(|col| (index as u32, col as u32)))
+        .expect("hole position");
+    let hover = build_hover_for_position(source, line.0, line.1).expect("hole hover");
+
+    assert!(
+        hover.contains("?todo : I64"),
+        "expected typed hole hover, got: {hover}"
     );
 }
 
@@ -427,9 +447,13 @@ fn main() -> I64 cost [6, 0, 0, 0] {
 fn test_hover_shows_handler_discharge_context() {
     let source = r#"
 effect Console {
-    fn println(msg: Str) -> ()
+    fn println(msg: Str) -> ();
 }
-fn main() -> I64 uses [IO] {
+effect Clock {
+    fn now() -> I64;
+}
+surface IO = [Console, Clock]
+fn main() -> I64 uses IO {
     handle {
         ?todo
     } with {

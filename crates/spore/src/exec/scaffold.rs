@@ -109,7 +109,8 @@ pub fn main_for_host(app_main: () -> ()) -> () {
 
 const BASIC_CLI_SCAFFOLD_STDOUT: &str = "\
 /// basic-cli platform — Standard output operations
-pub foreign fn println(s: Str) -> () uses [Console]
+@foreign
+pub fn println(s: Str) -> () uses [Console];
 ";
 
 const PLATFORM_SCAFFOLD_METADATA: &str = "\
@@ -172,6 +173,9 @@ spore-version = \">=0.1.0\"
         "application" => {
             "\n[project]\nplatform = \"basic-cli\"\ndefault-entry = \"app\"\n\n[entries.app]\npath = \"main.sp\"\n".to_string()
         }
+        "package" => {
+            "\n[project]\ndefault-entry = \"lib\"\n\n[entries.lib]\npath = \"lib.sp\"\n".to_string()
+        }
         "platform" => {
             "\n[project]\nplatform = \"cli\"\ndefault-entry = \"host\"\n\n[entries.host]\npath = \"host.sp\"\n".to_string()
         }
@@ -193,8 +197,7 @@ spore-version = \">=0.1.0\"
     let (filename, content) = match project_type {
         "package" => (
             "lib.sp",
-            "/// Add two integers.\npub fn add(a: I64, b: I64) -> I64 cost [1, 0, 0, 0] {\n    a + b\n}\n"
-                .to_string(),
+            "/// Add two integers.\npub fn add(a: I64, b: I64) -> I64 {\n    a + b\n}\n".to_string(),
         ),
         "platform" => (
             "host.sp",

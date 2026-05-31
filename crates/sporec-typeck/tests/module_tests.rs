@@ -4,7 +4,7 @@ use sporec_parser::parse;
 use sporec_typeck::check::Checker;
 use sporec_typeck::error::ErrorCode;
 use sporec_typeck::module::{ModuleInterface, ModuleRegistry, SymbolVisibility};
-use sporec_typeck::types::{Ty, canonical_error_set};
+use sporec_typeck::types::Ty;
 use sporec_typeck::{build_module_interface, type_check_with_registry};
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ fn private_function_not_accessible() {
 
     let src = r#"
 import Lib as Lib
-fn f() { secret_fn() }
+fn f() -> () { secret_fn() }
 "#;
 
     let errs = check_with_registry(src, registry).unwrap_err();
@@ -108,7 +108,7 @@ fn pub_pkg_function_is_accessible() {
 
     let src = r#"
 import Lib as Lib
-fn f() { internal_fn() }
+fn f() -> () { internal_fn() }
 "#;
 
     check_with_registry(src, registry).unwrap_or_else(|errs| {
@@ -151,6 +151,36 @@ fn f() -> I64 { add(1, 2) }
                 .join("\n")
         )
     });
+}
+
+#[test]
+fn imported_surface_expands_for_local_effect_checking() {
+    let src_platform = r#"
+pub effect Console {
+    fn println(msg: Str) -> ();
+}
+
+pub surface CliIO = [Console]
+"#;
+    let ast_platform = parse(src_platform).unwrap();
+    let mut iface_platform = build_module_interface(&ast_platform);
+    iface_platform.path = vec!["Platform".into()];
+
+    let mut registry = ModuleRegistry::new();
+    registry.register(iface_platform);
+
+    let src = r#"
+import Platform
+
+fn greet() -> () uses CliIO {
+    perform Console.println("hello")
+}
+"#;
+    let result = check_with_registry(src, registry);
+    assert!(
+        result.is_ok(),
+        "expected imported surface to expand, got {result:?}"
+    );
 }
 
 #[test]
@@ -271,7 +301,7 @@ fn build_module_interface_extracts_types_and_structs() {
 fn build_module_interface_resolves_aliases_before_function_signatures() {
     let src = r#"
 fn main() -> Unit { return }
-alias Unit = ()
+type Unit = ()
 "#;
     let ast = parse(src).unwrap();
     let iface = build_module_interface(&ast);
@@ -345,6 +375,61 @@ pub fn read_first(pair: Pair[I64, Str]) -> I64 {
     pair.first
 }
 "#;
+    let result = check_with_registry(src, registry);
+    assert!(result.is_ok(), "expected no type errors, got {result:?}");
+}
+
+#[test]
+fn imported_opaque_type_preserves_type_parameters() {
+    let ast_foreign = parse(
+        r#"
+        @foreign
+        pub type Map[K, V];
+        "#,
+    )
+    .unwrap();
+    let mut iface = build_module_interface(&ast_foreign);
+    iface.path = vec!["Foreign".into()];
+
+    let mut registry = ModuleRegistry::new();
+    registry.register(iface);
+
+    let ast = parse(
+        r#"
+        import Foreign
+        fn keep(map: Map[Str, I64]) -> Map[Str, I64] { map }
+        "#,
+    )
+    .unwrap();
+    let mut checker = Checker::with_module_registry(registry);
+    checker.check_module(&ast);
+
+    assert!(checker.errors.is_empty(), "got: {:?}", checker.errors);
+    assert_eq!(
+        checker.registry.opaque_types.get("Map"),
+        Some(&vec!["K".into(), "V".into()])
+    );
+}
+
+#[test]
+fn imported_generic_alias_instantiates_type_parameters() {
+    let ast_types = parse(
+        r#"
+        pub struct Pair[A, B] { first: A, second: B }
+        pub type PairOf[T] = Pair[T, T]
+        "#,
+    )
+    .unwrap();
+    let mut iface = build_module_interface(&ast_types);
+    iface.path = vec!["Types".into()];
+
+    let mut registry = ModuleRegistry::new();
+    registry.register(iface);
+
+    let src = r#"
+        import Types
+        fn first(pair: PairOf[I64]) -> I64 { pair.first }
+    "#;
     let result = check_with_registry(src, registry);
     assert!(result.is_ok(), "expected no type errors, got {result:?}");
 }
@@ -451,27 +536,27 @@ fn f() -> () uses [Console] { perform Console.println("hello") }
 }
 
 #[test]
-fn equivalent_imported_function_error_sets_are_not_ambiguous() {
+fn equivalent_imported_function_outcomes_are_not_ambiguous() {
     let mut registry = ModuleRegistry::new();
 
     let mut mod_a = ModuleInterface::new(vec!["ModA".into()]);
-    mod_a
-        .functions
-        .insert("read".into(), (vec![Ty::Str], Ty::Str));
-    mod_a.function_errors.insert(
+    mod_a.functions.insert(
         "read".into(),
-        canonical_error_set(["ParseError", "IoError"]),
+        (
+            vec![Ty::Str],
+            Ty::Outcome(Box::new(Ty::Str), Box::new(Ty::Named("ReadError".into()))),
+        ),
     );
     mod_a.set_visibility("read", SymbolVisibility::Pub);
     registry.register(mod_a);
 
     let mut mod_b = ModuleInterface::new(vec!["ModB".into()]);
-    mod_b
-        .functions
-        .insert("read".into(), (vec![Ty::Str], Ty::Str));
-    mod_b.function_errors.insert(
+    mod_b.functions.insert(
         "read".into(),
-        canonical_error_set(["IoError", "ParseError", "IoError"]),
+        (
+            vec![Ty::Str],
+            Ty::Outcome(Box::new(Ty::Str), Box::new(Ty::Named("ReadError".into()))),
+        ),
     );
     mod_b.set_visibility("read", SymbolVisibility::Pub);
     registry.register(mod_b);
@@ -480,7 +565,7 @@ fn equivalent_imported_function_error_sets_are_not_ambiguous() {
 import ModA as A
 import ModB as B
 
-fn caller() -> Str ! IoError | ParseError {
+fn caller() -> Str ! ReadError {
     read("input")?
 }
 "#;

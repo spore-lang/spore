@@ -38,6 +38,79 @@ fn report_warnings(
     }
 }
 
+fn record_property_results(
+    property_results: &[sporec_driver::PropertyResult],
+    verbose: bool,
+    json_output: bool,
+    total_passed: &mut usize,
+    total_failed: &mut usize,
+) {
+    for r in property_results {
+        let kind_label = "property";
+        if r.passed {
+            *total_passed += 1;
+            if !json_output && verbose {
+                eprintln!(
+                    "  {} {} :: {} \"{}\"",
+                    "✓".green(),
+                    r.fn_name,
+                    kind_label,
+                    r.label
+                );
+            }
+        } else {
+            *total_failed += 1;
+            let msg = r.error.as_deref().unwrap_or("assertion failed");
+            if !json_output {
+                eprintln!(
+                    "  {} {} :: {} \"{}\" — {}",
+                    "✗".red(),
+                    r.fn_name,
+                    kind_label,
+                    r.label,
+                    msg
+                );
+            }
+        }
+    }
+}
+
+fn finish_property_results(
+    total_passed: usize,
+    total_failed: usize,
+    json_output: bool,
+) -> ExitCode {
+    if json_output {
+        sporec_diagnostics::print_json(&json!({
+            "status": if total_failed == 0 {
+                sporec_diagnostics::ReportStatus::Ok
+            } else {
+                sporec_diagnostics::ReportStatus::Fail
+            },
+            "passed": total_passed,
+            "failed": total_failed,
+        }));
+    } else {
+        let total = total_passed + total_failed;
+        if total == 0 {
+            eprintln!("note: no properties found");
+        } else if total_failed == 0 {
+            eprintln!("\n{} {total} properties passed", "✓".green());
+        } else {
+            eprintln!(
+                "\n{}: {total_failed} of {total} properties failed",
+                "FAIL".red().bold()
+            );
+        }
+    }
+
+    if total_failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 pub(crate) fn exec_check(
     files: &[String],
     verbose: bool,
@@ -295,8 +368,60 @@ pub(crate) fn exec_test(
     let mut total_passed = 0usize;
     let mut total_failed = 0usize;
 
+    if targets.len() > 1
+        && targets
+            .iter()
+            .all(|target| matches!(target, ResolvedSpTarget::Standalone { .. }))
+    {
+        let paths = targets
+            .iter()
+            .filter_map(|target| match target {
+                ResolvedSpTarget::Standalone { path } => Some(path.as_str()),
+                ResolvedSpTarget::Project { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        match sporec_driver::check_files(&paths) {
+            sporec_driver::CheckReport::Success { sources, warnings } => {
+                if let Some(exit_code) =
+                    report_warnings(&warnings, json_output, deny_warnings, || {
+                        sporec_diagnostics::render_diagnostics_human_with_sources(
+                            &sources, &warnings,
+                        );
+                    })
+                {
+                    return exit_code;
+                }
+            }
+            sporec_driver::CheckReport::Failure(sporec_driver::CheckFailure::Diagnostics {
+                sources,
+                diagnostics,
+            }) => {
+                return sporec_diagnostics::exit_with_diagnostics_error_with_sources(
+                    &sources,
+                    &diagnostics,
+                    json_output,
+                );
+            }
+            sporec_driver::CheckReport::Failure(sporec_driver::CheckFailure::Message(message)) => {
+                return fail_message(&message, json_output);
+            }
+        }
+        let property_results = match sporec_driver::test_properties_files(&paths) {
+            Ok(r) => r,
+            Err(msg) => return fail_message(&msg, json_output),
+        };
+        record_property_results(
+            &property_results,
+            verbose,
+            json_output,
+            &mut total_passed,
+            &mut total_failed,
+        );
+        return finish_property_results(total_passed, total_failed, json_output);
+    }
+
     for target in &targets {
-        let spec_results = match target {
+        let property_results = match target {
             ResolvedSpTarget::Project {
                 path: _,
                 root,
@@ -330,7 +455,7 @@ pub(crate) fn exec_test(
                         message,
                     )) => return fail_message(&message, json_output),
                 }
-                match sporec_driver::test_specs_project(root, entry) {
+                match sporec_driver::test_properties_project(root, entry) {
                     Ok(r) => r,
                     Err(msg) => return fail_message(&msg, json_output),
                 }
@@ -376,74 +501,21 @@ pub(crate) fn exec_test(
                     }
                 }
 
-                match sporec_driver::test_specs(&source) {
+                match sporec_driver::test_properties(&source) {
                     Ok(r) => r,
                     Err(msg) => return fail_message(&msg, json_output),
                 }
             }
         };
 
-        for r in &spec_results {
-            let kind_label = if r.kind == sporec_driver::SpecKind::Example {
-                "example"
-            } else {
-                "property"
-            };
-            if r.passed {
-                total_passed += 1;
-                if !json_output && verbose {
-                    eprintln!(
-                        "  {} {} :: {} \"{}\"",
-                        "✓".green(),
-                        r.fn_name,
-                        kind_label,
-                        r.label
-                    );
-                }
-            } else {
-                total_failed += 1;
-                let msg = r.error.as_deref().unwrap_or("assertion failed");
-                if !json_output {
-                    eprintln!(
-                        "  {} {} :: {} \"{}\" — {}",
-                        "✗".red(),
-                        r.fn_name,
-                        kind_label,
-                        r.label,
-                        msg
-                    );
-                }
-            }
-        }
+        record_property_results(
+            &property_results,
+            verbose,
+            json_output,
+            &mut total_passed,
+            &mut total_failed,
+        );
     }
 
-    if json_output {
-        sporec_diagnostics::print_json(&json!({
-            "status": if total_failed == 0 {
-                sporec_diagnostics::ReportStatus::Ok
-            } else {
-                sporec_diagnostics::ReportStatus::Fail
-            },
-            "passed": total_passed,
-            "failed": total_failed,
-        }));
-    } else {
-        let total = total_passed + total_failed;
-        if total == 0 {
-            eprintln!("note: no spec clauses found");
-        } else if total_failed == 0 {
-            eprintln!("\n{} {total} specs passed", "✓".green());
-        } else {
-            eprintln!(
-                "\n{}: {total_failed} of {total} specs failed",
-                "FAIL".red().bold()
-            );
-        }
-    }
-
-    if total_failed > 0 {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
+    finish_property_results(total_passed, total_failed, json_output)
 }
