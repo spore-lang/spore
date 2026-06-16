@@ -1,0 +1,561 @@
+---
+source: crates/sporec-parser/tests/snapshot_tests.rs
+expression: module
+---
+Module {
+    name: "",
+    items: [
+        Import(
+            Import {
+                path: "std.io.File",
+                alias: "File",
+                span: Some(
+                    Span {
+                        start: 9,
+                        end: 35,
+                    },
+                ),
+            },
+        ),
+        Alias(
+            AliasDef {
+                name: "Bytes",
+                visibility: Pub,
+                target: Generic(
+                    "List",
+                    [
+                        Named(
+                            "U8",
+                        ),
+                    ],
+                ),
+                span: Some(
+                    Span {
+                        start: 45,
+                        end: 71,
+                    },
+                ),
+            },
+        ),
+        StructDef(
+            StructDef {
+                name: "Point",
+                visibility: Pub,
+                type_params: [
+                    "T",
+                ],
+                fields: [
+                    FieldDef {
+                        name: "x",
+                        ty: Named(
+                            "T",
+                        ),
+                    },
+                    FieldDef {
+                        name: "y",
+                        ty: Named(
+                            "T",
+                        ),
+                    },
+                ],
+                implements: [],
+                deriving: [],
+                span: Some(
+                    Span {
+                        start: 85,
+                        end: 115,
+                    },
+                ),
+            },
+        ),
+        TypeDef(
+            TypeDef {
+                name: "Option",
+                visibility: Private,
+                type_params: [
+                    "T",
+                ],
+                variants: [
+                    Variant {
+                        name: "Some",
+                        fields: [
+                            Named(
+                                "T",
+                            ),
+                        ],
+                    },
+                    Variant {
+                        name: "None",
+                        fields: [],
+                    },
+                ],
+                implements: [],
+                deriving: [],
+                span: Some(
+                    Span {
+                        start: 125,
+                        end: 157,
+                    },
+                ),
+            },
+        ),
+        TraitDef(
+            TraitDef {
+                name: "Display",
+                visibility: Private,
+                type_params: [
+                    "T",
+                ],
+                methods: [
+                    FnDef {
+                        name: "show",
+                        visibility: Private,
+                        type_params: [],
+                        params: [
+                            Param {
+                                name: "self",
+                                ty: Named(
+                                    "T",
+                                ),
+                            },
+                        ],
+                        return_type: Some(
+                            Named(
+                                "String",
+                            ),
+                        ),
+                        errors: [],
+                        where_clause: None,
+                        cost_clause: None,
+                        spec_clause: None,
+                        uses_clause: None,
+                        is_unbounded: false,
+                        hole_allows: None,
+                        is_foreign: false,
+                        body: None,
+                        span: Some(
+                            Span {
+                                start: 222,
+                                end: 248,
+                            },
+                        ),
+                    },
+                ],
+                assoc_types: [
+                    AssocType {
+                        name: "Output",
+                        bounds: [],
+                    },
+                ],
+                span: Some(
+                    Span {
+                        start: 167,
+                        end: 258,
+                    },
+                ),
+            },
+        ),
+        EffectDef(
+            EffectDef {
+                name: "Console",
+                visibility: Private,
+                operations: [
+                    FnDef {
+                        name: "println",
+                        visibility: Private,
+                        type_params: [],
+                        params: [
+                            Param {
+                                name: "msg",
+                                ty: Named(
+                                    "String",
+                                ),
+                            },
+                        ],
+                        return_type: Some(
+                            Named(
+                                "Unit",
+                            ),
+                        ),
+                        errors: [],
+                        where_clause: None,
+                        cost_clause: None,
+                        spec_clause: None,
+                        uses_clause: None,
+                        is_unbounded: false,
+                        hole_allows: None,
+                        is_foreign: false,
+                        body: None,
+                        span: Some(
+                            Span {
+                                start: 297,
+                                end: 328,
+                            },
+                        ),
+                    },
+                ],
+                span: Some(
+                    Span {
+                        start: 268,
+                        end: 338,
+                    },
+                ),
+            },
+        ),
+        EffectAlias(
+            EffectAlias {
+                name: "IO",
+                visibility: Private,
+                effects: [
+                    "Console",
+                    "FileRead",
+                ],
+                span: Some(
+                    Span {
+                        start: 348,
+                        end: 378,
+                    },
+                ),
+            },
+        ),
+        HandlerDef(
+            HandlerDef {
+                name: "MockConsole",
+                fields: [
+                    FieldDef {
+                        name: "output",
+                        ty: Generic(
+                            "List",
+                            [
+                                Named(
+                                    "Str",
+                                ),
+                            ],
+                        ),
+                    },
+                ],
+                handles_clause: HandlesClause {
+                    effects: [
+                        "Console",
+                    ],
+                },
+                uses_clause: Some(
+                    UsesClause {
+                        resources: [
+                            "Clock",
+                        ],
+                    },
+                ),
+                impls: [
+                    HandlerImpl {
+                        effect: "Console",
+                        methods: [
+                            FnDef {
+                                name: "println",
+                                visibility: Private,
+                                type_params: [],
+                                params: [
+                                    Param {
+                                        name: "msg",
+                                        ty: Named(
+                                            "String",
+                                        ),
+                                    },
+                                ],
+                                return_type: Some(
+                                    Named(
+                                        "Unit",
+                                    ),
+                                ),
+                                errors: [],
+                                where_clause: None,
+                                cost_clause: None,
+                                spec_clause: None,
+                                uses_clause: None,
+                                is_unbounded: false,
+                                hole_allows: None,
+                                is_foreign: false,
+                                body: Some(
+                                    Block(
+                                        [],
+                                        Some(
+                                            Return(
+                                                None,
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                                span: Some(
+                                    Span {
+                                        start: 503,
+                                        end: 545,
+                                    },
+                                ),
+                            },
+                        ],
+                        span: Some(
+                            Span {
+                                start: 472,
+                                end: 559,
+                            },
+                        ),
+                    },
+                ],
+                span: Some(
+                    Span {
+                        start: 388,
+                        end: 569,
+                    },
+                ),
+            },
+        ),
+        Function(
+            FnDef {
+                name: "render",
+                visibility: Private,
+                type_params: [
+                    "T",
+                ],
+                params: [
+                    Param {
+                        name: "point",
+                        ty: Generic(
+                            "Point",
+                            [
+                                Named(
+                                    "T",
+                                ),
+                            ],
+                        ),
+                    },
+                ],
+                return_type: Some(
+                    Named(
+                        "String",
+                    ),
+                ),
+                errors: [],
+                where_clause: Some(
+                    WhereClause {
+                        constraints: [
+                            TypeConstraint {
+                                type_var: "T",
+                                bound: "Display",
+                            },
+                        ],
+                    },
+                ),
+                cost_clause: Some(
+                    CostClause {
+                        compute: Linear(
+                            "n",
+                        ),
+                        alloc: Literal(
+                            0,
+                        ),
+                        io: Literal(
+                            0,
+                        ),
+                        parallel: Literal(
+                            0,
+                        ),
+                    },
+                ),
+                spec_clause: Some(
+                    SpecClause {
+                        items: [
+                            Example(
+                                ExampleItem {
+                                    label: "origin",
+                                    body: Block(
+                                        [],
+                                        Some(
+                                            BinOp(
+                                                Call(
+                                                    Var(
+                                                        "render",
+                                                    ),
+                                                    [
+                                                        StructLit(
+                                                            "Point",
+                                                            [
+                                                                (
+                                                                    "x",
+                                                                    IntLit(
+                                                                        0,
+                                                                    ),
+                                                                ),
+                                                                (
+                                                                    "y",
+                                                                    IntLit(
+                                                                        0,
+                                                                    ),
+                                                                ),
+                                                            ],
+                                                        ),
+                                                    ],
+                                                ),
+                                                Eq,
+                                                StrLit(
+                                                    "(0, 0)",
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                    span: Some(
+                                        Span {
+                                            start: 718,
+                                            end: 807,
+                                        },
+                                    ),
+                                },
+                            ),
+                            Property(
+                                PropertyItem {
+                                    label: "non_negative_identity",
+                                    predicate: Lambda(
+                                        [
+                                            Param {
+                                                name: "x",
+                                                ty: Refinement(
+                                                    Named(
+                                                        "I32",
+                                                    ),
+                                                    "self",
+                                                    BinOp(
+                                                        Var(
+                                                            "self",
+                                                        ),
+                                                        Ge,
+                                                        IntLit(
+                                                            0,
+                                                        ),
+                                                    ),
+                                                ),
+                                            },
+                                        ],
+                                        Var(
+                                            "x",
+                                        ),
+                                    ),
+                                    span: Some(
+                                        Span {
+                                            start: 820,
+                                            end: 879,
+                                        },
+                                    ),
+                                },
+                            ),
+                        ],
+                        span: Some(
+                            Span {
+                                start: 699,
+                                end: 889,
+                            },
+                        ),
+                    },
+                ),
+                uses_clause: Some(
+                    UsesClause {
+                        resources: [
+                            "Console",
+                        ],
+                    },
+                ),
+                is_unbounded: true,
+                hole_allows: None,
+                is_foreign: false,
+                body: Some(
+                    Block(
+                        [
+                            Let(
+                                "message",
+                                None,
+                                FString(
+                                    [
+                                        Literal(
+                                            "point ",
+                                        ),
+                                        Expr(
+                                            FieldAccess(
+                                                Var(
+                                                    "point",
+                                                ),
+                                                "x",
+                                            ),
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
+                        Some(
+                            Handle {
+                                body: Block(
+                                    [
+                                        Expr(
+                                            Perform {
+                                                effect: "Console",
+                                                operation: "println",
+                                                args: [
+                                                    Var(
+                                                        "message",
+                                                    ),
+                                                ],
+                                            },
+                                        ),
+                                    ],
+                                    Some(
+                                        Var(
+                                            "message",
+                                        ),
+                                    ),
+                                ),
+                                handlers: [
+                                    Use(
+                                        HandlerUse {
+                                            handler: "MockConsole",
+                                            payload: [
+                                                (
+                                                    "output",
+                                                    List(
+                                                        [],
+                                                    ),
+                                                ),
+                                            ],
+                                        },
+                                    ),
+                                    On(
+                                        EffectArm {
+                                            effect: "Console",
+                                            operation: "println",
+                                            params: [
+                                                "msg",
+                                            ],
+                                            body: Block(
+                                                [
+                                                    Expr(
+                                                        Var(
+                                                            "msg",
+                                                        ),
+                                                    ),
+                                                ],
+                                                None,
+                                            ),
+                                        },
+                                    ),
+                                ],
+                            },
+                        ),
+                    ),
+                ),
+                span: Some(
+                    Span {
+                        start: 579,
+                        end: 1185,
+                    },
+                ),
+            },
+        ),
+    ],
+    comments: [],
+}
