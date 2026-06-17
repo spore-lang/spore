@@ -1,0 +1,83 @@
+---
+source: crates/sporec-typeck/tests/snapshot_tests.rs
+expression: hir
+---
+HirModule {
+    items: [
+        Function(
+            HirFnDef {
+                name: "double",
+                def_id: 0,
+                params: [
+                    HirParam {
+                        name: "x",
+                        ty: Primitive(
+                            I32,
+                        ),
+                    },
+                ],
+                return_type: Some(
+                    Primitive(
+                        I32,
+                    ),
+                ),
+                body: Some(
+                    Block(
+                        [],
+                        Some(
+                            BinOp(
+                                Var(
+                                    "x",
+                                    2,
+                                ),
+                                Add,
+                                Var(
+                                    "x",
+                                    2,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+                uses_clause: {},
+                throws: [],
+                where_clause: [],
+                cost_bound: None,
+            },
+        ),
+        Function(
+            HirFnDef {
+                name: "main",
+                def_id: 1,
+                params: [],
+                return_type: Some(
+                    Primitive(
+                        I32,
+                    ),
+                ),
+                body: Some(
+                    Block(
+                        [],
+                        Some(
+                            Call(
+                                Var(
+                                    "double",
+                                    0,
+                                ),
+                                [
+                                    IntLit(
+                                        5,
+                                    ),
+                                ],
+                            ),
+                        ),
+                    ),
+                ),
+                uses_clause: {},
+                throws: [],
+                where_clause: [],
+                cost_bound: None,
+            },
+        ),
+    ],
+}

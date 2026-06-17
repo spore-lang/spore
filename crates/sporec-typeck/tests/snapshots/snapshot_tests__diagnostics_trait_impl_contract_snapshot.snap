@@ -1,0 +1,11 @@
+---
+source: crates/sporec-typeck/tests/snapshot_tests.rs
+expression: diagnostics
+---
+[
+    (
+        "E0013",
+        "error",
+        "impl `Display` for `Point` is missing method `show`",
+    ),
+]

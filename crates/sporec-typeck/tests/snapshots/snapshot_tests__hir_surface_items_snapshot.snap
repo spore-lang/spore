@@ -1,0 +1,131 @@
+---
+source: crates/sporec-typeck/tests/snapshot_tests.rs
+expression: hir
+---
+HirModule {
+    items: [
+        StructDef(
+            HirStructDef {
+                name: "Point",
+                def_id: 0,
+                type_params: [
+                    "T",
+                ],
+                fields: [
+                    (
+                        "x",
+                        Named(
+                            "T",
+                            4294967295,
+                        ),
+                    ),
+                    (
+                        "y",
+                        Named(
+                            "T",
+                            4294967295,
+                        ),
+                    ),
+                ],
+            },
+        ),
+        TypeDef(
+            HirTypeDef {
+                name: "Option",
+                def_id: 1,
+                type_params: [
+                    "T",
+                ],
+                variants: [
+                    HirVariant {
+                        name: "Some",
+                        fields: [
+                            Named(
+                                "T",
+                                4294967295,
+                            ),
+                        ],
+                    },
+                    HirVariant {
+                        name: "None",
+                        fields: [],
+                    },
+                ],
+            },
+        ),
+        TraitDef(
+            HirTraitDef {
+                name: "Display",
+                def_id: 2,
+                type_params: [
+                    "T",
+                ],
+                methods: [
+                    HirFnDef {
+                        name: "show",
+                        def_id: 4294967295,
+                        params: [
+                            HirParam {
+                                name: "self",
+                                ty: Named(
+                                    "T",
+                                    4294967295,
+                                ),
+                            },
+                        ],
+                        return_type: Some(
+                            Primitive(
+                                Str,
+                            ),
+                        ),
+                        body: None,
+                        uses_clause: {},
+                        throws: [],
+                        where_clause: [],
+                        cost_bound: None,
+                    },
+                ],
+            },
+        ),
+        ImplDef(
+            HirImplDef {
+                trait_name: "Display",
+                target_type: "Point",
+                methods: [
+                    HirFnDef {
+                        name: "show",
+                        def_id: 4294967295,
+                        params: [
+                            HirParam {
+                                name: "self",
+                                ty: Named(
+                                    "Point",
+                                    0,
+                                ),
+                            },
+                        ],
+                        return_type: Some(
+                            Primitive(
+                                Str,
+                            ),
+                        ),
+                        body: Some(
+                            Block(
+                                [],
+                                Some(
+                                    StrLit(
+                                        "point",
+                                    ),
+                                ),
+                            ),
+                        ),
+                        uses_clause: {},
+                        throws: [],
+                        where_clause: [],
+                        cost_bound: None,
+                    },
+                ],
+            },
+        ),
+    ],
+}

@@ -866,6 +866,7 @@ name = "sporec-typeck"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "insta",
  "sporec-parser",
  "sporec-stdlib",
  "tempfile",

@@ -13,4 +13,5 @@ sporec-parser = { path = "../sporec-parser" }
 sporec-stdlib = { path = "../sporec-stdlib" }
 
 [dev-dependencies]
+insta = { workspace = true }
 tempfile = "3"
