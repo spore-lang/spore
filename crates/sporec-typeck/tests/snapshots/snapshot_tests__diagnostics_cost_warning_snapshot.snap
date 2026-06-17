@@ -1,0 +1,11 @@
+---
+source: crates/sporec-typeck/tests/snapshot_tests.rs
+expression: warnings
+---
+[
+    (
+        "K0101",
+        "warning",
+        "function `over_budget` exceeds its declared cost budget: actual cost [206, 0, 0, 0] exceeds declared cost [2, 0, 0, 0]",
+    ),
+]
