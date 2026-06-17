@@ -1,47 +1,10 @@
 //! Internal type representation for Spore's type checker.
 
-use std::collections::BTreeSet;
 use std::fmt;
-
-use sporec_parser::ast::TypeExpr;
 
 use crate::is_synthetic_hole_name;
 
 pub use crate::effect_set::EffectSet;
-
-/// A set of error types that a function may throw.
-pub type ErrorSet = BTreeSet<String>;
-
-/// Canonicalize error names into a stable, order-insensitive error set.
-pub fn canonical_error_set<I, S>(names: I) -> ErrorSet
-where
-    I: IntoIterator<Item = S>,
-    S: Into<String>,
-{
-    names.into_iter().map(Into::into).collect()
-}
-
-/// Re-canonicalize an existing error set to make normalization explicit at boundaries.
-pub fn canonicalize_error_set(errors: &ErrorSet) -> ErrorSet {
-    canonical_error_set(errors.iter().cloned())
-}
-
-/// Extract and canonicalize a declared `! E1 | E2` error set from parsed type expressions.
-pub fn declared_error_set(error_exprs: &[TypeExpr]) -> ErrorSet {
-    canonical_error_set(error_exprs.iter().filter_map(|expr| match expr {
-        TypeExpr::Named(name) => Some(name.clone()),
-        _ => None,
-    }))
-}
-
-/// Return the canonical missing subset `required \ available`.
-pub fn missing_errors<'a>(required: &'a ErrorSet, available: &ErrorSet) -> Vec<&'a str> {
-    required
-        .iter()
-        .filter(|name| !available.contains(*name))
-        .map(String::as_str)
-        .collect()
-}
 
 /// The internal type representation used during type checking.
 /// This is separate from the AST's `TypeExpr` — resolved and normalized.
@@ -70,14 +33,17 @@ pub enum Ty {
     /// Named type (structs, type aliases, type params)
     Named(String),
 
-    /// Generic type application: `List[I64]`, `Result[T, E]`
+    /// Generic type application: `List[I64]`
     App(String, Vec<Ty>),
 
     /// Tuple: `(I64, Str)`
     Tuple(Vec<Ty>),
 
-    /// Function type: `(params) -> return [uses caps] [! errors]`
-    Fn(Vec<Ty>, Box<Ty>, EffectSet, ErrorSet),
+    /// Function type: `(params) -> return [uses caps]`
+    Fn(Vec<Ty>, Box<Ty>, EffectSet),
+
+    /// First-class outcome type: `success ! failure`.
+    Outcome(Box<Ty>, Box<Ty>),
 
     /// Type variable (for future inference / generics)
     Var(u32),
@@ -130,12 +96,14 @@ impl Ty {
         F: FnMut(Ty) -> Ty,
     {
         let folded = match self {
-            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
+            Ty::Fn(params, ret, caps) => Ty::Fn(
                 params.into_iter().map(|p| p.fold(f)).collect(),
                 Box::new((*ret).fold(f)),
                 caps,
-                errors,
             ),
+            Ty::Outcome(success, failure) => {
+                Ty::Outcome(Box::new((*success).fold(f)), Box::new((*failure).fold(f)))
+            }
             Ty::App(name, args) => Ty::App(name, args.into_iter().map(|a| a.fold(f)).collect()),
             Ty::Tuple(ts) => Ty::Tuple(ts.into_iter().map(|t| t.fold(f)).collect()),
             Ty::Record(fields) => {
@@ -154,7 +122,7 @@ impl Ty {
     {
         f(self);
         match self {
-            Ty::Fn(params, ret, _, _) => {
+            Ty::Fn(params, ret, _) => {
                 for p in params {
                     p.visit(f);
                 }
@@ -169,6 +137,10 @@ impl Ty {
                 for t in ts {
                     t.visit(f);
                 }
+            }
+            Ty::Outcome(success, failure) => {
+                success.visit(f);
+                failure.visit(f);
             }
             Ty::Record(fields) => {
                 for (_, t) in fields {
@@ -194,12 +166,14 @@ impl Ty {
             return result;
         }
         match self {
-            Ty::Fn(params, ret, caps, errors) => Ty::Fn(
+            Ty::Fn(params, ret, caps) => Ty::Fn(
                 params.iter().map(|p| p.fold_ref(f)).collect(),
                 Box::new(ret.fold_ref(f)),
                 caps.clone(),
-                errors.clone(),
             ),
+            Ty::Outcome(success, failure) => {
+                Ty::Outcome(Box::new(success.fold_ref(f)), Box::new(failure.fold_ref(f)))
+            }
             Ty::App(name, args) => {
                 Ty::App(name.clone(), args.iter().map(|a| a.fold_ref(f)).collect())
             }
@@ -239,9 +213,8 @@ impl PartialEq for Ty {
             (Ty::Named(a), Ty::Named(b)) => a == b,
             (Ty::App(n1, a1), Ty::App(n2, a2)) => n1 == n2 && a1 == a2,
             (Ty::Tuple(a), Ty::Tuple(b)) => a == b,
-            (Ty::Fn(p1, r1, c1, e1), Ty::Fn(p2, r2, c2, e2)) => {
-                p1 == p2 && r1 == r2 && c1 == c2 && e1 == e2
-            }
+            (Ty::Fn(p1, r1, c1), Ty::Fn(p2, r2, c2)) => p1 == p2 && r1 == r2 && c1 == c2,
+            (Ty::Outcome(s1, f1), Ty::Outcome(s2, f2)) => s1 == s2 && f1 == f2,
             (Ty::Var(a), Ty::Var(b)) => a == b,
             (Ty::Hole(a), Ty::Hole(b)) => a == b,
             (Ty::Record(a), Ty::Record(b)) => a == b,
@@ -292,7 +265,7 @@ impl fmt::Display for Ty {
                 }
                 write!(f, ")")
             }
-            Ty::Fn(params, ret, caps, errors) => {
+            Ty::Fn(params, ret, caps) => {
                 write!(f, "(")?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
@@ -305,12 +278,9 @@ impl fmt::Display for Ty {
                     let cap_list: Vec<&str> = caps.iter().map(|s| s.as_str()).collect();
                     write!(f, " uses [{}]", cap_list.join(", "))?;
                 }
-                if !errors.is_empty() {
-                    let err_list: Vec<&str> = errors.iter().map(|s| s.as_str()).collect();
-                    write!(f, " ! {}", err_list.join(" | "))?;
-                }
                 Ok(())
             }
+            Ty::Outcome(success, failure) => write!(f, "{success} ! {failure}"),
             Ty::Record(fields) => {
                 write!(f, "{{ ")?;
                 for (i, (name, ty)) in fields.iter().enumerate() {
@@ -332,5 +302,204 @@ impl fmt::Display for Ty {
             Ty::Refined(base, _var, _pred) => write!(f, "{base} when <predicate>"),
             Ty::Error => write!(f, "<error>"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sporec_parser::ast::Expr;
+
+    fn dummy_expr() -> Box<Expr> {
+        Box::new(Expr::BoolLit(true))
+    }
+
+    // ── is_integer / is_numeric / is_error ──────────────────────────
+
+    #[test]
+    fn integer_types() {
+        for ty in [
+            Ty::I8,
+            Ty::I16,
+            Ty::I32,
+            Ty::I64,
+            Ty::U8,
+            Ty::U16,
+            Ty::U32,
+            Ty::U64,
+        ] {
+            assert!(ty.is_integer(), "{ty} should be integer");
+            assert!(ty.is_numeric(), "{ty} should be numeric");
+        }
+    }
+
+    #[test]
+    fn float_types_are_numeric_not_integer() {
+        for ty in [Ty::F32, Ty::F64] {
+            assert!(!ty.is_integer(), "{ty} should not be integer");
+            assert!(ty.is_numeric(), "{ty} should be numeric");
+        }
+    }
+
+    #[test]
+    fn non_numeric_types() {
+        assert!(!Ty::Bool.is_numeric());
+        assert!(!Ty::Str.is_numeric());
+        assert!(!Ty::Unit.is_numeric());
+        assert!(!Ty::Never.is_numeric());
+    }
+
+    #[test]
+    fn error_sentinel() {
+        assert!(Ty::Error.is_error());
+        assert!(!Ty::I32.is_error());
+    }
+
+    // ── base_type ───────────────────────────────────────────────────
+
+    #[test]
+    fn base_type_strips_single_refinement() {
+        let refined = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        assert_eq!(*refined.base_type(), Ty::I32);
+    }
+
+    #[test]
+    fn base_type_strips_nested_refinement() {
+        let inner = Ty::Refined(Box::new(Ty::I32), "y".into(), dummy_expr());
+        let outer = Ty::Refined(Box::new(inner), "x".into(), dummy_expr());
+        assert_eq!(*outer.base_type(), Ty::I32);
+    }
+
+    #[test]
+    fn base_type_identity_for_non_refined() {
+        assert_eq!(*Ty::Bool.base_type(), Ty::Bool);
+        assert_eq!(*Ty::Str.base_type(), Ty::Str);
+    }
+
+    // ── PartialEq ───────────────────────────────────────────────────
+
+    #[test]
+    fn equality_same_primitives() {
+        assert_eq!(Ty::I32, Ty::I32);
+        assert_ne!(Ty::I32, Ty::I64);
+    }
+
+    #[test]
+    fn equality_named() {
+        assert_eq!(Ty::Named("Foo".into()), Ty::Named("Foo".into()));
+        assert_ne!(Ty::Named("Foo".into()), Ty::Named("Bar".into()));
+    }
+
+    #[test]
+    fn equality_app() {
+        let a = Ty::App("List".into(), vec![Ty::I32]);
+        let b = Ty::App("List".into(), vec![Ty::I32]);
+        let c = Ty::App("List".into(), vec![Ty::Bool]);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn equality_refined() {
+        let a = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        let b = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn equality_refined_vs_base() {
+        let refined = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        assert_ne!(refined, Ty::I32, "refined should not equal base type");
+    }
+
+    // ── Display ─────────────────────────────────────────────────────
+
+    #[test]
+    fn display_primitives() {
+        assert_eq!(Ty::I32.to_string(), "I32");
+        assert_eq!(Ty::Bool.to_string(), "Bool");
+        assert_eq!(Ty::Unit.to_string(), "()");
+        assert_eq!(Ty::Never.to_string(), "Never");
+    }
+
+    #[test]
+    fn display_app() {
+        let ty = Ty::App("List".into(), vec![Ty::I32]);
+        assert_eq!(ty.to_string(), "List[I32]");
+    }
+
+    #[test]
+    fn display_tuple() {
+        let ty = Ty::Tuple(vec![Ty::I32, Ty::Bool]);
+        assert_eq!(ty.to_string(), "(I32, Bool)");
+    }
+
+    #[test]
+    fn display_fn() {
+        let ty = Ty::Fn(vec![Ty::I32], Box::new(Ty::Bool), EffectSet::new());
+        assert_eq!(ty.to_string(), "(I32) -> Bool");
+    }
+
+    #[test]
+    fn display_outcome() {
+        let ty = Ty::Outcome(Box::new(Ty::I32), Box::new(Ty::Named("IoError".into())));
+        assert_eq!(ty.to_string(), "I32 ! IoError");
+    }
+
+    #[test]
+    fn display_record() {
+        let ty = Ty::Record(vec![("x".into(), Ty::I32), ("y".into(), Ty::I32)]);
+        assert_eq!(ty.to_string(), "{ x: I32, y: I32 }");
+    }
+
+    #[test]
+    fn display_hole() {
+        assert_eq!(Ty::Hole("foo".into()).to_string(), "?foo");
+    }
+
+    #[test]
+    fn display_refinement() {
+        let ty = Ty::Refined(Box::new(Ty::I32), "x".into(), dummy_expr());
+        assert_eq!(ty.to_string(), "I32 when <predicate>");
+    }
+
+    // ── fold / visit ────────────────────────────────────────────────
+
+    #[test]
+    fn fold_transforms_bottom_up() {
+        // Replace all I32 with I64
+        let ty = Ty::Tuple(vec![Ty::I32, Ty::Bool, Ty::I32]);
+        let result = ty.fold(&mut |t| if t == Ty::I32 { Ty::I64 } else { t });
+        assert_eq!(result, Ty::Tuple(vec![Ty::I64, Ty::Bool, Ty::I64]));
+    }
+
+    #[test]
+    fn fold_ref_transforms_top_down() {
+        let ty = Ty::App("List".into(), vec![Ty::I32]);
+        let result = ty.fold_ref(&mut |t| match t {
+            Ty::App(name, _) if name == "List" => Some(Ty::Named("Vec".into())),
+            _ => None,
+        });
+        assert_eq!(result, Ty::Named("Vec".into()));
+    }
+
+    #[test]
+    fn visit_collects_types() {
+        let ty = Ty::Tuple(vec![Ty::I32, Ty::App("List".into(), vec![Ty::Bool])]);
+        let mut seen = Vec::new();
+        ty.visit(&mut |t| seen.push(format!("{t}")));
+        assert!(seen.contains(&"I32".to_string()));
+        assert!(seen.contains(&"Bool".to_string()));
+        assert!(seen.contains(&"List[Bool]".to_string()));
+    }
+
+    #[test]
+    fn fold_transforms_outcome_members() {
+        let ty = Ty::Outcome(Box::new(Ty::I32), Box::new(Ty::Named("Failure".into())));
+        let result = ty.fold(&mut |ty| if ty == Ty::I32 { Ty::I64 } else { ty });
+        assert_eq!(
+            result,
+            Ty::Outcome(Box::new(Ty::I64), Box::new(Ty::Named("Failure".into())))
+        );
     }
 }

@@ -161,8 +161,8 @@ fn exec_compile(files: &[String], json_output: bool) -> ExitCode {
                     json_output,
                 ),
                 sporec_driver::SourceCheckReport::Failure(
-                    sporec_driver::SourceCheckFailure::Message(fallback),
-                ) => sporec_diagnostics::exit_with_message_error(&fallback, json_output),
+                    sporec_driver::SourceCheckFailure::Message(report_message),
+                ) => sporec_diagnostics::exit_with_message_error(&report_message, json_output),
                 sporec_driver::SourceCheckReport::Success { .. } => {
                     sporec_diagnostics::exit_with_message_error(&message, json_output)
                 }
@@ -422,70 +422,55 @@ fn render_hole(hole: &HoleInfo) -> String {
         ));
     }
 
-    if let Some(cost_budget) = &hole.cost_budget {
-        lines.push(format!(
-            "  cost budget: used {}, total {}, remaining {}",
-            cost_budget.cost_before_hole,
-            cost_budget
-                .budget_total
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "unbounded".to_string()),
-            cost_budget
-                .budget_remaining
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "unknown".to_string())
-        ));
+    if let Some(budget_context) = &hole.budget_context {
+        if !budget_context.constraints.is_empty() {
+            lines.push("  budget constraints:".to_string());
+            for constraint in &budget_context.constraints {
+                lines.push(format!(
+                    "    - {} <= {}",
+                    constraint.field, constraint.limit
+                ));
+            }
+        }
+        if !budget_context.observations.is_empty() {
+            lines.push("  budget observations:".to_string());
+            for observation in &budget_context.observations {
+                let remaining = observation
+                    .remaining
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                lines.push(format!(
+                    "    - {} observed {}, remaining {}",
+                    observation.field, observation.observed, remaining
+                ));
+            }
+        }
     }
 
-    if let Some(residual) = &hole.residual_context {
-        if let Some(budget) = &residual.budget_declared {
-            lines.push(format!(
-                "  checked budget: cost [{}, {}, {}, {}]",
-                budget.compute, budget.alloc, budget.io, budget.parallel
-            ));
-        }
+    if let Some(property_context) = &hole.property_context
+        && !property_context.properties.is_empty()
+    {
         lines.push(format!(
-            "  cost before hole: cost [{}, {}, {}, {}]",
-            residual.cost_before.compute,
-            residual.cost_before.alloc,
-            residual.cost_before.io,
-            residual.cost_before.parallel
+            "  properties to preserve: {}",
+            property_context.properties.join(", ")
         ));
-        if let Some(remaining) = &residual.budget_residual {
-            lines.push(format!(
-                "  checked residual: cost [{}, {}, {}, {}]",
-                remaining.compute, remaining.alloc, remaining.io, remaining.parallel
-            ));
-        }
-        if let Some(rule) = &residual.fit_rule {
-            lines.push(format!("  fit rule: {rule}"));
-        }
-        if let Some(note) = &residual.note {
-            lines.push(format!("  cost note: {note}"));
-        }
     }
 
     if !hole.candidates.is_empty() {
         lines.push("  candidates:".to_string());
         for candidate in &hole.candidates {
             let mut line = format!(
-                "    - {} (overall {:.2}, type {:.2}, cost {:.2}, required effects {:.2}, error {:.2})",
+                "    - {} (overall {:.2}, type {:.2}, budget {:.2}, required effects {:.2}, error {:.2})",
                 candidate.name,
                 candidate.overall(),
                 candidate.type_match,
-                candidate.cost_fit,
+                candidate.budget_fit,
                 candidate.required_effects_fit,
                 candidate.error_coverage
             );
             let reason = candidate
                 .explanation
                 .as_deref()
-                .or_else(|| {
-                    candidate
-                        .cost_check
-                        .as_ref()
-                        .and_then(|cost_check| cost_check.reason.as_deref())
-                })
                 .or_else(|| candidate.adjustments.first().map(String::as_str));
             if let Some(reason) = reason {
                 line.push_str(&format!(" — {reason}"));

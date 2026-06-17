@@ -34,6 +34,20 @@ impl Interpreter {
                     None
                 }
             }
+            Pattern::OutcomeOk(inner) => {
+                if let Value::OutcomeOk(value) = val {
+                    self.match_pattern(inner, value)
+                } else {
+                    None
+                }
+            }
+            Pattern::OutcomeFail(inner) => {
+                if let Value::OutcomeFail(value) = val {
+                    self.match_pattern(inner, value)
+                } else {
+                    None
+                }
+            }
             Pattern::Constructor(name, sub_pats) => {
                 if let Value::Enum(vname, fields) = val {
                     if vname != name {

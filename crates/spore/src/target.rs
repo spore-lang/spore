@@ -113,6 +113,22 @@ pub(crate) fn resolve_cli_path(path: &str, cwd: &Path) -> PathBuf {
     }
 }
 
+const RECURSIVE_DISCOVERY_IGNORED_DIRS: &[&str] = &[
+    ".git",
+    ".spark",
+    ".spore-store",
+    ".venv",
+    "dist",
+    "node_modules",
+    "target",
+];
+
+fn should_skip_recursive_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| RECURSIVE_DISCOVERY_IGNORED_DIRS.contains(&name))
+}
+
 /// Recursively collect all `.sp` files under a directory.
 fn collect_sp_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
     let entries = std::fs::read_dir(dir)
@@ -121,6 +137,9 @@ fn collect_sp_recursive(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String
         let entry = entry.map_err(|e| format!("directory read error: {e}"))?;
         let path = entry.path();
         if path.is_dir() {
+            if should_skip_recursive_dir(&path) {
+                continue;
+            }
             collect_sp_recursive(&path, out)?;
         } else if path.extension().is_some_and(|ext| ext == "sp") {
             out.push(path);
@@ -150,6 +169,7 @@ fn collect_nested_projects(
         let entry = entry.map_err(|e| format!("directory read error: {e}"))?;
         let path = entry.path();
         if !path.is_dir()
+            || should_skip_recursive_dir(&path)
             || source_roots
                 .iter()
                 .any(|source_root| path.starts_with(source_root))

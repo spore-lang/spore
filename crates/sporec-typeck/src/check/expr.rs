@@ -8,6 +8,7 @@ impl Checker {
             Expr::FloatLit(_) => Ty::F64,
             Expr::StrLit(_) => Ty::Str,
             Expr::BoolLit(_) => Ty::Bool,
+            Expr::Unit => Ty::Unit,
             Expr::FString(_) => Ty::Str,
             Expr::TString(_) => Ty::Str,
 
@@ -25,16 +26,10 @@ impl Checker {
                         }
                     } else {
                         // bare function name as value — return its function type
-                        let errors = self
-                            .registry
-                            .fn_errors
-                            .get(name)
-                            .cloned()
-                            .unwrap_or_default();
-                        Ty::Fn(params, Box::new(ret), caps, errors)
+                        Ty::Fn(params, Box::new(ret), caps)
                     }
                 } else if let Some((params, ret, caps)) = self.lookup_module_function(name) {
-                    Ty::Fn(params, Box::new(ret), caps, ErrorSet::new())
+                    Ty::Fn(params, Box::new(ret), caps)
                 } else {
                     self.err(ErrorCode::E0004, format!("undefined variable `{name}`"));
                     Ty::Error
@@ -83,7 +78,7 @@ impl Checker {
                 let ret_ty = self.check_expr(body);
                 let caps = self.pop_effect_observer();
                 self.env.pop_scope();
-                Ty::Fn(param_tys, Box::new(ret_ty), caps, ErrorSet::new())
+                Ty::Fn(param_tys, Box::new(ret_ty), caps)
             }
 
             Expr::If(cond, then_branch, else_branch) => {
@@ -97,15 +92,7 @@ impl Checker {
                 let then_ty = self.check_expr(then_branch);
                 if let Some(else_expr) = else_branch {
                     let else_ty = self.check_expr(else_expr);
-                    // If one branch diverges (Never), the overall type is the other branch.
-                    if matches!(then_ty, Ty::Never) {
-                        else_ty
-                    } else if matches!(else_ty, Ty::Never) {
-                        then_ty
-                    } else {
-                        self.unify(&then_ty, &else_ty, "if/else branches");
-                        then_ty
-                    }
+                    self.merge_branch_types(then_ty, else_ty, "if/else branches")
                 } else {
                     // No else branch: the expression types as Unit.
                     // Unify then_ty with Unit so non-Unit then-branches are flagged.
@@ -146,14 +133,8 @@ impl Checker {
                     let arm_ty = self.check_expr(&arm.body);
                     self.env.pop_scope();
 
-                    if let Some(ref expected) = result_ty {
-                        // If the accumulated result type is Never (all prior arms diverged),
-                        // adopt this arm's type. If this arm diverges, keep the existing type.
-                        if matches!(expected, Ty::Never) {
-                            result_ty = Some(arm_ty);
-                        } else if !matches!(arm_ty, Ty::Never) {
-                            self.unify(expected, &arm_ty, "match arms");
-                        }
+                    if let Some(expected) = result_ty.take() {
+                        result_ty = Some(self.merge_branch_types(expected, arm_ty, "match arms"));
                     } else {
                         result_ty = Some(arm_ty);
                     }
@@ -179,7 +160,7 @@ impl Checker {
                 let arg_ty = self.check_expr(lhs);
                 let fn_ty = self.check_expr(rhs);
                 match fn_ty {
-                    Ty::Fn(params, ret, caps, errors) => {
+                    Ty::Fn(params, ret, caps) => {
                         if params.len() != 1 {
                             self.err(
                                 ErrorCode::E0009,
@@ -192,7 +173,6 @@ impl Checker {
                             self.unify(&params[0], &arg_ty, "pipe argument");
                         }
                         self.check_effect_propagation(&caps);
-                        self.check_error_propagation(&errors);
                         *ret
                     }
                     Ty::Error => Ty::Error,
@@ -208,33 +188,7 @@ impl Checker {
 
             Expr::FieldAccess(expr, field) => {
                 let ty = self.check_expr(expr);
-                match &ty {
-                    Ty::Named(name) | Ty::App(name, _) => {
-                        if let Some(fields) = self.registry.structs.get(name).cloned() {
-                            let (fields, _) = self.struct_fields_for_type(name, &fields, &ty);
-                            if let Some((_, fty)) = fields.iter().find(|(n, _)| n == field) {
-                                fty.clone()
-                            } else {
-                                self.err(
-                                    ErrorCode::E0015,
-                                    format!("struct `{name}` has no field `{field}`"),
-                                );
-                                Ty::Error
-                            }
-                        } else {
-                            self.err(ErrorCode::E0016, format!("type `{name}` has no fields"));
-                            Ty::Error
-                        }
-                    }
-                    Ty::Error => Ty::Error,
-                    _ => {
-                        self.err(
-                            ErrorCode::E0016,
-                            format!("cannot access field `{field}` on type `{ty}`"),
-                        );
-                        Ty::Error
-                    }
-                }
+                self.check_field_access_on_type(&ty, field)
             }
 
             Expr::StructLit(name, fields) => {
@@ -282,16 +236,41 @@ impl Checker {
                 }
             }
 
-            Expr::Try(expr) => self.check_expr(expr),
+            Expr::Try(expr) => {
+                let inner_ty = self.check_expr(expr);
+                let ty = self.apply_subst(&inner_ty);
+                match ty {
+                    Ty::Outcome(success, failure) => {
+                        if let Some(enclosing_failure) = self.current_outcome_failure.clone() {
+                            self.unify(
+                                &enclosing_failure,
+                                &failure,
+                                "outcome propagation with `?`",
+                            );
+                        } else {
+                            self.err(
+                                ErrorCode::E0012,
+                                "`?` requires an enclosing outcome return type such as `A ! E`"
+                                    .into(),
+                            );
+                        }
+                        *success
+                    }
+                    Ty::Error => Ty::Error,
+                    other => {
+                        self.err(
+                            ErrorCode::E0012,
+                            format!("`?` expects an outcome value, got `{other}`"),
+                        );
+                        Ty::Error
+                    }
+                }
+            }
 
-            Expr::Hole(name, ty_hint, allows, span) => {
+            Expr::Hole(name, ty_hint, span) => {
                 let hole_name = name
                     .clone()
                     .unwrap_or_else(|| self.fresh_unnamed_hole_name());
-                let effective_allows = allows.clone().or_else(|| self.current_hole_allows.clone());
-                let inferred_from_allows = effective_allows
-                    .as_deref()
-                    .and_then(|allowed| self.infer_hole_type_from_allows(allowed));
                 let return_expected = self
                     .expected_return_type
                     .as_ref()
@@ -302,23 +281,10 @@ impl Checker {
                         Some("hole type annotation".to_string()),
                     )
                 } else if let Some(ret) = return_expected {
-                    if matches!(ret, Ty::Var(_) | Ty::Hole(_)) {
-                        if let Some(inferred) = inferred_from_allows {
-                            (inferred, Some("`@allows[...]` candidates".to_string()))
-                        } else {
-                            (
-                                ret,
-                                Some(format!("return type of `{}`", self.current_function)),
-                            )
-                        }
-                    } else {
-                        (
-                            ret,
-                            Some(format!("return type of `{}`", self.current_function)),
-                        )
-                    }
-                } else if let Some(inferred) = inferred_from_allows {
-                    (inferred, Some("`@allows[...]` candidates".to_string()))
+                    (
+                        ret,
+                        Some(format!("return type of `{}`", self.current_function)),
+                    )
                 } else {
                     (Ty::Hole(hole_name.clone()), None)
                 };
@@ -326,7 +292,7 @@ impl Checker {
                 // Collect hole info for the report (v0.3)
                 let bindings = self.env.all_bindings();
                 let expected = self.apply_subst(&ty);
-                let suggestions = self.find_suggestions(&expected, effective_allows.as_deref());
+                let suggestions = self.find_suggestions(&expected);
 
                 // Build scored candidates from simple suggestions
                 let candidates: Vec<crate::hole::CandidateScore> = suggestions
@@ -346,60 +312,32 @@ impl Checker {
                             .unwrap_or_default();
                         let required_effects_fit =
                             if missing_effects.is_empty() { 1.0 } else { 0.0 };
-                        let missing_errors = self
-                            .registry
-                            .fn_errors
-                            .get(&name)
-                            .map(|errors| {
-                                errors
-                                    .iter()
-                                    .filter(|error| !self.current_errors.contains(error.as_str()))
-                                    .cloned()
-                                    .collect::<Vec<_>>()
-                            })
-                            .unwrap_or_default();
-                        let error_coverage = self
-                            .registry
-                            .fn_errors
-                            .get(&name)
-                            .map(|errors| {
-                                if errors.is_empty() {
-                                    1.0
-                                } else {
-                                    let covered = errors.len() - missing_errors.len();
-                                    covered as f64 / errors.len() as f64
-                                }
-                            })
-                            .unwrap_or(1.0);
                         let mut rejection_reasons = Vec::new();
                         if !missing_effects.is_empty() {
                             rejection_reasons
                                 .push(format!("requires effects [{}]", missing_effects.join(", ")));
                         }
-                        if !missing_errors.is_empty() {
-                            rejection_reasons.push(format!(
-                                "propagates unhandled errors [{}]",
-                                missing_errors.join(", ")
-                            ));
-                        }
 
                         crate::hole::CandidateScore {
                             name,
                             type_match: 1.0,
-                            cost_fit: 0.5,
+                            budget_fit: 0.5,
                             required_effects_fit,
-                            error_coverage,
+                            error_coverage: 1.0,
                             rejection_reasons: rejection_reasons.clone(),
                             explanation: rejection_reasons.first().cloned(),
                             adjustments: rejection_reasons,
-                            cost_check: None,
                         }
                     })
                     .collect();
 
-                // Collect available effects and errors in scope
+                // Collect available effects and the enclosing outcome failure type.
                 let available_effects = self.current_effects.clone();
-                let errors_to_handle: Vec<String> = self.current_errors.iter().cloned().collect();
+                let errors_to_handle = self
+                    .current_outcome_failure
+                    .as_ref()
+                    .map(|failure| vec![failure.to_string()])
+                    .unwrap_or_default();
                 let effect_context = self.hole_effect_context_stack.last().map(|context| {
                     crate::hole::EffectContext {
                         discharged_effects: context.discharged_effects.clone(),
@@ -420,8 +358,8 @@ impl Checker {
                     available_effects,
                     errors_to_handle,
                     effect_context,
-                    cost_budget: None,
-                    residual_context: None,
+                    budget_context: None,
+                    property_context: None,
                     candidates,
                     dependent_holes: Vec::new(),
                     confidence: None,
@@ -435,13 +373,13 @@ impl Checker {
                 self.observe_effect("Spawn");
                 if !self.current_effects.contains("Spawn") {
                     self.err(
-                        ErrorCode::C0001,
+                        ErrorCode::F0001,
                         "spawn requires effect `Spawn`; add `uses [Spawn]`".to_string(),
                     );
                 }
                 if !self.concurrency.in_parallel_scope(&self.current_function) {
                     self.err(
-                        ErrorCode::C0103,
+                        ErrorCode::F0103,
                         "spawn is only allowed inside `parallel_scope { ... }`".to_string(),
                     );
                 }
@@ -492,10 +430,9 @@ impl Checker {
                 Ty::Never
             }
 
-            Expr::Throw(expr) => {
-                let _ = self.check_expr(expr);
-                self.check_throw_coverage(expr);
-                Ty::Never
+            Expr::Fail(expr) => {
+                let failure = self.check_expr(expr);
+                Ty::Outcome(Box::new(self.fresh_var()), Box::new(failure))
             }
 
             Expr::List(elems) => {
@@ -532,7 +469,7 @@ impl Checker {
                         let spawn_sites = Self::count_spawns(body);
                         if spawn_sites > *n as usize {
                             self.err(
-                            ErrorCode::C0103,
+                            ErrorCode::F0103,
                             format!(
                                 "parallel_scope(lanes: {n}) has {spawn_sites} spawn site(s) in body"
                             ),
@@ -585,8 +522,8 @@ impl Checker {
                             self.check_expr(body)
                         }
                     };
-                    if let Some(ref expected) = result_ty {
-                        self.unify(expected, &arm_ty, "select arms");
+                    if let Some(expected) = result_ty.take() {
+                        result_ty = Some(self.merge_branch_types(expected, arm_ty, "select arms"));
                     } else {
                         result_ty = Some(arm_ty);
                     }
@@ -609,17 +546,17 @@ impl Checker {
                 // Verify the required effect is in the current function's uses set.
                 if !self.current_effects.contains(effect) {
                     self.err(
-                        ErrorCode::C0001,
+                        ErrorCode::F0001,
                         format!(
                             "perform requires effect `{effect}` but current function does not declare it"
                         ),
                     );
                 }
-                if !self.registry.interfaces.contains_key(effect) {
+                if !self.registry.effects.contains(effect) {
                     for arg in args {
                         let _ = self.check_expr(arg);
                     }
-                    self.err(ErrorCode::C0002, format!("unknown effect `{effect}`"));
+                    self.err(ErrorCode::F0002, format!("unknown effect `{effect}`"));
                     return Ty::Error;
                 }
                 if let Some((param_tys, ret_ty)) =
@@ -663,9 +600,9 @@ impl Checker {
                 for binding in handlers {
                     match binding {
                         HandleBinding::On(arm) => {
-                            if !self.registry.interfaces.contains_key(&arm.effect) {
+                            if !self.registry.effects.contains(&arm.effect) {
                                 self.err(
-                                    ErrorCode::C0002,
+                                    ErrorCode::F0002,
                                     format!("unknown effect `{}`", arm.effect),
                                 );
                                 continue;
@@ -691,7 +628,7 @@ impl Checker {
                                 self.registry.handlers.get(&handler_use.handler).cloned()
                             else {
                                 self.err(
-                                    ErrorCode::C0002,
+                                    ErrorCode::F0002,
                                     format!("unknown handler `{}`", handler_use.handler),
                                 );
                                 continue;
@@ -763,14 +700,6 @@ impl Checker {
                                     &value_ty,
                                     &format!(
                                         "payload field `{field_name}` for handler `{}`",
-                                        handler_use.handler
-                                    ),
-                                );
-                            } else {
-                                self.err(
-                                    ErrorCode::E0015,
-                                    format!(
-                                        "handler `{}` has no payload field `{field_name}`",
                                         handler_use.handler
                                     ),
                                 );
@@ -890,7 +819,7 @@ impl Checker {
                 let leaked_outer_effects = discharged_effects.difference(&prev_effects);
                 if !leaked_outer_effects.is_empty() {
                     self.err(
-                        ErrorCode::C0001,
+                        ErrorCode::F0001,
                         format!(
                             "handle block leaks outer effects {}; add them to the surrounding `uses [...]` or discharge them with another handler",
                             leaked_outer_effects
@@ -916,7 +845,7 @@ impl Checker {
         match op {
             // Arithmetic: both operands must be same numeric type
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
-                // String concatenation with +
+                // Str concatenation with +
                 if matches!(op, BinOp::Add) && lt == Ty::Str && rt == Ty::Str {
                     return Ty::Str;
                 }
@@ -980,7 +909,7 @@ impl Checker {
             | Expr::Await(body)
             | Expr::Try(body)
             | Expr::Return(Some(body))
-            | Expr::Throw(body)
+            | Expr::Fail(body)
             | Expr::UnaryOp(_, body) => Self::count_spawns(body),
             Expr::BinOp(lhs, _, rhs) | Expr::Pipe(lhs, rhs) => {
                 Self::count_spawns(lhs) + Self::count_spawns(rhs)
@@ -1013,12 +942,13 @@ impl Checker {
                     .sum();
                 stmt_spawns + tail.as_ref().map_or(0, |e| Self::count_spawns(e))
             }
-            Expr::Hole(_, _, _, _)
+            Expr::Hole(_, _, _)
             | Expr::IntLit(_)
             | Expr::SuffixedIntLit(_, _)
             | Expr::FloatLit(_)
             | Expr::StrLit(_)
             | Expr::BoolLit(_)
+            | Expr::Unit
             | Expr::Var(_)
             | Expr::Placeholder => 0,
             Expr::StructLit(_, fields) => fields.iter().map(|(_, e)| Self::count_spawns(e)).sum(),
@@ -1086,6 +1016,28 @@ impl Checker {
             return actual;
         }
 
+        if let Ty::Outcome(success, _) = &expected {
+            if let Expr::IntLit(n) = expr
+                && let Some(fits) = Self::integer_literal_fits(success, *n)
+            {
+                if fits {
+                    return (**success).clone();
+                }
+                self.err(
+                    ErrorCode::E0001,
+                    format!("integer literal `{n}` does not fit `{success}` in {context}"),
+                );
+                return Ty::Error;
+            }
+            let actual = self.check_expr(expr);
+            if matches!(actual, Ty::Outcome(_, _)) {
+                self.unify(&expected, &actual, context);
+            } else {
+                self.unify(success, &actual, context);
+            }
+            return actual;
+        }
+
         if let Expr::IntLit(n) = expr
             && let Some(fits) = Self::integer_literal_fits(&expected, *n)
         {
@@ -1102,6 +1054,31 @@ impl Checker {
         let actual = self.check_expr(expr);
         self.unify(&expected, &actual, context);
         actual
+    }
+
+    fn merge_branch_types(&mut self, left: Ty, right: Ty, context: &str) -> Ty {
+        let left = self.apply_subst(&left);
+        let right = self.apply_subst(&right);
+        match (&left, &right) {
+            (Ty::Never, _) => right,
+            (_, Ty::Never) => left,
+            (Ty::Outcome(_, _), Ty::Outcome(_, _)) => {
+                self.unify(&left, &right, context);
+                left
+            }
+            (Ty::Outcome(success, _), _) => {
+                self.unify(success, &right, context);
+                left
+            }
+            (_, Ty::Outcome(success, _)) => {
+                self.unify(&left, success, context);
+                right
+            }
+            _ => {
+                self.unify(&left, &right, context);
+                left
+            }
+        }
     }
 
     fn integer_literal_fits(expected: &Ty, n: i64) -> Option<bool> {
@@ -1153,6 +1130,131 @@ impl Checker {
 
     // ── Function calls ──────────────────────────────────────────────
 
+    fn check_field_access_on_type(&mut self, ty: &Ty, field: &str) -> Ty {
+        match ty {
+            Ty::Named(name) | Ty::App(name, _) => {
+                if let Some(fields) = self.registry.structs.get(name).cloned() {
+                    let (fields, _) = self.struct_fields_for_type(name, &fields, ty);
+                    if let Some((_, fty)) = fields.iter().find(|(name, _)| name == field) {
+                        fty.clone()
+                    } else if name.starts_with("__handler::") {
+                        let inferred = self.fresh_var();
+                        self.registry
+                            .structs
+                            .get_mut(name)
+                            .expect("handler self type must be registered")
+                            .push((field.to_string(), inferred.clone()));
+                        inferred
+                    } else {
+                        self.err(
+                            ErrorCode::E0015,
+                            format!("struct `{name}` has no field `{field}`"),
+                        );
+                        Ty::Error
+                    }
+                } else {
+                    self.err(ErrorCode::E0016, format!("type `{name}` has no fields"));
+                    Ty::Error
+                }
+            }
+            Ty::Error => Ty::Error,
+            _ => {
+                self.err(
+                    ErrorCode::E0016,
+                    format!("cannot access field `{field}` on type `{ty}`"),
+                );
+                Ty::Error
+            }
+        }
+    }
+
+    fn check_instantiated_method_call(
+        &mut self,
+        method_name: &str,
+        method: InstantiatedMethod,
+        receiver_ty: Option<&Ty>,
+        args: &[Expr],
+    ) -> Ty {
+        let explicit_params = if let Some(receiver_ty) = receiver_ty {
+            let Some((receiver_param, explicit_params)) = method.params.split_first() else {
+                self.err(
+                    ErrorCode::E0007,
+                    format!("method `{method_name}` is missing its receiver parameter"),
+                );
+                return Ty::Error;
+            };
+            self.unify(
+                receiver_param,
+                receiver_ty,
+                &format!("receiver of method `{method_name}`"),
+            );
+            explicit_params
+        } else {
+            method.params.as_slice()
+        };
+
+        if explicit_params.len() != args.len() {
+            self.err(
+                ErrorCode::E0007,
+                format!(
+                    "method `{method_name}` expects {} arguments, got {}",
+                    explicit_params.len(),
+                    args.len()
+                ),
+            );
+            return self.apply_subst(&method.return_type);
+        }
+        for (index, (expected, arg_expr)) in explicit_params.iter().zip(args).enumerate() {
+            let _ = self.check_expr_against(
+                expected,
+                arg_expr,
+                &format!("argument {} of method `{method_name}`", index + 1),
+            );
+        }
+        self.check_instantiated_bounds(
+            &format!("method `{method_name}`"),
+            &method.generic_bounds,
+            &method.type_mapping,
+        );
+        self.check_effect_propagation(&method.required_effects);
+        self.apply_subst(&method.return_type)
+    }
+
+    fn check_function_type_call(&mut self, fn_ty: Ty, args: &[Expr]) -> Ty {
+        match fn_ty {
+            Ty::Fn(param_tys, ret_ty, caps) => {
+                if param_tys.len() != args.len() {
+                    self.err(
+                        ErrorCode::E0007,
+                        format!(
+                            "function expects {} arguments, got {}",
+                            param_tys.len(),
+                            args.len()
+                        ),
+                    );
+                } else {
+                    for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
+                        let _ = self.check_expr_against(
+                            expected,
+                            arg_expr,
+                            &format!("argument {}", i + 1),
+                        );
+                    }
+                }
+                self.check_effect_propagation(&caps);
+                *ret_ty
+            }
+            Ty::Error => Ty::Error,
+            _ => {
+                self.err(
+                    ErrorCode::E0008,
+                    format!("cannot call non-function type `{fn_ty}`"),
+                );
+                Ty::Error
+            }
+        }
+    }
+
     pub(super) fn check_call(&mut self, callee: &Expr, args: &[Expr]) -> Ty {
         // Direct call by name: `foo(args)`
         if let Expr::Var(name) = callee
@@ -1189,11 +1291,8 @@ impl Checker {
                     &format!("argument {} of `{name}`", i + 1),
                 );
             }
-            self.check_where_bounds(name, &type_mapping);
+            self.check_generic_bounds(name, &type_mapping);
             self.check_effect_propagation(&callee_caps);
-            if let Some(callee_errors) = self.registry.fn_errors.get(name).cloned() {
-                self.check_error_propagation(&callee_errors);
-            }
             return self.apply_subst(&ret_ty);
         }
 
@@ -1224,42 +1323,32 @@ impl Checker {
         }
         // Could be a variable holding a function
 
-        // Method call: `obj.method(args)` — callee is FieldAccess
-        // General case: check callee type
-        let fn_ty = self.check_expr(callee);
-        match fn_ty {
-            Ty::Fn(param_tys, ret_ty, caps, errors) => {
-                if param_tys.len() != args.len() {
-                    self.err(
-                        ErrorCode::E0007,
-                        format!(
-                            "function expects {} arguments, got {}",
-                            param_tys.len(),
-                            args.len()
-                        ),
-                    );
-                } else {
-                    for (i, (expected, arg_expr)) in param_tys.iter().zip(args).enumerate() {
-                        let _ = self.check_expr_against(
-                            expected,
-                            arg_expr,
-                            &format!("argument {}", i + 1),
-                        );
-                    }
-                }
-                self.check_effect_propagation(&caps);
-                self.check_error_propagation(&errors);
-                *ret_ty
+        if let Expr::FieldAccess(receiver, method_name) = callee {
+            if let Expr::Var(owner_name) = receiver.as_ref()
+                && let Some(method) = self.lookup_static_method(owner_name, method_name)
+            {
+                return self.check_instantiated_method_call(method_name, method, None, args);
             }
-            Ty::Error => Ty::Error,
-            _ => {
-                self.err(
-                    ErrorCode::E0008,
-                    format!("cannot call non-function type `{fn_ty}`"),
+
+            let receiver_ty = self.check_expr(receiver);
+            if let Some(method) = self
+                .lookup_receiver_method(&receiver_ty, method_name)
+                .or_else(|| self.lookup_generic_bound_method(&receiver_ty, method_name))
+            {
+                return self.check_instantiated_method_call(
+                    method_name,
+                    method,
+                    Some(&receiver_ty),
+                    args,
                 );
-                Ty::Error
             }
+
+            let fn_ty = self.check_field_access_on_type(&receiver_ty, method_name);
+            return self.check_function_type_call(fn_ty, args);
         }
+
+        let fn_ty = self.check_expr(callee);
+        self.check_function_type_call(fn_ty, args)
     }
 
     // ── Statements ──────────────────────────────────────────────────
@@ -1298,12 +1387,18 @@ impl Checker {
         effect: &str,
         operation: &str,
     ) -> Option<(Vec<Ty>, Ty)> {
-        let (type_params, methods) = self.registry.interfaces.get(effect).cloned()?;
+        let Some((type_params, methods)) = self.registry.interfaces.get(effect).cloned() else {
+            self.err(
+                ErrorCode::F0002,
+                format!("effect `{effect}` has no visible operation protocol"),
+            );
+            return None;
+        };
         let Some((_name, param_tys, ret_ty)) =
             methods.into_iter().find(|(name, _, _)| name == operation)
         else {
             self.err(
-                ErrorCode::C0002,
+                ErrorCode::F0002,
                 format!("effect `{effect}` has no operation `{operation}`"),
             );
             return None;

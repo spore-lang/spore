@@ -23,6 +23,10 @@ pub enum Value {
     List(Vec<Value>),
     /// Enum variant instance: (variant name, fields)
     Enum(String, Vec<Value>),
+    /// Successful first-class outcome.
+    OutcomeOk(Box<Value>),
+    /// Failed first-class outcome.
+    OutcomeFail(Box<Value>),
     /// Map (for future use)
     Map(BTreeMap<String, Value>),
     /// Spawned task handle.
@@ -39,6 +43,8 @@ pub struct Closure {
     pub params: Vec<String>,
     pub body: sporec_parser::ast::Expr,
     pub env: BTreeMap<String, Value>,
+    /// Whether a plain return value is lifted into a successful outcome.
+    pub outcome_return: bool,
 }
 
 /// Shared endpoint into a channel state.
@@ -92,6 +98,8 @@ impl PartialEq for Value {
             (Value::Unit, Value::Unit) => true,
             (Value::List(x), Value::List(y)) => x == y,
             (Value::Enum(n1, f1), Value::Enum(n2, f2)) => n1 == n2 && f1 == f2,
+            (Value::OutcomeOk(x), Value::OutcomeOk(y)) => x == y,
+            (Value::OutcomeFail(x), Value::OutcomeFail(y)) => x == y,
             (Value::Struct(n1, f1), Value::Struct(n2, f2)) => n1 == n2 && f1 == f2,
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::Task(a), Value::Task(b)) => Rc::ptr_eq(&a.state, &b.state),
@@ -147,6 +155,8 @@ impl fmt::Display for Value {
                     write!(f, ")")
                 }
             }
+            Value::OutcomeOk(value) => write!(f, "ok {value}"),
+            Value::OutcomeFail(value) => write!(f, "fail {value}"),
             Value::Map(entries) => {
                 write!(f, "{{")?;
                 for (i, (k, v)) in entries.iter().enumerate() {
@@ -210,6 +220,7 @@ impl Value {
             Value::List(_) => "List",
             Value::Struct(name, _) => name,
             Value::Enum(name, _) => name,
+            Value::OutcomeOk(_) | Value::OutcomeFail(_) => "Outcome",
             Value::Closure(_) => "Closure",
             Value::Builtin(_) => "Builtin",
             Value::Map(_) => "Map",

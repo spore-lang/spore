@@ -145,6 +145,32 @@ impl Checker {
                 }
                 vec![]
             }
+            Pattern::OutcomeOk(inner) => {
+                if let Ty::Outcome(success, _) = scrutinee_ty {
+                    self.check_pattern(inner, success)
+                } else {
+                    if !scrutinee_ty.is_error() {
+                        self.err(
+                            ErrorCode::E0011,
+                            format!("`ok` pattern cannot match type `{scrutinee_ty}`"),
+                        );
+                    }
+                    vec![]
+                }
+            }
+            Pattern::OutcomeFail(inner) => {
+                if let Ty::Outcome(_, failure) = scrutinee_ty {
+                    self.check_pattern(inner, failure)
+                } else {
+                    if !scrutinee_ty.is_error() {
+                        self.err(
+                            ErrorCode::E0011,
+                            format!("`fail` pattern cannot match type `{scrutinee_ty}`"),
+                        );
+                    }
+                    vec![]
+                }
+            }
             Pattern::Constructor(name, sub_pats) => {
                 if let Some(field_tys) = self.variant_pattern_field_types(name, scrutinee_ty) {
                     if sub_pats.len() != field_tys.len() {
@@ -277,6 +303,30 @@ impl Checker {
         }
 
         match scrutinee_ty {
+            Ty::Outcome(_, _) => {
+                let has_ok = arms
+                    .iter()
+                    .any(|arm| outcome_pattern_covers(&arm.pattern, true));
+                let has_fail = arms
+                    .iter()
+                    .any(|arm| outcome_pattern_covers(&arm.pattern, false));
+                if !has_ok || !has_fail {
+                    let mut missing = Vec::new();
+                    if !has_ok {
+                        missing.push("ok");
+                    }
+                    if !has_fail {
+                        missing.push("fail");
+                    }
+                    self.err(
+                        ErrorCode::E0010,
+                        format!(
+                            "non-exhaustive outcome match: missing pattern(s) {}",
+                            missing.join(", ")
+                        ),
+                    );
+                }
+            }
             Ty::Bool => {
                 let has_true = arms
                     .iter()
@@ -377,5 +427,16 @@ impl Checker {
             }
             _ => {}
         }
+    }
+}
+
+fn outcome_pattern_covers(pattern: &Pattern, ok: bool) -> bool {
+    match pattern {
+        Pattern::OutcomeOk(_) => ok,
+        Pattern::OutcomeFail(_) => !ok,
+        Pattern::Or(patterns) => patterns
+            .iter()
+            .any(|pattern| outcome_pattern_covers(pattern, ok)),
+        _ => false,
     }
 }

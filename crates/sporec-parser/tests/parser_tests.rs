@@ -83,7 +83,7 @@ fn test_suffixed_integer_literal_direct_call() {
 
 #[test]
 fn test_pub_fn() {
-    let m = parse_ok("pub fn greet() -> String { \"hello\" }");
+    let m = parse_ok("pub fn greet() -> Str { \"hello\" }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             assert!(matches!(f.visibility, sporec_parser::ast::Visibility::Pub));
@@ -110,126 +110,157 @@ fn test_pub_pkg_fn() {
 
 #[test]
 fn test_fn_with_uses() {
-    let m = parse_ok("fn fetch(url: String) -> String uses [NetRead] { \"data\" }");
+    let m = parse_ok("fn fetch(url: Str) -> Str uses [NetRead] { \"data\" }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let uses = f.uses_clause.as_ref().unwrap();
-            assert_eq!(uses.resources, vec!["NetRead"]);
-        }
-        _ => panic!("expected function"),
-    }
-}
-
-#[test]
-fn test_fn_with_cost() {
-    let m = parse_ok("fn sort(xs: List) -> List cost [O(n), 0, 0, 0] { xs }");
-    match &m.items[0] {
-        sporec_parser::ast::Item::Function(f) => {
-            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
-            assert!(
-                matches!(cost.compute, sporec_parser::ast::CostExpr::Linear(ref v) if v == "n")
+            assert_eq!(
+                uses.surface,
+                sporec_parser::ast::SurfaceExpr::Set(vec!["NetRead".into()])
             );
-            assert!(matches!(
-                cost.alloc,
-                sporec_parser::ast::CostExpr::Literal(0)
-            ));
-            assert!(matches!(cost.io, sporec_parser::ast::CostExpr::Literal(0)));
-            assert!(matches!(
-                cost.parallel,
-                sporec_parser::ast::CostExpr::Literal(0)
-            ));
         }
         _ => panic!("expected function"),
     }
 }
 
 #[test]
-fn test_unbounded_fn_with_cost() {
-    let m = parse_ok("@unbounded\nfn wild(n: I32) -> I32 cost [O(n), 1, 0, 0] { n }");
+fn test_fn_with_budget() {
+    let m = parse_ok(
+        r#"
+        fn sort(xs: List[I64]) -> List[I64]
+        budget {
+            calls: 1
+            holes: 0
+        }
+        { xs }
+    "#,
+    );
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
-            assert!(f.is_unbounded);
-            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
-            assert!(
-                matches!(cost.compute, sporec_parser::ast::CostExpr::Linear(ref v) if v == "n")
-            );
-            assert!(matches!(
-                cost.alloc,
-                sporec_parser::ast::CostExpr::Literal(1)
-            ));
-            assert!(matches!(cost.io, sporec_parser::ast::CostExpr::Literal(0)));
-            assert!(matches!(
-                cost.parallel,
-                sporec_parser::ast::CostExpr::Literal(0)
-            ));
+            let budget = f
+                .budget_clause
+                .as_ref()
+                .expect("budget clause should parse");
+            assert_eq!(budget.items.len(), 2);
+            assert_eq!(budget.items[0].field, "calls");
+            assert_eq!(budget.items[0].limit, 1);
+            assert_eq!(budget.items[1].field, "holes");
+            assert_eq!(budget.items[1].limit, 0);
         }
         _ => panic!("expected function"),
     }
 }
 
 #[test]
-fn test_fn_with_where() {
-    let m = parse_ok("fn show(x: T) -> String where T: Display { \"\" }");
+fn test_removed_cost_clause_is_rejected() {
+    let err = parse("fn wild(n: I32) -> I32 cost [O(n), 1, 0, 0] { n }")
+        .expect_err("cost vector clause should be rejected");
+    assert!(
+        err.iter().any(|e| e
+            .message
+            .contains("use `budget { field: limit }` for signature budgets")),
+        "unexpected parse errors: {err:?}"
+    );
+}
+
+#[test]
+fn test_fn_with_inline_bound() {
+    let m = parse_ok("fn show[T: Display](x: T) -> Str { \"\" }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
-            let wc = f.where_clause.as_ref().unwrap();
-            assert_eq!(wc.constraints.len(), 1);
-            assert_eq!(wc.constraints[0].type_var, "T");
-            assert_eq!(wc.constraints[0].bound, "Display");
+            assert_eq!(f.type_params, vec!["T"]);
+            assert_eq!(f.type_param_bounds.len(), 1);
+            assert_eq!(f.type_param_bounds[0].type_var, "T");
+            assert_eq!(f.type_param_bounds[0].bound, "Display");
         }
         _ => panic!("expected function"),
     }
 }
 
 #[test]
-fn test_fn_where_multi_bound_is_rejected() {
-    let err = parse("fn show(x: T) -> String where T: Display + Debug { \"\" }")
-        .expect_err("multi-bound where clause should be rejected");
+fn test_removed_where_clause_is_rejected() {
+    let err = parse("fn show(x: T) -> Str where T: Display + Debug { \"\" }")
+        .expect_err("where clause should be rejected");
     assert!(
         err.iter().any(|e| {
             e.message
-                .contains("multiple trait bounds are not supported yet")
+                .contains("put generic bounds inline, e.g. `fn f[T: Trait](...)`")
         }),
         "unexpected parse errors: {err:?}"
     );
 }
 
 #[test]
-fn test_fn_with_spec_clause_preserves_item_order() {
+fn test_intent_signature_inline_bounds_budget_and_properties() {
     let m = parse_ok(
         r#"
-        fn add(a: I64, b: I64) -> I64
-        spec {
-            property "left_identity": |a: I64, b: I64 when self == 0| a
-            example "identity": add(0, 42) == 42
+        fn group_by[T, K: Eq + Hash](xs: List[T], key: Fn[T, K]) -> List[T]
+        uses [Console]
+        budget {
+            branches: 4
+            nesting: 3
+            holes: 1
         }
-        { a + b }
+        properties {
+            empty(): true
+            preserves_count(xs: List[T]): true
+        }
+        {
+            ?group_by_body
+        }
     "#,
     );
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
-            let spec = f.spec_clause.as_ref().unwrap();
-            assert_eq!(spec.items.len(), 2);
-            assert!(matches!(
-                &spec.items[0],
-                sporec_parser::ast::SpecItem::Property(prop) if prop.label == "left_identity"
-            ));
-            assert!(matches!(
-                &spec.items[1],
-                sporec_parser::ast::SpecItem::Example(ex) if ex.label == "identity"
-            ));
+            assert_eq!(f.type_params, vec!["T", "K"]);
+            assert_eq!(f.type_param_bounds.len(), 2);
+            assert!(
+                f.type_param_bounds
+                    .iter()
+                    .any(|bound| bound.type_var == "K" && bound.bound == "Eq")
+            );
+            assert!(
+                f.type_param_bounds
+                    .iter()
+                    .any(|bound| bound.type_var == "K" && bound.bound == "Hash")
+            );
+            assert_eq!(f.budget_clause.as_ref().unwrap().items.len(), 3);
+            assert_eq!(f.properties_clause.as_ref().unwrap().items.len(), 2);
         }
         _ => panic!("expected function"),
     }
 }
 
 #[test]
-fn test_fn_with_block_spec_example() {
+fn test_fn_with_properties_clause_preserves_item_order() {
     let m = parse_ok(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "block" {
+        properties {
+            left_identity(a: I64, b: I64): add(0, b) == b
+            right_identity(a: I64, b: I64): add(a, 0) == a
+        }
+        { a + b }
+    "#,
+    );
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            let properties = f.properties_clause.as_ref().unwrap();
+            assert_eq!(properties.items.len(), 2);
+            assert_eq!(properties.items[0].name, "left_identity");
+            assert_eq!(properties.items[1].name, "right_identity");
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_fn_with_block_property_predicate() {
+    let m = parse_ok(
+        r#"
+        fn add(a: I64, b: I64) -> I64
+        properties {
+            block_identity(): {
                 let sum = add(2, 3);
                 sum == 5
             }
@@ -239,11 +270,10 @@ fn test_fn_with_block_spec_example() {
     );
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
-            let spec = f.spec_clause.as_ref().unwrap();
+            let properties = f.properties_clause.as_ref().unwrap();
             assert!(matches!(
-                &spec.items[0],
-                sporec_parser::ast::SpecItem::Example(ex)
-                    if matches!(ex.body.as_ref(), sporec_parser::ast::Expr::Block(_, Some(_)))
+                properties.items[0].predicate.as_ref(),
+                sporec_parser::ast::Expr::Block(_, Some(_))
             ));
         }
         _ => panic!("expected function"),
@@ -251,12 +281,12 @@ fn test_fn_with_block_spec_example() {
 }
 
 #[test]
-fn test_fn_with_refined_spec_property_param() {
+fn test_fn_with_refined_property_param() {
     let m = parse_ok(
         r#"
         fn abs(x: I32) -> I32
-        spec {
-            property "non_negative_identity": |x: I32 when self >= 0| x
+        properties {
+            non_negative_identity(x: I32 when self >= 0): x >= 0
         }
         {
             if x < 0 { 0 - x } else { x }
@@ -265,25 +295,17 @@ fn test_fn_with_refined_spec_property_param() {
     );
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
-            let spec = f.spec_clause.as_ref().unwrap();
-            match &spec.items[0] {
-                sporec_parser::ast::SpecItem::Property(prop) => match prop.predicate.as_ref() {
-                    sporec_parser::ast::Expr::Lambda(params, _) => {
-                        assert_eq!(params.len(), 1);
-                        match &params[0].ty {
-                            sporec_parser::ast::TypeExpr::Refinement(base, binding, _) => {
-                                assert!(matches!(
-                                    base.as_ref(),
-                                    sporec_parser::ast::TypeExpr::Named(name) if name == "I32"
-                                ));
-                                assert_eq!(binding, "self");
-                            }
-                            other => panic!("expected refinement type, got: {other:?}"),
-                        }
-                    }
-                    other => panic!("expected lambda, got: {other:?}"),
-                },
-                other => panic!("expected property, got: {other:?}"),
+            let properties = f.properties_clause.as_ref().unwrap();
+            assert_eq!(properties.items[0].params.len(), 1);
+            match &properties.items[0].params[0].ty {
+                sporec_parser::ast::TypeExpr::Refinement(base, binding, _) => {
+                    assert!(matches!(
+                        base.as_ref(),
+                        sporec_parser::ast::TypeExpr::Named(name) if name == "I32"
+                    ));
+                    assert_eq!(binding, "self");
+                }
+                other => panic!("expected refinement type, got: {other:?}"),
             }
         }
         _ => panic!("expected function"),
@@ -291,109 +313,68 @@ fn test_fn_with_refined_spec_property_param() {
 }
 
 #[test]
-fn test_fn_clauses_parse_in_any_order() {
-    let m = parse_ok(
+fn test_fn_clauses_out_of_order_are_rejected() {
+    let errors = parse(
         r#"
-        fn show[T](x: T) -> T
-        cost [5, 0, 0, 0]
-        spec {
-            example "identity": true
+        fn show[T: Display](x: T) -> T
+        properties {
+            identity(x: T): true
         }
         uses [Console]
-        where T: Display
+        budget {
+            calls: 1
+        }
         { x }
+    "#,
+    )
+    .expect_err("out-of-order intent clauses should be rejected");
+    assert!(errors.iter().any(|error| error.message.contains(
+        "intent signature clauses must appear in order: `uses`, `budget`, `properties`"
+    )));
+}
+
+#[test]
+fn test_budget_accepts_named_integer_fields() {
+    let m = parse_ok(
+        r#"
+        fn f(n: I64) -> I64
+        budget {
+            calls: 2
+            parallelism: 1
+        }
+        { n }
     "#,
     );
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
-            assert!(f.where_clause.is_some());
-            assert!(f.uses_clause.is_some());
-            assert!(f.cost_clause.is_some());
-            assert!(f.spec_clause.is_some());
+            let budget = f.budget_clause.as_ref().expect("budget should parse");
+            assert_eq!(budget.items[0].field, "calls");
+            assert_eq!(budget.items[0].limit, 2);
+            assert_eq!(budget.items[1].field, "parallelism");
+            assert_eq!(budget.items[1].limit, 1);
         }
         _ => panic!("expected function"),
     }
 }
 
 #[test]
-fn test_scalar_cost_syntax_is_rejected() {
-    let errs = parse("fn f(x: I64) -> I64 cost <= 5 { x }")
-        .expect_err("scalar cost syntax should be rejected");
+fn test_budget_rejects_symbolic_values() {
+    let err = parse(
+        r#"
+        fn f(n: I64) -> I64
+        budget {
+            calls: n
+        }
+        { n }
+    "#,
+    )
+    .expect_err("budget values must be literal limits");
     assert!(
-        errs.iter().any(|e| e
+        err.iter().any(|e| e
             .message
-            .contains("scalar `cost <= expr` syntax was removed")),
-        "unexpected errors: {errs:?}"
+            .contains("expected non-negative integer literal for budget `calls`")),
+        "unexpected parse errors: {err:?}"
     );
-}
-
-#[test]
-fn test_composed_cost_slot_syntax_parses() {
-    let m = parse_ok("fn f(n: I64) -> I64 cost [n + 1, n * log(n), max(n, 1), span(n, 1)] { n }");
-    match &m.items[0] {
-        sporec_parser::ast::Item::Function(f) => {
-            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
-            assert_eq!(
-                cost.compute,
-                sporec_parser::ast::CostExpr::Add(
-                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
-                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
-                )
-            );
-            assert_eq!(
-                cost.alloc,
-                sporec_parser::ast::CostExpr::Mul(
-                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
-                    Box::new(sporec_parser::ast::CostExpr::Log(Box::new(
-                        sporec_parser::ast::CostExpr::Var("n".into()),
-                    ))),
-                )
-            );
-            assert_eq!(
-                cost.io,
-                sporec_parser::ast::CostExpr::Max(
-                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
-                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
-                )
-            );
-            assert_eq!(
-                cost.parallel,
-                sporec_parser::ast::CostExpr::Span(
-                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
-                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
-                )
-            );
-        }
-        _ => panic!("expected function"),
-    }
-}
-
-#[test]
-fn test_parenthesized_cost_slot_syntax_parses() {
-    let m = parse_ok("fn f(n: I64) -> I64 cost [(n + 1) * 2, min(n, 1), 0, 0] { n }");
-    match &m.items[0] {
-        sporec_parser::ast::Item::Function(f) => {
-            let cost = f.cost_clause.as_ref().expect("cost clause should parse");
-            assert_eq!(
-                cost.compute,
-                sporec_parser::ast::CostExpr::Mul(
-                    Box::new(sporec_parser::ast::CostExpr::Add(
-                        Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
-                        Box::new(sporec_parser::ast::CostExpr::Literal(1)),
-                    )),
-                    Box::new(sporec_parser::ast::CostExpr::Literal(2)),
-                )
-            );
-            assert_eq!(
-                cost.alloc,
-                sporec_parser::ast::CostExpr::Min(
-                    Box::new(sporec_parser::ast::CostExpr::Var("n".into())),
-                    Box::new(sporec_parser::ast::CostExpr::Literal(1)),
-                )
-            );
-        }
-        _ => panic!("expected function"),
-    }
 }
 
 #[test]
@@ -401,6 +382,17 @@ fn test_throw_signature_clause_is_rejected() {
     let errs =
         sporec_parser::parse("fn read(path: Str) -> Str throw [IoError] { \"x\" }").unwrap_err();
     assert!(!errs.is_empty());
+}
+
+#[test]
+fn test_throw_expression_is_rejected() {
+    let errs = sporec_parser::parse(r#"fn read() -> Str ! IoError { throw "error" }"#)
+        .expect_err("removed throw expression should fail");
+    assert!(
+        errs.iter()
+            .any(|error| error.message.contains("use `fail error`")),
+        "unexpected parse errors: {errs:?}"
+    );
 }
 
 #[test]
@@ -430,12 +422,27 @@ fn test_width_primitive_and_unit_syntax() {
 }
 
 #[test]
+fn test_unit_value_expression() {
+    let m = parse_ok("fn main() -> () { () }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            assert!(matches!(
+                f.body.as_ref(),
+                Some(sporec_parser::ast::Expr::Block(_, Some(value)))
+                    if matches!(value.as_ref(), sporec_parser::ast::Expr::Unit)
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
 fn test_trait_item_ast_shape() {
     let m = parse_ok(
         r#"
         trait Display[T] {
             type Output
-            fn show(self: T) -> String
+            fn show(self: T) -> Str;
         }
     "#,
     );
@@ -455,7 +462,7 @@ fn test_effect_item_ast_shape() {
     let m = parse_ok(
         r#"
         effect Console {
-            fn println(msg: String) -> Unit
+            fn println(msg: Str) -> Unit;
         }
     "#,
     );
@@ -470,37 +477,83 @@ fn test_effect_item_ast_shape() {
 }
 
 #[test]
-fn test_effect_alias_ast_shape() {
-    let m = parse_ok("effect IO = Console | FileRead | FileWrite");
+fn test_surface_ast_shape() {
+    let m = parse_ok("surface IO = [Console, FileRead, FileWrite]");
     match &m.items[0] {
-        sporec_parser::ast::Item::EffectAlias(alias) => {
-            assert_eq!(alias.name, "IO");
-            assert_eq!(alias.effects, vec!["Console", "FileRead", "FileWrite"]);
+        sporec_parser::ast::Item::SurfaceDef(surface) => {
+            assert_eq!(surface.name, "IO");
+            assert_eq!(
+                surface.surface,
+                sporec_parser::ast::SurfaceExpr::Set(vec![
+                    "Console".into(),
+                    "FileRead".into(),
+                    "FileWrite".into()
+                ])
+            );
         }
-        other => panic!("expected EffectAlias, got {other:?}"),
+        other => panic!("expected SurfaceDef, got {other:?}"),
     }
+}
+
+#[test]
+fn test_generic_surface_reference_ast_shape() {
+    let m = parse_ok("surface StateIO[T] = [State[T], Log]");
+    match &m.items[0] {
+        sporec_parser::ast::Item::SurfaceDef(surface) => {
+            assert_eq!(surface.type_params, vec!["T"]);
+            let sporec_parser::ast::SurfaceExpr::Set(references) = &surface.surface else {
+                panic!("expected surface set");
+            };
+            assert_eq!(references[0].name, "State");
+            assert!(
+                matches!(&references[0].type_args[..], [sporec_parser::ast::TypeExpr::Named(name)] if name == "T")
+            );
+            assert_eq!(references[1].name, "Log");
+            assert!(references[1].type_args.is_empty());
+        }
+        other => panic!("expected SurfaceDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_named_surface_uses_clause_ast_shape() {
+    let m = parse_ok("fn run() -> () uses IO { return }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(function) => {
+            assert_eq!(
+                function.uses_clause.as_ref().unwrap().surface,
+                sporec_parser::ast::SurfaceExpr::Named("IO".into())
+            );
+        }
+        other => panic!("expected Function, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_removed_effect_alias_is_rejected() {
+    let errors = sporec_parser::parse("effect IO = Console | FileRead").unwrap_err();
+    assert!(
+        errors[0]
+            .message
+            .contains("surface IO = [EffectA, EffectB]")
+    );
 }
 
 #[test]
 fn test_handler_item_ast_shape() {
     let m = parse_ok(
         r#"
-        handler MockConsole(output: List[Str]) handles [Console] uses [Clock] {
-            impl Console {
-                fn println(msg: String) -> Unit { return }
-            }
+        handler MockConsole for Console {
+            fn Console.println(msg: Str) -> Unit { return }
         }
     "#,
     );
     match &m.items[0] {
         sporec_parser::ast::Item::HandlerDef(handler) => {
             assert_eq!(handler.name, "MockConsole");
-            assert_eq!(handler.handles_clause.effects, vec!["Console"]);
-            assert_eq!(handler.fields.len(), 1);
-            assert_eq!(handler.fields[0].name, "output");
             assert_eq!(
-                handler.uses_clause.as_ref().unwrap().resources,
-                vec!["Clock".to_string()]
+                handler.surface,
+                sporec_parser::ast::SurfaceExpr::Named("Console".into())
             );
             assert_eq!(handler.impls.len(), 1);
             assert_eq!(handler.impls[0].effect, "Console");
@@ -508,6 +561,33 @@ fn test_handler_item_ast_shape() {
         }
         other => panic!("expected HandlerDef, got {other:?}"),
     }
+}
+
+#[test]
+fn test_removed_handler_handles_form_is_rejected() {
+    let errors = sporec_parser::parse(
+        "handler MockConsole handles [Console] { fn Console.println(msg: Str) -> (); }",
+    )
+    .expect_err("removed handler form should fail");
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("handler Name for Surface")),
+        "expected handler migration diagnostic, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_handler_requires_qualified_operation_names() {
+    let errors =
+        sporec_parser::parse("handler MockConsole for Console { fn println(msg: Str) -> (); }")
+            .expect_err("unqualified handler operation should fail");
+    assert!(
+        errors.iter().any(|error| error
+            .message
+            .contains("handler methods must name an effect operation")),
+        "expected qualified operation diagnostic, got {errors:?}"
+    );
 }
 
 // ── Expressions ──────────────────────────────────────────────────────────
@@ -566,7 +646,7 @@ fn test_if_expr() {
 
 #[test]
 fn test_match_expr() {
-    let src = r#"fn f(x: I64) -> String {
+    let src = r#"fn f(x: I64) -> Str {
         match x {
             0 => "zero",
             1 => "one",
@@ -654,7 +734,7 @@ fn test_lambda() {
 
 #[test]
 fn test_try_expr() {
-    let m = parse_ok("fn f(x: Result) -> I64 { x? }");
+    let m = parse_ok("fn f(x: I64 ! Str) -> I64 ! Str { x? }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -677,7 +757,7 @@ fn test_hole() {
             let body = f.body.as_ref().unwrap();
             match body {
                 sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    sporec_parser::ast::Expr::Hole(Some(name), _, _, _) => {
+                    sporec_parser::ast::Expr::Hole(Some(name), _, _) => {
                         assert_eq!(name, "todo")
                     }
                     _ => panic!("expected hole, got {:?}", tail),
@@ -697,13 +777,33 @@ fn test_unnamed_hole() {
             let body = f.body.as_ref().unwrap();
             match body {
                 sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
-                    sporec_parser::ast::Expr::Hole(None, None, None, _) => {}
+                    sporec_parser::ast::Expr::Hole(None, None, _) => {}
                     _ => panic!("expected unnamed hole, got {:?}", tail),
                 },
                 _ => panic!("expected block"),
             }
         }
         _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_typed_hole() {
+    let m = parse_ok("fn f() -> I64 { ?todo: I64 }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => match f.body.as_ref().unwrap() {
+            sporec_parser::ast::Expr::Block(_, Some(tail)) => match tail.as_ref() {
+                sporec_parser::ast::Expr::Hole(Some(name), Some(ty), _) => {
+                    assert_eq!(name, "todo");
+                    assert!(
+                        matches!(ty.as_ref(), sporec_parser::ast::TypeExpr::Named(name) if name == "I64")
+                    );
+                }
+                other => panic!("expected typed hole, got {other:?}"),
+            },
+            other => panic!("expected block, got {other:?}"),
+        },
+        other => panic!("expected function, got {other:?}"),
     }
 }
 
@@ -726,17 +826,27 @@ fn test_signature_type_holes() {
 }
 
 #[test]
-fn test_allows_annotation_on_function() {
-    let m = parse_ok("@allows[validate, sanitize]\nfn f() -> I64 { ? }");
-    match &m.items[0] {
-        sporec_parser::ast::Item::Function(f) => {
-            assert_eq!(
-                f.hole_allows.as_ref().unwrap(),
-                &vec!["validate".to_string(), "sanitize".to_string()]
-            );
-        }
-        _ => panic!("expected function"),
-    }
+fn test_removed_bracketed_attribute_arguments_are_rejected() {
+    let err = parse("@allows[validate, sanitize]\nfn f() -> I64 { ? }")
+        .expect_err("bracketed attribute arguments should be rejected");
+    assert!(
+        err.iter().any(|e| e
+            .message
+            .contains("attribute arguments must use parentheses")),
+        "unexpected parse errors: {err:?}"
+    );
+}
+
+#[test]
+fn test_removed_hole_annotation_is_rejected() {
+    let err = parse("fn f() -> I64 { ?todo @allows[validate, sanitize] }")
+        .expect_err("hole annotations should be rejected");
+    assert!(
+        err.iter().any(|e| e
+            .message
+            .contains("hole metadata annotations are not part of the current syntax")),
+        "unexpected parse errors: {err:?}"
+    );
 }
 
 // ── Items ────────────────────────────────────────────────────────────────
@@ -755,7 +865,7 @@ fn test_struct_def() {
 
 #[test]
 fn test_type_def() {
-    let m = parse_ok("type Option[T] { Some(T), None }");
+    let m = parse_ok("enum Option[T] { Some(T), None }");
     match &m.items[0] {
         sporec_parser::ast::Item::TypeDef(t) => {
             assert_eq!(t.name, "Option");
@@ -802,7 +912,7 @@ fn test_import_with_alias() {
 
 #[test]
 fn test_capability_keyword_is_not_reserved() {
-    let errs = sporec_parser::parse("capability Display[T] { fn show(self: T) -> String }")
+    let errs = sporec_parser::parse("capability Display[T] { fn show(self: T) -> Str }")
         .expect_err("capability-led top-level items should fail generically");
     assert!(
         errs.iter().any(|e| e.message.contains("expected item")),
@@ -814,7 +924,7 @@ fn test_capability_keyword_is_not_reserved() {
 
 #[test]
 fn test_generic_type() {
-    let m = parse_ok("fn f(xs: List[I64]) -> List[String] { xs }");
+    let m = parse_ok("fn f(xs: List[I64]) -> List[Str] { xs }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => match &f.params[0].ty {
             sporec_parser::ast::TypeExpr::Generic(name, args) => {
@@ -822,6 +932,82 @@ fn test_generic_type() {
                 assert_eq!(args.len(), 1);
             }
             _ => panic!("expected generic type"),
+        },
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_outcome_type_nested_in_generic() {
+    let m = parse_ok("fn f(xs: List[I64 ! ParseError]) -> List[I64 ! ParseError] { xs }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => match &f.params[0].ty {
+            sporec_parser::ast::TypeExpr::Generic(name, args) => {
+                assert_eq!(name, "List");
+                assert!(matches!(
+                    args.as_slice(),
+                    [sporec_parser::ast::TypeExpr::Outcome(_, _)]
+                ));
+            }
+            _ => panic!("expected generic type"),
+        },
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_outcome_type_rejects_unparenthesized_chain() {
+    let errs = sporec_parser::parse("fn f() -> I64 ! ParseError ! IoError { 1 }")
+        .expect_err("unparenthesized outcome chain should fail");
+    assert!(
+        errs.iter().any(|error| error
+            .message
+            .contains("cannot be chained without parentheses")),
+        "unexpected parse errors: {errs:?}"
+    );
+}
+
+#[test]
+fn test_outcome_type_allows_explicit_nesting() {
+    let m = parse_ok("fn f() -> (I64 ! ParseError) ! IoError { 1 }");
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => {
+            assert!(matches!(
+                f.return_type.as_ref(),
+                Some(sporec_parser::ast::TypeExpr::Outcome(success, _))
+                    if matches!(success.as_ref(), sporec_parser::ast::TypeExpr::Outcome(_, _))
+            ));
+        }
+        _ => panic!("expected function"),
+    }
+}
+
+#[test]
+fn test_outcome_patterns() {
+    let m = parse_ok(
+        "fn f(value: I64 ! Str) -> I64 {
+            match value {
+                ok number => number,
+                fail _ => 0,
+            }
+        }",
+    );
+    match &m.items[0] {
+        sporec_parser::ast::Item::Function(f) => match f.body.as_ref() {
+            Some(sporec_parser::ast::Expr::Block(_, Some(tail))) => match tail.as_ref() {
+                sporec_parser::ast::Expr::Match(_, arms) => {
+                    assert!(matches!(
+                        arms[0].pattern,
+                        sporec_parser::ast::Pattern::OutcomeOk(_)
+                    ));
+                    assert!(matches!(
+                        arms[1].pattern,
+                        sporec_parser::ast::Pattern::OutcomeFail(_)
+                    ));
+                }
+                _ => panic!("expected match expression"),
+            },
+            _ => panic!("expected function body"),
         },
         _ => panic!("expected function"),
     }
@@ -865,7 +1051,7 @@ fn test_call_expr() {
 
 #[test]
 fn test_method_call() {
-    let m = parse_ok("fn f(x: String) -> I64 { x.len() }");
+    let m = parse_ok("fn f(x: Str) -> I64 { x.len() }");
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -990,20 +1176,20 @@ fn test_const_item() {
 
 #[test]
 fn test_pub_const_item() {
-    let m = parse_ok("pub const NAME: String = \"hello\"");
+    let m = parse_ok("pub const NAME: Str = \"hello\"");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
         sporec_parser::ast::Item::Const(c) => {
             assert_eq!(c.name, "NAME");
             assert!(matches!(c.visibility, sporec_parser::ast::Visibility::Pub));
-            assert!(matches!(&c.ty, sporec_parser::ast::TypeExpr::Named(n) if n == "String"));
+            assert!(matches!(&c.ty, sporec_parser::ast::TypeExpr::Named(n) if n == "Str"));
             assert!(matches!(&c.value, sporec_parser::ast::Expr::StrLit(_)));
         }
         _ => panic!("expected const"),
     }
 }
 
-// ── Return / Throw / List / String prefix tests ─────────────────────────────
+// ── Return / Throw / List / Str prefix tests ────────────────────────────────
 
 use sporec_parser::ast::{Expr, FStringPart, SelectArm, TStringPart, TypeExpr};
 
@@ -1033,19 +1219,19 @@ fn test_return_expr() {
 
 #[test]
 fn test_return_no_value() {
-    let tail = get_tail("fn foo() { return }");
+    let tail = get_tail("fn foo() -> () { return }");
     assert!(matches!(tail, Expr::Return(None)));
 }
 
 #[test]
-fn test_throw_expr() {
-    let tail = get_tail(r#"fn foo() { throw "error" }"#);
-    assert!(matches!(tail, Expr::Throw(_)));
+fn test_fail_expr() {
+    let tail = get_tail(r#"fn foo() -> () ! Str { fail "error" }"#);
+    assert!(matches!(tail, Expr::Fail(_)));
 }
 
 #[test]
 fn test_list_literal() {
-    let tail = get_tail("fn foo() { [1, 2, 3] }");
+    let tail = get_tail("fn foo() -> () { [1, 2, 3] }");
     if let Expr::List(elems) = tail {
         assert_eq!(elems.len(), 3);
     } else {
@@ -1055,7 +1241,7 @@ fn test_list_literal() {
 
 #[test]
 fn test_empty_list() {
-    let tail = get_tail("fn foo() { [] }");
+    let tail = get_tail("fn foo() -> () { [] }");
     if let Expr::List(elems) = tail {
         assert_eq!(elems.len(), 0);
     } else {
@@ -1085,7 +1271,7 @@ fn test_char_escape_is_rejected() {
 
 #[test]
 fn test_raw_string() {
-    let tail = get_tail("fn foo() { r\"C:\\Users\\path\" }");
+    let tail = get_tail("fn foo() -> Str { r\"C:\\Users\\path\" }");
     if let Expr::StrLit(s) = tail {
         assert_eq!(s, "C:\\Users\\path");
     } else {
@@ -1095,7 +1281,7 @@ fn test_raw_string() {
 
 #[test]
 fn test_fstring() {
-    let tail = get_tail("fn foo(name: Str) { f\"hello {name}\" }");
+    let tail = get_tail("fn foo(name: Str) -> Str { f\"hello {name}\" }");
     if let Expr::FString(parts) = tail {
         assert_eq!(parts.len(), 2);
         assert!(matches!(&parts[0], FStringPart::Literal(s) if s == "hello "));
@@ -1107,7 +1293,7 @@ fn test_fstring() {
 
 #[test]
 fn test_tstring() {
-    let tail = get_tail("fn foo(name: Str) { t\"dear {name}\" }");
+    let tail = get_tail("fn foo(name: Str) -> Str { t\"dear {name}\" }");
     if let Expr::TString(parts) = tail {
         assert_eq!(parts.len(), 2);
         assert!(matches!(&parts[0], TStringPart::Literal(s) if s == "dear "));
@@ -1216,7 +1402,7 @@ fn test_prefix_await_is_rejected() {
 
 #[test]
 fn test_channel_new_sugar() {
-    let tail = get_tail("fn f() { Channel.new[I64](buffer: 8) }");
+    let tail = get_tail("fn f() -> () { Channel.new[I64](buffer: 8) }");
     match tail {
         Expr::ChannelNew { elem_type, buffer } => {
             assert!(matches!(elem_type, TypeExpr::Named(ref n) if n == "I64"));
@@ -1251,13 +1437,13 @@ fn test_module_header_with_uses_is_rejected() {
     );
 }
 
-// ── Item 4: alias declaration ───────────────────────────────────────────
+// ── Item 4: transparent type alias declaration ─────────────────────────
 
 use sporec_parser::ast::{AliasDef, Item, Visibility};
 
 #[test]
-fn test_alias_def() {
-    let m = parse_ok("alias MyInt = I64");
+fn test_type_alias_def() {
+    let m = parse_ok("type MyInt = I64");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
         Item::Alias(AliasDef {
@@ -1275,8 +1461,8 @@ fn test_alias_def() {
 }
 
 #[test]
-fn test_pub_alias_def() {
-    let m = parse_ok("pub alias StringList = List[String]");
+fn test_pub_type_alias_def() {
+    let m = parse_ok("pub type StrList = List[Str]");
     match &m.items[0] {
         Item::Alias(AliasDef {
             name,
@@ -1284,12 +1470,48 @@ fn test_pub_alias_def() {
             target,
             ..
         }) => {
-            assert_eq!(name, "StringList");
+            assert_eq!(name, "StrList");
             assert!(matches!(visibility, Visibility::Pub));
             assert!(matches!(target, TypeExpr::Generic(n, _) if n == "List"));
         }
         other => panic!("expected Alias, got {:?}", other),
     }
+}
+
+#[test]
+fn test_foreign_opaque_type_def() {
+    let m = parse_ok("@foreign\ntype Map[K, V];");
+    match &m.items[0] {
+        Item::OpaqueType(type_def) => {
+            assert_eq!(type_def.name, "Map");
+            assert_eq!(type_def.type_params, vec!["K", "V"]);
+            assert_eq!(type_def.attributes.len(), 1);
+            assert_eq!(type_def.attributes[0].name, "foreign");
+        }
+        other => panic!("expected OpaqueType, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_removed_alias_keyword_is_rejected() {
+    let errs = sporec_parser::parse("alias MyInt = I64")
+        .expect_err("removed alias keyword should fail with a migration diagnostic");
+    assert!(
+        errs.iter()
+            .any(|e| e.message.contains("use `type Name = Type`")),
+        "expected type alias migration diagnostic, got {errs:?}"
+    );
+}
+
+#[test]
+fn test_removed_type_sum_declaration_is_rejected() {
+    let errs = sporec_parser::parse("type Color { Red, Green, Blue }")
+        .expect_err("removed type sum declaration should fail with a migration diagnostic");
+    assert!(
+        errs.iter()
+            .any(|e| e.message.contains("use `enum Name { ... }`")),
+        "expected enum migration diagnostic, got {errs:?}"
+    );
 }
 
 // ── Item 5: Self type ───────────────────────────────────────────────────
@@ -1304,6 +1526,72 @@ fn test_self_type_in_param() {
         }
         other => panic!("expected Function, got {:?}", other),
     }
+}
+
+#[test]
+fn test_receiver_self_shorthand() {
+    let m = parse_ok("trait Show { fn show(self) -> Str; }");
+    match &m.items[0] {
+        Item::TraitDef(t) => {
+            let receiver = &t.methods[0].params[0];
+            assert_eq!(receiver.name, "self");
+            assert!(matches!(&receiver.ty, TypeExpr::Named(n) if n == "Self"));
+        }
+        other => panic!("expected TraitDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_receiver_self_shorthand_in_impl() {
+    let m = parse_ok("impl Show for Point { fn show(self) -> Str { \"point\" } }");
+    match &m.items[0] {
+        Item::ImplDef(impl_def) => {
+            let receiver = &impl_def.methods[0].params[0];
+            assert_eq!(receiver.name, "self");
+            assert!(matches!(&receiver.ty, TypeExpr::Named(n) if n == "Self"));
+        }
+        other => panic!("expected ImplDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_generic_inherent_impl_ast_shape() {
+    let m = parse_ok("impl[T: Eq + Hash] Set[T] { fn contains(self, item: T) -> Bool; }");
+    match &m.items[0] {
+        Item::ImplDef(impl_def) => {
+            assert_eq!(impl_def.type_params, vec!["T"]);
+            assert_eq!(impl_def.type_param_bounds.len(), 2);
+            assert!(impl_def.target_type.is_none());
+            assert!(
+                matches!(&impl_def.interface_type, TypeExpr::Generic(name, args) if name == "Set" && args.len() == 1)
+            );
+        }
+        other => panic!("expected ImplDef, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_receiver_self_is_rejected_in_top_level_function() {
+    let errors = sporec_parser::parse("fn show(self) -> Str { \"value\" }")
+        .expect_err("top-level receiver should fail");
+    assert!(
+        errors.iter().any(|error| error.message.contains(
+            "receiver `self` is only valid as the first parameter of a trait or impl member"
+        )),
+        "expected receiver placement diagnostic, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_receiver_self_is_rejected_after_first_parameter() {
+    let errors = sporec_parser::parse("trait Show { fn show(prefix: Str, self) -> Str; }")
+        .expect_err("non-leading receiver should fail");
+    assert!(
+        errors.iter().any(|error| error.message.contains(
+            "receiver `self` is only valid as the first parameter of a trait or impl member"
+        )),
+        "expected receiver placement diagnostic, got {errors:?}"
+    );
 }
 
 // ── Item 6: list pattern ────────────────────────────────────────────────
@@ -1442,7 +1730,7 @@ fn test_trait_assoc_type() {
         r#"
         trait Iterator[T] {
             type Output
-            fn next(self: T) -> Output
+            fn next(self: T) -> Output;
         }
     "#,
     );
@@ -1465,7 +1753,7 @@ fn test_trait_assoc_type_with_bound() {
         r#"
         trait Container[T] {
             type Item: Display
-            fn get(self: T) -> Item
+            fn get(self: T) -> Item;
         }
     "#,
     );
@@ -1567,11 +1855,11 @@ fn test_wildcard_in_match_unchanged() {
     }
 }
 
-// ── Foreign fn ───────────────────────────────────────────────────────────
+// ── Foreign attributes ───────────────────────────────────────────────────
 
 #[test]
-fn test_foreign_fn_basic() {
-    let m = parse_ok("foreign fn c_add(a: I64, b: I64) -> I64");
+fn test_foreign_attribute_basic() {
+    let m = parse_ok("@foreign\nfn c_add(a: I64, b: I64) -> I64;");
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
         Item::Function(f) => {
@@ -1586,39 +1874,95 @@ fn test_foreign_fn_basic() {
 }
 
 #[test]
-fn test_foreign_fn_with_uses() {
-    let m = parse_ok("foreign fn read_file(path: String) -> String uses [FileRead]");
+fn test_foreign_attribute_with_uses() {
+    let m = parse_ok("@foreign\nfn read_file(path: Str) -> Str uses [FileRead];");
     match &m.items[0] {
         Item::Function(f) => {
             assert_eq!(f.name, "read_file");
             assert!(f.is_foreign);
             assert!(f.body.is_none());
             let uses = f.uses_clause.as_ref().unwrap();
-            assert_eq!(uses.resources, vec!["FileRead"]);
+            assert_eq!(
+                uses.surface,
+                sporec_parser::ast::SurfaceExpr::Set(vec!["FileRead".into()])
+            );
         }
         _ => panic!("expected function"),
     }
 }
 
 #[test]
-fn test_foreign_fn_no_return_type() {
-    let m = parse_ok("foreign fn log(msg: String)");
+fn test_foreign_attribute_with_unit_return_type() {
+    let m = parse_ok("@foreign\nfn log(msg: Str) -> ();");
     match &m.items[0] {
         Item::Function(f) => {
             assert_eq!(f.name, "log");
             assert!(f.is_foreign);
             assert!(f.body.is_none());
-            assert!(f.return_type.is_none());
+            assert!(f.return_type.is_some());
         }
         _ => panic!("expected function"),
     }
+}
+
+#[test]
+fn test_foreign_attribute_arguments() {
+    use sporec_parser::ast::{AttrArg, AttrValue, Item};
+
+    let m = parse_ok("@foreign(\"ssl\", name = \"SSL_new\")\nfn ssl_new() -> Ptr[SSL];");
+    let Item::Function(function) = &m.items[0] else {
+        panic!("expected function");
+    };
+    assert_eq!(
+        function.attributes[0].args,
+        vec![
+            AttrArg::Positional(AttrValue::Str("ssl".into())),
+            AttrArg::Named {
+                name: "name".into(),
+                value: AttrValue::Str("SSL_new".into()),
+            },
+        ]
+    );
+}
+
+#[test]
+fn test_removed_foreign_keyword_is_rejected() {
+    let errors = sporec_parser::parse("foreign fn log(msg: Str) -> ();").unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("use `@foreign`")),
+        "expected foreign attribute migration diagnostic, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_bodyless_fn_requires_semicolon() {
+    let errors = sporec_parser::parse("trait Show { fn show(self) -> Str }").unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("expected Semicolon")),
+        "expected missing semicolon diagnostic, got {errors:?}"
+    );
+}
+
+#[test]
+fn test_fn_requires_explicit_return_type() {
+    let errors = sporec_parser::parse("fn main() {}").unwrap_err();
+    assert!(
+        errors
+            .iter()
+            .any(|error| error.message.contains("must declare a return type")),
+        "expected explicit return type diagnostic, got {errors:?}"
+    );
 }
 
 // ── Perform expression ──────────────────────────────────────────────────
 
 #[test]
 fn test_parse_perform() {
-    let m = parse_ok(r#"fn main() { perform StdIO.println("hello") }"#);
+    let m = parse_ok(r#"fn main() -> () { perform StdIO.println("hello") }"#);
     assert_eq!(m.items.len(), 1);
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
@@ -1646,7 +1990,7 @@ fn test_parse_perform() {
 
 #[test]
 fn test_parse_perform_multiple_args() {
-    let m = parse_ok(r#"fn main() { perform IO.write("hello", 42) }"#);
+    let m = parse_ok(r#"fn main() -> () { perform IO.write("hello", 42) }"#);
     match &m.items[0] {
         sporec_parser::ast::Item::Function(f) => {
             let body = f.body.as_ref().unwrap();
@@ -1671,7 +2015,7 @@ fn test_parse_perform_multiple_args() {
 fn test_parse_handle() {
     let m = parse_ok(
         r#"
-        fn main() {
+        fn main() -> I64 {
             handle {
                 perform StdIO.println("hello")
             } with {
@@ -1710,7 +2054,7 @@ fn test_parse_handle() {
 fn test_parse_handle_multiple_arms() {
     let m = parse_ok(
         r#"
-        fn main() {
+        fn main() -> I64 {
             handle {
                 42
             } with {
@@ -1753,7 +2097,7 @@ fn test_parse_handle_multiple_arms() {
 fn test_parse_handle_named_and_inline_bindings() {
     let m = parse_ok(
         r#"
-        fn main() {
+        fn main() -> I64 {
             handle {
                 perform Math.double(21)
             } with {
@@ -1860,7 +2204,7 @@ fn test_pub_pkg_struct() {
 
 #[test]
 fn test_type_def_has_span() {
-    let src = "type Color { Red, Green, Blue }";
+    let src = "enum Color { Red, Green, Blue }";
     let m = parse_ok(src);
     match &m.items[0] {
         sporec_parser::ast::Item::TypeDef(t) => {
@@ -1903,7 +2247,7 @@ fn test_import_has_span() {
 
 #[test]
 fn test_pub_type() {
-    let m = parse_ok("pub type Color { Red, Green, Blue }");
+    let m = parse_ok("pub enum Color { Red, Green, Blue }");
     match &m.items[0] {
         Item::TypeDef(t) => {
             assert_eq!(t.name, "Color");
@@ -1931,7 +2275,7 @@ fn test_fn_span_with_leading_items() {
 
 #[test]
 fn test_private_type_still_works() {
-    let m = parse_ok("type Direction { Up, Down }");
+    let m = parse_ok("enum Direction { Up, Down }");
     match &m.items[0] {
         Item::TypeDef(t) => {
             assert_eq!(t.name, "Direction");
@@ -1945,7 +2289,8 @@ fn test_private_type_still_works() {
 #[test]
 fn test_error_includes_span() {
     // A missing method in an impl should report the impl's span
-    let src = "trait Greet {\n    fn greet(self: Self) -> String\n}\nstruct Bot {}\nimpl Greet for Bot {}";
+    let src =
+        "trait Greet {\n    fn greet(self: Self) -> Str;\n}\nstruct Bot {}\nimpl Greet for Bot {}";
     let ast = parse_ok(src);
     let errs = sporec_typeck::type_check(&ast).unwrap_err();
     // The error for missing method should have a span pointing to the impl block
@@ -1968,7 +2313,7 @@ fn test_error_includes_span() {
 
 #[test]
 fn test_pub_trait() {
-    let m = parse_ok("pub trait Show { fn show(self: Self) -> String { \"\" } }");
+    let m = parse_ok("pub trait Show { fn show(self: Self) -> Str { \"\" } }");
     match &m.items[0] {
         Item::TraitDef(t) => {
             assert_eq!(t.name, "Show");
@@ -1981,7 +2326,7 @@ fn test_pub_trait() {
 
 #[test]
 fn test_private_trait_still_works() {
-    let m = parse_ok("trait Debug { fn debug(self: Self) -> String { \"\" } }");
+    let m = parse_ok("trait Debug { fn debug(self: Self) -> Str { \"\" } }");
     match &m.items[0] {
         Item::TraitDef(t) => {
             assert_eq!(t.name, "Debug");

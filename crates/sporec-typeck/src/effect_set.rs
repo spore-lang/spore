@@ -3,7 +3,7 @@
 //! Provides formal algebraic operations on effect sets:
 //! - Union (∪): combining effects of multiple calls
 //! - Subset (⊆): checking propagation requirements
-//! - Hierarchy: parent effects that imply children
+//! - Surface expansion: named surfaces expand to atomic effects
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -25,12 +25,12 @@ impl EffectSet {
         }
     }
 
-    /// Create from a BTreeSet (backward compatibility).
+    /// Create from a canonical ordered set.
     pub fn from_btreeset(set: BTreeSet<String>) -> Self {
         Self { effects: set }
     }
 
-    /// Convert to BTreeSet (backward compatibility).
+    /// Convert to the canonical ordered representation.
     pub fn to_btreeset(&self) -> BTreeSet<String> {
         self.effects.clone()
     }
@@ -110,29 +110,11 @@ impl std::fmt::Display for EffectSet {
     }
 }
 
-/// Effect hierarchy — defines parent-child relationships.
-/// A parent effect implies all its children.
+/// Named effect surfaces and their component relationships.
 #[derive(Debug, Clone, Default)]
 pub struct EffectHierarchy {
-    /// parent → set of children
+    /// Surface name → direct component names.
     children: BTreeMap<String, BTreeSet<String>>,
-}
-
-/// Build the default effect hierarchy with standard aliases:
-///   - `FileIO` implies `[FileRead, FileWrite]`
-///   - `NetIO`  implies `[NetConnect, NetListen]`
-///   - `IO` implies all four leaf I/O effects
-pub fn default_effect_hierarchy() -> EffectHierarchy {
-    let mut h = EffectHierarchy::new();
-    h.add_implies("FileIO".into(), "FileRead".into());
-    h.add_implies("FileIO".into(), "FileWrite".into());
-    h.add_implies("NetIO".into(), "NetConnect".into());
-    h.add_implies("NetIO".into(), "NetListen".into());
-    // IO is the top-level alias — implies all leaf I/O effects
-    for leaf in ["FileRead", "FileWrite", "NetConnect", "NetListen"] {
-        h.add_implies("IO".into(), leaf.into());
-    }
-    h
 }
 
 impl EffectHierarchy {
@@ -140,27 +122,65 @@ impl EffectHierarchy {
         Self::default()
     }
 
-    /// Register that `parent` implies `child`.
-    pub fn add_implies(&mut self, parent: String, child: String) {
-        self.children.entry(parent).or_default().insert(child);
+    /// Register a named surface and its direct components.
+    pub fn add_surface(&mut self, name: String, components: impl IntoIterator<Item = String>) {
+        self.children
+            .insert(name, components.into_iter().collect::<BTreeSet<_>>());
     }
 
-    /// Expand an effect set by adding all implied children.
+    /// Expand named surfaces into a canonical set of atomic effects.
     pub fn expand(&self, set: &EffectSet) -> EffectSet {
-        let mut expanded = set.effects.clone();
+        let mut expanded = BTreeSet::new();
         let mut worklist: Vec<String> = set.effects.iter().cloned().collect();
+        let mut visited = BTreeSet::new();
 
         while let Some(effect) = worklist.pop() {
+            if !visited.insert(effect.clone()) {
+                continue;
+            }
             if let Some(children) = self.children.get(&effect) {
                 for child in children {
-                    if expanded.insert(child.clone()) {
-                        worklist.push(child.clone());
-                    }
+                    worklist.push(child.clone());
                 }
+            } else {
+                expanded.insert(effect);
             }
         }
 
         EffectSet { effects: expanded }
+    }
+
+    /// Return whether a named surface expands recursively to itself.
+    pub fn has_cycle(&self, root: &str) -> bool {
+        fn visit(
+            hierarchy: &EffectHierarchy,
+            current: &str,
+            active: &mut BTreeSet<String>,
+            finished: &mut BTreeSet<String>,
+        ) -> bool {
+            if active.contains(current) {
+                return true;
+            }
+            if finished.contains(current) {
+                return false;
+            }
+
+            active.insert(current.to_string());
+            if let Some(children) = hierarchy.children.get(current) {
+                for child in children {
+                    if hierarchy.children.contains_key(child)
+                        && visit(hierarchy, child, active, finished)
+                    {
+                        return true;
+                    }
+                }
+            }
+            active.remove(current);
+            finished.insert(current.to_string());
+            false
+        }
+
+        visit(self, root, &mut BTreeSet::new(), &mut BTreeSet::new())
     }
 
     /// Check if `declared` effects (after expansion) are a superset of `required`.
@@ -227,12 +247,10 @@ mod tests {
     #[test]
     fn hierarchy_expansion() {
         let mut h = EffectHierarchy::new();
-        h.add_implies("FileSystem".into(), "FileRead".into());
-        h.add_implies("FileSystem".into(), "FileWrite".into());
+        h.add_surface("FileSystem".into(), ["FileRead".into(), "FileWrite".into()]);
 
         let declared = EffectSet::from_names(["FileSystem".into()]);
         let expanded = h.expand(&declared);
-        assert!(expanded.contains("FileSystem"));
         assert!(expanded.contains("FileRead"));
         assert!(expanded.contains("FileWrite"));
     }
@@ -240,8 +258,7 @@ mod tests {
     #[test]
     fn hierarchy_propagation_check() {
         let mut h = EffectHierarchy::new();
-        h.add_implies("FileSystem".into(), "FileRead".into());
-        h.add_implies("FileSystem".into(), "FileWrite".into());
+        h.add_surface("FileSystem".into(), ["FileRead".into(), "FileWrite".into()]);
 
         let declared = EffectSet::from_names(["FileSystem".into()]);
         let required = EffectSet::from_names(["FileRead".into()]);
@@ -264,57 +281,24 @@ mod tests {
         assert_eq!(set.to_string(), "[FileRead, NetConnect]");
     }
 
-    // ── default_effect_hierarchy tests ─────────────────────────────────────
-
     #[test]
-    fn default_effect_hierarchy_io_expands_to_four() {
-        let h = default_effect_hierarchy();
-        let declared = EffectSet::from_names(["IO".into()]);
-        let expanded = h.expand(&declared);
-        assert!(expanded.contains("IO"));
-        assert!(expanded.contains("FileRead"));
-        assert!(expanded.contains("FileWrite"));
-        assert!(expanded.contains("NetConnect"));
-        assert!(expanded.contains("NetListen"));
-        assert_eq!(expanded.len(), 5); // IO + 4 leaves
+    fn nested_surface_expansion_returns_only_atomic_effects() {
+        let mut h = EffectHierarchy::new();
+        h.add_surface("FileIO".into(), ["FileRead".into(), "FileWrite".into()]);
+        h.add_surface("IO".into(), ["FileIO".into(), "Clock".into()]);
+
+        let expanded = h.expand(&EffectSet::from_names(["IO".into()]));
+        assert_eq!(
+            expanded,
+            EffectSet::from_names(["Clock".into(), "FileRead".into(), "FileWrite".into()])
+        );
     }
 
     #[test]
-    fn default_effect_hierarchy_file_io() {
-        let h = default_effect_hierarchy();
-        let declared = EffectSet::from_names(["FileIO".into()]);
-        let expanded = h.expand(&declared);
-        assert!(expanded.contains("FileIO"));
-        assert!(expanded.contains("FileRead"));
-        assert!(expanded.contains("FileWrite"));
-        assert_eq!(expanded.len(), 3);
-    }
-
-    #[test]
-    fn default_effect_hierarchy_net_io() {
-        let h = default_effect_hierarchy();
-        let declared = EffectSet::from_names(["NetIO".into()]);
-        let expanded = h.expand(&declared);
-        assert!(expanded.contains("NetIO"));
-        assert!(expanded.contains("NetConnect"));
-        assert!(expanded.contains("NetListen"));
-        assert_eq!(expanded.len(), 3);
-    }
-
-    #[test]
-    fn default_effect_hierarchy_propagation_io_covers_file_read() {
-        let h = default_effect_hierarchy();
-        let declared = EffectSet::from_names(["IO".into()]);
-        let required = EffectSet::from_names(["FileRead".into(), "NetListen".into()]);
-        assert!(h.check_propagation(&declared, &required).is_ok());
-    }
-
-    #[test]
-    fn default_effect_hierarchy_propagation_missing() {
-        let h = default_effect_hierarchy();
-        let declared = EffectSet::from_names(["FileIO".into()]);
-        let required = EffectSet::from_names(["NetConnect".into()]);
-        let err = h.check_propagation(&declared, &required).unwrap_err();
-        assert_eq!(err, vec!["NetConnect"]);
+    fn detects_surface_cycle() {
+        let mut h = EffectHierarchy::new();
+        h.add_surface("A".into(), ["B".into()]);
+        h.add_surface("B".into(), ["A".into()]);
+        assert!(h.has_cycle("A"));
     }
 }

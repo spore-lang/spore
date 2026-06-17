@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::env::HandlerInfo;
-use crate::types::{EffectSet, ErrorSet, Ty};
+use crate::types::{EffectSet, Ty};
 
 use super::SymbolVisibility;
 
@@ -14,20 +14,32 @@ pub struct ModuleInterface {
     pub functions: HashMap<String, (Vec<Ty>, Ty)>,
     /// Exported function required effects: name → declared/normalized `uses [...]`
     pub function_required_effects: HashMap<String, EffectSet>,
-    /// Exported function error sets: name → canonicalized declared `! E1 | E2`
-    pub function_errors: HashMap<String, ErrorSet>,
     /// Exported generic function type parameters.
     pub function_type_params: HashMap<String, Vec<String>>,
-    /// Exported generic `where` bounds for functions.
-    pub function_where_bounds: HashMap<String, Vec<(String, String)>>,
+    /// Exported inline generic bounds for functions.
+    pub function_generic_bounds: HashMap<String, Vec<(String, String)>>,
     /// Exported types: name → variant names + field types
     pub types: HashMap<String, Vec<(String, Vec<Ty>)>>,
     /// Exported structs: name → field names + types
     pub structs: HashMap<String, Vec<(String, Ty)>>,
     /// Exported generic struct parameters: name → ordered type parameter names
     pub struct_type_params: HashMap<String, Vec<String>>,
+    /// Exported externally-provided opaque types.
+    pub opaque_types: HashMap<String, Vec<String>>,
+    /// Exported transparent aliases without type parameters.
+    pub type_aliases: HashMap<String, Ty>,
+    /// Exported transparent aliases with ordered type parameters.
+    pub generic_type_aliases: HashMap<String, (Vec<String>, Ty)>,
     /// Exported interfaces (traits and effects).
     pub interfaces: HashSet<String>,
+    /// Exported atomic effect protocols.
+    pub effects: HashSet<String>,
+    /// Exported atomic effect protocol type parameters.
+    pub effect_type_params: HashMap<String, Vec<String>>,
+    /// Exported reusable effect surfaces, normalized to atomic effects.
+    pub surfaces: HashMap<String, EffectSet>,
+    /// Exported reusable effect surface type parameters.
+    pub surface_type_params: HashMap<String, Vec<String>>,
     /// Exported trait/effect member signatures.
     #[allow(clippy::type_complexity)]
     pub interface_members: HashMap<String, (Vec<String>, Vec<(String, Vec<Ty>, Ty)>)>,
@@ -67,7 +79,11 @@ impl ModuleInterface {
         self.functions.contains_key(name)
             || self.types.contains_key(name)
             || self.structs.contains_key(name)
+            || self.opaque_types.contains_key(name)
+            || self.type_aliases.contains_key(name)
+            || self.generic_type_aliases.contains_key(name)
             || self.interfaces.contains(name)
+            || self.surfaces.contains_key(name)
             || self.handlers.contains_key(name)
     }
 
@@ -78,7 +94,11 @@ impl ModuleInterface {
             .keys()
             .chain(self.types.keys())
             .chain(self.structs.keys())
+            .chain(self.opaque_types.keys())
+            .chain(self.type_aliases.keys())
+            .chain(self.generic_type_aliases.keys())
             .chain(self.interfaces.iter())
+            .chain(self.surfaces.keys())
             .chain(self.handlers.keys())
             .cloned()
             .collect();

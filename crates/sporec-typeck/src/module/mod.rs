@@ -44,7 +44,10 @@ pub enum ImportedSymbol {
     Function,
     Type,
     Struct,
+    OpaqueType,
+    Alias,
     Handler,
+    Surface,
     Interface,
 }
 

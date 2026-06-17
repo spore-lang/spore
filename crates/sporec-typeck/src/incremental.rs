@@ -58,8 +58,8 @@ pub struct IncrementalDb {
     revision: Revision,
     /// Cached type check results: function name → (errors as strings, fingerprint)
     type_check_cache: HashMap<String, CachedResult<Vec<String>>>,
-    /// Cached cost analysis results: function name → (cost string, fingerprint)
-    cost_cache: HashMap<String, CachedResult<String>>,
+    /// Cached budget-shape summaries: function name → (summary, fingerprint)
+    budget_cache: HashMap<String, CachedResult<String>>,
     /// Input fingerprints: source file path → fingerprint
     source_fingerprints: HashMap<String, Fingerprint>,
     /// Statistics
@@ -90,7 +90,7 @@ impl IncrementalDb {
         Self {
             revision: Revision::initial(),
             type_check_cache: HashMap::new(),
-            cost_cache: HashMap::new(),
+            budget_cache: HashMap::new(),
             source_fingerprints: HashMap::new(),
             stats: CacheStats::default(),
         }
@@ -145,9 +145,9 @@ impl IncrementalDb {
         );
     }
 
-    /// Query cost analysis for a function.
-    pub fn query_cost(&mut self, fn_name: &str, input_fp: Fingerprint) -> Option<String> {
-        if let Some(cached) = self.cost_cache.get(fn_name)
+    /// Query budget-shape summary for a function.
+    pub fn query_budget(&mut self, fn_name: &str, input_fp: Fingerprint) -> Option<String> {
+        if let Some(cached) = self.budget_cache.get(fn_name)
             && cached.input_fingerprint == input_fp
         {
             self.stats.hits += 1;
@@ -157,12 +157,12 @@ impl IncrementalDb {
         None
     }
 
-    /// Store cost analysis result.
-    pub fn store_cost(&mut self, fn_name: &str, input_fp: Fingerprint, cost: String) {
-        self.cost_cache.insert(
+    /// Store budget-shape summary.
+    pub fn store_budget(&mut self, fn_name: &str, input_fp: Fingerprint, summary: String) {
+        self.budget_cache.insert(
             fn_name.to_string(),
             CachedResult {
-                value: cost,
+                value: summary,
                 input_fingerprint: input_fp,
             },
         );
@@ -172,20 +172,20 @@ impl IncrementalDb {
     pub fn invalidate_dependents(&mut self, changed_functions: &[String]) {
         for name in changed_functions {
             self.type_check_cache.remove(name);
-            self.cost_cache.remove(name);
+            self.budget_cache.remove(name);
         }
     }
 
     /// Clear all caches.
     pub fn clear(&mut self) {
         self.type_check_cache.clear();
-        self.cost_cache.clear();
+        self.budget_cache.clear();
         self.revision = self.revision.next();
     }
 
     /// Get the number of cached entries.
     pub fn cache_size(&self) -> usize {
-        self.type_check_cache.len() + self.cost_cache.len()
+        self.type_check_cache.len() + self.budget_cache.len()
     }
 }
 

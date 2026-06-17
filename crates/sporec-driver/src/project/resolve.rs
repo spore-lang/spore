@@ -12,17 +12,19 @@ use super::{DependencySpec, ProjectManifest, ResolvedPlatformContract, ResolvedP
 pub fn resolve_default_project_target(root: &Path) -> Result<ResolvedProjectTarget, String> {
     let manifest = load_project_manifest(root)?;
 
-    if let Some(project) = &manifest.project {
-        let default_entry = project.default_entry.as_deref().ok_or_else(|| {
-            format!(
-                "`{}` has `[project]` but no `default-entry`; pass an explicit entry file or declare one",
-                root.join("spore.toml").display()
-            )
-        })?;
-        return resolve_declared_entry(root, &manifest, default_entry);
-    }
-
-    legacy_default_target(root, &manifest)
+    let project = manifest.project.as_ref().ok_or_else(|| {
+        format!(
+            "`{}` has no `[project]` default target; pass an explicit entry file or declare `[project].default-entry` with a matching `[entries.<name>]` table",
+            root.join("spore.toml").display()
+        )
+    })?;
+    let default_entry = project.default_entry.as_deref().ok_or_else(|| {
+        format!(
+            "`{}` has `[project]` but no `default-entry`; pass an explicit entry file or declare one",
+            root.join("spore.toml").display()
+        )
+    })?;
+    resolve_declared_entry(root, &manifest, default_entry)
 }
 
 pub fn resolve_project_target_by_path(
@@ -43,7 +45,7 @@ pub fn resolve_project_target_by_path(
         return resolve_declared_entry(root, &manifest, &entry_name);
     }
 
-    legacy_target_for_path(root, &manifest, &normalized)
+    module_only_target(root, &normalized, dependency_source_roots(root, &manifest)?)
 }
 
 fn declared_entry_name_for_path(
@@ -87,158 +89,27 @@ fn resolve_declared_entry(
     let entry_source_root = resolve_entry_source_root(root, &source_roots, &entry_path)?;
     let dependency_source_roots = dependency_source_roots(root, manifest)?;
 
-    let (startup_function, platform_contract) =
-        resolve_platform_binding(root, manifest, &project.platform)?;
+    let (platform_name, startup_function, platform_contract) = if project.platform.trim().is_empty()
+    {
+        (None, None, None)
+    } else {
+        let (startup_function, platform_contract) =
+            resolve_platform_binding(root, manifest, &project.platform)?;
+        (
+            Some(project.platform.clone()),
+            Some(startup_function),
+            platform_contract,
+        )
+    };
 
     Ok(ResolvedProjectTarget {
         entry_name: entry_name.to_string(),
         entry_path,
         entry_source_root,
         source_roots,
-        platform_name: Some(project.platform.clone()),
-        startup_function: Some(startup_function),
+        platform_name,
+        startup_function,
         platform_contract,
-        dependency_source_roots,
-    })
-}
-
-fn legacy_default_target(
-    root: &Path,
-    manifest: &ProjectManifest,
-) -> Result<ResolvedProjectTarget, String> {
-    let dependency_source_roots = dependency_source_roots(root, manifest)?;
-    match manifest.package_type.as_deref() {
-        Some("application") => legacy_named_target(
-            root,
-            "app",
-            "main.sp",
-            Some(("cli", "main")),
-            dependency_source_roots,
-        ),
-        Some("platform") => {
-            legacy_named_target(root, "host", "host.sp", None, dependency_source_roots)
-        }
-        Some("package") => {
-            legacy_named_target(root, "lib", "lib.sp", None, dependency_source_roots)
-        }
-        Some(other) => Err(format!(
-            "unsupported legacy `[package].type = \"{other}\"` in `{}`",
-            root.join("spore.toml").display()
-        )),
-        None => infer_single_default_target(root, dependency_source_roots),
-    }
-}
-
-fn legacy_target_for_path(
-    root: &Path,
-    manifest: &ProjectManifest,
-    entry_path: &str,
-) -> Result<ResolvedProjectTarget, String> {
-    resolve_entry_source_root(root, &["src".to_string()], entry_path)?;
-    let dependency_source_roots = dependency_source_roots(root, manifest)?;
-
-    match manifest.package_type.as_deref() {
-        Some("application") if entry_path == "main.sp" => legacy_named_target(
-            root,
-            "app",
-            "main.sp",
-            Some(("cli", "main")),
-            dependency_source_roots,
-        ),
-        Some("platform") if entry_path == "host.sp" => {
-            legacy_named_target(root, "host", "host.sp", None, dependency_source_roots)
-        }
-        None if entry_path == "main.sp" => legacy_named_target(
-            root,
-            "app",
-            "main.sp",
-            Some(("cli", "main")),
-            dependency_source_roots,
-        ),
-        None if entry_path == "host.sp" => legacy_named_target(
-            root,
-            "host",
-            "host.sp",
-            Some(("cli", "main")),
-            dependency_source_roots,
-        ),
-        Some("package") | Some("application") | Some("platform") | None => {
-            Ok(ResolvedProjectTarget {
-                entry_name: path_stem(entry_path),
-                entry_path: entry_path.to_string(),
-                entry_source_root: "src".to_string(),
-                source_roots: vec!["src".to_string()],
-                platform_name: None,
-                startup_function: None,
-                platform_contract: None,
-                dependency_source_roots,
-            })
-        }
-        Some(other) => Err(format!(
-            "unsupported legacy `[package].type = \"{other}\"` in `{}`",
-            root.join("spore.toml").display()
-        )),
-    }
-}
-
-fn infer_single_default_target(
-    root: &Path,
-    dependency_source_roots: Vec<PathBuf>,
-) -> Result<ResolvedProjectTarget, String> {
-    let mut candidates = Vec::new();
-    for (entry_name, path, runnable) in [
-        ("app", "main.sp", true),
-        ("lib", "lib.sp", false),
-        ("host", "host.sp", true),
-    ] {
-        if root.join("src").join(path).is_file() {
-            candidates.push((entry_name, path, runnable));
-        }
-    }
-
-    match candidates.as_slice() {
-        [(entry_name, path, runnable)] => {
-            let startup_binding = runnable.then_some(("cli", "main"));
-            legacy_named_target(
-                root,
-                entry_name,
-                path,
-                startup_binding,
-                dependency_source_roots,
-            )
-        }
-        [] => Err(format!(
-            "could not infer a project default entry path from `{}`; add `[project]` and `[entries]`, set legacy `[package].type`, or pass FILE explicitly",
-            root.join("spore.toml").display()
-        )),
-        _ => Err(format!(
-            "could not infer a project default entry path for `{}`; found multiple defaults in src/ ({}) — pass FILE explicitly or declare `[project].default-entry`",
-            root.display(),
-            candidates
-                .iter()
-                .map(|(_, path, _)| *path)
-                .collect::<Vec<_>>()
-                .join(", ")
-        )),
-    }
-}
-
-fn legacy_named_target(
-    root: &Path,
-    entry_name: &str,
-    entry_path: &str,
-    startup_binding: Option<(&str, &str)>,
-    dependency_source_roots: Vec<PathBuf>,
-) -> Result<ResolvedProjectTarget, String> {
-    resolve_entry_source_root(root, &["src".to_string()], entry_path)?;
-    Ok(ResolvedProjectTarget {
-        entry_name: entry_name.to_string(),
-        entry_path: entry_path.to_string(),
-        entry_source_root: "src".to_string(),
-        source_roots: vec!["src".to_string()],
-        platform_name: startup_binding.map(|(platform_name, _)| platform_name.to_string()),
-        startup_function: startup_binding.map(|(_, startup_function)| startup_function.to_string()),
-        platform_contract: None,
         dependency_source_roots,
     })
 }

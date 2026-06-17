@@ -197,6 +197,80 @@ pub fn check_files(paths: &[&str]) -> CheckReport {
 /// 3. Type-checks each module with access to the shared registry
 ///
 /// Returns warnings on success.
+pub fn test_properties_files(
+    paths: &[&str],
+) -> Result<Vec<sporec_codegen::PropertyResult>, String> {
+    if paths.is_empty() {
+        return Err("test_properties_files requires at least one input file".to_string());
+    }
+
+    let mut modules = Vec::new();
+    for path in paths {
+        let source =
+            std::fs::read_to_string(path).map_err(|e| format!("cannot read `{path}`: {e}"))?;
+        let canonical_path = std::fs::canonicalize(path)
+            .map_err(|e| format!("cannot canonicalize `{path}`: {e}"))?;
+        let ast = sporec_parser::parse(&source).map_err(|errs| {
+            let msgs: Vec<String> = errs.into_iter().map(|e| e.to_string()).collect();
+            format!("{path}: {}", msgs.join("\n"))
+        })?;
+        modules.push(((*path).to_string(), canonical_path, ast));
+    }
+
+    let common_root = common_parent_dir(
+        &modules
+            .iter()
+            .map(|(_, canonical_path, _)| canonical_path.clone())
+            .collect::<Vec<_>>(),
+    )?;
+
+    let mut registry = ModuleRegistry::new();
+    let modules = modules
+        .into_iter()
+        .map(|(path, canonical_path, ast)| {
+            let module_name = module_name_for_path(&common_root, &canonical_path)?;
+            let mut iface = sporec_typeck::build_module_interface(&ast);
+            iface.path = module_name
+                .split('.')
+                .map(|segment| segment.to_string())
+                .collect();
+            registry.register(iface);
+            Ok((path, module_name, ast))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    for (path, module_name, ast) in &modules {
+        let ast = with_module_name(ast, module_name);
+        type_check_with_registry(&ast, registry.clone()).map_err(|errs| {
+            errs.into_iter()
+                .map(|error| format!("{path}: {error}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+    }
+
+    let named_modules = modules
+        .iter()
+        .map(|(_, module_name, ast)| (module_name.clone(), with_module_name(ast, module_name)))
+        .collect::<Vec<_>>();
+    let mut results = Vec::new();
+    for (idx, (path, module_name, ast)) in modules.iter().enumerate() {
+        let ast = with_module_name(ast, module_name);
+        let imports = named_modules
+            .iter()
+            .enumerate()
+            .filter(|(import_idx, _)| *import_idx != idx)
+            .map(|(_, module)| module.clone())
+            .collect::<Vec<_>>();
+        results.extend(
+            sporec_codegen::test_properties_with_imports(&ast, &imports)
+                .map_err(|error| format!("{path}: {error}"))?,
+        );
+    }
+
+    Ok(results)
+}
+
 pub fn compile_files(paths: &[&str]) -> Result<CompileOutput, String> {
     let mut modules = Vec::new();
 

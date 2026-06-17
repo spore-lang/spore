@@ -35,10 +35,7 @@ pub struct HirFnDef {
     pub return_type: Option<HirTypeRef>,
     pub body: Option<HirExpr>,
     pub uses_clause: BTreeSet<String>,
-    pub throws: Vec<HirTypeRef>,
-    pub where_clause: Vec<HirTypeConstraint>,
-    /// Compute-dimension upper bound from `cost [compute, alloc, io, parallel]`.
-    pub cost_bound: Option<Box<HirExpr>>,
+    pub generic_bounds: Vec<HirTypeConstraint>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,6 +57,7 @@ pub enum HirTypeRef {
     Named(String, DefId),
     Generic(String, Vec<HirTypeRef>),
     Function(Vec<HirTypeRef>, Box<HirTypeRef>),
+    Outcome(Box<HirTypeRef>, Box<HirTypeRef>),
     /// Anonymous record type: `{ x: I64, y: I64 }`
     Record(Vec<(String, Box<HirTypeRef>)>),
 }
@@ -115,8 +113,9 @@ pub struct HirTraitDef {
 
 #[derive(Debug, Clone)]
 pub struct HirImplDef {
-    pub trait_name: String,
-    pub target_type: String,
+    pub type_params: Vec<String>,
+    pub interface_type: HirTypeRef,
+    pub target_type: Option<HirTypeRef>,
     pub methods: Vec<HirFnDef>,
 }
 
@@ -128,6 +127,7 @@ pub enum HirExpr {
     FloatLit(f64),
     StrLit(String),
     BoolLit(bool),
+    Unit,
 
     // Variables (resolved)
     Var(String, DefId),
@@ -156,7 +156,7 @@ pub enum HirExpr {
     Spawn(Box<HirExpr>),
     Await(Box<HirExpr>),
     Return(Option<Box<HirExpr>>),
-    Throw(Box<HirExpr>),
+    Fail(Box<HirExpr>),
     List(Vec<HirExpr>),
     // Holes (preserved for IDE support)
     Hole(String),
@@ -205,6 +205,8 @@ pub enum HirPattern {
     IntLit(i64),
     StrLit(String),
     BoolLit(bool),
+    OutcomeOk(Box<HirPattern>),
+    OutcomeFail(Box<HirPattern>),
     Constructor(String, Vec<HirPattern>),
     Struct(String, Vec<(String, HirPattern)>),
     Or(Vec<HirPattern>),

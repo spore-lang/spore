@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use sporec_parser::ast::{ImportDecl, Item, Span};
 
-use crate::types::{EffectSet, ErrorSet, Ty};
+use crate::types::{EffectSet, Ty};
 
 use super::loader::ModuleLoader;
 use super::prelude::build_prelude_interface;
@@ -166,8 +166,16 @@ impl ModuleRegistry {
                 ImportedSymbol::Type
             } else if module.structs.contains_key(name) {
                 ImportedSymbol::Struct
+            } else if module.opaque_types.contains_key(name) {
+                ImportedSymbol::OpaqueType
+            } else if module.type_aliases.contains_key(name)
+                || module.generic_type_aliases.contains_key(name)
+            {
+                ImportedSymbol::Alias
             } else if module.handlers.contains_key(name) {
                 ImportedSymbol::Handler
+            } else if module.surfaces.contains_key(name) {
+                ImportedSymbol::Surface
             } else {
                 ImportedSymbol::Interface
             };
@@ -296,12 +304,7 @@ impl ModuleRegistry {
             (
                 vec![
                     list_t.clone(),
-                    Ty::Fn(
-                        vec![Ty::Var(0)],
-                        Box::new(Ty::Var(1)),
-                        EffectSet::new(),
-                        ErrorSet::new(),
-                    ),
+                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Var(1)), EffectSet::new()),
                 ],
                 list_u.clone(),
             ),
@@ -311,12 +314,7 @@ impl ModuleRegistry {
             (
                 vec![
                     list_t.clone(),
-                    Ty::Fn(
-                        vec![Ty::Var(0)],
-                        Box::new(Ty::Bool),
-                        EffectSet::new(),
-                        ErrorSet::new(),
-                    ),
+                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Bool), EffectSet::new()),
                 ],
                 list_t.clone(),
             ),
@@ -331,7 +329,6 @@ impl ModuleRegistry {
                         vec![Ty::Var(1), Ty::Var(0)],
                         Box::new(Ty::Var(1)),
                         EffectSet::new(),
-                        ErrorSet::new(),
                     ),
                 ],
                 Ty::Var(1),
@@ -342,12 +339,7 @@ impl ModuleRegistry {
             (
                 vec![
                     list_t.clone(),
-                    Ty::Fn(
-                        vec![Ty::Var(0)],
-                        Box::new(Ty::Unit),
-                        EffectSet::new(),
-                        ErrorSet::new(),
-                    ),
+                    Ty::Fn(vec![Ty::Var(0)], Box::new(Ty::Unit), EffectSet::new()),
                 ],
                 Ty::Unit,
             ),
