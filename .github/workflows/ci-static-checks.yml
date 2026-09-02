@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   prek:
-    name: prek
+    name: Pre-commit Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
