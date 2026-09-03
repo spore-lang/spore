@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-build-${{ github.ref }}
+  group: ci-tests-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -16,7 +16,7 @@ env:
 
 jobs:
   msrv:
-    name: msrv
+    name: MSRV (Rust 1.95)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -27,7 +27,7 @@ jobs:
       - run: cargo check --all-targets
 
   test:
-    name: test
+    name: Tests
     runs-on: ubuntu-latest
     env:
       RUST_BACKTRACE: 1
