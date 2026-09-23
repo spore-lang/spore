@@ -1,4 +1,4 @@
-name: "CI - PR Checks"
+name: Policy - PR
 
 on:
   pull_request:
@@ -9,12 +9,12 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}
+  group: policy-pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  title:
-    name: PR Title
+  pr-message:
+    name: PR message
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -23,12 +23,6 @@ jobs:
         uses: zrr1999/zendev/actions/validate-title@v0.0.5
         with:
           text: ${{ github.event.pull_request.title }}
-
-  body:
-    name: PR Body
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
 
       - name: Check PR body headings
         env:
