@@ -9,6 +9,20 @@ use std::collections::HashMap;
 use crate::effect_set::EffectSet;
 use crate::module::ModuleInterface;
 
+/// Atomic effects provided by the built-in CLI platform contract.
+pub const BUILTIN_EFFECTS: &[&str] = &[
+    "Console",
+    "FileRead",
+    "FileWrite",
+    "NetConnect",
+    "NetListen",
+    "Env",
+    "Spawn",
+    "Clock",
+    "Random",
+    "Exit",
+];
+
 /// A platform definition.
 #[derive(Debug, Clone)]
 pub struct Platform {
@@ -42,19 +56,8 @@ impl Platform {
     ///
     /// Grants the built-in intent-oriented effects for full CLI access.
     pub fn cli() -> Self {
-        let handled_effects = EffectSet::from_names([
-            // ── Built-in effects ──
-            "Console".into(),
-            "FileRead".into(),
-            "FileWrite".into(),
-            "NetConnect".into(),
-            "NetListen".into(),
-            "Env".into(),
-            "Spawn".into(),
-            "Clock".into(),
-            "Random".into(),
-            "Exit".into(),
-        ]);
+        let handled_effects =
+            EffectSet::from_names(BUILTIN_EFFECTS.iter().map(|effect| (*effect).to_string()));
 
         Self {
             name: "cli".into(),

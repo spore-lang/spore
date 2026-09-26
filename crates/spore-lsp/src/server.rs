@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Read, Write};
 
 use serde_json::{Value, json};
-use sporec_parser::ast::{CostExpr, FnDef, Item, TypeExpr};
+use sporec_parser::ast::{FnDef, Item, SurfaceExpr, SurfaceRef, TypeConstraint, TypeExpr};
 
 // ── LSP Symbol Kind constants ────────────────────────────────────────
 const SK_FUNCTION: u32 = 12;
@@ -16,9 +16,11 @@ const KEYWORDS: &[&str] = &[
     "fn",
     "let",
     "type",
+    "enum",
     "struct",
     "trait",
     "effect",
+    "surface",
     "match",
     "if",
     "import",
@@ -29,13 +31,12 @@ const KEYWORDS: &[&str] = &[
     "const",
     "return",
     "else",
-    "where",
-    "cost",
     "uses",
+    "budget",
+    "properties",
     "spawn",
     "await",
     "impl",
-    "alias",
     "mod",
     "pkg",
     "in",
@@ -43,7 +44,7 @@ const KEYWORDS: &[&str] = &[
     "from",
     "when",
     "select",
-    "throw",
+    "fail",
     "parallel_scope",
 ];
 
@@ -283,7 +284,14 @@ impl LspServer {
                         items.push(json!({
                             "label": &t.name,
                             "kind": 10, // Enum
-                            "detail": "type",
+                            "detail": "enum",
+                        }));
+                    }
+                    Item::OpaqueType(t) => {
+                        items.push(json!({
+                            "label": &t.name,
+                            "kind": 7, // Class
+                            "detail": "opaque type",
                         }));
                     }
                     Item::TraitDef(t) => {
@@ -300,11 +308,18 @@ impl LspServer {
                             "detail": "effect",
                         }));
                     }
+                    Item::SurfaceDef(s) => {
+                        items.push(json!({
+                            "label": &s.name,
+                            "kind": 8, // Interface
+                            "detail": format!("surface = {}", format_surface_expr(&s.surface)),
+                        }));
+                    }
                     Item::HandlerDef(h) => {
                         items.push(json!({
                             "label": &h.name,
                             "kind": 6, // Method
-                            "detail": format!("handler handles {}", h.handles_clause.effects.join(", ")),
+                            "detail": format!("handler for {}", format_surface_expr(&h.surface)),
                         }));
                     }
                     Item::Const(c) => {
@@ -796,15 +811,47 @@ fn format_hole_hover(hole: &sporec_driver::HoleInfoJson) -> String {
         parts.push(format!("**Bindings in scope**\n```spore\n{bindings}\n```"));
     }
 
-    if let Some(residual) = &hole.residual_context {
-        if let Some(remaining) = &residual.budget_residual {
+    if let Some(budget_context) = &hole.budget_context {
+        if !budget_context.constraints.is_empty() {
+            let constraints = budget_context
+                .constraints
+                .iter()
+                .map(|constraint| format!("{} <= {}", constraint.field, constraint.limit))
+                .collect::<Vec<_>>()
+                .join("\n");
             parts.push(format!(
-                "**Checked residual** `cost [{}, {}, {}, {}]`",
-                remaining.compute, remaining.alloc, remaining.io, remaining.parallel
+                "**Budget constraints**\n```text\n{constraints}\n```"
             ));
-        } else if let Some(note) = &residual.note {
-            parts.push(format!("**Cost context:** {note}"));
         }
+        if !budget_context.observations.is_empty() {
+            let observations = budget_context
+                .observations
+                .iter()
+                .map(|observation| {
+                    let remaining = observation
+                        .remaining
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    format!(
+                        "{} observed {}, remaining {}",
+                        observation.field, observation.observed, remaining
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            parts.push(format!(
+                "**Budget observations**\n```text\n{observations}\n```"
+            ));
+        }
+    }
+
+    if let Some(property_context) = &hole.property_context
+        && !property_context.properties.is_empty()
+    {
+        parts.push(format!(
+            "**Properties to preserve:** `{}`",
+            property_context.properties.join(", ")
+        ));
     }
 
     if let Some(effect_context) = &hole.effect_context {
@@ -831,12 +878,6 @@ fn format_hole_hover(hole: &sporec_driver::HoleInfoJson) -> String {
                 let reason = candidate
                     .explanation
                     .as_deref()
-                    .or_else(|| {
-                        candidate
-                            .cost_check
-                            .as_ref()
-                            .and_then(|cost_check| cost_check.reason.as_deref())
-                    })
                     .or_else(|| candidate.adjustments.first().map(String::as_str));
                 match reason {
                     Some(reason) => {
@@ -862,22 +903,26 @@ fn format_hole_hover(hole: &sporec_driver::HoleInfoJson) -> String {
     parts.join("\n\n")
 }
 
-/// Search source text for a definition of `name` (e.g. `fn name`, `type name`,
-/// `struct name`, `trait name`, `effect name`). Returns `(line, col)` of the
-/// name token.
+/// Search source text for a definition of `name` (for example, `fn name`,
+/// `enum name`, `type name`, `struct name`, `trait name`, `effect name`, or
+/// `surface name`). Returns `(line, col)` for the name token.
 pub fn find_definition_in_source(source: &str, name: &str) -> Option<(u32, u32)> {
     let prefixes = [
         "fn ",
+        "enum ",
         "type ",
         "struct ",
         "trait ",
         "effect ",
+        "surface ",
         "const ",
         "pub fn ",
+        "pub enum ",
         "pub type ",
         "pub struct ",
         "pub trait ",
         "pub effect ",
+        "pub surface ",
         "pub const ",
     ];
     for (line_no, line_text) in source.lines().enumerate() {
@@ -914,16 +959,19 @@ pub fn collect_document_symbols(source: &str) -> Vec<SymbolInfo> {
         let (name, kind, detail) = match item {
             Item::Function(f) => (f.name.clone(), SK_FUNCTION, Some(format_fn_signature(f))),
             Item::StructDef(s) => (s.name.clone(), SK_STRUCT, Some("struct".into())),
-            Item::TypeDef(t) => (t.name.clone(), SK_ENUM, Some("type".into())),
+            Item::TypeDef(t) => (t.name.clone(), SK_ENUM, Some("enum".into())),
+            Item::OpaqueType(t) => (t.name.clone(), SK_STRUCT, Some("opaque type".into())),
             Item::TraitDef(t) => (t.name.clone(), SK_INTERFACE, Some("trait".into())),
             Item::EffectDef(e) => (e.name.clone(), SK_INTERFACE, Some("effect".into())),
+            Item::SurfaceDef(s) => (
+                s.name.clone(),
+                SK_INTERFACE,
+                Some(format!("surface = {}", format_surface_expr(&s.surface))),
+            ),
             Item::HandlerDef(h) => (
                 h.name.clone(),
                 SK_FUNCTION,
-                Some(format!(
-                    "handler handles {}",
-                    h.handles_clause.effects.join(", ")
-                )),
+                Some(format!("handler for {}", format_surface_expr(&h.surface))),
             ),
             Item::Const(c) => (c.name.clone(), SK_CONSTANT, Some("const".into())),
             _ => continue,
@@ -963,20 +1011,12 @@ pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
                 // Signature
                 parts.push(format!("```spore\n{}\n```", format_fn_full(f)));
 
-                // Cost annotation
-                if let Some(ref cost) = f.cost_clause {
-                    parts.push(format!(
-                        "\n**Cost:** `cost [{}, {}, {}, {}]`",
-                        format_cost_expr(&cost.compute),
-                        format_cost_expr(&cost.alloc),
-                        format_cost_expr(&cost.io),
-                        format_cost_expr(&cost.parallel)
-                    ));
-                }
-
                 // Uses clause
                 if let Some(ref uses) = f.uses_clause {
-                    parts.push(format!("\n**Uses:** `[{}]`", uses.resources.join(", ")));
+                    parts.push(format!(
+                        "\n**Uses:** `{}`",
+                        format_surface_expr(&uses.surface)
+                    ));
                 }
 
                 return Some(parts.join("\n"));
@@ -1018,11 +1058,22 @@ pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
                     })
                     .collect();
                 parts.push(format!(
-                    "```spore\ntype {} {{\n{}\n}}\n```",
+                    "```spore\nenum {} {{\n{}\n}}\n```",
                     t.name,
                     variants.join(",\n")
                 ));
                 return Some(parts.join("\n"));
+            }
+            Item::OpaqueType(t) if t.name == name => {
+                let params = if t.type_params.is_empty() {
+                    String::new()
+                } else {
+                    format!("[{}]", t.type_params.join(", "))
+                };
+                return Some(format!(
+                    "```spore\n@foreign\ntype {}{};\n```",
+                    t.name, params
+                ));
             }
             Item::TraitDef(t) if t.name == name => {
                 let mut parts = Vec::new();
@@ -1059,6 +1110,13 @@ pub fn build_hover_for_symbol(source: &str, name: &str) -> Option<String> {
                     ops.join("\n")
                 ));
                 return Some(parts.join("\n"));
+            }
+            Item::SurfaceDef(s) if s.name == name => {
+                return Some(format!(
+                    "```spore\nsurface {} = {}\n```",
+                    s.name,
+                    format_surface_expr(&s.surface)
+                ));
             }
             _ => {}
         }
@@ -1108,25 +1166,95 @@ pub fn format_fn_signature(f: &FnDef) -> String {
         .as_ref()
         .map(|t| format!(" -> {}", format_type_expr(t)))
         .unwrap_or_default();
-    format!("fn {}({}){}", f.name, params.join(", "), ret)
+    format!(
+        "fn {}{}({}){}",
+        f.name,
+        format_type_params(&f.type_params, &f.type_param_bounds),
+        params.join(", "),
+        ret
+    )
 }
 
 /// Full signature with clauses.
 fn format_fn_full(f: &FnDef) -> String {
     let mut sig = format_fn_signature(f);
-    if let Some(ref cost) = f.cost_clause {
-        sig.push_str(&format!(
-            "\n  cost [{}, {}, {}, {}]",
-            format_cost_expr(&cost.compute),
-            format_cost_expr(&cost.alloc),
-            format_cost_expr(&cost.io),
-            format_cost_expr(&cost.parallel)
-        ));
-    }
     if let Some(ref uses) = f.uses_clause {
-        sig.push_str(&format!("\n  uses [{}]", uses.resources.join(", ")));
+        sig.push_str(&format!("\n  uses {}", format_surface_expr(&uses.surface)));
+    }
+    if let Some(ref budget) = f.budget_clause {
+        let fields = budget
+            .items
+            .iter()
+            .map(|item| format!("{}: {}", item.field, item.limit))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sig.push_str(&format!("\n  budget {{ {fields} }}"));
+    }
+    if let Some(ref properties) = f.properties_clause {
+        let names = properties
+            .items
+            .iter()
+            .map(|property| format!("{}(...)", property.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sig.push_str(&format!("\n  properties {{ {names} }}"));
     }
     sig
+}
+
+fn format_surface_expr(surface: &SurfaceExpr) -> String {
+    match surface {
+        SurfaceExpr::Named(reference) => format_surface_ref(reference),
+        SurfaceExpr::Set(references) => format!(
+            "[{}]",
+            references
+                .iter()
+                .map(format_surface_ref)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
+}
+
+fn format_surface_ref(reference: &SurfaceRef) -> String {
+    if reference.type_args.is_empty() {
+        reference.name.clone()
+    } else {
+        format!(
+            "{}[{}]",
+            reference.name,
+            reference
+                .type_args
+                .iter()
+                .map(format_type_expr)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+
+fn format_type_params(type_params: &[String], bounds: &[TypeConstraint]) -> String {
+    if type_params.is_empty() {
+        return String::new();
+    }
+
+    let params = type_params
+        .iter()
+        .map(|type_param| {
+            let param_bounds = bounds
+                .iter()
+                .filter(|constraint| constraint.type_var == *type_param)
+                .map(|constraint| constraint.bound.as_str())
+                .collect::<Vec<_>>();
+            if param_bounds.is_empty() {
+                type_param.clone()
+            } else {
+                format!("{}: {}", type_param, param_bounds.join(" + "))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{params}]")
 }
 
 pub fn format_type_expr(ty: &TypeExpr) -> String {
@@ -1141,9 +1269,16 @@ pub fn format_type_expr(ty: &TypeExpr) -> String {
             let e: Vec<String> = elems.iter().map(format_type_expr).collect();
             format!("({})", e.join(", "))
         }
-        TypeExpr::Function(params, ret, _errors) => {
+        TypeExpr::Function(params, ret) => {
             let p: Vec<String> = params.iter().map(format_type_expr).collect();
             format!("({}) -> {}", p.join(", "), format_type_expr(ret))
+        }
+        TypeExpr::Outcome(success, failure) => {
+            format!(
+                "{} ! {}",
+                format_outcome_operand(success),
+                format_outcome_operand(failure)
+            )
         }
         TypeExpr::Refinement(base, binding, _pred) => {
             format!("{{ {}: {} when ... }}", binding, format_type_expr(base))
@@ -1158,40 +1293,11 @@ pub fn format_type_expr(ty: &TypeExpr) -> String {
     }
 }
 
-pub fn format_cost_expr(cost: &CostExpr) -> String {
-    fn format_prec(cost: &CostExpr, parent_prec: u8) -> String {
-        let (prec, rendered) = match cost {
-            CostExpr::Literal(n) => (4, n.to_string()),
-            CostExpr::Var(v) => (4, v.clone()),
-            CostExpr::Linear(v) => (4, format!("O({v})")),
-            CostExpr::Add(lhs, rhs) => (
-                1,
-                format!("{} + {}", format_prec(lhs, 1), format_prec(rhs, 1)),
-            ),
-            CostExpr::Mul(lhs, rhs) => (
-                2,
-                format!("{} * {}", format_prec(lhs, 2), format_prec(rhs, 2)),
-            ),
-            CostExpr::Log(expr) => (4, format!("log({})", format_prec(expr, 0))),
-            CostExpr::Max(lhs, rhs) => (
-                4,
-                format!("max({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
-            ),
-            CostExpr::Min(lhs, rhs) => (
-                4,
-                format!("min({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
-            ),
-            CostExpr::Span(lhs, rhs) => (
-                4,
-                format!("span({}, {})", format_prec(lhs, 0), format_prec(rhs, 0)),
-            ),
-        };
-        if prec < parent_prec {
-            format!("({rendered})")
-        } else {
-            rendered
-        }
+fn format_outcome_operand(ty: &TypeExpr) -> String {
+    let formatted = format_type_expr(ty);
+    if matches!(ty, TypeExpr::Outcome(_, _)) {
+        format!("({formatted})")
+    } else {
+        formatted
     }
-
-    format_prec(cost, 0)
 }

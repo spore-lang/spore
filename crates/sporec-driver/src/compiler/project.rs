@@ -389,7 +389,6 @@ fn load_platform_contract(
         startup_params.clone(),
         Box::new(startup_return.clone()),
         Default::default(),
-        Default::default(),
     )];
     if adapter_params != expected_adapter_params || adapter_return != startup_return {
         return Err(invalid_platform_contract_error(format!(
@@ -593,6 +592,9 @@ fn pattern_bindings(pattern: &Pattern, bindings: &mut BTreeSet<String>) {
         Pattern::Var(name) => {
             bindings.insert(name.clone());
         }
+        Pattern::OutcomeOk(pattern) | Pattern::OutcomeFail(pattern) => {
+            pattern_bindings(pattern, bindings);
+        }
         Pattern::Constructor(_, patterns) | Pattern::Or(patterns) | Pattern::List(patterns, _) => {
             for pattern in patterns {
                 pattern_bindings(pattern, bindings);
@@ -664,7 +666,8 @@ fn rewrite_native_project_expr(
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
-        | Expr::Hole(_, _, _, _)
+        | Expr::Unit
+        | Expr::Hole(_, _, _)
         | Expr::Placeholder => expr.clone(),
         Expr::FString(parts) => Expr::FString(
             parts
@@ -879,7 +882,7 @@ fn rewrite_native_project_expr(
                 imported_functions,
             ))
         })),
-        Expr::Throw(value) => Expr::Throw(Box::new(rewrite_native_project_expr(
+        Expr::Fail(value) => Expr::Fail(Box::new(rewrite_native_project_expr(
             value,
             scopes,
             local_functions,
@@ -1102,7 +1105,8 @@ fn specialize_startup_expr(
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
-        | Expr::Hole(_, _, _, _)
+        | Expr::Unit
+        | Expr::Hole(_, _, _)
         | Expr::Placeholder => expr.clone(),
         Expr::FString(parts) => Expr::FString(
             parts
@@ -1486,7 +1490,7 @@ fn specialize_startup_expr(
                 })
                 .transpose()?,
         ),
-        Expr::Throw(value) => Expr::Throw(Box::new(specialize_startup_expr(
+        Expr::Fail(value) => Expr::Fail(Box::new(specialize_startup_expr(
             value,
             bound_params,
             startup_function,
@@ -1765,7 +1769,7 @@ fn collect_direct_calls(expr: &Expr, calls: &mut BTreeSet<String>) {
         | Expr::Try(body)
         | Expr::Spawn(body)
         | Expr::Await(body)
-        | Expr::Throw(body) => collect_direct_calls(body, calls),
+        | Expr::Fail(body) => collect_direct_calls(body, calls),
         Expr::UnaryOp(_, value) | Expr::FieldAccess(value, _) | Expr::Return(Some(value)) => {
             collect_direct_calls(value, calls)
         }
@@ -1869,8 +1873,9 @@ fn collect_direct_calls(expr: &Expr, calls: &mut BTreeSet<String>) {
         | Expr::FloatLit(_)
         | Expr::StrLit(_)
         | Expr::BoolLit(_)
+        | Expr::Unit
         | Expr::Var(_)
-        | Expr::Hole(_, _, _, _)
+        | Expr::Hole(_, _, _)
         | Expr::Return(None)
         | Expr::Placeholder => {}
     }
@@ -1971,18 +1976,16 @@ fn build_native_project_module(
             &qualified_startup,
         )?;
         FnDef {
+            attributes: Vec::new(),
             name: "main".to_string(),
             visibility: Visibility::Pub,
             type_params: Vec::new(),
+            type_param_bounds: Vec::new(),
             params: Vec::new(),
             return_type: adapter_return_type,
-            errors: Vec::new(),
-            where_clause: None,
-            cost_clause: None,
-            spec_clause: None,
+            budget_clause: None,
+            properties_clause: None,
             uses_clause: None,
-            is_unbounded: false,
-            hole_allows: None,
             is_foreign: false,
             body: Some(Expr::Call(
                 Box::new(Expr::Var(specialized_adapter)),
@@ -1992,18 +1995,16 @@ fn build_native_project_module(
         }
     } else {
         FnDef {
+            attributes: Vec::new(),
             name: "main".to_string(),
             visibility: Visibility::Pub,
             type_params: Vec::new(),
+            type_param_bounds: Vec::new(),
             params: Vec::new(),
             return_type: startup_def.return_type.clone(),
-            errors: Vec::new(),
-            where_clause: None,
-            cost_clause: None,
-            spec_clause: None,
+            budget_clause: None,
+            properties_clause: None,
             uses_clause: None,
-            is_unbounded: false,
-            hole_allows: None,
             is_foreign: false,
             body: Some(Expr::Call(
                 Box::new(Expr::Var(qualified_startup)),
@@ -2045,7 +2046,7 @@ fn runtime_platform_for_target(target: &ResolvedProjectTarget) -> Result<Runtime
 
 fn is_hole_backed_contract_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Hole(_, _, _, _) => true,
+        Expr::Hole(_, _, _) => true,
         Expr::Block(stmts, Some(expr)) if stmts.is_empty() => is_hole_backed_contract_expr(expr),
         Expr::Block(stmts, None) => match stmts.as_slice() {
             [Stmt::Expr(expr)] => is_hole_backed_contract_expr(expr),
@@ -2308,23 +2309,22 @@ fn format_project_verbose_results(results: &[(String, CheckResult)]) -> String {
     out
 }
 
-/// Run spec clauses in a project module's entry file, with all imported modules
-/// available to spec bodies.
+/// Run source properties in a project module's entry file, with all imported
+/// modules available to property bodies.
 ///
-/// This is the project-aware counterpart of `sporec_driver::test_specs`: it
-/// type-checks the project (resolving imports), then executes spec clauses with
-/// the imported modules pre-loaded in the interpreter so helpers defined in
-/// those modules are callable from spec bodies.
+/// This is the project-aware counterpart of `sporec_driver::test_properties`: it
+/// type-checks the project, then evaluates properties with imported helper
+/// modules pre-loaded in the interpreter.
 ///
-/// Returns `Ok(specs)` on success or a human-readable error string on failure.
-pub fn test_specs_project(
+/// Returns validation results on success or a human-readable error string on failure.
+pub fn test_properties_project(
     root: &Path,
     entry: &str,
-) -> Result<Vec<sporec_codegen::SpecResult>, String> {
+) -> Result<Vec<sporec_codegen::PropertyResult>, String> {
     let target = resolve_project_target_by_path(root, entry)?;
     let prep = prepare_project(root, &target)?;
     let _results = collect_prepared_project_results(&prep, &target.entry_path)?;
 
     let imported = collect_runtime_import_modules(&prep, &target)?;
-    sporec_codegen::test_specs_with_imports(&prep.ast, &imported).map_err(|e| e.to_string())
+    sporec_codegen::test_properties_with_imports(&prep.ast, &imported).map_err(|e| e.to_string())
 }

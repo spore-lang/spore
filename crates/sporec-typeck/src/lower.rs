@@ -55,6 +55,9 @@ impl Lowering {
                 ast::Item::TypeDef(t) => {
                     self.register_name(&t.name);
                 }
+                ast::Item::OpaqueType(t) => {
+                    self.register_name(&t.name);
+                }
                 ast::Item::TraitDef(t) => {
                     self.register_name(&t.name);
                 }
@@ -67,7 +70,7 @@ impl Lowering {
                 ast::Item::ImplDef(_)
                 | ast::Item::Import(_)
                 | ast::Item::Alias(_)
-                | ast::Item::EffectAlias(_)
+                | ast::Item::SurfaceDef(_)
                 | ast::Item::HandlerDef(_) => {}
             }
         }
@@ -91,8 +94,9 @@ impl Lowering {
             ast::Item::Import(_)
             | ast::Item::Const(_)
             | ast::Item::Alias(_)
+            | ast::Item::OpaqueType(_)
             | ast::Item::EffectDef(_)
-            | ast::Item::EffectAlias(_)
+            | ast::Item::SurfaceDef(_)
             | ast::Item::HandlerDef(_) => None,
         }
     }
@@ -118,24 +122,17 @@ impl Lowering {
         let uses_clause = f
             .uses_clause
             .as_ref()
-            .map(|uc| uc.resources.iter().cloned().collect())
+            .map(|uc| uc.surface.names().into_iter().map(str::to_string).collect())
             .unwrap_or_default();
 
-        let throws = f.errors.iter().map(|t| self.lower_type_expr(t)).collect();
-
-        let where_clause = f
-            .where_clause
-            .as_ref()
-            .map(|wc| {
-                wc.constraints
-                    .iter()
-                    .map(|c| HirTypeConstraint {
-                        type_var: c.type_var.clone(),
-                        bound: c.bound.clone(),
-                    })
-                    .collect()
+        let generic_bounds = f
+            .type_param_bounds
+            .iter()
+            .map(|c| HirTypeConstraint {
+                type_var: c.type_var.clone(),
+                bound: c.bound.clone(),
             })
-            .unwrap_or_default();
+            .collect();
 
         HirFnDef {
             name: f.name.clone(),
@@ -144,12 +141,7 @@ impl Lowering {
             return_type,
             body,
             uses_clause,
-            throws,
-            where_clause,
-            cost_bound: f
-                .cost_clause
-                .as_ref()
-                .map(|cc| Box::new(self.lower_cost_expr(&cc.compute))),
+            generic_bounds,
         }
     }
 
@@ -200,8 +192,9 @@ impl Lowering {
     fn lower_impl_def(&mut self, i: &ast::ImplDef) -> HirImplDef {
         let methods = i.methods.iter().map(|m| self.lower_fn_def(m)).collect();
         HirImplDef {
-            trait_name: i.trait_name.clone(),
-            target_type: i.target_type.clone(),
+            type_params: i.type_params.clone(),
+            interface_type: self.lower_type_expr(&i.interface_type),
+            target_type: i.target_type.as_ref().map(|ty| self.lower_type_expr(ty)),
             methods,
         }
     }
@@ -231,9 +224,13 @@ impl Lowering {
                 name.clone(),
                 args.iter().map(|a| self.lower_type_expr(a)).collect(),
             ),
-            ast::TypeExpr::Function(params, ret, _errors) => HirTypeRef::Function(
+            ast::TypeExpr::Function(params, ret) => HirTypeRef::Function(
                 params.iter().map(|p| self.lower_type_expr(p)).collect(),
                 Box::new(self.lower_type_expr(ret)),
+            ),
+            ast::TypeExpr::Outcome(success, failure) => HirTypeRef::Outcome(
+                Box::new(self.lower_type_expr(success)),
+                Box::new(self.lower_type_expr(failure)),
             ),
             ast::TypeExpr::Tuple(ts) => {
                 if ts.is_empty() {
@@ -262,6 +259,7 @@ impl Lowering {
             ast::Expr::FloatLit(v) => HirExpr::FloatLit(*v),
             ast::Expr::StrLit(v) => HirExpr::StrLit(v.clone()),
             ast::Expr::BoolLit(v) => HirExpr::BoolLit(*v),
+            ast::Expr::Unit => HirExpr::Unit,
 
             // Desugar f-string into nested string concatenation.
             ast::Expr::FString(parts) => self.lower_fstring(parts),
@@ -353,11 +351,11 @@ impl Lowering {
             ast::Expr::Return(inner) => {
                 HirExpr::Return(inner.as_ref().map(|e| Box::new(self.lower_expr(e))))
             }
-            ast::Expr::Throw(inner) => HirExpr::Throw(Box::new(self.lower_expr(inner))),
+            ast::Expr::Fail(inner) => HirExpr::Fail(Box::new(self.lower_expr(inner))),
             ast::Expr::List(elems) => {
                 HirExpr::List(elems.iter().map(|e| self.lower_expr(e)).collect())
             }
-            ast::Expr::Hole(name, _ty_hint, _, _) => {
+            ast::Expr::Hole(name, _ty_hint, _) => {
                 HirExpr::Hole(name.clone().unwrap_or_else(|| "_".to_string()))
             }
 
@@ -484,6 +482,12 @@ impl Lowering {
             ast::Pattern::IntLit(v) => HirPattern::IntLit(*v),
             ast::Pattern::StrLit(v) => HirPattern::StrLit(v.clone()),
             ast::Pattern::BoolLit(v) => HirPattern::BoolLit(*v),
+            ast::Pattern::OutcomeOk(inner) => {
+                HirPattern::OutcomeOk(Box::new(self.lower_pattern(inner)))
+            }
+            ast::Pattern::OutcomeFail(inner) => {
+                HirPattern::OutcomeFail(Box::new(self.lower_pattern(inner)))
+            }
             ast::Pattern::Constructor(name, pats) => HirPattern::Constructor(
                 name.clone(),
                 pats.iter().map(|p| self.lower_pattern(p)).collect(),
@@ -506,51 +510,6 @@ impl Lowering {
                 )
             }
         }
-    }
-
-    /// Lower a cost expression AST node into an HIR expression.
-    fn lower_cost_expr(&self, ce: &ast::CostExpr) -> HirExpr {
-        match ce {
-            ast::CostExpr::Literal(n) => HirExpr::IntLit(*n as i64),
-            ast::CostExpr::Var(name) => {
-                let def_id = self.resolve_name(name);
-                HirExpr::Var(name.clone(), def_id)
-            }
-            ast::CostExpr::Linear(name) => {
-                let def_id = self.resolve_name(name);
-                HirExpr::Var(name.clone(), def_id)
-            }
-            ast::CostExpr::Add(lhs, rhs) => HirExpr::BinOp(
-                Box::new(self.lower_cost_expr(lhs)),
-                HirBinOp::Add,
-                Box::new(self.lower_cost_expr(rhs)),
-            ),
-            ast::CostExpr::Mul(lhs, rhs) => HirExpr::BinOp(
-                Box::new(self.lower_cost_expr(lhs)),
-                HirBinOp::Mul,
-                Box::new(self.lower_cost_expr(rhs)),
-            ),
-            ast::CostExpr::Log(expr) => self.lower_cost_builtin_call("log", vec![expr.as_ref()]),
-            ast::CostExpr::Max(lhs, rhs) => {
-                self.lower_cost_builtin_call("max", vec![lhs.as_ref(), rhs.as_ref()])
-            }
-            ast::CostExpr::Min(lhs, rhs) => {
-                self.lower_cost_builtin_call("min", vec![lhs.as_ref(), rhs.as_ref()])
-            }
-            ast::CostExpr::Span(lhs, rhs) => {
-                self.lower_cost_builtin_call("span", vec![lhs.as_ref(), rhs.as_ref()])
-            }
-        }
-    }
-
-    fn lower_cost_builtin_call(&self, name: &str, args: Vec<&ast::CostExpr>) -> HirExpr {
-        let def_id = self.resolve_name(name);
-        HirExpr::Call(
-            Box::new(HirExpr::Var(name.to_string(), def_id)),
-            args.into_iter()
-                .map(|arg| self.lower_cost_expr(arg))
-                .collect(),
-        )
     }
 }
 

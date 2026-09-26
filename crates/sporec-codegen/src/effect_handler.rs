@@ -462,7 +462,7 @@ mod tests {
     fn package_host_handler_supports_custom_package_qualified_names() {
         let h = package_host_handler(&[(
             "custom_platform.file",
-            "pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]",
+            "@foreign\npub fn file_exists(path: Str) -> Bool uses [FileRead];",
         )]);
         assert!(h.supports("file_exists"));
         assert!(h.supports("custom_platform.file.file_exists"));
@@ -473,7 +473,7 @@ mod tests {
     fn package_host_handler_file_exists_returns_bool() {
         let h = package_host_handler(&[(
             "custom_platform.file",
-            "pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]",
+            "@foreign\npub fn file_exists(path: Str) -> Bool uses [FileRead];",
         )]);
         let path = temp_path("file-exists");
         std::fs::write(&path, "hello").expect("write temp file");
@@ -491,7 +491,7 @@ mod tests {
     fn package_host_handler_env_get_returns_option_enum() {
         let h = package_host_handler(&[(
             "custom_platform.env",
-            "pub foreign fn env_get(key: Str) -> Option[Str] uses [Env]",
+            "@foreign\npub fn env_get(key: Str) -> Option[Str] uses [Env];",
         )]);
         let key = format!("SPORE_CODEGEN_TEST_{}", std::process::id());
         // SAFETY: test process is single-threaded at this point for this variable.
@@ -511,7 +511,7 @@ mod tests {
     fn package_host_handler_dir_list_returns_stable_sorted_names() {
         let h = package_host_handler(&[(
             "custom_platform.dir",
-            "pub foreign fn dir_list(path: Str) -> List[Str] uses [FileRead]",
+            "@foreign\npub fn dir_list(path: Str) -> List[Str] uses [FileRead];",
         )]);
         let dir = temp_path("dir-list");
         std::fs::create_dir_all(&dir).expect("create temporary directory");
@@ -544,7 +544,7 @@ mod tests {
     fn package_host_handler_process_run_status_returns_some_code() {
         let h = package_host_handler(&[(
             "custom_platform.cmd",
-            "pub foreign fn process_run_status(cmd: Str, args: List[Str]) -> Option[U8] uses [Spawn]",
+            "@foreign\npub fn process_run_status(cmd: Str, args: List[Str]) -> Option[U8] uses [Spawn];",
         )]);
         let result = h
             .handle(
@@ -564,7 +564,7 @@ mod tests {
     fn package_host_handler_process_run_status_signal_returns_none() {
         let h = package_host_handler(&[(
             "custom_platform.cmd",
-            "pub foreign fn process_run_status(cmd: Str, args: List[Str]) -> Option[U8] uses [Spawn]",
+            "@foreign\npub fn process_run_status(cmd: Str, args: List[Str]) -> Option[U8] uses [Spawn];",
         )]);
         let result = h
             .handle(
@@ -589,7 +589,7 @@ mod tests {
     fn package_host_handler_exit_returns_structured_signal() {
         let h = package_host_handler(&[(
             "custom_platform.cmd",
-            "pub foreign fn exit(code: U8) -> Never uses [Exit]",
+            "@foreign\npub fn exit(code: U8) -> Never uses [Exit];",
         )]);
         let result = h
             .handle("custom_platform.cmd.exit", &[Value::Int(7)])
@@ -601,7 +601,7 @@ mod tests {
     fn exit_defensively_rejects_malformed_runtime_codes() {
         let h = package_host_handler(&[(
             "custom_platform.cmd",
-            "pub foreign fn exit(code: U8) -> Never uses [Exit]",
+            "@foreign\npub fn exit(code: U8) -> Never uses [Exit];",
         )]);
         let result_high = h.handle("exit", &[Value::Int(256)]);
         assert!(result_high.is_err(), "exit code 256 should be rejected");
@@ -622,7 +622,7 @@ mod tests {
     fn exit_code_in_range_returns_signal() {
         let h = package_host_handler(&[(
             "custom_platform.cmd",
-            "pub foreign fn exit(code: U8) -> Never uses [Exit]",
+            "@foreign\npub fn exit(code: U8) -> Never uses [Exit];",
         )]);
 
         let result_zero = h

@@ -305,15 +305,46 @@ fn query_hole_json_finds_named_hole() {
 }
 
 #[test]
-fn query_hole_json_includes_checked_residual_context() {
-    let temp = TempDir::new("query-hole-cost");
+fn query_hole_json_includes_visible_binding_context() {
+    let temp = TempDir::new("query-hole-bindings");
     let file = temp.write(
         "main.sp",
         r#"
-        fn cheap() -> I64 cost [1, 0, 0, 0] { 1 + 1 }
-        fn costly() -> I64 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
-        fn main() -> I64 cost [6, 0, 0, 0] {
-            let seed = cheap();
+        fn helper() -> I64 { 1 }
+        fn main() -> I64
+        budget { holes: 1 }
+        {
+            let seed = helper();
+            ?todo
+        }
+        "#,
+    );
+
+    let output = sporec_cmd()
+        .args(["query-hole", "--json", file.to_str().unwrap(), "?todo"])
+        .output()
+        .expect("run sporec query-hole");
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = stdout_json(&output);
+    assert_eq!(json["bindings"]["seed"], "I64");
+}
+
+#[test]
+fn query_hole_json_includes_property_context() {
+    let temp = TempDir::new("query-hole-properties");
+    let file = temp.write(
+        "main.sp",
+        r#"
+        fn main(x: I64) -> I64
+        properties {
+            stable(x: I64): main(x) == main(x)
+        }
+        {
             ?todo
         }
         "#,
@@ -331,20 +362,8 @@ fn query_hole_json_includes_checked_residual_context() {
     );
     let json = stdout_json(&output);
     assert_eq!(
-        json["residual_context"]["fit_rule"],
-        "before + candidate <= budget"
-    );
-    let candidates = json["candidates"]
-        .as_array()
-        .expect("candidates should be an array");
-    assert!(
-        candidates.iter().any(|candidate| {
-            candidate["cost_check"]["fits_budget"] == false
-                && candidate["cost_check"]["reason"]
-                    .as_str()
-                    .is_some_and(|reason| reason.contains("exceeds budget in compute"))
-        }),
-        "json: {json}"
+        json["property_context"]["properties"],
+        serde_json::json!(["stable"])
     );
 }
 
@@ -355,14 +374,18 @@ fn query_hole_json_includes_effect_and_rejection_context() {
         "main.sp",
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
         effect Debug {
-            fn trace(msg: Str) -> ()
+            fn trace(msg: Str) -> ();
         }
+        effect Clock {
+            fn now() -> I64;
+        }
+        surface IO = [Console, Clock]
         fn pure() -> I64 { 1 }
         fn noisy() -> I64 uses [Debug] { 2 }
-        fn main() -> I64 uses [IO] {
+        fn main() -> I64 uses IO {
             handle {
                 ?todo
             } with {
@@ -390,7 +413,9 @@ fn query_hole_json_includes_effect_and_rejection_context() {
     assert!(
         json["effect_context"]["surviving_effects"]
             .as_array()
-            .is_some_and(|effects| effects.iter().any(|effect| effect.as_str() == Some("IO"))),
+            .is_some_and(|effects| effects
+                .iter()
+                .any(|effect| effect.as_str() == Some("Clock"))),
         "json: {json}"
     );
     let candidates = json["candidates"]

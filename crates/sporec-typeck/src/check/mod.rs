@@ -16,12 +16,12 @@ mod unify;
 use sporec_parser::ast::*;
 
 use crate::concurrency::ConcurrencyAnalyzer;
-use crate::effect_set::{EffectHierarchy, default_effect_hierarchy};
-use crate::env::{Env, HandlerInfo, TypeRegistry};
+use crate::effect_set::EffectHierarchy;
+use crate::env::{Env, HandlerInfo, InstantiatedMethod, MethodInfo, TypeRegistry};
 use crate::error::{ErrorCode, TypeError};
 use crate::hole::{HoleDependencyGraph, HoleInfo, HoleReport};
 use crate::module::{ImportedSymbol, ModuleError, ModuleRegistry};
-use crate::types::{EffectSet, ErrorSet, Ty};
+use crate::types::{EffectSet, Ty};
 
 use std::collections::{HashMap, HashSet};
 
@@ -38,6 +38,16 @@ fn handler_self_type_name(name: &str) -> String {
     format!("__handler::{name}")
 }
 
+fn registry_with_builtin_effects() -> TypeRegistry {
+    let mut registry = TypeRegistry::default();
+    registry.effects.extend(
+        crate::platform::BUILTIN_EFFECTS
+            .iter()
+            .map(|effect| (*effect).to_string()),
+    );
+    registry
+}
+
 #[derive(Clone)]
 pub(super) struct EnclosingHandlerEffectContext {
     pub surviving_effects: EffectSet,
@@ -52,23 +62,21 @@ pub struct Checker {
     env: Env,
     /// Required effects of the function currently being checked.
     current_effects: EffectSet,
-    /// Error set of the function currently being checked.
-    current_errors: ErrorSet,
+    /// Failure type of the enclosing outcome boundary, when present.
+    current_outcome_failure: Option<Ty>,
     /// Name of the function currently being checked.
     current_function: String,
     /// Name of the module currently being checked.
     current_module_name: String,
     /// Declared return type of the current function (for hole inference).
     expected_return_type: Option<Ty>,
-    /// `@allows[...]` default allow-list in scope for hole suggestions.
-    current_hole_allows: Option<Vec<String>>,
     /// Next type variable ID for fresh type variables.
     next_var_id: u32,
     /// Next synthetic name ID for unnamed holes (`?`).
     next_unnamed_hole_id: u32,
     /// Substitution map: type variable ID → resolved type.
     substitution: HashMap<u32, Ty>,
-    /// Effect hierarchy for expanding parent effects (e.g. IO → 4 leaves).
+    /// Explicit named surfaces used to expand `uses` clauses to atomic effects.
     hierarchy: EffectHierarchy,
     /// Structured concurrency analyzer (parallel scopes + spawn sites).
     concurrency: ConcurrencyAnalyzer,
@@ -82,20 +90,19 @@ impl Checker {
     pub fn new() -> Self {
         Self {
             errors: Vec::new(),
-            registry: TypeRegistry::default(),
+            registry: registry_with_builtin_effects(),
             hole_report: HoleReport::new(),
             module_registry: ModuleRegistry::new(),
             env: Env::new(),
             current_effects: EffectSet::new(),
-            current_errors: ErrorSet::new(),
+            current_outcome_failure: None,
             current_function: String::new(),
             current_module_name: String::new(),
             expected_return_type: None,
-            current_hole_allows: None,
             next_var_id: 0,
             next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
-            hierarchy: default_effect_hierarchy(),
+            hierarchy: EffectHierarchy::new(),
             concurrency: ConcurrencyAnalyzer::new(),
             effect_observation_stack: Vec::new(),
             hole_effect_context_stack: Vec::new(),
@@ -106,20 +113,19 @@ impl Checker {
     pub fn with_module_registry(module_registry: ModuleRegistry) -> Self {
         Self {
             errors: Vec::new(),
-            registry: TypeRegistry::default(),
+            registry: registry_with_builtin_effects(),
             hole_report: HoleReport::new(),
             module_registry,
             env: Env::new(),
             current_effects: EffectSet::new(),
-            current_errors: ErrorSet::new(),
+            current_outcome_failure: None,
             current_function: String::new(),
             current_module_name: String::new(),
             expected_return_type: None,
-            current_hole_allows: None,
             next_var_id: 0,
             next_unnamed_hole_id: 0,
             substitution: HashMap::new(),
-            hierarchy: default_effect_hierarchy(),
+            hierarchy: EffectHierarchy::new(),
             concurrency: ConcurrencyAnalyzer::new(),
             effect_observation_stack: Vec::new(),
             hole_effect_context_stack: Vec::new(),
@@ -149,14 +155,42 @@ impl Checker {
     /// Type-check an entire module.
     pub fn check_module(&mut self, module: &Module) {
         self.current_module_name = module.name.clone();
-        // First pass: register all top-level declarations
+        // Surface declarations are order-independent and must be available
+        // before function signatures are normalized.
         for item in &module.items {
-            self.register_item(item);
+            if matches!(item, Item::SurfaceDef(_)) {
+                self.register_item(item);
+            }
         }
-        // Process imports after registration (so local symbols exist)
+        self.register_aliases(module);
+        // Register declarations that establish the local symbol environment.
+        // Function and handler signatures are delayed until imports are
+        // available because their `uses` clauses may name imported surfaces.
+        for item in &module.items {
+            if !matches!(
+                item,
+                Item::SurfaceDef(_)
+                    | Item::Import(_)
+                    | Item::Alias(_)
+                    | Item::Function(_)
+                    | Item::ImplDef(_)
+                    | Item::HandlerDef(_)
+            ) {
+                self.register_item(item);
+            }
+        }
+        // Resolve imports before normalizing callable effect surfaces.
         for item in &module.items {
             if let Item::Import(import) = item {
                 self.resolve_import(import);
+            }
+        }
+        for item in &module.items {
+            if matches!(
+                item,
+                Item::Function(_) | Item::ImplDef(_) | Item::HandlerDef(_)
+            ) {
+                self.register_item(item);
             }
         }
         // Check for circular module dependencies
@@ -177,7 +211,28 @@ impl Checker {
     /// Register prelude declarations into the local checker registry.
     pub(crate) fn load_prelude(&mut self, module: &Module) {
         for item in &module.items {
-            self.register_item(item);
+            if matches!(item, Item::SurfaceDef(_)) {
+                self.register_item(item);
+            }
+        }
+        self.register_aliases(module);
+        for item in &module.items {
+            if !matches!(item, Item::SurfaceDef(_) | Item::Alias(_)) {
+                self.register_item(item);
+            }
+        }
+    }
+
+    fn register_aliases(&mut self, module: &Module) {
+        let aliases = module
+            .items
+            .iter()
+            .filter(|item| matches!(item, Item::Alias(_)))
+            .collect::<Vec<_>>();
+        for _ in 0..aliases.len() {
+            for item in &aliases {
+                self.register_item(item);
+            }
         }
     }
 }

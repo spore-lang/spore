@@ -25,11 +25,11 @@ impl fmt::Display for Severity {
 /// Prefixes:
 ///   E0xxx — Type errors        (33 codes)
 ///   W0xxx — Warnings           (10 codes)
-///   C0xxx — Effect errors  ( 7 codes)
-///   K0xxx — Cost errors        ( 6 codes)
+///   F0xxx — Effect errors      ( 7 codes)
+///   B0xxx — Budget diagnostics ( 5 codes)
 ///   R0xxx — Refinement errors  ( 1 code)
 ///   H0xxx — Hole diagnostics   ( 8 codes)
-///   M0xxx — Module errors      (11 codes)
+///   M0xxx — Module errors      (15 codes)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ErrorCode {
     // ── E01xx: Struct errors ────────────────────────────────────────
@@ -45,7 +45,7 @@ pub enum ErrorCode {
     E0203, // cannot call non-function
     E0204, // pipe target not a function
     E0205, // pipe target wrong arity
-    E0206, // missing error types in throws
+    E0206, // incompatible outcome propagation
 
     // ── E03xx: Type context / mismatch ──────────────────────────────
     E0301, // type mismatch (general)
@@ -70,19 +70,19 @@ pub enum ErrorCode {
     E0503, // unreachable pattern
     E0504, // or-pattern binding mismatch
 
-    // ── E0xxx: Legacy / general (kept for backward compat) ──────────
-    E0001, // type mismatch (alias for E0301)
-    E0002, // cannot apply operator to type (alias for E0302)
-    E0003, // infinite type (alias for E0307)
+    // ── E0xxx: General type errors ──────────────────────────────────
+    E0001, // type mismatch
+    E0002, // cannot apply operator to type
+    E0003, // infinite type
     E0004, // undefined variable
     E0005, // undefined struct
     E0006, // unknown variant
-    E0007, // wrong number of arguments (alias for E0201)
-    E0008, // cannot call non-function (alias for E0203)
-    E0009, // pipe target not a function (alias for E0204)
-    E0010, // non-exhaustive match (alias for E0305)
-    E0011, // pattern type mismatch (alias for E0306)
-    E0012, // missing error types in throws (alias for E0206)
+    E0007, // wrong number of arguments
+    E0008, // cannot call non-function
+    E0009, // pipe target not a function
+    E0010, // non-exhaustive match
+    E0011, // pattern type mismatch
+    E0012, // invalid outcome propagation
     E0013, // impl missing method
     E0014, // extra method in impl
     E0015, // no such field
@@ -110,38 +110,29 @@ pub enum ErrorCode {
     // ── Refinement violations (R0xxx) ───────────────────────────────
     R0001, // refinement predicate violated
 
-    // ── C01xx: Undeclared effects ──────────────────────────────
-    C0101, // missing required effect
-    C0102, // unknown effect or trait name
-    C0103, // effect not in scope
+    // ── F01xx: Undeclared effects ──────────────────────────────
+    F0101, // missing required effect
+    F0102, // unknown effect or trait name
+    F0103, // effect not in scope
 
-    // ── C02xx: Platform effects ────────────────────────────────
-    C0201, // platform-specific effect unavailable
-    C0202, // effect requires higher platform version
+    // ── F02xx: Platform effects ────────────────────────────────
+    F0201, // platform-specific effect unavailable
+    F0202, // effect requires higher platform version
 
-    // ── C03xx: Purity ───────────────────────────────────────────────
-    C0301, // impure call in pure context
-    C0302, // effect leak across module boundary
+    // ── F03xx: Purity ───────────────────────────────────────────────
+    F0301, // impure call in pure context
+    F0302, // effect leak across module boundary
 
-    // ── Legacy effect codes ─────────────────────────────────────
-    C0001, // missing effects (alias for C0101)
-    C0002, // unknown effect or trait (alias for C0102)
+    // ── F00xx: General effect diagnostics ───────────────────────────
+    F0001, // missing effects
+    F0002, // unknown effect or trait
 
-    // ── K01xx: Budget ───────────────────────────────────────────────
-    K0101, // cost budget exceeded
-    K0102, // cost annotation mismatch
-
-    // ── K02xx: Unbounded ────────────────────────────────────────────
-    K0201, // unbounded recursion detected
-    K0202, // loop without bounded iteration
-
-    // ── K03xx: Declaration ──────────────────────────────────────────
-    K0301, // missing cost annotation on recursive function
-    K0302, // invalid cost expression syntax
-    K0303, // @unbounded requires cost vector declaration
-
-    // ── Legacy cost codes ───────────────────────────────────────────
-    K0001, // cost budget exceeded (alias for K0101)
+    // ── B01xx/B02xx: Budget diagnostics ─────────────────────────────
+    B0101, // budget exceeded
+    B0102, // unknown budget field
+    B0103, // invalid budget value
+    B0201, // recursion disallowed
+    B0202, // hole budget exceeded
 
     // ── H01xx: Hole reports ─────────────────────────────────────────
     H0101, // typed hole found
@@ -175,10 +166,16 @@ pub enum ErrorCode {
     M0401, // snapshot version mismatch
     M0402, // missing snapshot for dependency
 
-    // ── Legacy module codes ─────────────────────────────────────────
-    M0001, // module not found (alias for M0301)
-    M0002, // symbol not found in module (alias for M0302)
-    M0003, // private symbol not accessible (alias for M0201)
+    // ── M06xx: Foreign linkage / exports ────────────────────────────
+    M0601, // invalid foreign or export target
+    M0602, // foreign function unexpectedly has a body
+    M0603, // unsupported export ABI
+    M0604, // foreign symbol unresolved
+
+    // ── M00xx: General module diagnostics ───────────────────────────
+    M0001, // module not found
+    M0002, // symbol not found in module
+    M0003, // private symbol not accessible
 }
 
 impl ErrorCode {
@@ -190,8 +187,6 @@ impl ErrorCode {
             W0101 | W0102 | W0103 | W0104 | W0201 | W0202 | W0301 | W0302 | W0401 | W0402 => {
                 Severity::Warning
             }
-            // Cost budget diagnostics are warnings (SEP-0004)
-            K0101 | K0102 | K0001 => Severity::Warning,
             // Hole diagnostics are informational
             H0101 | H0102 | H0103 | H0201 | H0202 | H0203 | H0301 | H0302 => Severity::Info,
             // Everything else is an error
@@ -216,7 +211,7 @@ impl ErrorCode {
             E0203 => "Cannot call a non-function type",
             E0204 => "Pipe target is not a function",
             E0205 => "Pipe target expects wrong number of arguments",
-            E0206 => "Missing error types in throws declaration",
+            E0206 => "Incompatible outcome propagation",
 
             // E03xx — Type context / mismatch
             E0301 => "Type mismatch between expected and actual types",
@@ -241,7 +236,7 @@ impl ErrorCode {
             E0503 => "Unreachable pattern",
             E0504 => "Or-pattern branches bind different variables",
 
-            // Legacy E0xxx
+            // E00xx — General
             E0001 => "Type mismatch",
             E0002 => "Cannot apply operator to type",
             E0003 => "Infinite type (occurs check)",
@@ -253,7 +248,7 @@ impl ErrorCode {
             E0009 => "Pipe target not a function",
             E0010 => "Non-exhaustive match",
             E0011 => "Pattern type mismatch",
-            E0012 => "Missing error types in throws",
+            E0012 => "Invalid outcome propagation",
             E0013 => "Impl missing required method",
             E0014 => "Extra method not in trait",
             E0015 => "No such field on struct",
@@ -281,38 +276,29 @@ impl ErrorCode {
             // R0xxx — Refinement
             R0001 => "Refinement predicate violated",
 
-            // C01xx — Undeclared effects
-            C0101 => "Missing required effect",
-            C0102 => "Unknown effect or trait name",
-            C0103 => "Effect not in scope",
+            // B01xx/B02xx — Budgets
+            B0101 => "Budget exceeded",
+            B0102 => "Unknown budget field",
+            B0103 => "Invalid budget value",
+            B0201 => "Recursion disallowed by budget",
+            B0202 => "Hole budget exceeded",
 
-            // C02xx — Platform effects
-            C0201 => "Platform-specific effect unavailable on target",
-            C0202 => "Effect requires a higher platform version",
+            // F01xx — Undeclared effects
+            F0101 => "Missing required effect",
+            F0102 => "Unknown effect or trait name",
+            F0103 => "Effect not in scope",
 
-            // C03xx — Purity
-            C0301 => "Impure call in a pure context",
-            C0302 => "Effect leaks across module boundary",
+            // F02xx — Platform effects
+            F0201 => "Platform-specific effect unavailable on target",
+            F0202 => "Effect requires a higher platform version",
 
-            // Legacy effect codes
-            C0001 => "Missing effects",
-            C0002 => "Unknown effect or trait",
+            // F03xx — Purity
+            F0301 => "Impure call in a pure context",
+            F0302 => "Effect leaks across module boundary",
 
-            // K01xx — Budget
-            K0101 => "Cost budget exceeded",
-            K0102 => "Cost annotation does not match inferred cost",
-
-            // K02xx — Unbounded
-            K0201 => "Unbounded recursion detected",
-            K0202 => "Loop without bounded iteration",
-
-            // K03xx — Declaration
-            K0301 => "Missing cost annotation on recursive function",
-            K0302 => "Invalid cost expression syntax",
-            K0303 => "@unbounded requires a cost declaration",
-
-            // Legacy cost code
-            K0001 => "Cost budget exceeded",
+            // F00xx — General effects
+            F0001 => "Missing effects",
+            F0002 => "Unknown effect or trait",
 
             // H01xx — Hole reports
             H0101 => "Typed hole found",
@@ -346,7 +332,13 @@ impl ErrorCode {
             M0401 => "Snapshot version mismatch",
             M0402 => "Missing snapshot for dependency",
 
-            // Legacy module codes
+            // M06xx — Foreign linkage / exports
+            M0601 => "Invalid foreign or export target",
+            M0602 => "Foreign function unexpectedly has a body",
+            M0603 => "Unsupported export ABI",
+            M0604 => "Foreign symbol could not be resolved",
+
+            // M00xx — General modules
             M0001 => "Module not found",
             M0002 => "Symbol not found in module",
             M0003 => "Private symbol not accessible",
@@ -391,7 +383,7 @@ impl fmt::Display for ErrorCode {
             E0502 => "E0502",
             E0503 => "E0503",
             E0504 => "E0504",
-            // Legacy E0xxx
+            // E00xx
             E0001 => "E0001",
             E0002 => "E0002",
             E0003 => "E0003",
@@ -425,31 +417,25 @@ impl fmt::Display for ErrorCode {
             W0402 => "W0402",
             // R0xxx
             R0001 => "R0001",
-            // C01xx
-            C0101 => "C0101",
-            C0102 => "C0102",
-            C0103 => "C0103",
-            // C02xx
-            C0201 => "C0201",
-            C0202 => "C0202",
-            // C03xx
-            C0301 => "C0301",
-            C0302 => "C0302",
-            // Legacy C0xxx
-            C0001 => "C0001",
-            C0002 => "C0002",
-            // K01xx
-            K0101 => "K0101",
-            K0102 => "K0102",
-            // K02xx
-            K0201 => "K0201",
-            K0202 => "K0202",
-            // K03xx
-            K0301 => "K0301",
-            K0302 => "K0302",
-            K0303 => "K0303",
-            // Legacy K0xxx
-            K0001 => "K0001",
+            // F01xx
+            F0101 => "F0101",
+            F0102 => "F0102",
+            F0103 => "F0103",
+            // F02xx
+            F0201 => "F0201",
+            F0202 => "F0202",
+            // F03xx
+            F0301 => "F0301",
+            F0302 => "F0302",
+            // F00xx
+            F0001 => "F0001",
+            F0002 => "F0002",
+            // B01xx/B02xx
+            B0101 => "B0101",
+            B0102 => "B0102",
+            B0103 => "B0103",
+            B0201 => "B0201",
+            B0202 => "B0202",
             // H01xx
             H0101 => "H0101",
             H0102 => "H0102",
@@ -475,7 +461,12 @@ impl fmt::Display for ErrorCode {
             // M04xx
             M0401 => "M0401",
             M0402 => "M0402",
-            // Legacy M0xxx
+            // M06xx
+            M0601 => "M0601",
+            M0602 => "M0602",
+            M0603 => "M0603",
+            M0604 => "M0604",
+            // M00xx
             M0001 => "M0001",
             M0002 => "M0002",
             M0003 => "M0003",
@@ -492,10 +483,10 @@ pub fn all_error_codes() -> &'static [ErrorCode] {
         E0303, E0304, E0305, E0306, E0307, E0308, E0309, E0401, E0402, E0403, E0404, E0501, E0502,
         E0503, E0504, E0001, E0002, E0003, E0004, E0005, E0006, E0007, E0008, E0009, E0010, E0011,
         E0012, E0013, E0014, E0015, E0016, E0017, W0101, W0102, W0103, W0104, W0201, W0202, W0301,
-        W0302, W0401, W0402, R0001, C0101, C0102, C0103, C0201, C0202, C0301, C0302, C0001, C0002,
-        K0101, K0102, K0201, K0202, K0301, K0302, K0303, K0001, H0101, H0102, H0103, H0201, H0202,
-        H0203, H0301, H0302, M0101, M0102, M0201, M0202, M0203, M0301, M0302, M0303, M0401, M0402,
-        M0001, M0002, M0003,
+        W0302, W0401, W0402, R0001, F0101, F0102, F0103, F0201, F0202, F0301, F0302, F0001, F0002,
+        B0101, B0102, B0103, B0201, B0202, H0101, H0102, H0103, H0201, H0202, H0203, H0301, H0302,
+        M0101, M0102, M0201, M0202, M0203, M0301, M0302, M0303, M0401, M0402, M0601, M0602, M0603,
+        M0604, M0001, M0002, M0003,
     ]
 }
 
@@ -565,12 +556,9 @@ mod tests {
 
     #[test]
     fn severity_correct_for_each_category() {
-        // K0101, K0102, K0001 are warnings per SEP-0004
-        let cost_warning_codes: std::collections::HashSet<&str> =
-            ["K0101", "K0102", "K0001"].into_iter().collect();
         for code in all_error_codes() {
             let s = code.to_string();
-            let expected = if s.starts_with('W') || cost_warning_codes.contains(s.as_str()) {
+            let expected = if s.starts_with('W') {
                 Severity::Warning
             } else if s.starts_with('H') {
                 Severity::Info
@@ -608,7 +596,7 @@ mod tests {
 
     #[test]
     fn total_code_count_is_at_least_75() {
-        // 75 SEP-specified + legacy aliases
+        // Keep the table broad enough to cover the current diagnostic surface.
         assert!(
             all_error_codes().len() >= 75,
             "expected at least 75 codes, got {}",

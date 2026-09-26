@@ -1,17 +1,18 @@
 // Spore compositional stdlib — small ordering helpers over the current Ordering type.
-
 pub trait PartialOrder[T] {
-    fn compare(left: T, right: T) -> Ordering
+        fn compare(left: T, right: T) -> Ordering;
+
 }
 
 pub trait TotalOrder[T] {
-    fn compare(left: T, right: T) -> Ordering
+        fn compare(left: T, right: T) -> Ordering;
+
 }
 
-pub fn compare_i32(left: I32, right: I32) -> Ordering cost [3, 0, 0, 0]
-spec {
-    example "less": ordering_is_lt(compare_i32(1i32, 2i32)) == true
-    example "equal": ordering_is_eq(compare_i32(2i32, 2i32)) == true
+pub fn compare_i32(left: I32, right: I32) -> Ordering
+properties {
+    less(): ordering_is_lt(compare_i32(1i32, 2i32)) == true
+    equal(): ordering_is_eq(compare_i32(2i32, 2i32)) == true
 }
 {
     if left < right { Less } else {
@@ -19,10 +20,10 @@ spec {
     }
 }
 
-pub fn compare_bool(left: Bool, right: Bool) -> Ordering cost [4, 0, 0, 0]
-spec {
-    example "false_before_true": ordering_is_lt(compare_bool(false, true)) == true
-    example "equal": ordering_is_eq(compare_bool(true, true)) == true
+pub fn compare_bool(left: Bool, right: Bool) -> Ordering
+properties {
+    false_before_true(): ordering_is_lt(compare_bool(false, true)) == true
+    equal(): ordering_is_eq(compare_bool(true, true)) == true
 }
 {
     match left {
@@ -37,7 +38,7 @@ spec {
     }
 }
 
-pub fn ordering_is_lt(ordering: Ordering) -> Bool cost [3, 0, 0, 0] {
+pub fn ordering_is_lt(ordering: Ordering) -> Bool {
     match ordering {
         Less => true,
         Equal => false,
@@ -45,7 +46,7 @@ pub fn ordering_is_lt(ordering: Ordering) -> Bool cost [3, 0, 0, 0] {
     }
 }
 
-pub fn ordering_is_eq(ordering: Ordering) -> Bool cost [3, 0, 0, 0] {
+pub fn ordering_is_eq(ordering: Ordering) -> Bool {
     match ordering {
         Equal => true,
         Less => false,
@@ -53,10 +54,10 @@ pub fn ordering_is_eq(ordering: Ordering) -> Bool cost [3, 0, 0, 0] {
     }
 }
 
-pub fn ordering_then(first: Ordering, second: Ordering) -> Ordering cost [3, 0, 0, 0]
-spec {
-    example "keeps_first_decision": ordering_is_lt(ordering_then(Less, Greater)) == true
-    example "uses_second_when_equal": ordering_is_lt(ordering_then(Equal, Less)) == true
+pub fn ordering_then(first: Ordering, second: Ordering) -> Ordering
+properties {
+    keeps_first_decision(): ordering_is_lt(ordering_then(Less, Greater)) == true
+    uses_second_when_equal(): ordering_is_lt(ordering_then(Equal, Less)) == true
 }
 {
     match first {

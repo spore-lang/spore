@@ -32,11 +32,7 @@ impl Checker {
     }
 
     /// Find registered functions whose return type matches the expected type.
-    pub(super) fn find_suggestions(
-        &self,
-        expected: &Ty,
-        allow_list: Option<&[String]>,
-    ) -> Vec<String> {
+    pub(super) fn find_suggestions(&self, expected: &Ty) -> Vec<String> {
         if expected.is_error() || matches!(expected, Ty::Hole(_)) {
             return Vec::new();
         }
@@ -44,11 +40,7 @@ impl Checker {
             .registry
             .functions
             .iter()
-            .filter(|(name, (_, ret_ty, _))| {
-                ret_ty == expected
-                    && *name != &self.current_function
-                    && allow_list.is_none_or(|allowed| allowed.iter().any(|a| a == *name))
-            })
+            .filter(|(name, (_, ret_ty, _))| ret_ty == expected && *name != &self.current_function)
             .map(|(name, _)| name.clone())
             .collect();
         suggestions.sort();

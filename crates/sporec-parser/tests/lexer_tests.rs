@@ -135,10 +135,11 @@ fn test_keywords() {
 #[test]
 fn test_more_keywords() {
     assert_eq!(
-        toks_no_eof("pub struct type capability import as"),
+        toks_no_eof("pub struct enum type capability import as"),
         vec![
             Token::Pub,
             Token::Struct,
+            Token::Enum,
             Token::Type,
             Token::Ident("capability".into()),
             Token::Import,
@@ -150,13 +151,14 @@ fn test_more_keywords() {
 #[test]
 fn test_effect_keywords() {
     assert_eq!(
-        toks_no_eof("spawn await where cost uses throw select"),
+        toks_no_eof("spawn await uses budget properties fail throw select"),
         vec![
             Token::Spawn,
             Token::Await,
-            Token::Where,
-            Token::Cost,
             Token::Uses,
+            Token::Budget,
+            Token::Properties,
+            Token::Fail,
             Token::Throw,
             Token::Select,
         ]
@@ -164,10 +166,16 @@ fn test_effect_keywords() {
 }
 
 #[test]
-fn test_trait_effect_handler_spec_keywords() {
+fn test_trait_effect_surface_handler_spec_keywords() {
     assert_eq!(
-        toks_no_eof("trait effect handler spec"),
-        vec![Token::Trait, Token::Effect, Token::Handler, Token::Spec]
+        toks_no_eof("trait effect surface handler spec"),
+        vec![
+            Token::Trait,
+            Token::Effect,
+            Token::Surface,
+            Token::Handler,
+            Token::Spec
+        ]
     );
 }
 
@@ -403,7 +411,7 @@ fn test_complete_function() {
 
 #[test]
 fn test_function_with_uses() {
-    let src = "fn fetch(url: String) -> Result[String] uses [NetRead] { ?body }";
+    let src = "fn fetch(url: Str) -> List[Str] uses [NetRead] { ?body }";
     assert_eq!(
         toks_no_eof(src),
         vec![
@@ -412,12 +420,12 @@ fn test_function_with_uses() {
             Token::LParen,
             Token::Ident("url".into()),
             Token::Colon,
-            Token::Ident("String".into()),
+            Token::Ident("Str".into()),
             Token::RParen,
             Token::Arrow,
-            Token::Ident("Result".into()),
+            Token::Ident("List".into()),
             Token::LBracket,
-            Token::Ident("String".into()),
+            Token::Ident("Str".into()),
             Token::RBracket,
             Token::Uses,
             Token::LBracket,

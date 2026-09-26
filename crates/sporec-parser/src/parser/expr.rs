@@ -153,6 +153,10 @@ impl Parser {
             Token::LBrace => self.parse_block_expr(),
             Token::LParen => {
                 self.advance();
+                if self.at(&Token::RParen) {
+                    self.advance();
+                    return Ok(Expr::Unit);
+                }
                 let expr = self.parse_expr()?;
                 self.expect(&Token::RParen)?;
                 Ok(expr)
@@ -178,9 +182,15 @@ impl Parser {
                 }
             }
             Token::Throw => {
+                Err(self.error(
+                    "`throw` is not part of the current syntax; use `fail error` to construct an outcome failure"
+                        .into(),
+                ))
+            }
+            Token::Fail => {
                 self.advance();
                 let expr = self.parse_expr()?;
-                Ok(Expr::Throw(Box::new(expr)))
+                Ok(Expr::Fail(Box::new(expr)))
             }
             Token::LBracket => {
                 self.advance();
@@ -202,30 +212,15 @@ impl Parser {
                 } else {
                     None
                 };
-                let allows = if self.at(&Token::At) {
-                    self.advance();
-                    let kw = self.expect_ident()?;
-                    if kw != "allows" {
-                        return Err(
-                            self.error(format!("expected `allows` after `@`, found `{kw}`"))
-                        );
-                    }
-                    self.expect(&Token::LBracket)?;
-                    let caps = self.parse_comma_sep(|p| p.expect_ident(), &Token::RBracket)?;
-                    self.expect(&Token::RBracket)?;
-                    Some(caps)
-                } else {
-                    None
-                };
-                let hole_end = if name.is_some() {
-                    self.previous_span().end
-                } else {
-                    question_span.end
-                };
+                if self.at(&Token::At) {
+                    return Err(self.error(
+                        "hole metadata annotations are not part of the current syntax".into(),
+                    ));
+                }
+                let hole_end = self.previous_span().end;
                 Ok(Expr::Hole(
                     name,
                     ty,
-                    allows,
                     Some(Span::new(question_span.start, hole_end)),
                 ))
             }

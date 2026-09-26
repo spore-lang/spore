@@ -1,10 +1,20 @@
 use sporec_codegen::{ProjectRunOutcome, RuntimePlatform, value::Value};
 use sporec_parser::parse;
-use sporec_stdlib::all as stdlib_modules;
+use sporec_stdlib::{all as stdlib_modules, get as stdlib_module};
 
 fn run_main(src: &str) -> Value {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
     sporec_codegen::run(&module).unwrap_or_else(|e| panic!("runtime error: {e}"))
+}
+
+fn run_main_with_stdlib_module(logical_name: &str, src: &str) -> Value {
+    let entry = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    let stdlib = stdlib_module(logical_name)
+        .unwrap_or_else(|| panic!("standard library module `{logical_name}` must exist"));
+    let imported =
+        parse(stdlib.source).unwrap_or_else(|e| panic!("{} parse error: {e:?}", stdlib.file_name));
+    sporec_codegen::run_project(&entry, &[(logical_name.to_string(), imported)], "main")
+        .unwrap_or_else(|e| panic!("runtime error: {e}"))
 }
 
 fn run_fn(src: &str, name: &str, args: Vec<Value>) -> Value {
@@ -89,6 +99,12 @@ fn test_int_literal() {
 }
 
 #[test]
+fn test_unit_value() {
+    let v = run_main("fn main() -> () { () }");
+    assert!(matches!(v, Value::Unit));
+}
+
+#[test]
 #[allow(clippy::approx_constant)]
 fn test_float_literal() {
     let v = run_main("fn main() -> F64 { 3.14 }");
@@ -97,7 +113,7 @@ fn test_float_literal() {
 
 #[test]
 fn test_string_literal() {
-    let v = run_main("fn main() -> String { \"hello\" }");
+    let v = run_main("fn main() -> Str { \"hello\" }");
     assert_eq!(v.as_str(), Some("hello"));
 }
 
@@ -128,7 +144,7 @@ fn test_project_runtime_package_host_supports_custom_package_foreign_functions()
         &entry_src,
         &[(
             "custom_platform.file",
-            "pub foreign fn file_exists(path: Str) -> Bool uses [FileRead]",
+            "@foreign\npub fn file_exists(path: Str) -> Bool uses [FileRead];",
         )],
         "main",
         RuntimePlatform::PackageHost,
@@ -169,7 +185,7 @@ fn test_project_runtime_package_host_exit_returns_structured_outcome() {
         "#,
         &[(
             "custom_platform.cmd",
-            "pub foreign fn exit(code: U8) -> Never uses [Exit]",
+            "@foreign\npub fn exit(code: U8) -> Never uses [Exit];",
         )],
         "main",
         RuntimePlatform::PackageHost,
@@ -294,7 +310,7 @@ fn test_if_comparison() {
 #[test]
 fn test_match_int() {
     let v = run_main(
-        r#"fn main() -> String {
+        r#"fn main() -> Str {
             let x = 1;
             match x {
                 0 => "zero",
@@ -343,6 +359,19 @@ fn test_struct_create_and_access() {
     assert_eq!(v.as_int(), Some(42));
 }
 
+#[test]
+fn test_inherent_receiver_and_static_methods() {
+    let v = run_main(
+        "struct Counter { value: I64 }
+         impl Counter {
+             fn zero() -> Counter { Counter { value: 0 } }
+             fn add(self, amount: I64) -> Counter { Counter { value: self.value + amount } }
+         }
+         fn main() -> I64 { Counter.zero().add(42).value }",
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
 // ── Lambda / Pipe ────────────────────────────────────────────────────────
 
 #[test]
@@ -363,11 +392,11 @@ fn test_pipe() {
     assert_eq!(v.as_int(), Some(42));
 }
 
-// ── String concat ────────────────────────────────────────────────────────
+// ── Str concat ───────────────────────────────────────────────────────────
 
 #[test]
 fn test_string_concat() {
-    let v = run_main(r#"fn main() -> String { "hello" + " world" }"#);
+    let v = run_main(r#"fn main() -> Str { "hello" + " world" }"#);
     assert_eq!(v.as_str(), Some("hello world"));
 }
 
@@ -397,7 +426,7 @@ fn test_bitwise_and() {
 #[test]
 fn test_enum_zero_arg() {
     let v = run_main(
-        "type Color { Red, Green, Blue }
+        "enum Color { Red, Green, Blue }
          fn main() -> Color { Red }",
     );
     assert_eq!(v.to_string(), "Red");
@@ -406,7 +435,7 @@ fn test_enum_zero_arg() {
 #[test]
 fn test_enum_with_fields() {
     let v = run_main(
-        "type Option[T] { Some(T), None }
+        "enum Option[T] { Some(T), None }
          fn main() -> Option[I64] { Some(42) }",
     );
     assert_eq!(v.to_string(), "Some(42)");
@@ -415,7 +444,7 @@ fn test_enum_with_fields() {
 #[test]
 fn test_enum_match() {
     let v = run_main(
-        "type Option[T] { Some(T), None }
+        "enum Option[T] { Some(T), None }
          fn main() -> I64 {
              let x = Some(42);
              match x {
@@ -430,7 +459,7 @@ fn test_enum_match() {
 #[test]
 fn test_enum_match_zero_arg() {
     let v = run_main(
-        "type Option[T] { Some(T), None }
+        "enum Option[T] { Some(T), None }
          fn main() -> I64 {
              let x = None;
              match x {
@@ -442,30 +471,55 @@ fn test_enum_match_zero_arg() {
     assert_eq!(v.as_int(), Some(0));
 }
 
+#[test]
+fn test_generic_enum_inherent_method_uses_nominal_owner() {
+    let v = run_main(
+        "enum Option[T] { Some(T), None }
+         impl[T] Option[T] {
+             fn unwrap_or(self, default: T) -> T {
+                 match self {
+                     Some(value) => value,
+                     None => default,
+                 }
+             }
+         }
+         fn main() -> I64 { Some(42).unwrap_or(0) }",
+    );
+    assert_eq!(v.as_int(), Some(42));
+}
+
 // ── Try operator ────────────────────────────────────────────────────────
 
 #[test]
 fn test_try_ok() {
     let v = run_main(
-        "type Result[T, E] { Ok(T), Err(E) }
-         fn main() -> I64 {
-             let r = Ok(42);
-             r?
-         }",
+        "fn succeed() -> I64 ! Str { 42 }
+         fn main() -> I64 ! Str { succeed()? }",
     );
-    assert_eq!(v.as_int(), Some(42));
+    assert_eq!(v.to_string(), "ok 42");
 }
 
 #[test]
-#[should_panic(expected = "uncaught error")]
 fn test_try_err() {
-    run_main(
-        r#"type Result[T, E] { Ok(T), Err(E) }
-         fn main() -> I64 {
-             let r = Err("bad");
-             r?
+    let v = run_main(
+        r#"fn fail_now() -> I64 ! Str { fail "bad" }
+         fn main() -> I64 ! Str { fail_now()? }"#,
+    );
+    assert_eq!(v.to_string(), "fail bad");
+}
+
+#[test]
+fn test_outcome_match() {
+    let v = run_main(
+        r#"fn fail_now() -> I64 ! Str { fail "bad" }
+         fn main() -> Str {
+             match fail_now() {
+                 ok _ => "ok",
+                 fail error => error,
+             }
          }"#,
     );
+    assert_eq!(v.as_str(), Some("bad"));
 }
 
 // ── List builtins ───────────────────────────────────────────────────────
@@ -565,7 +619,7 @@ fn test_contains() {
     assert_eq!(v2.as_bool(), Some(false));
 }
 
-// ── String builtins ─────────────────────────────────────────────────────
+// ── Str builtins ────────────────────────────────────────────────────────
 
 // ── Regression: head/tail of empty list returns None (Bug A7) ──────────
 
@@ -595,7 +649,7 @@ fn test_tail_empty_returns_none() {
 
 #[test]
 fn test_split_returns_list_str() {
-    let v = run_main(r#"fn main() -> List[String] { split("a,b", ",") }"#);
+    let v = run_main(r#"fn main() -> List[Str] { split("a,b", ",") }"#);
     let list = v.as_list().unwrap();
     assert_eq!(list.len(), 2);
     assert_eq!(list[0].as_str(), Some("a"));
@@ -604,11 +658,11 @@ fn test_split_returns_list_str() {
 
 #[test]
 fn test_to_string_float() {
-    let v = run_main(r#"fn main() -> String { to_string(3.14) }"#);
+    let v = run_main(r#"fn main() -> Str { to_string(3.14) }"#);
     assert_eq!(v.as_str(), Some("3.14"));
 }
 
-// ── String builtins (continued) ─────────────────────────────────────────
+// ── Str builtins (continued) ────────────────────────────────────────────
 
 #[test]
 fn test_string_length() {
@@ -618,22 +672,22 @@ fn test_string_length() {
 
 #[test]
 fn test_trim() {
-    let v = run_main(r#"fn main() -> String { trim("  hi  ") }"#);
+    let v = run_main(r#"fn main() -> Str { trim("  hi  ") }"#);
     assert_eq!(v.as_str(), Some("hi"));
 }
 
 #[test]
 fn test_to_upper_lower() {
-    let v = run_main(r#"fn main() -> String { to_upper("hello") }"#);
+    let v = run_main(r#"fn main() -> Str { to_upper("hello") }"#);
     assert_eq!(v.as_str(), Some("HELLO"));
 
-    let v2 = run_main(r#"fn main() -> String { to_lower("HELLO") }"#);
-    assert_eq!(v2.as_str(), Some("hello"));
+    let lower = run_main(r#"fn main() -> Str { to_lower("HELLO") }"#);
+    assert_eq!(lower.as_str(), Some("hello"));
 }
 
 #[test]
 fn test_split() {
-    let v = run_main(r#"fn main() -> List[String] { split("a,b,c", ",") }"#);
+    let v = run_main(r#"fn main() -> List[Str] { split("a,b,c", ",") }"#);
     let list = v.as_list().unwrap();
     assert_eq!(list.len(), 3);
     assert_eq!(list[0].as_str(), Some("a"));
@@ -651,19 +705,19 @@ fn test_starts_ends_with() {
 
 #[test]
 fn test_replace() {
-    let v = run_main(r#"fn main() -> String { replace("hello world", "world", "spore") }"#);
+    let v = run_main(r#"fn main() -> Str { replace("hello world", "world", "spore") }"#);
     assert_eq!(v.as_str(), Some("hello spore"));
 }
 
 #[test]
 fn test_to_string() {
-    let v = run_main(r#"fn main() -> String { to_string(42) }"#);
+    let v = run_main(r#"fn main() -> Str { to_string(42) }"#);
     assert_eq!(v.as_str(), Some("42"));
 }
 
 #[test]
 fn test_substring() {
-    let v = run_main(r#"fn main() -> String { substring("hello", 1, 4) }"#);
+    let v = run_main(r#"fn main() -> Str { substring("hello", 1, 4) }"#);
     assert_eq!(v.as_str(), Some("ell"));
 }
 
@@ -810,22 +864,11 @@ fn test_stdlib_unwrap_or_none() {
 }
 
 #[test]
-fn test_stdlib_unwrap_or_result_ok() {
-    let v = run_main("fn main() -> I64 { unwrap_or_result(Ok(42), 0) }");
-    assert_eq!(v.as_int(), Some(42));
-}
-
-#[test]
-fn test_stdlib_unwrap_or_result_err() {
-    let v = run_main(r#"fn main() -> I64 { unwrap_or_result(Err("bad"), 0) }"#);
-    assert_eq!(v.as_int(), Some(0));
-}
-
-#[test]
 fn test_foreign_fn_runtime_error() {
     let src = r#"
-        foreign fn read_file(path: String) -> String
-        fn main() -> String { read_file("test.txt") }
+        @foreign
+        fn read_file(path: Str) -> Str;
+        fn main() -> Str { read_file("test.txt") }
     "#;
     let module = parse(src).unwrap();
     let err = sporec_codegen::run(&module).unwrap_err();
@@ -841,7 +884,7 @@ fn test_foreign_fn_runtime_error() {
 #[test]
 fn test_perform_println_dispatches_to_cli_handler() {
     // perform StdIO.println should fall back to CliPlatformHandler
-    let v = run_main(r#"fn main() { perform StdIO.println("hello from perform") }"#);
+    let v = run_main(r#"fn main() -> () { perform StdIO.println("hello from perform") }"#);
     assert!(matches!(v, Value::Unit));
 }
 
@@ -905,10 +948,10 @@ fn test_named_handler_instance_uses_payload_and_self() {
     let v = run_main(
         r#"
         effect Math {
-            fn double(x: I64) -> I64
+            fn double(x: I64) -> I64;
         }
-        handler Math as DoubleMath(multiplier: I64) {
-            fn double(x: I64) -> I64 {
+        handler DoubleMath for Math {
+            fn Math.double(x: I64) -> I64 {
                 x * self.multiplier
             }
         }
@@ -929,10 +972,10 @@ fn test_named_handler_and_inline_on_can_mix_for_different_effects() {
     let v = run_main(
         r#"
         effect Math {
-            fn double(x: I64) -> I64
+            fn double(x: I64) -> I64;
         }
-        handler Math as DoubleMath(multiplier: I64) {
-            fn double(x: I64) -> I64 { x * self.multiplier }
+        handler DoubleMath for Math {
+            fn Math.double(x: I64) -> I64 { x * self.multiplier }
         }
         fn main() -> I64 {
             handle {
@@ -1036,19 +1079,8 @@ fn test_stdlib_map_option_none() {
 }
 
 #[test]
-fn test_stdlib_map_result_ok() {
-    let v = run_main(
-        "fn main() -> I64 {
-             let x = map_result(Ok(21), |v: I64| v * 2);
-             unwrap_or_result(x, 0)
-         }",
-    );
-    assert_eq!(v.as_int(), Some(42));
-}
-
-#[test]
 fn test_unhandled_effect_error() {
-    let module = sporec_parser::parse(r#"fn main() { perform Unknown.op() }"#).unwrap();
+    let module = sporec_parser::parse(r#"fn main() -> () { perform Unknown.op() }"#).unwrap();
     let err = sporec_codegen::run(&module).unwrap_err();
     assert!(
         err.to_string().contains("unhandled effect"),
@@ -1141,17 +1173,6 @@ fn test_range_too_large() {
 }
 
 #[test]
-fn test_stdlib_map_result_err() {
-    let v = run_main(
-        r#"fn main() -> I64 {
-             let x = map_result(Err("bad"), |v: I64| v * 2);
-             unwrap_or_result(x, 0)
-         }"#,
-    );
-    assert_eq!(v.as_int(), Some(0));
-}
-
-#[test]
 fn test_stdlib_is_some_with_some() {
     let v = run_main("fn main() -> Bool { is_some(Some(99)) }");
     assert_eq!(v.as_bool(), Some(true));
@@ -1172,30 +1193,6 @@ fn test_stdlib_is_none_with_none() {
 #[test]
 fn test_stdlib_is_none_with_some() {
     let v = run_main("fn main() -> Bool { is_none(Some(1)) }");
-    assert_eq!(v.as_bool(), Some(false));
-}
-
-#[test]
-fn test_stdlib_is_ok_true() {
-    let v = run_main("fn main() -> Bool { is_ok(Ok(42)) }");
-    assert_eq!(v.as_bool(), Some(true));
-}
-
-#[test]
-fn test_stdlib_is_ok_false() {
-    let v = run_main(r#"fn main() -> Bool { is_ok(Err("oops")) }"#);
-    assert_eq!(v.as_bool(), Some(false));
-}
-
-#[test]
-fn test_stdlib_is_err_true() {
-    let v = run_main(r#"fn main() -> Bool { is_err(Err("oops")) }"#);
-    assert_eq!(v.as_bool(), Some(true));
-}
-
-#[test]
-fn test_stdlib_is_err_false() {
-    let v = run_main("fn main() -> Bool { is_err(Ok(42)) }");
     assert_eq!(v.as_bool(), Some(false));
 }
 
@@ -1247,61 +1244,34 @@ fn test_stdlib_flatten_option_none() {
 }
 
 #[test]
-fn test_stdlib_and_then_result_ok() {
-    let v = run_main(
-        "fn safe(x: I64) -> Result[I64, String] { if x > 0 { Ok(x * 2) } else { Err(\"neg\") } }
-         fn main() -> Result[I64, String] { and_then_result(Ok(5), |x: I64| safe(x)) }",
+fn test_stdlib_outcome_map_ok() {
+    let v = run_main_with_stdlib_module(
+        "spore.outcome",
+        "fn succeed() -> I64 ! Str { 21 }
+         fn main() -> I64 ! Str { map_ok(succeed(), |value: I64| value * 2) }",
     );
-    assert_eq!(v.to_string(), "Ok(10)");
+    assert_eq!(v.to_string(), "ok 42");
 }
 
 #[test]
-fn test_stdlib_and_then_result_err() {
-    let v = run_main(
-        "fn safe(x: I64) -> Result[I64, String] { if x > 0 { Ok(x * 2) } else { Err(\"neg\") } }
-         fn main() -> Result[I64, String] { and_then_result(Err(\"bad\"), |x: I64| safe(x)) }",
+fn test_stdlib_outcome_map_fail() {
+    let v = run_main_with_stdlib_module(
+        "spore.outcome",
+        r#"fn fail_now() -> I64 ! Str { fail "bad" }
+         fn main() -> I64 ! I64 { map_fail(fail_now(), |error: Str| string_length(error)) }"#,
     );
-    assert_eq!(v.to_string(), "Err(bad)");
+    assert_eq!(v.to_string(), "fail 3");
 }
 
 #[test]
-fn test_stdlib_map_err_err() {
-    let v = run_main(
-        "fn main() -> I64 { match map_err(Err(\"bad\"), |e: String| string_length(e)) { Ok(_) => 0, Err(n) => n } }",
+fn test_stdlib_outcome_predicates() {
+    let v = run_main_with_stdlib_module(
+        "spore.outcome",
+        r#"fn succeed() -> I64 ! Str { 42 }
+         fn fail_now() -> I64 ! Str { fail "bad" }
+         fn main() -> Bool { is_ok(succeed()) && is_fail(fail_now()) }"#,
     );
-    assert_eq!(v.as_int(), Some(3));
-}
-
-#[test]
-fn test_stdlib_map_err_ok() {
-    let v = run_main(
-        "fn main() -> I64 { match map_err(Ok(42), |e: String| string_length(e)) { Ok(n) => n, Err(_) => 0 } }",
-    );
-    assert_eq!(v.as_int(), Some(42));
-}
-
-#[test]
-fn test_stdlib_flatten_result_ok_ok() {
-    let v = run_main(
-        "fn main() -> I64 { match flatten_result(Ok(Ok(42))) { Ok(n) => n, Err(_) => 0 } }",
-    );
-    assert_eq!(v.as_int(), Some(42));
-}
-
-#[test]
-fn test_stdlib_flatten_result_ok_err() {
-    let v = run_main(
-        "fn main() -> I64 { match flatten_result(Ok(Err(\"bad\"))) { Ok(_) => 0, Err(_) => 1 } }",
-    );
-    assert_eq!(v.as_int(), Some(1));
-}
-
-#[test]
-fn test_stdlib_flatten_result_err() {
-    let v = run_main(
-        "fn main() -> I64 { match flatten_result(Err(\"bad\")) { Ok(_) => 0, Err(_) => 1 } }",
-    );
-    assert_eq!(v.as_int(), Some(1));
+    assert_eq!(v.as_bool(), Some(true));
 }
 
 #[test]
@@ -1319,7 +1289,7 @@ fn test_stdlib_pair() {
     let v = run_main("fn main() -> I64 { let p = Pair { first: 42, second: \"hello\" }; p.first }");
     assert_eq!(v.as_int(), Some(42));
     let v =
-        run_main("fn main() -> String { let p = Pair { first: 42, second: \"hello\" }; p.second }");
+        run_main("fn main() -> Str { let p = Pair { first: 42, second: \"hello\" }; p.second }");
     assert_eq!(v.to_string(), "hello");
 }
 
@@ -1329,18 +1299,16 @@ fn test_stdlib_identity() {
     assert_eq!(v.as_int(), Some(42));
 }
 
-// ── Spec clause ─────────────────────────────────────────────────────────
+// ── Source properties ───────────────────────────────────────────────────
 
 #[test]
-fn test_fn_with_spec_clause_parses_and_runs() {
-    // A function with a spec clause should parse and execute normally.
-    // The spec block is recorded but not executed during normal interpretation.
+fn test_fn_with_properties_parses_and_runs() {
     let src = r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "positive inputs": add(2, 3) == 5
-            example "identity":        add(0, 42) == 42
-            property "left_identity":  |a: I64, b: I64 when self == 0| a
+        properties {
+            positive_inputs(): add(2, 3) == 5
+            identity(): add(0, 42) == 42
+            left_identity(b: I64): add(0, b) == b
         }
         {
             a + b
@@ -1352,12 +1320,12 @@ fn test_fn_with_spec_clause_parses_and_runs() {
 }
 
 #[test]
-fn test_fn_with_spec_examples_only() {
+fn test_fn_with_properties_examples_only() {
     let src = r#"
         fn double(x: I64) -> I64
-        spec {
-            example "zero": double(0) == 0
-            example "one":  double(1) == 2
+        properties {
+            zero(): double(0) == 0
+            one(): double(1) == 2
         }
         {
             x * 2
@@ -1369,11 +1337,11 @@ fn test_fn_with_spec_examples_only() {
 }
 
 #[test]
-fn test_fn_with_spec_properties_only() {
+fn test_fn_with_parameterized_property() {
     let src = r#"
         fn id(x: I64) -> I64
-        spec {
-            property "identity": |x: I64| x
+        properties {
+            identity(x: I64): id(x) == x
         }
         {
             x
@@ -1388,18 +1356,17 @@ fn test_fn_with_spec_properties_only() {
 fn test_refined_property_uses_filtered_inputs() {
     let src = r#"
         fn abs(x: I32) -> I32
-        spec {
-            property "non_negative_identity": |x: I32 when self >= 0| x
+        properties {
+            non_negative_identity(x: I32 when self >= 0): abs(x) == x
         }
         {
             if x < 0 { 0 - x } else { x }
         }
     "#;
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
-    let results = sporec_codegen::test_specs(&module)
-        .unwrap_or_else(|e| panic!("runtime error while evaluating specs: {e}"));
+    let results = sporec_codegen::test_properties(&module)
+        .unwrap_or_else(|e| panic!("runtime error while evaluating properties: {e}"));
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].kind, sporec_codegen::SpecKind::Property);
     assert!(
         results[0].passed,
         "expected refined property to pass: {results:?}"
@@ -1408,11 +1375,35 @@ fn test_refined_property_uses_filtered_inputs() {
 }
 
 #[test]
-fn test_fn_with_block_spec_example_parses_and_runs() {
+fn test_intent_signature_properties_are_tested_as_bool_predicates() {
+    let src = r#"
+        fn add(a: I64, b: I64) -> I64 { a + b }
+
+        fn checked() -> I64
+        properties {
+            concrete(): add(1, 2) == 3
+            commutative(a: I64, b: I64): add(a, b) == add(b, a)
+        }
+        {
+            0
+        }
+    "#;
+    let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
+    let results = sporec_codegen::test_properties(&module)
+        .unwrap_or_else(|e| panic!("runtime error while evaluating properties: {e}"));
+    assert_eq!(results.len(), 2);
+    assert!(
+        results.iter().all(|result| result.passed),
+        "expected all properties to pass: {results:?}"
+    );
+}
+
+#[test]
+fn test_fn_with_block_property_parses_and_runs() {
     let src = r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "block" {
+        properties {
+            block(): {
                 let sum = add(2, 3);
                 sum == 5
             }
@@ -1427,18 +1418,17 @@ fn test_fn_with_block_spec_example_parses_and_runs() {
 }
 
 #[test]
-fn test_fn_without_spec_still_works() {
-    // Backward compatibility: functions without spec must still work
+fn test_fn_without_properties_still_works() {
     let src = "fn main() -> I64 { 42 }";
     let v = run_main(src);
     assert_eq!(v.as_int(), Some(42));
 }
 
 #[test]
-fn test_fn_with_empty_spec() {
+fn test_fn_with_empty_properties() {
     let src = r#"
         fn noop() -> I64
-        spec {
+        properties {
         }
         {
             0
@@ -1544,13 +1534,13 @@ fn test_parallel_scope_cancels_pending_tasks_when_body_errors() {
     let src = r#"
         fn main() -> I64 {
             parallel_scope {
-                let _task = spawn { throw 99 };
-                throw 1
+                let _task = spawn { 1 / 0 };
+                1 / 0
             }
         }
     "#;
     let err = run_main_err(src);
-    assert!(err.contains("throw: 1"), "unexpected error: {err}");
+    assert!(err.contains("division by zero"), "unexpected error: {err}");
 }
 
 #[test]

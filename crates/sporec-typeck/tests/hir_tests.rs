@@ -158,7 +158,7 @@ fn imports_are_skipped() {
 fn type_def_lowering() {
     let hir = lower_src(
         r#"
-        type Option[T] { Some(T), None }
+        enum Option[T] { Some(T), None }
     "#,
     );
 

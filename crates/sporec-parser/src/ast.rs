@@ -24,9 +24,10 @@ pub enum Item {
     ImplDef(ImplDef),
     Import(ImportDecl),
     Alias(AliasDef),
+    OpaqueType(OpaqueTypeDef),
     TraitDef(TraitDef),
     EffectDef(EffectDef),
-    EffectAlias(EffectAlias),
+    SurfaceDef(SurfaceDef),
     HandlerDef(HandlerDef),
 }
 
@@ -43,26 +44,63 @@ impl Item {
                 ImportDecl::Import { span, .. } | ImportDecl::Alias { span, .. } => *span,
             },
             Item::Alias(a) => a.span,
+            Item::OpaqueType(t) => t.span,
             Item::TraitDef(t) => t.span,
             Item::EffectDef(e) => e.span,
-            Item::EffectAlias(ea) => ea.span,
+            Item::SurfaceDef(s) => s.span,
             Item::HandlerDef(h) => h.span,
         }
     }
 }
 
-/// Type alias: `alias X = Y`
+/// Source-level item metadata introduced by `@name(...)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attribute {
+    pub name: String,
+    pub args: Vec<AttrArg>,
+    pub span: Option<Span>,
+}
+
+/// Positional or named attribute argument.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttrArg {
+    Positional(AttrValue),
+    Named { name: String, value: AttrValue },
+}
+
+/// Literal forms accepted by the attribute grammar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttrValue {
+    Ident(String),
+    Str(String),
+    Int(i64),
+}
+
+/// Transparent type alias: `type X = Y`
 #[derive(Debug, Clone)]
 pub struct AliasDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
     pub visibility: Visibility,
+    pub type_params: Vec<String>,
     pub target: TypeExpr,
+    pub span: Option<Span>,
+}
+
+/// Externally-provided opaque type declaration: `@foreign type Name[T];`
+#[derive(Debug, Clone)]
+pub struct OpaqueTypeDef {
+    pub attributes: Vec<Attribute>,
+    pub name: String,
+    pub visibility: Visibility,
+    pub type_params: Vec<String>,
     pub span: Option<Span>,
 }
 
 /// Compile-time constant definition: `const MAX_SIZE: I64 = 1024`
 #[derive(Debug, Clone)]
 pub struct ConstDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
     pub visibility: Visibility,
     pub ty: TypeExpr,
@@ -72,32 +110,25 @@ pub struct ConstDef {
 
 /// Function definition with full Spore signature.
 ///
-/// Clauses are separate syntactic constructs:
-/// - `where T: Bound`  — generic type constraints
-/// - `uses [Memory]`    — resource dependencies
-/// - `cost [1, 0, 0, 0]` — cost upper-bound vector
+/// A function has a Base Signature plus optional Intent Signature clauses.
 #[derive(Debug, Clone)]
 pub struct FnDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
     pub visibility: Visibility,
     /// Generic type parameters: `fn foo[T, U](...)`
     pub type_params: Vec<String>,
+    /// Inline generic bounds: `fn foo[T: Display](...)`
+    pub type_param_bounds: Vec<TypeConstraint>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeExpr>,
-    pub errors: Vec<TypeExpr>,
-    /// Generic type constraints: `where T: Display, U: Clone`
-    pub where_clause: Option<WhereClause>,
-    /// Cost upper-bound: `cost [compute, alloc, io, parallel]`
-    pub cost_clause: Option<CostClause>,
-    /// Behavioral contract: `spec { example ... property ... }`
-    pub spec_clause: Option<SpecClause>,
-    /// Resource dependencies: `uses [Memory, FileSystem]`
+    /// Realization-shape budget: `budget { branches: 4 }`
+    pub budget_clause: Option<BudgetClause>,
+    /// Source properties: `properties { name(x: T): predicate }`
+    pub properties_clause: Option<PropertiesClause>,
+    /// Required effects: `uses [Console, FileRead]`
     pub uses_clause: Option<UsesClause>,
-    /// `@unbounded` annotation — skip cost analysis.
-    pub is_unbounded: bool,
-    /// `@allows[...]` annotation — default allow-list for holes in this function.
-    pub hole_allows: Option<Vec<String>>,
-    /// `foreign fn` — implemented by host platform, no body.
+    /// External function declaration. The surface spelling is owned by attributes.
     pub is_foreign: bool,
     /// None means this is a hole (?name)
     pub body: Option<Expr>,
@@ -118,81 +149,103 @@ pub enum Visibility {
     Pub,
 }
 
-/// Generic type constraints introduced by `where`.
+/// Named realization-shape budget introduced by `budget`.
 ///
-/// Example: `where T: Display, U: Clone`
-///
-/// This only covers type-parameter bounds. Effects, cost, and resources
-/// are expressed with their own dedicated clauses (`with`, `cost`, `uses`).
-#[derive(Debug, Clone)]
-pub struct WhereClause {
-    pub constraints: Vec<TypeConstraint>,
-}
-
-/// Cost upper-bound introduced by `cost`.
-///
-/// Example: `cost [1, O(n), 2, 3]`
-#[derive(Debug, Clone)]
-pub struct CostClause {
-    pub compute: CostExpr,
-    pub alloc: CostExpr,
-    pub io: CostExpr,
-    pub parallel: CostExpr,
-}
-
-/// Resource dependencies introduced by `uses`.
-///
-/// Example: `uses [Memory, FileSystem]`
-#[derive(Debug, Clone)]
-pub struct UsesClause {
-    pub resources: Vec<String>,
-}
-
-/// Effect coverage introduced by `handles`.
-///
-/// Example: `handles [Console, FileRead]`
-#[derive(Debug, Clone)]
-pub struct HandlesClause {
-    pub effects: Vec<String>,
-}
-
-/// Behavioral contract introduced by `spec`.
-///
-/// Contains example assertions and property-based invariants:
+/// Example:
 /// ```text
-/// spec {
-///     example "identity": add(0, x) == x
-///     property "identity": |x: I64| x
-///     property "non_negative_identity": |x: I32 when self >= 0| x
+/// budget {
+///     branches: 4
+///     holes: 0
 /// }
 /// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BudgetClause {
+    pub items: Vec<BudgetItem>,
+    pub span: Option<Span>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BudgetItem {
+    pub field: String,
+    pub limit: u64,
+    pub span: Option<Span>,
+}
+
+/// A source-level effect-surface expression.
 ///
-/// The original item order is preserved so formatters and diagnostics can
-/// respect the source layout.
+/// Examples: `IO`, `State[Session]`, `[Console, FileRead]`
 #[derive(Debug, Clone, PartialEq)]
-pub struct SpecClause {
-    pub items: Vec<SpecItem>,
+pub struct SurfaceRef {
+    pub name: String,
+    pub type_args: Vec<TypeExpr>,
+}
+
+impl SurfaceRef {
+    pub fn bare(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            type_args: Vec::new(),
+        }
+    }
+}
+
+impl From<&str> for SurfaceRef {
+    fn from(name: &str) -> Self {
+        Self::bare(name)
+    }
+}
+
+impl From<String> for SurfaceRef {
+    fn from(name: String) -> Self {
+        Self::bare(name)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SurfaceExpr {
+    Named(SurfaceRef),
+    Set(Vec<SurfaceRef>),
+}
+
+impl SurfaceExpr {
+    pub fn names(&self) -> Vec<&str> {
+        match self {
+            Self::Named(reference) => vec![reference.name.as_str()],
+            Self::Set(references) => references.iter().map(|item| item.name.as_str()).collect(),
+        }
+    }
+
+    pub fn references(&self) -> Vec<&SurfaceRef> {
+        match self {
+            Self::Named(reference) => vec![reference],
+            Self::Set(references) => references.iter().collect(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        matches!(self, Self::Set(references) if references.is_empty())
+    }
+}
+
+/// Required effect surface introduced by `uses`.
+///
+/// Examples: `uses IO`, `uses [Console, FileRead]`
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsesClause {
+    pub surface: SurfaceExpr,
+}
+
+/// Source properties introduced by `properties`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertiesClause {
+    pub items: Vec<PropertyDecl>,
     pub span: Option<Span>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum SpecItem {
-    Example(ExampleItem),
-    Property(PropertyItem),
-}
-
-/// A single example assertion inside a `spec` block.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExampleItem {
-    pub label: String,
-    pub body: Box<Expr>,
-    pub span: Option<Span>,
-}
-
-/// A single property invariant inside a `spec` block.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PropertyItem {
-    pub label: String,
+pub struct PropertyDecl {
+    pub name: String,
+    pub params: Vec<Param>,
     pub predicate: Box<Expr>,
     pub span: Option<Span>,
 }
@@ -203,28 +256,6 @@ pub struct TypeConstraint {
     pub bound: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CostExpr {
-    /// Integer constant.
-    Literal(u64),
-    /// Parameter variable.
-    Var(String),
-    /// Big-O linear notation: `O(n)`.
-    Linear(String),
-    /// Addition of two symbolic cost expressions.
-    Add(Box<CostExpr>, Box<CostExpr>),
-    /// Multiplication of two symbolic cost expressions.
-    Mul(Box<CostExpr>, Box<CostExpr>),
-    /// Logarithm of a symbolic cost expression.
-    Log(Box<CostExpr>),
-    /// Maximum of two symbolic cost expressions.
-    Max(Box<CostExpr>, Box<CostExpr>),
-    /// Minimum of two symbolic cost expressions.
-    Min(Box<CostExpr>, Box<CostExpr>),
-    /// Span/distance between two symbolic cost expressions.
-    Span(Box<CostExpr>, Box<CostExpr>),
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     Named(String),
@@ -232,8 +263,10 @@ pub enum TypeExpr {
     Hole(Option<String>),
     Generic(String, Vec<TypeExpr>),
     Tuple(Vec<TypeExpr>),
-    /// Function type with optional error set: `(I32) -> I32 ! ParseError | IoError`
-    Function(Vec<TypeExpr>, Box<TypeExpr>, Vec<TypeExpr>),
+    /// Function type: `(I32) -> I32 ! ParseError`
+    Function(Vec<TypeExpr>, Box<TypeExpr>),
+    /// First-class outcome type: `A ! E`.
+    Outcome(Box<TypeExpr>, Box<TypeExpr>),
     /// Refinement type using `when`: `{ x: I64 when x > 0 }`
     ///
     /// Fields: base type, binding name, predicate expression.
@@ -251,6 +284,7 @@ pub enum Expr {
     StrLit(String),
     FString(Vec<FStringPart>),
     BoolLit(bool),
+    Unit,
     Var(String),
     Call(Box<Expr>, Vec<Expr>),
     Lambda(Vec<Param>, Box<Expr>),
@@ -262,12 +296,7 @@ pub enum Expr {
     Match(Box<Expr>, Vec<MatchArm>),
     Block(Vec<Stmt>, Option<Box<Expr>>),
     Try(Box<Expr>),
-    Hole(
-        Option<String>,
-        Option<Box<TypeExpr>>,
-        Option<Vec<String>>,
-        Option<Span>,
-    ),
+    Hole(Option<String>, Option<Box<TypeExpr>>, Option<Span>),
     StructLit(String, Vec<(String, Expr)>),
     Spawn(Box<Expr>),
     Await(Box<Expr>),
@@ -277,7 +306,8 @@ pub enum Expr {
         buffer: Box<Expr>,
     },
     Return(Option<Box<Expr>>),
-    Throw(Box<Expr>),
+    /// Construct a failed outcome: `fail error`.
+    Fail(Box<Expr>),
     List(Vec<Expr>),
     TString(Vec<TStringPart>),
     /// `parallel_scope { body }` or `parallel_scope(lanes: N) { body }`
@@ -403,6 +433,10 @@ pub enum Pattern {
     IntLit(i64),
     StrLit(String),
     BoolLit(bool),
+    /// Match the successful value of an outcome: `ok value`.
+    OutcomeOk(Box<Pattern>),
+    /// Match the failure value of an outcome: `fail error`.
+    OutcomeFail(Box<Pattern>),
     Constructor(String, Vec<Pattern>),
     Struct(String, Vec<(String, Pattern)>),
     Or(Vec<Pattern>),
@@ -412,6 +446,7 @@ pub enum Pattern {
 
 #[derive(Debug, Clone)]
 pub struct StructDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
     pub visibility: Visibility,
     pub type_params: Vec<String>,
@@ -429,6 +464,7 @@ pub struct FieldDef {
 
 #[derive(Debug, Clone)]
 pub struct TypeDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
     pub visibility: Visibility,
     pub type_params: Vec<String>,
@@ -454,9 +490,11 @@ pub struct AssocType {
 /// Trait definition for type interfaces.
 #[derive(Debug, Clone)]
 pub struct TraitDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
     pub visibility: Visibility,
     pub type_params: Vec<String>,
+    pub type_param_bounds: Vec<TypeConstraint>,
     pub methods: Vec<FnDef>,
     pub assoc_types: Vec<AssocType>,
     pub span: Option<Span>,
@@ -465,22 +503,28 @@ pub struct TraitDef {
 /// Atomic effect definition: `effect Console { fn println(msg: Str) -> Unit }`
 #[derive(Debug, Clone)]
 pub struct EffectDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
     pub visibility: Visibility,
+    pub type_params: Vec<String>,
+    pub type_param_bounds: Vec<TypeConstraint>,
     pub operations: Vec<FnDef>,
     pub span: Option<Span>,
 }
 
-/// Effect alias (union of effects): `effect IO = Console | FileRead | FileWrite`
+/// Reusable effect surface: `surface IO = [Console, FileRead, FileWrite]`
 #[derive(Debug, Clone)]
-pub struct EffectAlias {
+pub struct SurfaceDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
     pub visibility: Visibility,
-    pub effects: Vec<String>,
+    pub type_params: Vec<String>,
+    pub type_param_bounds: Vec<TypeConstraint>,
+    pub surface: SurfaceExpr,
     pub span: Option<Span>,
 }
 
-/// Handler implementation block: `impl Console { ... }`
+/// Operations implemented by a handler for one atomic effect.
 #[derive(Debug, Clone)]
 pub struct HandlerImpl {
     pub effect: String,
@@ -488,23 +532,25 @@ pub struct HandlerImpl {
     pub span: Option<Span>,
 }
 
-/// Unified handler definition.
+/// Named handler for an effect surface.
 #[derive(Debug, Clone)]
 pub struct HandlerDef {
+    pub attributes: Vec<Attribute>,
     pub name: String,
-    pub fields: Vec<FieldDef>,
-    pub handles_clause: HandlesClause,
-    pub uses_clause: Option<UsesClause>,
+    pub visibility: Visibility,
+    pub surface: SurfaceExpr,
     pub impls: Vec<HandlerImpl>,
     pub span: Option<Span>,
 }
 
-/// Top-level impl block: `impl Trait for Type { ... }`
+/// Top-level impl block: `impl[T] Trait[T] for Type[T] { ... }` or `impl[T] Type[T] { ... }`
 #[derive(Debug, Clone)]
 pub struct ImplDef {
-    pub trait_name: String,
-    pub target_type: String,
-    pub type_args: Vec<TypeExpr>,
+    pub attributes: Vec<Attribute>,
+    pub type_params: Vec<String>,
+    pub type_param_bounds: Vec<TypeConstraint>,
+    pub interface_type: TypeExpr,
+    pub target_type: Option<TypeExpr>,
     pub methods: Vec<FnDef>,
     pub span: Option<Span>,
 }

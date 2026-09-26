@@ -230,9 +230,9 @@ mod tests {
     }
 
     #[test]
-    fn load_project_manifest_rejects_legacy_platform_handles() {
+    fn load_project_manifest_rejects_removed_platform_handles_key() {
         let project = TempProject::new(
-            "legacy-platform-handles",
+            "removed-platform-handles",
             r#"
             [package]
             name = "basic-cli"
@@ -247,10 +247,10 @@ mod tests {
         );
 
         let err = load_project_manifest(project.root())
-            .expect_err("legacy handles key should be rejected");
+            .expect_err("removed handles key should be rejected");
         assert!(
             err.contains("[platform].handles"),
-            "expected legacy key error, got: {err}"
+            "expected removed key error, got: {err}"
         );
         assert!(
             err.contains("[platform].handled-effects"),
@@ -437,9 +437,9 @@ mod tests {
     }
 
     #[test]
-    fn resolve_default_target_legacy_package_type_application() {
+    fn resolve_default_target_requires_project_default_entry() {
         let project = TempProject::new(
-            "legacy-app",
+            "missing-project-default",
             r#"
             [package]
             name = "demo"
@@ -448,27 +448,32 @@ mod tests {
         );
         project.write("src/main.sp", "fn main() -> () { return }\n");
 
-        let target = resolve_default_project_target(project.root()).expect("legacy app target");
-        assert_eq!(target.entry_path, "main.sp");
-        assert_eq!(target.entry_source_root, "src");
-        assert_eq!(target.source_roots, vec!["src".to_string()]);
-        assert_eq!(target.platform_name.as_deref(), Some("cli"));
-        assert_eq!(target.startup_function.as_deref(), Some("main"));
-        assert!(target.platform_contract.is_none());
-        assert!(target.dependency_source_roots.is_empty());
+        let err = resolve_default_project_target(project.root())
+            .expect_err("implicit package-type defaults should not be inferred");
+        assert!(
+            err.contains("has no `[project]` default target"),
+            "expected explicit project error, got: {err}"
+        );
     }
 
     #[test]
-    fn resolve_default_target_legacy_application_collects_transitive_dependency_roots() {
+    fn resolve_default_target_collects_transitive_dependency_roots() {
         let project = TempProject::new(
-            "legacy-app-transitive-deps",
+            "app-transitive-deps",
             r#"
             [package]
             name = "demo"
             type = "application"
 
+            [project]
+            platform = "cli"
+            default-entry = "app"
+
             [dependencies]
             dep-a = { path = "vendor/dep-a" }
+
+            [entries.app]
+            path = "main.sp"
             "#,
         );
         project.write("src/main.sp", "fn main() -> () { return }\n");
@@ -492,7 +497,7 @@ mod tests {
             "#,
         );
 
-        let target = resolve_default_project_target(project.root()).expect("legacy app target");
+        let target = resolve_default_project_target(project.root()).expect("app target");
         assert_eq!(target.entry_path, "main.sp");
         assert_eq!(target.entry_source_root, "src");
         assert_eq!(target.source_roots, vec!["src".to_string()]);
@@ -519,9 +524,9 @@ mod tests {
     }
 
     #[test]
-    fn resolve_default_target_legacy_platform_is_non_runnable() {
+    fn resolve_default_target_requires_project_for_platform_packages() {
         let project = TempProject::new(
-            "legacy-platform",
+            "platform-without-project",
             r#"
             [package]
             name = "basic-cli"
@@ -539,21 +544,18 @@ mod tests {
             "pub fn main_for_host(app_main: () -> ()) -> () { app_main(); return }\n",
         );
 
-        let target =
-            resolve_default_project_target(project.root()).expect("legacy platform target");
-        assert_eq!(target.entry_path, "host.sp");
-        assert_eq!(target.entry_source_root, "src");
-        assert_eq!(target.source_roots, vec!["src".to_string()]);
-        assert!(target.platform_name.is_none());
-        assert!(target.startup_function.is_none());
-        assert!(target.platform_contract.is_none());
-        assert!(target.dependency_source_roots.is_empty());
+        let err = resolve_default_project_target(project.root())
+            .expect_err("platform packages need an explicit project default");
+        assert!(
+            err.contains("has no `[project]` default target"),
+            "expected explicit project error, got: {err}"
+        );
     }
 
     #[test]
-    fn resolve_project_target_by_path_legacy_platform_host_is_non_runnable() {
+    fn resolve_project_target_by_path_without_project_is_module_only() {
         let project = TempProject::new(
-            "legacy-platform-host",
+            "module-only-platform-host",
             r#"
             [package]
             name = "basic-cli"
@@ -571,8 +573,8 @@ mod tests {
             "pub fn main_for_host(app_main: () -> ()) -> () { app_main(); return }\n",
         );
 
-        let target =
-            resolve_project_target_by_path(project.root(), "host.sp").expect("legacy host target");
+        let target = resolve_project_target_by_path(project.root(), "host.sp")
+            .expect("explicit path should resolve as a module-only target");
         assert_eq!(target.entry_name, "host");
         assert_eq!(target.entry_path, "host.sp");
         assert_eq!(target.entry_source_root, "src");
@@ -654,8 +656,15 @@ mod tests {
             name = "demo"
             type = "application"
 
+            [project]
+            platform = "cli"
+            default-entry = "app"
+
             [dependencies]
             helper = { path = "vendor/helper" }
+
+            [entries.app]
+            path = "main.sp"
             "#,
         );
         project.write("src/main.sp", "fn main() -> () { return }\n");
@@ -681,8 +690,15 @@ mod tests {
             name = "demo"
             type = "application"
 
+            [project]
+            platform = "cli"
+            default-entry = "app"
+
             [dependencies]
             helper = { path = "vendor/helper" }
+
+            [entries.app]
+            path = "main.sp"
             "#,
         );
         project.write("src/main.sp", "fn main() -> () { return }\n");
@@ -709,8 +725,14 @@ mod tests {
             name = "demo"
             type = "package"
 
+            [project]
+            default-entry = "lib"
+
             [dependencies]
             helper = { content-hash = "abc123" }
+
+            [entries.lib]
+            path = "lib.sp"
             "#,
         );
         project.write(
@@ -774,8 +796,14 @@ mod tests {
             name = "demo"
             type = "package"
 
+            [project]
+            default-entry = "lib"
+
             [dependencies]
             helper = { content-hash = "helper123" }
+
+            [entries.lib]
+            path = "lib.sp"
             "#,
         );
         project.write(
@@ -924,13 +952,19 @@ mod tests {
     }
 
     #[test]
-    fn resolve_default_target_legacy_package_type_package_is_non_runnable() {
+    fn resolve_default_target_accepts_explicit_package_entry_without_platform() {
         let project = TempProject::new(
-            "legacy-package",
+            "package-default-entry",
             r#"
             [package]
             name = "demo"
             type = "package"
+
+            [project]
+            default-entry = "lib"
+
+            [entries.lib]
+            path = "lib.sp"
             "#,
         );
         project.write(
@@ -938,7 +972,7 @@ mod tests {
             "pub fn add(a: I64, b: I64) -> I64 { a + b }\n",
         );
 
-        let target = resolve_default_project_target(project.root()).expect("legacy package target");
+        let target = resolve_default_project_target(project.root()).expect("package target");
         assert_eq!(target.entry_path, "lib.sp");
         assert_eq!(target.entry_source_root, "src");
         assert_eq!(target.source_roots, vec!["src".to_string()]);
