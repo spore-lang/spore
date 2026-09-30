@@ -46,3 +46,9 @@ Report vulnerabilities **privately** via [`SECURITY.md`](./SECURITY.md)
 - Use [`.github/pull_request_template.md`](./.github/pull_request_template.md)
   (`Summary`, `Validation`, `Notes`).
 - In the PR, state what changed, what was validated, and what was not verified.
+
+## Cursor Cloud specific instructions
+
+- Rust 1.95 comes from `rust-toolchain.toml`. `just` and `uv` are on `/usr/local/bin`.
+- System `python3` is 3.12. The packaged CLI requires Python 3.13 (`pyproject.toml`). Use `uv` / `uvx` for `just install`, `just pre-commit`, and Maturin.
+- No service needs to stay running. Compiler smoke tests: `cargo run --bin spore -- check examples/demo.sp`, `cargo run --bin spore -- test examples/demo.sp`, then `cargo run --bin spore -- new <dir>` and `spore run src/main.sp` in that project.
