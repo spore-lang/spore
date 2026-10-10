@@ -4,7 +4,7 @@ default:
 
 # Install
 install:
-    uvx prek install --install-hooks --hook-type pre-commit --hook-type commit-msg
+    uvx prek install --prepare-hooks
     uvx maturin develop
 
 # Build a platform wheel for the packaged CLI into dist/
