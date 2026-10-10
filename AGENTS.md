@@ -19,6 +19,9 @@ compiler, and tests show.
   uncommitted work in the main worktree.
 - Do not commit secrets, `.env` files, or credentials.
 - Keep facts in one authoritative place and link instead of copying.
+- Working notes such as research, plans, and acceptance records live in
+  `.agents/notes/`; read them on demand and do not treat them as current truth.
+  Maintained public documentation stays in `docs/`.
 - When user-facing install steps or surface syntax change, update `README.md`
   in the same change.
 

@@ -386,11 +386,10 @@ Rust 1.95+ toolchain.
 
 ### Canonical design docs
 
-| Document                                           | Description                                           |
-| -------------------------------------------------- | ----------------------------------------------------- |
-| [SPARK.md](SPARK.md)                               | Project vision, design direction, and core principles |
-| [docs/specs/README.md](docs/specs/README.md)       | Redirect for the retired per-topic spec drafts        |
-| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts              |
+| Document                                             | Description                                           |
+| ---------------------------------------------------- | ----------------------------------------------------- |
+| [SPARK.md](SPARK.md)                                 | Project vision, design direction, and core principles |
+| [docs/decisions/syntax.md](docs/decisions/syntax.md) | Finalized syntax decisions                            |
 
 ### SEP mapping
 
