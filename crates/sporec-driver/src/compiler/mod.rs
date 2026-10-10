@@ -3,22 +3,22 @@ mod hole_json;
 mod project;
 mod source;
 
-pub use files::{check_files, compile_files};
+pub use files::{check_files, compile_files, test_properties_files};
 pub use hole_json::{hole_summary, holes, holes_report, query_hole_report};
 pub use project::{
     build_project_native_object, check_project, check_project_verbose, compile_project,
-    run_project, run_project_with_outcome, test_specs_project,
+    run_project, run_project_with_outcome, test_properties_project,
 };
 pub use source::{
     build_native_object, call_native, check_verbose, compile, compile_diagnostics, format, run,
-    run_native, test_specs,
+    run_native, test_properties,
 };
 
 use sporec_diagnostics::{Diagnostic as CanonicalDiagnostic, SourceFile};
 use sporec_parser::ast::{Module, Span};
 use sporec_typeck::{CheckResult, is_synthetic_hole_name};
 
-/// Warnings collected during compilation (cost budget violations, etc.).
+/// Warnings collected during compilation.
 #[derive(Debug, Clone, Default)]
 pub struct CompileOutput {
     pub warnings: Vec<String>,
@@ -89,15 +89,8 @@ fn format_verbose_result(result: &CheckResult) -> String {
         out.push_str(&format!("    {label}: expected {}\n", h.expected_type));
     }
 
-    if !result.cost_vectors.is_empty() {
-        out.push_str("\n── Cost Analysis ──\n");
-        for (fn_name, cv) in &result.cost_vectors {
-            out.push_str(&format!("  {fn_name}: {cv}\n"));
-        }
-    }
-
     if !result.warnings.is_empty() {
-        out.push_str("\n── Cost Warnings ──\n");
+        out.push_str("\n── Warnings ──\n");
         for w in &result.warnings {
             out.push_str(&format!("  warning[{}]: {}\n", w.code, w.message));
         }

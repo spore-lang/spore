@@ -25,8 +25,8 @@ pub struct CandidateScore {
     pub name: String,
     /// Type match quality [0,1]
     pub type_match: f64,
-    /// Cost fit quality [0,1]
-    pub cost_fit: f64,
+    /// Budget fit quality [0,1]
+    pub budget_fit: f64,
     /// Required-effects fit {0,1}
     pub required_effects_fit: f64,
     /// Error coverage [0,1]
@@ -34,13 +34,12 @@ pub struct CandidateScore {
     pub rejection_reasons: Vec<String>,
     pub explanation: Option<String>,
     pub adjustments: Vec<String>,
-    pub cost_check: Option<CandidateCostCheck>,
 }
 
 impl CandidateScore {
     pub fn overall(&self) -> f64 {
         0.40 * self.type_match
-            + 0.20 * self.cost_fit
+            + 0.20 * self.budget_fit
             + 0.25 * self.required_effects_fit
             + 0.15 * self.error_coverage
     }
@@ -100,46 +99,36 @@ pub struct ErrorCluster {
     pub handling_suggestion: String,
 }
 
-// ── Cost budget ─────────────────────────────────────────────────────
-
-/// Cost budget info for hole context.
-#[derive(Debug, Clone)]
-pub struct CostBudget {
-    pub budget_total: Option<f64>,
-    pub cost_before_hole: f64,
-    pub budget_remaining: Option<f64>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CostVectorSurface {
-    pub compute: String,
-    pub alloc: String,
-    pub io: String,
-    pub parallel: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ResidualContext {
-    pub budget_declared: Option<CostVectorSurface>,
-    pub cost_before: CostVectorSurface,
-    pub budget_residual: Option<CostVectorSurface>,
-    pub fit_rule: Option<String>,
-    pub note: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectContext {
     pub discharged_effects: crate::effect_set::EffectSet,
     pub surviving_effects: crate::effect_set::EffectSet,
 }
 
+/// Budget information attached to the enclosing intent signature.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CandidateCostCheck {
-    pub candidate_cost: Option<CostVectorSurface>,
-    pub projected_cost: Option<CostVectorSurface>,
-    pub fits_budget: Option<bool>,
-    pub exceeded_dimensions: Vec<String>,
-    pub reason: Option<String>,
+pub struct BudgetContext {
+    pub constraints: Vec<BudgetConstraint>,
+    pub observations: Vec<BudgetObservation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BudgetConstraint {
+    pub field: String,
+    pub limit: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BudgetObservation {
+    pub field: String,
+    pub observed: u64,
+    pub remaining: Option<u64>,
+}
+
+/// Property obligations attached to the enclosing intent signature.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyContext {
+    pub properties: Vec<String>,
 }
 
 // ── HoleInfo v0.3 ───────────────────────────────────────────────────
@@ -170,9 +159,10 @@ pub struct HoleInfo {
     /// Error types that must be handled
     pub errors_to_handle: Vec<String>,
     pub effect_context: Option<EffectContext>,
-    /// Cost budget information
-    pub cost_budget: Option<CostBudget>,
-    pub residual_context: Option<ResidualContext>,
+    /// Intent-signature budget constraints relevant to this hole.
+    pub budget_context: Option<BudgetContext>,
+    /// Intent-signature properties relevant to this hole.
+    pub property_context: Option<PropertyContext>,
     /// Scored candidate list (replaces old `suggestions`)
     pub candidates: Vec<CandidateScore>,
     /// Other holes that depend on this hole
@@ -314,56 +304,51 @@ impl HoleReport {
             }
             out.push_str("],\n");
 
-            // cost_budget (nullable)
-            if let Some(ref cb) = h.cost_budget {
-                out.push_str("      \"cost_budget\": {");
-                match cb.budget_total {
-                    Some(v) => out.push_str(&format!("\"budget_total\": {v}")),
-                    None => out.push_str("\"budget_total\": null"),
+            if let Some(ref budget_context) = h.budget_context {
+                out.push_str("      \"budget_context\": {\"constraints\": [");
+                for (j, constraint) in budget_context.constraints.iter().enumerate() {
+                    if j > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&format!(
+                        "{{\"field\": {}, \"limit\": {}}}",
+                        json_escape(&constraint.field),
+                        constraint.limit
+                    ));
                 }
-                out.push_str(&format!(", \"cost_before_hole\": {}", cb.cost_before_hole));
-                match cb.budget_remaining {
-                    Some(v) => out.push_str(&format!(", \"budget_remaining\": {v}")),
-                    None => out.push_str(", \"budget_remaining\": null"),
+                out.push_str("], \"observations\": [");
+                for (j, observation) in budget_context.observations.iter().enumerate() {
+                    if j > 0 {
+                        out.push_str(", ");
+                    }
+                    out.push_str(&format!(
+                        "{{\"field\": {}, \"observed\": {}",
+                        json_escape(&observation.field),
+                        observation.observed
+                    ));
+                    match observation.remaining {
+                        Some(remaining) => {
+                            out.push_str(&format!(", \"remaining\": {remaining}}}"));
+                        }
+                        None => out.push_str(", \"remaining\": null}"),
+                    }
                 }
-                out.push_str("},\n");
+                out.push_str("]},\n");
             } else {
-                out.push_str("      \"cost_budget\": null,\n");
+                out.push_str("      \"budget_context\": null,\n");
             }
 
-            if let Some(ref residual) = h.residual_context {
-                out.push_str("      \"residual_context\": {");
-                match residual.budget_declared {
-                    Some(ref budget) => {
-                        out.push_str("\"budget_declared\": ");
-                        push_cost_vector_surface_json(&mut out, budget);
+            if let Some(ref property_context) = h.property_context {
+                out.push_str("      \"property_context\": {\"properties\": [");
+                for (j, property) in property_context.properties.iter().enumerate() {
+                    if j > 0 {
+                        out.push_str(", ");
                     }
-                    None => out.push_str("\"budget_declared\": null"),
+                    out.push_str(&json_escape(property));
                 }
-                out.push_str(", \"cost_before\": ");
-                push_cost_vector_surface_json(&mut out, &residual.cost_before);
-                match residual.budget_residual {
-                    Some(ref remaining) => {
-                        out.push_str(", \"budget_residual\": ");
-                        push_cost_vector_surface_json(&mut out, remaining);
-                    }
-                    None => out.push_str(", \"budget_residual\": null"),
-                }
-                match residual.fit_rule {
-                    Some(ref rule) => {
-                        out.push_str(&format!(", \"fit_rule\": {}", json_escape(rule)));
-                    }
-                    None => out.push_str(", \"fit_rule\": null"),
-                }
-                match residual.note {
-                    Some(ref note) => {
-                        out.push_str(&format!(", \"note\": {}", json_escape(note)));
-                    }
-                    None => out.push_str(", \"note\": null"),
-                }
-                out.push_str("},\n");
+                out.push_str("]},\n");
             } else {
-                out.push_str("      \"residual_context\": null,\n");
+                out.push_str("      \"property_context\": null,\n");
             }
 
             // candidates (v0.3 scored candidates)
@@ -374,10 +359,10 @@ impl HoleReport {
                 }
                 out.push('{');
                 out.push_str(&format!(
-                    "\"name\": {}, \"type_match\": {:.2}, \"cost_fit\": {:.2}, \"required_effects_fit\": {:.2}, \"error_coverage\": {:.2}, \"overall\": {:.2}",
+                    "\"name\": {}, \"type_match\": {:.2}, \"budget_fit\": {:.2}, \"required_effects_fit\": {:.2}, \"error_coverage\": {:.2}, \"overall\": {:.2}",
                     json_escape(&cs.name),
                     cs.type_match,
-                    cs.cost_fit,
+                    cs.budget_fit,
                     cs.required_effects_fit,
                     cs.error_coverage,
                     cs.overall(),
@@ -403,12 +388,6 @@ impl HoleReport {
                     out.push_str(&json_escape(adjustment));
                 }
                 out.push(']');
-                if let Some(ref cost_check) = cs.cost_check {
-                    out.push_str(", \"cost_check\": ");
-                    push_candidate_cost_check_json(&mut out, cost_check);
-                } else {
-                    out.push_str(", \"cost_check\": null");
-                }
                 out.push('}');
             }
             out.push_str("],\n");
@@ -485,8 +464,12 @@ pub enum EdgeKind {
     Type,
     /// h2's bindings trace back to h1's output
     Value,
-    /// h2's cost budget depends on h1's actual cost
-    Cost,
+    /// h2's available effects depend on h1's realization
+    Effect,
+    /// h2's budget allowance depends on h1's realization shape
+    Budget,
+    /// h2's property obligations depend on h1's realization
+    Property,
 }
 
 /// A typed edge between two holes.
@@ -816,7 +799,9 @@ impl HoleDependencyGraph {
             let kind_str = match edge.kind {
                 EdgeKind::Type => "type",
                 EdgeKind::Value => "value",
-                EdgeKind::Cost => "cost",
+                EdgeKind::Effect => "effect",
+                EdgeKind::Budget => "budget",
+                EdgeKind::Property => "property",
             };
             out.push_str(&format!(
                 "{{\"from\": {}, \"to\": {}, \"kind\": {}}}",
@@ -871,52 +856,6 @@ fn json_escape(s: &str) -> String {
     }
     out.push('"');
     out
-}
-
-fn push_cost_vector_surface_json(out: &mut String, cost: &CostVectorSurface) {
-    out.push_str(&format!(
-        "{{\"compute\": {}, \"alloc\": {}, \"io\": {}, \"parallel\": {}}}",
-        json_escape(&cost.compute),
-        json_escape(&cost.alloc),
-        json_escape(&cost.io),
-        json_escape(&cost.parallel)
-    ));
-}
-
-fn push_candidate_cost_check_json(out: &mut String, cost_check: &CandidateCostCheck) {
-    out.push('{');
-    match cost_check.candidate_cost {
-        Some(ref candidate_cost) => {
-            out.push_str("\"candidate_cost\": ");
-            push_cost_vector_surface_json(out, candidate_cost);
-        }
-        None => out.push_str("\"candidate_cost\": null"),
-    }
-    match cost_check.projected_cost {
-        Some(ref projected_cost) => {
-            out.push_str(", \"projected_cost\": ");
-            push_cost_vector_surface_json(out, projected_cost);
-        }
-        None => out.push_str(", \"projected_cost\": null"),
-    }
-    match cost_check.fits_budget {
-        Some(true) => out.push_str(", \"fits_budget\": true"),
-        Some(false) => out.push_str(", \"fits_budget\": false"),
-        None => out.push_str(", \"fits_budget\": null"),
-    }
-    out.push_str(", \"exceeded_dimensions\": [");
-    for (index, dimension) in cost_check.exceeded_dimensions.iter().enumerate() {
-        if index > 0 {
-            out.push_str(", ");
-        }
-        out.push_str(&json_escape(dimension));
-    }
-    out.push(']');
-    match cost_check.reason {
-        Some(ref reason) => out.push_str(&format!(", \"reason\": {}", json_escape(reason))),
-        None => out.push_str(", \"reason\": null"),
-    }
-    out.push('}');
 }
 
 #[cfg(test)]

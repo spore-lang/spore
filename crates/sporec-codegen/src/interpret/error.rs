@@ -7,7 +7,8 @@ use crate::value::Value;
 #[derive(Debug, Clone)]
 pub struct RuntimeError {
     pub message: String,
-    signal: Option<RuntimeSignal>,
+    signal: Option<Box<RuntimeSignal>>,
+    outcome_failure: Option<Box<Value>>,
 }
 
 impl RuntimeError {
@@ -15,18 +16,32 @@ impl RuntimeError {
         Self {
             message: msg.into(),
             signal: None,
+            outcome_failure: None,
         }
     }
 
     pub fn signal(signal: RuntimeSignal) -> Self {
         Self {
             message: format!("runtime signal: {signal:?}"),
-            signal: Some(signal),
+            signal: Some(Box::new(signal)),
+            outcome_failure: None,
+        }
+    }
+
+    pub fn outcome_failure(value: Value) -> Self {
+        Self {
+            message: format!("outcome propagation: fail {value}"),
+            signal: None,
+            outcome_failure: Some(Box::new(value)),
         }
     }
 
     pub fn runtime_signal(&self) -> Option<RuntimeSignal> {
-        self.signal
+        self.signal.as_deref().copied()
+    }
+
+    pub fn propagated_outcome_failure(&self) -> Option<&Value> {
+        self.outcome_failure.as_deref()
     }
 }
 

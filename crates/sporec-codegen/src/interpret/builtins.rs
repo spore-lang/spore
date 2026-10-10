@@ -87,27 +87,6 @@ impl Interpreter {
                         let value = self.eval(value_expr, env)?;
                         payload.insert(field.clone(), value);
                     }
-                    for field in &handler_def.fields {
-                        if !payload.contains_key(&field.name) {
-                            return Err(RuntimeError::new(format!(
-                                "handler `{}` is missing payload field `{}`",
-                                handler_use.handler, field.name
-                            )));
-                        }
-                    }
-                    for field_name in payload.keys() {
-                        if !handler_def
-                            .fields
-                            .iter()
-                            .any(|field| &field.name == field_name)
-                        {
-                            return Err(RuntimeError::new(format!(
-                                "handler `{}` has no payload field `{field_name}`",
-                                handler_use.handler
-                            )));
-                        }
-                    }
-
                     let self_value = Value::Struct(handler_def.name.clone(), payload);
                     let mut captured_env = env.snapshot();
                     captured_env.insert("self".to_string(), self_value);
@@ -225,7 +204,7 @@ impl Interpreter {
                     Value::List(v) => Ok(Some(Value::Int(v.len() as i64))),
                     Value::Str(s) => Ok(Some(Value::Int(s.len() as i64))),
                     _ => Err(RuntimeError::new(format!(
-                        "len: expected List or String, got {}",
+                        "len: expected List or Str, got {}",
                         val.type_name()
                     ))),
                 }
@@ -444,7 +423,7 @@ impl Interpreter {
                     .first()
                     .ok_or_else(|| RuntimeError::new("char_to_int: missing arg"))?
                     .as_str()
-                    .ok_or_else(|| RuntimeError::new("char_to_int: expected String"))?;
+                    .ok_or_else(|| RuntimeError::new("char_to_int: expected Str"))?;
                 let ch = s
                     .chars()
                     .next()

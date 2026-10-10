@@ -9,7 +9,7 @@ pub mod value;
 
 use effect_handler::{CliPlatformHandler, PackageHostHandler, RuntimeSignal};
 use interpret::{Interpreter, RuntimeError};
-use sporec_parser::ast::{Module, SpecItem, TypeExpr};
+use sporec_parser::ast::{Module, TypeExpr};
 use value::Value;
 
 pub use effect_handler::{RuntimePlatform, RuntimeSignal as ProjectRuntimeSignal};
@@ -17,21 +17,13 @@ pub use native::{
     NativeError, NativeProgram, call_native, compile_native, emit_native_object, run_native,
 };
 
-/// Result of evaluating a single spec clause.
+/// Result of evaluating a single validation item.
 #[derive(Debug, Clone)]
-pub struct SpecResult {
+pub struct PropertyResult {
     pub fn_name: String,
     pub label: String,
-    pub kind: SpecKind,
     pub passed: bool,
     pub error: Option<String>,
-}
-
-/// What kind of spec clause was evaluated.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SpecKind {
-    Example,
-    Property,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -268,176 +260,122 @@ fn cartesian_product(param_values: &[Vec<Value>]) -> Vec<Vec<Value>> {
     result
 }
 
-/// Run all spec clauses in a module.
+/// Run all source-level properties in a module.
 ///
-/// For each function with a `spec` block:
-/// - Examples: evaluate the body expression; pass if result is `Bool(true)`
-/// - Properties: evaluate the lambda to get a closure, call both the property
-///   and the function under test with generated inputs, and require the
-///   returned values to match for every sampled input
-pub fn test_specs(module: &Module) -> Result<Vec<SpecResult>, RuntimeError> {
-    test_specs_with_imports(module, &[])
+/// Source properties are evaluated as `Bool` predicates over generated inputs.
+pub fn test_properties(module: &Module) -> Result<Vec<PropertyResult>, RuntimeError> {
+    test_properties_with_imports(module, &[])
 }
 
-/// Run all spec clauses in a project module's entry file, with imported modules
-/// pre-loaded so that spec bodies can call helper functions defined in those
-/// modules.
+/// Run all source-level properties in a project module's entry file, with
+/// imported modules pre-loaded so property bodies can call helper functions
+/// defined in those modules.
 ///
-/// This is the project-aware counterpart of [`test_specs`]: callers provide the
-/// parsed entry module together with all of its imported modules (as returned by
+/// This is the project-aware counterpart of [`test_properties`]: callers provide the
+/// parsed entry module together with all imported modules (as returned by
 /// `collect_runtime_import_modules`), and the interpreter loads them in the same
 /// order that `run_project_with_outcome_on_platform` uses.
-pub fn test_specs_with_imports(
+pub fn test_properties_with_imports(
     module: &Module,
     imports: &[(String, Module)],
-) -> Result<Vec<SpecResult>, RuntimeError> {
+) -> Result<Vec<PropertyResult>, RuntimeError> {
     let mut interp = Interpreter::new();
     interp.register_effect_handler(Box::new(CliPlatformHandler));
     interp.load_prelude();
     // Load imported helper modules first so their public symbols are visible to
-    // spec bodies in the entry module.
+    // property bodies in the entry module.
     for (path, import_module) in imports {
         interp.load_module_functions(path, import_module);
     }
     interp.load_module(module);
 
-    run_specs_on_interpreter(&mut interp)
+    run_properties_on_interpreter(&mut interp)
 }
 
-/// Execute all spec clauses on a fully-set-up interpreter, collecting results.
-fn run_specs_on_interpreter(interp: &mut Interpreter) -> Result<Vec<SpecResult>, RuntimeError> {
-    let specs = interp.functions_with_specs();
+/// Execute all source properties on a fully-set-up interpreter.
+fn run_properties_on_interpreter(
+    interp: &mut Interpreter,
+) -> Result<Vec<PropertyResult>, RuntimeError> {
+    let functions = interp.functions_with_properties();
     let mut results = Vec::new();
 
-    for (fn_name, fndef) in &specs {
-        let spec = fndef.spec_clause.as_ref().unwrap();
-        for item in &spec.items {
-            match item {
-                SpecItem::Example(ex) => {
-                    let result = interp.eval_expr(&ex.body);
-                    let (passed, error) = match result {
-                        Ok(Value::Bool(true)) => (true, None),
-                        Ok(Value::Bool(false)) => (false, Some("returned false".into())),
-                        Ok(other) => (
-                            false,
-                            Some(format!("expected Bool, got {}: {other}", other.type_name())),
-                        ),
-                        Err(e) => (false, Some(e.message.clone())),
-                    };
-                    results.push(SpecResult {
-                        fn_name: fn_name.clone(),
-                        label: ex.label.clone(),
-                        kind: SpecKind::Example,
-                        passed,
-                        error,
-                    });
-                }
-                SpecItem::Property(prop) => {
-                    let closure_result = interp.eval_expr(&prop.predicate);
-                    match closure_result {
-                        Ok(Value::Closure(closure)) => {
-                            let param_types: Vec<&TypeExpr> =
-                                if let sporec_parser::ast::Expr::Lambda(params, _) =
-                                    prop.predicate.as_ref()
-                                {
-                                    params.iter().map(|p| &p.ty).collect()
-                                } else {
-                                    vec![]
-                                };
-
-                            let mut param_value_lists = Vec::with_capacity(param_types.len());
-                            for ty in &param_types {
-                                param_value_lists.push(test_values_for_type(interp, ty));
-                            }
-
-                            let combos = cartesian_product(&param_value_lists);
-
-                            if combos.is_empty() || combos.iter().all(|c| c.is_empty()) {
-                                results.push(SpecResult {
-                                    fn_name: fn_name.clone(),
-                                    label: prop.label.clone(),
-                                    kind: SpecKind::Property,
-                                    passed: true,
-                                    error: Some("no test inputs generated (skipped)".into()),
-                                });
-                                continue;
-                            }
-
-                            let mut all_passed = true;
-                            let mut first_error = None;
-
-                            for combo in &combos {
-                                let expected_result = interp.call_value_pub(
-                                    &Value::Closure(closure.clone()),
-                                    combo.clone(),
-                                );
-
-                                let expected = match expected_result {
-                                    Ok(value) => value,
-                                    Err(e) => {
-                                        all_passed = false;
-                                        first_error = Some(e.message.clone());
-                                        break;
-                                    }
-                                };
-
-                                let actual_result = interp.call_function(fn_name, combo.clone());
-                                match actual_result {
-                                    Ok(actual) if actual == expected => {}
-                                    Ok(actual) => {
-                                        all_passed = false;
-                                        let args_str: Vec<String> =
-                                            combo.iter().map(|v| format!("{v}")).collect();
-                                        first_error = Some(format!(
-                                            "failed for ({}) : expected {}, got {}",
-                                            args_str.join(", "),
-                                            expected,
-                                            actual
-                                        ));
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        all_passed = false;
-                                        first_error = Some(e.message.clone());
-                                        break;
-                                    }
-                                }
-                            }
-
-                            results.push(SpecResult {
-                                fn_name: fn_name.clone(),
-                                label: prop.label.clone(),
-                                kind: SpecKind::Property,
-                                passed: all_passed,
-                                error: first_error,
-                            });
-                        }
-                        Ok(other) => {
-                            results.push(SpecResult {
-                                fn_name: fn_name.clone(),
-                                label: prop.label.clone(),
-                                kind: SpecKind::Property,
-                                passed: false,
-                                error: Some(format!(
-                                    "predicate did not evaluate to a closure, got {}",
-                                    other.type_name()
-                                )),
-                            });
-                        }
-                        Err(e) => {
-                            results.push(SpecResult {
-                                fn_name: fn_name.clone(),
-                                label: prop.label.clone(),
-                                kind: SpecKind::Property,
-                                passed: false,
-                                error: Some(e.message.clone()),
-                            });
-                        }
-                    }
-                }
+    for (fn_name, fndef) in &functions {
+        if let Some(properties) = &fndef.properties_clause {
+            for property in &properties.items {
+                results.push(run_source_property(interp, fn_name, property));
             }
         }
     }
 
     Ok(results)
+}
+
+fn run_source_property(
+    interp: &mut Interpreter,
+    fn_name: &str,
+    property: &sporec_parser::ast::PropertyDecl,
+) -> PropertyResult {
+    let mut param_value_lists = Vec::with_capacity(property.params.len());
+    for param in &property.params {
+        param_value_lists.push(test_values_for_type(interp, &param.ty));
+    }
+
+    let combos = if property.params.is_empty() {
+        vec![Vec::new()]
+    } else {
+        cartesian_product(&param_value_lists)
+    };
+
+    if combos.is_empty() {
+        return PropertyResult {
+            fn_name: fn_name.to_string(),
+            label: property.name.clone(),
+            passed: true,
+            error: Some("no test inputs generated (skipped)".into()),
+        };
+    }
+
+    for combo in combos {
+        let bindings = property
+            .params
+            .iter()
+            .zip(combo.iter())
+            .map(|(param, value)| (param.name.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        match interp.eval_expr_with_bindings(&property.predicate, &bindings) {
+            Ok(Value::Bool(true)) => {}
+            Ok(Value::Bool(false)) => {
+                let args_str = combo.iter().map(|v| format!("{v}")).collect::<Vec<_>>();
+                return PropertyResult {
+                    fn_name: fn_name.to_string(),
+                    label: property.name.clone(),
+                    passed: false,
+                    error: Some(format!("failed for ({})", args_str.join(", "))),
+                };
+            }
+            Ok(other) => {
+                return PropertyResult {
+                    fn_name: fn_name.to_string(),
+                    label: property.name.clone(),
+                    passed: false,
+                    error: Some(format!("expected Bool, got {}: {other}", other.type_name())),
+                };
+            }
+            Err(e) => {
+                return PropertyResult {
+                    fn_name: fn_name.to_string(),
+                    label: property.name.clone(),
+                    passed: false,
+                    error: Some(e.message.clone()),
+                };
+            }
+        }
+    }
+
+    PropertyResult {
+        fn_name: fn_name.to_string(),
+        label: property.name.clone(),
+        passed: true,
+        error: None,
+    }
 }

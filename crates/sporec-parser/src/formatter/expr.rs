@@ -103,6 +103,7 @@ impl<'a> Formatter<'a> {
                 self.write("\"");
             }
             Expr::BoolLit(b) => self.write(if *b { "true" } else { "false" }),
+            Expr::Unit => self.write("()"),
             Expr::Var(v) => self.write(v),
             Expr::Call(func, args) => {
                 self.fmt_expr(func);
@@ -185,10 +186,10 @@ impl<'a> Formatter<'a> {
                 self.fmt_block(stmts, trailing.as_deref());
             }
             Expr::Try(expr) => {
-                self.write("try ");
                 self.fmt_expr(expr);
+                self.write("?");
             }
-            Expr::Hole(name, ty, allows, _) => {
+            Expr::Hole(name, ty, _) => {
                 self.write("?");
                 if let Some(name) = name {
                     self.write(name);
@@ -196,16 +197,6 @@ impl<'a> Formatter<'a> {
                 if let Some(t) = ty {
                     self.write(": ");
                     self.fmt_type_expr(t);
-                }
-                if let Some(allows) = allows {
-                    self.write(" @allows[");
-                    for (i, name) in allows.iter().enumerate() {
-                        if i > 0 {
-                            self.write(", ");
-                        }
-                        self.write(name);
-                    }
-                    self.write("]");
                 }
             }
             Expr::StructLit(name, fields) => {
@@ -243,8 +234,8 @@ impl<'a> Formatter<'a> {
                     self.fmt_expr(e);
                 }
             }
-            Expr::Throw(expr) => {
-                self.write("throw ");
+            Expr::Fail(expr) => {
+                self.write("fail ");
                 self.fmt_expr(expr);
             }
             Expr::List(elems) => {
@@ -450,6 +441,14 @@ impl<'a> Formatter<'a> {
                 self.write("\"");
             }
             Pattern::BoolLit(b) => self.write(if *b { "true" } else { "false" }),
+            Pattern::OutcomeOk(inner) => {
+                self.write("ok ");
+                self.fmt_pattern(inner);
+            }
+            Pattern::OutcomeFail(inner) => {
+                self.write("fail ");
+                self.fmt_pattern(inner);
+            }
             Pattern::Constructor(name, pats) => {
                 self.write(name);
                 if !pats.is_empty() {
@@ -534,7 +533,7 @@ impl<'a> Formatter<'a> {
                 }
                 self.write(")");
             }
-            TypeExpr::Function(params, ret, errors) => {
+            TypeExpr::Function(params, ret) => {
                 self.write("(");
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
@@ -544,15 +543,11 @@ impl<'a> Formatter<'a> {
                 }
                 self.write(") -> ");
                 self.fmt_type_expr(ret);
-                if !errors.is_empty() {
-                    self.write(" ! ");
-                    for (i, e) in errors.iter().enumerate() {
-                        if i > 0 {
-                            self.write(" | ");
-                        }
-                        self.fmt_type_expr(e);
-                    }
-                }
+            }
+            TypeExpr::Outcome(success, failure) => {
+                self.fmt_outcome_operand(success);
+                self.write(" ! ");
+                self.fmt_outcome_operand(failure);
             }
             TypeExpr::Refinement(base, _binding, pred) => {
                 self.fmt_type_expr(base);
@@ -571,6 +566,16 @@ impl<'a> Formatter<'a> {
                 }
                 self.write(" }");
             }
+        }
+    }
+
+    fn fmt_outcome_operand(&mut self, ty: &TypeExpr) {
+        if matches!(ty, TypeExpr::Outcome(_, _)) {
+            self.write("(");
+            self.fmt_type_expr(ty);
+            self.write(")");
+        } else {
+            self.fmt_type_expr(ty);
         }
     }
 }

@@ -102,9 +102,10 @@ impl<'a> Formatter<'a> {
             Item::ImplDef(i) => self.fmt_impl_def(i),
             Item::Import(i) => self.fmt_import(i),
             Item::Alias(a) => self.fmt_alias(a),
+            Item::OpaqueType(t) => self.fmt_opaque_type(t),
             Item::TraitDef(t) => self.fmt_trait_def(t),
             Item::EffectDef(e) => self.fmt_effect_def(e),
-            Item::EffectAlias(ea) => self.fmt_effect_alias(ea),
+            Item::SurfaceDef(s) => self.fmt_surface_def(s),
             Item::HandlerDef(h) => self.fmt_handler_def(h),
         }
     }

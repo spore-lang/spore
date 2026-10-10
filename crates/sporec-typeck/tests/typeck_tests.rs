@@ -1,8 +1,7 @@
 use sporec_parser::parse;
-use sporec_typeck::cost::{CostExpr, CostResult};
 use sporec_typeck::error::ErrorCode;
 use sporec_typeck::type_check;
-use sporec_typeck::types::{EffectSet, ErrorSet, Ty};
+use sporec_typeck::types::{EffectSet, Ty};
 
 fn check_ok(src: &str) {
     let module = parse(src).unwrap_or_else(|e| panic!("parse error: {e:?}"));
@@ -46,7 +45,7 @@ fn test_float_literal() {
 }
 
 #[test]
-fn legacy_numeric_names_are_unknown_without_aliases() {
+fn removed_numeric_names_are_unknown_without_aliases() {
     let int_errs = check_err("fn f() -> Int { 42 }");
     assert!(
         int_errs
@@ -68,7 +67,7 @@ fn legacy_numeric_names_are_unknown_without_aliases() {
 fn user_defined_int_alias_is_explicit_source_alias() {
     check_ok(
         r#"
-        alias Int = I64
+        type Int = I64
         fn f() -> Int { 42 }
     "#,
     );
@@ -78,7 +77,7 @@ fn user_defined_int_alias_is_explicit_source_alias() {
 fn user_defined_float_alias_is_explicit_source_alias() {
     check_ok(
         r#"
-        alias Float = F64
+        type Float = F64
         fn f() -> Float { 3.14 }
     "#,
     );
@@ -215,7 +214,7 @@ fn test_string_concat() {
 fn test_generic_unit_variant_freshens_per_use() {
     check_ok(
         r#"
-        type Option[T] { Some(T), None }
+        enum Option[T] { Some(T), None }
 
         fn choose(flag: Bool) -> Option[Str] {
             if flag { None } else { Some("x") }
@@ -509,6 +508,27 @@ fn test_hole_report_with_bindings() {
 }
 
 #[test]
+fn typed_hole_report_uses_annotation() {
+    let module = parse("fn f() -> I64 { ?todo: I64 }").unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    assert_eq!(hole.expected_type, Ty::I64);
+    assert_eq!(
+        hole.type_inferred_from.as_deref(),
+        Some("hole type annotation")
+    );
+}
+
+#[test]
+fn typed_hole_annotation_must_match_surrounding_context() {
+    let errs = check_err("fn f() -> Bool { ?todo: I64 }");
+    assert!(
+        errs.iter().any(|error| error.contains("type mismatch")),
+        "expected typed-hole context mismatch, got: {errs:?}"
+    );
+}
+
+#[test]
 fn test_hole_report_suggestions() {
     let module = parse(
         "fn double(x: I64) -> I64 { x + x }
@@ -521,10 +541,9 @@ fn test_hole_report_suggestions() {
 }
 
 #[test]
-fn test_hole_report_suggestions_respect_allows_annotation() {
+fn test_hole_report_candidates_include_all_matching_functions() {
     let module = parse(
-        "@allows[double]\n\
-         fn chooser() -> I64 { ?todo }\n\
+        "fn chooser() -> I64 { ?todo }\n\
          fn double(x: I64) -> I64 { x + x }\n\
          fn triple(x: I64) -> I64 { x + x + x }",
     )
@@ -532,22 +551,21 @@ fn test_hole_report_suggestions_respect_allows_annotation() {
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
     assert!(hole.candidates.iter().any(|c| c.name == "double"));
-    assert!(!hole.candidates.iter().any(|c| c.name == "triple"));
+    assert!(hole.candidates.iter().any(|c| c.name == "triple"));
 }
 
 #[test]
-fn test_hole_report_allows_can_refine_signature_hole() {
-    let module = parse(
+fn test_removed_hole_metadata_annotation_rejected_before_typeck() {
+    let errs = parse(
         "fn produce() -> I64 { 1 }
          fn chooser() -> ?r { ?todo @allows[produce] }",
     )
-    .unwrap();
-    let result = type_check(&module).unwrap();
-    let hole = &result.hole_report.holes[0];
-    assert_eq!(hole.expected_type, Ty::I64);
-    assert_eq!(
-        hole.type_inferred_from.as_deref(),
-        Some("`@allows[...]` candidates")
+    .expect_err("hole metadata annotation should be rejected");
+    assert!(
+        errs.iter().any(|err| err
+            .message
+            .contains("hole metadata annotations are not part of the current syntax")),
+        "unexpected parse errors: {errs:?}"
     );
 }
 
@@ -662,164 +680,73 @@ fn test_let_inference() {
     check_ok("fn f() -> I64 { let x = 42; x + 1 }");
 }
 
-// ── Cost analysis ────────────────────────────────────────────────────────
+// ── Realization-shape budget enforcement ─────────────────────────────────
 
 #[test]
-fn test_cost_non_recursive_constant() {
-    let module = parse("fn add(a: I64, b: I64) -> I64 { a + b }").unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        matches!(
-            result.cost_results.get("add"),
-            Some(CostResult::Constant(1))
-        ),
-        "expected Constant(1), got {:?}",
-        result.cost_results.get("add")
-    );
-}
-
-#[test]
-fn test_cost_structural_recursion() {
-    let module =
-        parse("fn factorial(n: I64) -> I64 { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
-            .unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        matches!(result.cost_results.get("factorial"), Some(CostResult::Structural(p)) if p == "n"),
-        "expected Structural(\"n\"), got {:?}",
-        result.cost_results.get("factorial")
-    );
-}
-
-#[test]
-fn test_cost_multiple_functions() {
-    let module = parse(
-        "fn double(x: I64) -> I64 { x + x }
-         fn quadruple(x: I64) -> I64 { double(double(x)) }",
-    )
-    .unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(matches!(
-        result.cost_results.get("double"),
-        Some(CostResult::Constant(1))
-    ));
-    assert!(
-        matches!(
-            result.cost_results.get("quadruple"),
-            Some(CostResult::Constant(3))
-        ),
-        "expected Constant(3) after callee propagation (1 base + 2 double calls), got {:?}",
-        result.cost_results.get("quadruple")
-    );
-}
-
-#[test]
-fn test_cost_unknown_recursion() {
-    // Recursive but not structural (arg is n + 1, not decreasing)
-    let module = parse("fn bad(n: I64) -> I64 { if n >= 100 { n } else { bad(n + 1) } }").unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        matches!(result.cost_results.get("bad"), Some(CostResult::Unknown(_))),
-        "expected Unknown, got {:?}",
-        result.cost_results.get("bad")
-    );
-}
-
-#[test]
-fn test_cost_hole_body_constant() {
-    let module = parse("fn f() -> I64 { ?todo }").unwrap();
-    let result = type_check(&module).unwrap();
-    // Holes count as constant cost (no real code to analyze)
-    assert!(matches!(
-        result.cost_results.get("f"),
-        Some(CostResult::Constant(1))
-    ));
-}
-
-#[test]
-fn test_cost_structural_countdown() {
-    // countdown(n) calls countdown(n - 1)
-    let module =
-        parse("fn countdown(n: I64) -> I64 { if n <= 0 { 0 } else { countdown(n - 1) } }").unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        matches!(result.cost_results.get("countdown"), Some(CostResult::Structural(p)) if p == "n"),
-        "expected Structural(\"n\"), got {:?}",
-        result.cost_results.get("countdown")
-    );
-}
-
-// ── Cost enforcement (K0001) ─────────────────────────────────────────────
-
-#[test]
-fn cost_budget_exceeded_emits_k0001() {
-    // Body has callee costs exceeding the declared budget of 2
-    // Cost violations are now warnings (SEP-0004), not errors
-    let module = parse(
+fn budget_call_limit_exceeded_emits_b0101() {
+    let errs = check_err_with_codes(
         r#"
-        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] { x + x }
-        fn cheap(a: I64) -> I64 cost [2, 0, 0, 0] { expensive(expensive(a)) }
+        fn id(x: I64) -> I64 { x }
+        fn caller(a: I64) -> I64
+        budget {
+            calls: 0
+        }
+        {
+            id(a)
+        }
     "#,
-    )
-    .unwrap();
-    let result = type_check(&module).expect("cost violations should be warnings, not errors");
+    );
     assert!(
-        result.warnings.iter().any(|w| w.code == ErrorCode::K0101),
-        "expected K0101 warning for cost budget violation, got warnings: {:?}",
-        result.warnings
+        errs.iter().any(|(code, message)| {
+            *code == ErrorCode::B0101 && message.contains("exceeds budget `calls`")
+        }),
+        "expected B0101 for calls budget violation, got: {errs:?}"
     );
 }
 
 #[test]
-fn no_cost_annotation_no_warning() {
-    // A function with no cost annotation should not produce any cost warnings
+fn no_budget_clause_no_budget_error() {
     let module = parse("fn f(x: I64) -> I64 { x + x }").unwrap();
     let result = type_check(&module).unwrap();
     assert!(
-        result.warnings.is_empty(),
-        "expected no warnings for unannotated function, got: {:?}",
+        result.warnings.iter().all(|warning| !matches!(
+            warning.code,
+            ErrorCode::B0101 | ErrorCode::B0201 | ErrorCode::B0202
+        )),
+        "expected no budget diagnostics for a function without a budget, got: {:?}",
         result.warnings
     );
 }
 
 #[test]
-fn cost_warning_severity_is_warning() {
-    // Verify K0101 has Warning severity, not Error
+fn budget_violation_severity_is_error() {
     use sporec_typeck::error::Severity;
     assert_eq!(
-        ErrorCode::K0101.severity(),
-        Severity::Warning,
-        "K0101 should be Warning severity per SEP-0004"
+        ErrorCode::B0101.severity(),
+        Severity::Error,
+        "B0101 should be an error because budgets constrain accepted realizations"
     );
 }
 
 #[test]
-fn cost_budget_within_limit_no_error() {
-    // Budget of 1000 is generous enough for a simple function
-    check_ok("fn simple(x: I64) -> I64 cost [1000, 0, 0, 0] { x + x }");
-}
-
-#[test]
-fn unbounded_skips_cost_analysis() {
-    // @unbounded should not emit any cost error regardless of body, but it must
-    // declare the expected signature cost vector.
-    let module = parse(
+fn budget_within_limit_no_error() {
+    check_ok(
         r#"
-        @unbounded
-        fn wild(n: I64) -> I64 cost [O(n), 0, 0, 0] { if n >= 100 { n } else { wild(n + 1) } }
+        fn simple(x: I64) -> I64
+        budget {
+            calls: 0
+            branches: 0
+            holes: 0
+        }
+        {
+            x + x
+        }
     "#,
-    )
-    .unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        matches!(result.cost_results.get("wild"), Some(CostResult::Unbounded)),
-        "expected Unbounded for @unbounded function, got {:?}",
-        result.cost_results.get("wild")
     );
 }
 
 #[test]
-fn unbounded_without_cost_is_hard_error() {
+fn removed_unbounded_annotation_is_rejected_by_typeck() {
     let errs = check_err_with_codes(
         r#"
         @unbounded
@@ -827,127 +754,68 @@ fn unbounded_without_cost_is_hard_error() {
     "#,
     );
     assert!(
+        errs.iter().any(|(code, message)| *code == ErrorCode::M0601
+            && message.contains("unsupported attribute")),
+        "unexpected type errors: {errs:?}"
+    );
+}
+
+#[test]
+fn removed_cost_vector_is_rejected_by_parser() {
+    let errs = parse(
+        r#"
+        fn wild(n: I64) -> I64 cost [O(n), 1, 2, 3] {
+            if n >= 100 { n } else { wild(n + 1) }
+        }
+    "#,
+    )
+    .expect_err("cost vector should be rejected");
+    assert!(
+        errs.iter()
+            .any(|error| error.message.contains("use `budget { field: limit }`")),
+        "unexpected parse errors: {errs:?}"
+    );
+}
+
+#[test]
+fn budget_recursion_zero_rejects_recursive_body() {
+    let errs = check_err_with_codes(
+        r#"
+        fn countdown(n: I64) -> I64
+        budget {
+            recursion: 0
+        }
+        {
+            if n <= 0 { 0 } else { countdown(n - 1) }
+        }
+    "#,
+    );
+    assert!(
         errs.iter().any(|(code, message)| {
-            *code == ErrorCode::K0303
-                && message.contains("@unbounded")
-                && message.contains("cost [compute, alloc, io, parallel]")
+            *code == ErrorCode::B0201 && message.contains("exceeds budget `recursion`")
         }),
-        "expected K0303 missing-cost error, got: {errs:?}"
+        "expected B0201 for recursion budget violation, got: {errs:?}"
     );
 }
 
 #[test]
-fn unbounded_with_cost_succeeds_and_preserves_expected_vector() {
-    let module = parse(
+fn budget_violation_uses_b0xxx() {
+    let errs = check_err_with_codes(
         r#"
-        @unbounded
-        fn wild(n: I64) -> I64 cost [O(n), 1, 2, 3] { if n >= 100 { n } else { wild(n + 1) } }
+        fn f(x: I64) -> I64
+        budget {
+            branches: 0
+        }
+        {
+            if x == 0 { 0 } else { x }
+        }
     "#,
-    )
-    .unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        matches!(result.cost_results.get("wild"), Some(CostResult::Unbounded)),
-        "expected unchecked Unbounded taint, got {:?}",
-        result.cost_results.get("wild")
-    );
-    let vector = result
-        .cost_vectors
-        .get("wild")
-        .expect("expected declared vector metadata");
-    assert!(matches!(vector.compute, CostExpr::Linear(ref v) if v == "n"));
-    assert_eq!(vector.alloc, CostExpr::Const(1));
-    assert_eq!(vector.io, CostExpr::Const(2));
-    assert_eq!(vector.parallel, CostExpr::Const(3));
-}
-
-#[test]
-fn unbounded_declared_cost_skips_budget_warning_from_body() {
-    let module = parse(
-        r#"
-        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] { x + x }
-
-        @unbounded
-        fn wild(a: I64) -> I64 cost [1, 0, 0, 0] { expensive(expensive(a)) }
-    "#,
-    )
-    .unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        !result
-            .warnings
-            .iter()
-            .any(|w| w.code == ErrorCode::K0101 && w.message.contains("wild")),
-        "expected @unbounded body budget check to be skipped, got warnings: {:?}",
-        result.warnings
     );
     assert!(
-        matches!(result.cost_results.get("wild"), Some(CostResult::Unbounded)),
-        "declared expected cost must not make @unbounded look verified, got {:?}",
-        result.cost_results.get("wild")
-    );
-}
-
-#[test]
-fn callee_cost_propagation() {
-    // helper costs Constant(1), caller calls helper 3 times → 1 + 3 = 4
-    let module = parse(
-        r#"
-        fn helper(x: I64) -> I64 { x + x }
-        fn caller(a: I64) -> I64 { helper(a) + helper(a) + helper(a) }
-    "#,
-    )
-    .unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        matches!(
-            result.cost_results.get("caller"),
-            Some(CostResult::Constant(4))
-        ),
-        "expected Constant(4) after propagation, got {:?}",
-        result.cost_results.get("caller")
-    );
-}
-
-#[test]
-fn structural_recursion_still_detected() {
-    // Classic structural recursion: factorial(n - 1)
-    let module =
-        parse("fn factorial(n: I64) -> I64 { if n <= 1 { 1 } else { n * factorial(n - 1) } }")
-            .unwrap();
-    let result = type_check(&module).unwrap();
-    assert!(
-        matches!(result.cost_results.get("factorial"), Some(CostResult::Structural(p)) if p == "n"),
-        "expected Structural(\"n\") for factorial, got {:?}",
-        result.cost_results.get("factorial")
-    );
-}
-
-#[test]
-fn sep0006_cost_violation_uses_k0xxx() {
-    // Verify K0101 code is used for cost violations (SEP-0004: warnings)
-    let module = parse(
-        r#"
-        fn expensive(x: I64) -> I64 cost [100, 0, 0, 0] { x + x }
-        fn over_budget(a: I64) -> I64 cost [2, 0, 0, 0] { expensive(expensive(a)) }
-    "#,
-    )
-    .unwrap();
-    let result = type_check(&module).expect("cost violations should be warnings, not errors");
-    let k_warnings: Vec<_> = result
-        .warnings
-        .iter()
-        .filter(|w| w.code == ErrorCode::K0101)
-        .collect();
-    assert!(
-        !k_warnings.is_empty(),
-        "expected at least one K0101 warning, got: {:?}",
-        result.warnings
-    );
-    let output = k_warnings[0].to_string();
-    assert!(
-        output.contains("[K0101]"),
-        "display should use [K0101] code, got: {output}"
+        errs.iter().any(|(code, message)| {
+            *code == ErrorCode::B0101 && message.contains("exceeds budget `branches`")
+        }),
+        "expected B0101 branch budget diagnostic, got: {errs:?}"
     );
 }
 
@@ -1020,7 +888,7 @@ fn non_exhaustive_bool_match() {
 #[test]
 fn exhaustive_enum_match() {
     check_ok(
-        r#"type Color { Red, Green, Blue }
+        r#"enum Color { Red, Green, Blue }
         fn name(c: Color) -> Str {
             match c {
                 Red => "red",
@@ -1034,7 +902,7 @@ fn exhaustive_enum_match() {
 #[test]
 fn non_exhaustive_enum_match() {
     let errs = check_err(
-        r#"type Color { Red, Green, Blue }
+        r#"enum Color { Red, Green, Blue }
         fn name(c: Color) -> I64 {
             match c {
                 Red => 1,
@@ -1074,7 +942,7 @@ fn match_with_guard_type_checked() {
 #[test]
 fn pattern_binds_variable() {
     check_ok(
-        r#"type Option { Some(I64), None }
+        r#"enum Option { Some(I64), None }
         fn unwrap_or(opt: Option, default: I64) -> I64 {
             match opt {
                 Some(value) => value,
@@ -1122,10 +990,10 @@ fn variable_pattern_makes_int_match_exhaustive() {
     );
 }
 
-// ── Error set (throws) checking ─────────────────────────────────────────
+// ── First-class outcome checking ────────────────────────────────────────
 
 #[test]
-fn function_with_throws_clause() {
+fn function_with_outcome_return() {
     check_ok(
         r#"
         fn read_file(path: Str) -> Str ! IoError { "content" }
@@ -1156,17 +1024,18 @@ fn try_propagation_missing_error() {
     "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("IoError")),
-        "expected error about IoError, got: {errs:?}"
+        errs.iter().any(|e| e.contains("enclosing outcome")),
+        "expected error about the missing outcome boundary, got: {errs:?}"
     );
 }
 
 #[test]
-fn try_propagation_superset_ok() {
+fn try_propagation_with_enum_failure_ok() {
     check_ok(
         r#"
-        fn read_file(path: Str) -> Str ! IoError { "content" }
-        fn process() -> Str ! IoError | ParseError {
+        enum ProcessError { Io, Parse }
+        fn read_file(path: Str) -> Str ! ProcessError { "content" }
+        fn process() -> Str ! ProcessError {
             read_file("test.txt")?
         }
     "#,
@@ -1177,7 +1046,7 @@ fn try_propagation_superset_ok() {
 fn try_propagation_partial_missing() {
     let errs = check_err(
         r#"
-        fn risky(x: I64) -> I64 ! IoError | ParseError { x }
+        fn risky(x: I64) -> I64 ! ParseError { x }
         fn caller() -> I64 ! IoError {
             risky(1)?
         }
@@ -1218,9 +1087,10 @@ fn direct_call_declared_error_check() {
 }
 
 #[test]
-fn function_with_throws_and_uses() {
+fn function_with_outcome_and_uses() {
     check_ok(
         r#"
+        effect Fs {}
         fn read_file(path: Str) -> Str ! IoError uses [Fs] { "content" }
     "#,
     );
@@ -1231,7 +1101,7 @@ fn throw_signature_clause_is_rejected() {
     let src = r#"
         fn read_file(path: Str) -> Str throw [IoError] { "content" }
     "#;
-    let errs = parse(src).expect_err("expected parse failure for legacy throw clause");
+    let errs = parse(src).expect_err("expected parse failure for removed throw clause");
     assert!(
         errs.iter()
             .any(|e| e.message.contains("expected expression") || e.message.contains("expected")),
@@ -1246,7 +1116,7 @@ fn width_specific_primitives_and_unit_type_work() {
         fn id_i32(x: I64) -> I64 { x }
         fn keep_f64(x: F64) -> F64 { x }
         fn greet(name: Str) -> Str { name }
-        fn done() -> () { return }
+        fn done() -> () { () }
     "#,
     );
 }
@@ -1257,8 +1127,8 @@ fn width_specific_primitives_and_unit_type_work() {
 fn trait_definition_and_impl() {
     check_ok(
         r#"
-        trait Display[T] {
-            fn show(self: T) -> Str
+        trait Display {
+            fn show(self) -> Str;
         }
         struct Point { x: I64, y: I64 }
         impl Display for Point {
@@ -1269,11 +1139,80 @@ fn trait_definition_and_impl() {
 }
 
 #[test]
+fn receiver_self_shorthand_type_checks() {
+    check_ok(
+        r#"
+        trait Display {
+            fn show(self) -> Str;
+        }
+        struct Point {}
+        impl Display for Point {
+            fn show(self: Point) -> Str { "point" }
+        }
+    "#,
+    );
+}
+
+#[test]
+fn inherent_generic_receiver_method_type_checks() {
+    check_ok(
+        r#"
+        struct Box[T] { value: T }
+        impl[T] Box[T] {
+            fn get(self) -> T { self.value }
+        }
+        fn run() -> I64 { Box { value: 42 }.get() }
+    "#,
+    );
+}
+
+#[test]
+fn inherent_static_method_type_checks() {
+    check_ok(
+        r#"
+        struct Counter { value: I64 }
+        impl Counter {
+            fn zero() -> Counter { Counter { value: 0 } }
+        }
+        fn run() -> I64 { Counter.zero().value }
+    "#,
+    );
+}
+
+#[test]
+fn trait_receiver_method_type_checks() {
+    check_ok(
+        r#"
+        trait Display {
+            fn show(self) -> Str;
+        }
+        struct Point {}
+        impl Display for Point {
+            fn show(self) -> Str { "point" }
+        }
+        fn run() -> Str { Point {}.show() }
+    "#,
+    );
+}
+
+#[test]
+fn generic_bound_exposes_trait_receiver_method() {
+    check_ok(
+        r#"
+        trait Display {
+            fn show(self) -> Str;
+        }
+        fn render[T: Display](value: T) -> Str { value.show() }
+    "#,
+    );
+}
+
+#[test]
 fn impl_missing_method_error() {
     let errs = check_err(
         r#"
-        trait Display[T] {
-            fn show(self: T) -> Str
+        trait Display {
+            fn show(self) -> Str;
         }
         struct Point { x: I64, y: I64 }
         impl Display for Point {
@@ -1287,8 +1226,8 @@ fn impl_missing_method_error() {
 fn impl_extra_method_error() {
     let errs = check_err(
         r#"
-        trait Display[T] {
-            fn show(self: T) -> Str
+        trait Display {
+            fn show(self) -> Str;
         }
         struct Point { x: I64, y: I64 }
         impl Display for Point {
@@ -1363,7 +1302,7 @@ fn error_code_missing_effects() {
         fn process() -> Str { fetch("http://example.com") }
     "#,
     );
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::C0001));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::F0001));
 }
 
 #[test]
@@ -1403,7 +1342,7 @@ fn trait_with_assoc_type() {
         r#"
         trait Iterator[T] {
             type Output
-            fn next(self: T) -> I64
+            fn next(self: T) -> I64;
         }
     "#,
     );
@@ -1430,8 +1369,8 @@ fn hole_info_v03_has_all_fields() {
         available_effects: EffectSet::new(),
         errors_to_handle: vec![],
         effect_context: None,
-        cost_budget: None,
-        residual_context: None,
+        budget_context: None,
+        property_context: None,
         candidates: vec![],
         dependent_holes: vec![],
         confidence: None,
@@ -1451,26 +1390,24 @@ fn candidate_score_overall_formula() {
     let cs = CandidateScore {
         name: "foo".into(),
         type_match: 1.0,
-        cost_fit: 1.0,
+        budget_fit: 1.0,
         required_effects_fit: 1.0,
         error_coverage: 1.0,
         rejection_reasons: vec![],
         explanation: None,
         adjustments: vec![],
-        cost_check: None,
     };
     assert!((cs.overall() - 1.0).abs() < 1e-9);
 
     let cs2 = CandidateScore {
         name: "bar".into(),
         type_match: 0.0,
-        cost_fit: 0.0,
+        budget_fit: 0.0,
         required_effects_fit: 0.0,
         error_coverage: 0.0,
         rejection_reasons: vec![],
         explanation: None,
         adjustments: vec![],
-        cost_check: None,
     };
     assert!((cs2.overall() - 0.0).abs() < 1e-9);
 
@@ -1478,13 +1415,12 @@ fn candidate_score_overall_formula() {
     let cs3 = CandidateScore {
         name: "baz".into(),
         type_match: 0.5,
-        cost_fit: 0.8,
+        budget_fit: 0.8,
         required_effects_fit: 1.0,
         error_coverage: 0.6,
         rejection_reasons: vec![],
         explanation: None,
         adjustments: vec![],
-        cost_check: None,
     };
     let expected = 0.40 * 0.5 + 0.20 * 0.8 + 0.25 * 1.0 + 0.15 * 0.6;
     assert!((cs3.overall() - expected).abs() < 1e-9);
@@ -1497,7 +1433,7 @@ fn dependency_edge_with_kinds() {
     let mut g = HoleDependencyGraph::new();
     g.add_dependency_typed("?b".into(), "?a".into(), EdgeKind::Type);
     g.add_dependency_typed("?c".into(), "?a".into(), EdgeKind::Value);
-    g.add_dependency_typed("?d".into(), "?b".into(), EdgeKind::Cost);
+    g.add_dependency_typed("?d".into(), "?b".into(), EdgeKind::Budget);
 
     assert_eq!(g.edges.len(), 3);
     assert!(g.edges.contains(&DependencyEdge {
@@ -1513,7 +1449,7 @@ fn dependency_edge_with_kinds() {
     assert!(g.edges.contains(&DependencyEdge {
         from: "?b".into(),
         to: "?d".into(),
-        kind: EdgeKind::Cost,
+        kind: EdgeKind::Budget,
     }));
 
     // Fast-lookup maps still work
@@ -1625,7 +1561,7 @@ fn hole_report_json_v03_fields() {
 fn hole_collects_available_effects_and_errors() {
     let module = parse(
         r#"
-        fn helper() -> I64 ! ParseError uses [IO] {
+        fn helper() -> I64 ! ParseError uses [Console] {
             ?todo
         }
     "#,
@@ -1633,7 +1569,7 @@ fn hole_collects_available_effects_and_errors() {
     .unwrap();
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
-    assert!(hole.available_effects.contains("IO"));
+    assert!(hole.available_effects.contains("Console"));
     assert!(hole.errors_to_handle.contains(&"ParseError".to_string()));
 }
 
@@ -1642,9 +1578,13 @@ fn hole_collects_handler_effect_context_after_discharge() {
     let module = parse(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
-        fn main() -> I64 uses [IO] {
+        effect Clock {
+            fn now() -> I64;
+        }
+        surface IO = [Console, Clock]
+        fn main() -> I64 uses IO {
             handle {
                 ?todo
             } with {
@@ -1662,7 +1602,7 @@ fn hole_collects_handler_effect_context_after_discharge() {
         .as_ref()
         .expect("handler effect context");
     assert!(effect_context.discharged_effects.contains("Console"));
-    assert!(effect_context.surviving_effects.contains("IO"));
+    assert!(effect_context.surviving_effects.contains("Clock"));
     assert!(!effect_context.surviving_effects.contains("Console"));
 }
 
@@ -1671,7 +1611,7 @@ fn hole_discharge_removes_declared_handled_effect_from_surviving_context() {
     let module = parse(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
         fn main() -> I64 uses [Console] {
             handle {
@@ -1698,7 +1638,7 @@ fn hole_candidates_include_canonical_rejection_reasons() {
     let module = parse(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
         fn pure() -> I64 { 1 }
         fn noisy() -> I64 uses [Console] { 2 }
@@ -1729,28 +1669,25 @@ fn hole_candidates_include_canonical_rejection_reasons() {
         Some("requires effects [Console]")
     );
 
-    let risky = hole
-        .candidates
-        .iter()
-        .find(|candidate| candidate.name == "risky")
-        .expect("risky candidate");
     assert!(
-        risky
-            .rejection_reasons
+        hole.candidates
             .iter()
-            .any(|reason| reason.contains("propagates unhandled errors [ParseError]")),
-        "expected missing error reason, got {:?}",
-        risky.rejection_reasons
+            .all(|candidate| candidate.name != "risky"),
+        "an outcome-returning function must not be suggested for a plain value hole"
     );
 }
 
 #[test]
-fn hole_report_includes_checked_residual_context() {
+fn hole_report_includes_budget_context() {
     let module = parse(
         r#"
-        fn cheap() -> I64 cost [1, 0, 0, 0] { 1 + 1 }
-        fn costly() -> I64 cost [10, 0, 0, 0] { cheap() + cheap() + cheap() }
-        fn target() -> I64 cost [6, 0, 0, 0] {
+        fn cheap() -> I64 { 1 + 1 }
+        fn target() -> I64
+        budget {
+            calls: 1
+            holes: 1
+        }
+        {
             let seed = cheap();
             ?todo
         }
@@ -1760,75 +1697,43 @@ fn hole_report_includes_checked_residual_context() {
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
 
-    let cost_budget = hole.cost_budget.as_ref().expect("legacy cost budget");
-    assert_eq!(cost_budget.budget_total, Some(6.0));
-    assert_eq!(cost_budget.cost_before_hole, 4.0);
-    assert_eq!(cost_budget.budget_remaining, Some(2.0));
-
-    let residual = hole
-        .residual_context
-        .as_ref()
-        .expect("checked residual context");
-    assert_eq!(
-        residual
-            .budget_declared
-            .as_ref()
-            .map(|cost| cost.compute.as_str()),
-        Some("6")
+    let budget_context = hole.budget_context.as_ref().expect("budget context");
+    assert!(
+        budget_context
+            .constraints
+            .iter()
+            .any(|constraint| constraint.field == "calls" && constraint.limit == 1)
     );
-    assert_eq!(residual.cost_before.compute, "4");
-    assert_eq!(
-        residual
-            .budget_residual
-            .as_ref()
-            .map(|cost| cost.compute.as_str()),
-        Some("2")
+    assert!(
+        budget_context
+            .constraints
+            .iter()
+            .any(|constraint| constraint.field == "holes" && constraint.limit == 1)
     );
-    assert_eq!(
-        residual.fit_rule.as_deref(),
-        Some("before + candidate <= budget")
-    );
-
+    assert!(budget_context.observations.iter().any(|observation| {
+        observation.field == "calls"
+            && observation.observed == 1
+            && observation.remaining == Some(0)
+    }));
+    assert!(budget_context.observations.iter().any(|observation| {
+        observation.field == "holes"
+            && observation.observed == 1
+            && observation.remaining == Some(0)
+    }));
     let cheap = hole
         .candidates
         .iter()
         .find(|candidate| candidate.name == "cheap")
         .expect("cheap candidate");
-    assert_eq!(cheap.cost_fit, 1.0);
-    assert_eq!(
-        cheap.cost_check.as_ref().and_then(|cost| cost.fits_budget),
-        Some(true)
-    );
-
-    let costly = hole
-        .candidates
-        .iter()
-        .find(|candidate| candidate.name == "costly")
-        .expect("costly candidate");
-    assert_eq!(costly.cost_fit, 0.0);
-    assert_eq!(
-        costly.cost_check.as_ref().and_then(|cost| cost.fits_budget),
-        Some(false)
-    );
-    assert!(
-        costly
-            .cost_check
-            .as_ref()
-            .and_then(|cost| cost.reason.as_deref())
-            .is_some_and(|reason| reason.contains("exceeds budget in compute")),
-        "expected over-budget reason, got {:?}",
-        costly.cost_check
-    );
+    assert_eq!(cheap.type_match, 1.0);
 }
 
 #[test]
-fn unbounded_hole_report_skips_checked_residual_budget() {
+fn hole_report_omits_budget_context_without_budget() {
     let module = parse(
         r#"
-        fn cheap() -> I64 cost [1, 0, 0, 0] { 1 }
-
-        @unbounded
-        fn target() -> I64 cost [1, 0, 0, 0] {
+        fn cheap() -> I64 { 1 }
+        fn target() -> I64 {
             ?todo
         }
     "#,
@@ -1837,29 +1742,38 @@ fn unbounded_hole_report_skips_checked_residual_budget() {
     let result = type_check(&module).unwrap();
     let hole = &result.hole_report.holes[0];
 
-    assert!(hole.cost_budget.is_none());
-    let residual = hole
-        .residual_context
-        .as_ref()
-        .expect("residual context with unbounded note");
-    assert!(residual.budget_residual.is_none());
-    assert!(residual.fit_rule.is_none());
-    assert!(
-        residual
-            .note
-            .as_deref()
-            .is_some_and(|note| note.contains("@unbounded disables checked residual budgeting"))
-    );
+    assert!(hole.budget_context.is_none());
 
     let cheap = hole
         .candidates
         .iter()
         .find(|candidate| candidate.name == "cheap")
         .expect("cheap candidate");
-    assert_eq!(cheap.cost_fit, 0.5);
+    assert_eq!(cheap.budget_fit, 0.5);
+}
+
+#[test]
+fn hole_report_includes_property_context() {
+    let module = parse(
+        r#"
+        fn target(x: I64) -> I64
+        properties {
+            non_negative(x: I64): target(x) >= 0
+            idempotent(x: I64): target(target(x)) == target(x)
+        }
+        {
+            ?body
+        }
+    "#,
+    )
+    .unwrap();
+    let result = type_check(&module).unwrap();
+    let hole = &result.hole_report.holes[0];
+    let property_context = hole.property_context.as_ref().expect("property context");
+
     assert_eq!(
-        cheap.cost_check.as_ref().and_then(|cost| cost.fits_budget),
-        None
+        property_context.properties,
+        vec!["non_negative".to_string(), "idempotent".to_string()]
     );
 }
 
@@ -1869,7 +1783,7 @@ fn unbounded_hole_report_skips_checked_residual_budget() {
 fn enum_constructor_call() {
     check_ok(
         r#"
-        type Shape { Circle(I64), Rect(I64, I64) }
+        enum Shape { Circle(I64), Rect(I64, I64) }
         fn make_circle() -> Shape { Circle(3) }
         fn make_rect() -> Shape { Rect(6, 7) }
     "#,
@@ -1880,7 +1794,7 @@ fn enum_constructor_call() {
 fn enum_constructor_zero_field_as_value() {
     check_ok(
         r#"
-        type Color { Red, Green, Blue }
+        enum Color { Red, Green, Blue }
         fn get_red() -> Color { Red }
     "#,
     );
@@ -1890,7 +1804,7 @@ fn enum_constructor_zero_field_as_value() {
 fn enum_constructor_match_still_works() {
     check_ok(
         r#"
-        type Option { Some(I64), None }
+        enum Option { Some(I64), None }
         fn unwrap_or(opt: Option, default: I64) -> I64 {
             match opt {
                 Some(value) => value,
@@ -1905,7 +1819,7 @@ fn enum_constructor_match_still_works() {
 fn generic_enum_constructor_pattern_binds_instantiated_field_type() {
     check_ok(
         r#"
-        type Option[T] { Some(T), None }
+        enum Option[T] { Some(T), None }
         fn unwrap_or[T](opt: Option[T], default: T) -> T {
             match opt {
                 Some(value) => value,
@@ -1920,7 +1834,7 @@ fn generic_enum_constructor_pattern_binds_instantiated_field_type() {
 fn generic_zero_field_variant_pattern_matches_type_application() {
     check_ok(
         r#"
-        type Option[T] { Some(T), None }
+        enum Option[T] { Some(T), None }
         fn is_none[T](opt: Option[T]) -> Bool {
             match opt {
                 Some(_) => false,
@@ -1935,7 +1849,7 @@ fn generic_zero_field_variant_pattern_matches_type_application() {
 fn nested_generic_enum_constructor_pattern_binds_inner_type() {
     check_ok(
         r#"
-        type Option[T] { Some(T), None }
+        enum Option[T] { Some(T), None }
         fn flatten_option[T](opt: Option[Option[T]]) -> Option[T] {
             match opt {
                 Some(inner) => inner,
@@ -1950,7 +1864,7 @@ fn nested_generic_enum_constructor_pattern_binds_inner_type() {
 fn concrete_generic_enum_constructor_pattern_binds_instantiated_field_type() {
     check_ok(
         r#"
-        type Option[T] { Some(T), None }
+        enum Option[T] { Some(T), None }
         fn unwrap_i32(opt: Option[I64], default: I64) -> I64 {
             match opt {
                 Some(value) => value,
@@ -1965,10 +1879,10 @@ fn concrete_generic_enum_constructor_pattern_binds_instantiated_field_type() {
 fn catch_all_binding_can_share_name_with_zero_arg_function() {
     check_ok(
         r#"
-        fn fallback() -> I64 { 0 }
+        fn default_value() -> I64 { 0 }
         fn describe(n: I64) -> I64 {
             match n {
-                fallback => fallback,
+                default_value => default_value,
             }
         }
     "#,
@@ -1979,7 +1893,7 @@ fn catch_all_binding_can_share_name_with_zero_arg_function() {
 fn enum_constructor_wrong_arg_count() {
     let errs = check_err(
         r#"
-        type Shape { Circle(I64), Rect(I64, I64) }
+        enum Shape { Circle(I64), Rect(I64, I64) }
         fn bad() -> Shape { Rect(1) }
     "#,
     );
@@ -1990,7 +1904,7 @@ fn enum_constructor_wrong_arg_count() {
 fn enum_constructor_wrong_arg_type() {
     let errs = check_err(
         r#"
-        type Shape { Circle(I64), Rect(I64, I64) }
+        enum Shape { Circle(I64), Rect(I64, I64) }
         fn bad() -> Shape { Circle("hello") }
     "#,
     );
@@ -2003,8 +1917,8 @@ fn enum_constructor_wrong_arg_type() {
 fn impl_wrong_return_type() {
     let errs = check_err(
         r#"
-        trait Stringify[T] {
-            fn to_string(self: T) -> Str
+        trait Stringify {
+            fn to_string(self) -> Str;
         }
         struct Num { val: I64 }
         impl Stringify for Num {
@@ -2019,8 +1933,8 @@ fn impl_wrong_return_type() {
 fn impl_wrong_param_type() {
     let errs = check_err(
         r#"
-        trait Adder[T] {
-            fn add(self: T, n: I64) -> I64
+        trait Adder {
+            fn add(self, n: I64) -> I64;
         }
         struct Counter { val: I64 }
         impl Adder for Counter {
@@ -2035,8 +1949,8 @@ fn impl_wrong_param_type() {
 fn impl_correct_signature_ok() {
     check_ok(
         r#"
-        trait Display[T] {
-            fn show(self: T) -> Str
+        trait Display {
+            fn show(self) -> Str;
         }
         struct Point { x: I64, y: I64 }
         impl Display for Point {
@@ -2195,14 +2109,14 @@ fn sep0006_type_errors_use_e0xxx() {
 
 #[test]
 fn sep0006_effect_violations_use_c0xxx() {
-    // Missing effects → C0001
+    // Missing effects → F0001
     let errs = check_err_with_codes(
         r#"
         fn fetch(url: Str) -> Str uses [NetConnect] { "data" }
         fn process() -> Str { fetch("http://example.com") }
     "#,
     );
-    assert!(errs.iter().any(|e| e.0 == ErrorCode::C0001));
+    assert!(errs.iter().any(|e| e.0 == ErrorCode::F0001));
 }
 
 #[test]
@@ -2277,10 +2191,10 @@ fn f() -> I64 {
 
 #[test]
 fn refinement_alias_definition() {
-    // alias Port = I64 when ... should register and be usable
+    // type Port = I64 when ... should register and be usable
     check_ok(
         r#"
-alias Port = I64 when self >= 1 && self <= 65535
+type Port = I64 when self >= 1 && self <= 65535
 fn get_port() -> I64 {
     let p: Port = 80;
     p
@@ -2294,7 +2208,7 @@ fn refinement_alias_violated() {
     // 0 is not in 1..=65535
     let errs = check_err_with_codes(
         r#"
-alias Port = I64 when self >= 1 && self <= 65535
+type Port = I64 when self >= 1 && self <= 65535
 fn get_port() -> I64 {
     let p: Port = 0;
     p
@@ -2364,7 +2278,7 @@ fn f() -> I64 { positive(5) }
 #[test]
 fn builtin_println_type_checks() {
     // `println` is no longer injected in standalone/source mode; it is an undefined variable.
-    let errs = check_err(r#"fn main() uses [Console] { println("hello") }"#);
+    let errs = check_err(r#"fn main() -> () uses [Console] { println("hello") }"#);
     assert!(
         errs.iter().any(|e| e.contains("undefined variable")),
         "expected undefined variable error for standalone println, got: {errs:?}"
@@ -2379,7 +2293,7 @@ fn builtin_println_type_checks() {
 
 #[test]
 fn console_builtin_println_requires_console_effect() {
-    let errs = check_err(r#"fn f() { println("hello") }"#);
+    let errs = check_err(r#"fn f() -> () { println("hello") }"#);
     assert!(
         errs.iter().any(|e| e.contains("undefined variable")),
         "expected undefined variable error for standalone println, got: {errs:?}"
@@ -2388,7 +2302,7 @@ fn console_builtin_println_requires_console_effect() {
 
 #[test]
 fn console_builtin_print_requires_console_effect() {
-    let errs = check_err(r#"fn f() { print("hi") }"#);
+    let errs = check_err(r#"fn f() -> () { print("hi") }"#);
     assert!(
         errs.iter().any(|e| e.contains("undefined variable")),
         "expected undefined variable error for standalone print, got: {errs:?}"
@@ -2447,7 +2361,7 @@ fn console_builtin_callee_console_propagates_to_caller() {
 #[test]
 fn builtin_println_wrong_arg_type() {
     // `println` is undefined in standalone mode; the error is "undefined variable".
-    let errs = check_err(r#"fn main() { println(42) }"#);
+    let errs = check_err(r#"fn main() -> () { println(42) }"#);
     assert!(
         errs.iter().any(|e| e.contains("undefined variable")),
         "expected undefined variable error for standalone println, got: {errs:?}"
@@ -2472,7 +2386,7 @@ fn builtin_string_length_type_checks() {
 #[test]
 fn builtin_print_still_works() {
     // `print` is no longer available in standalone mode.
-    let errs = check_err(r#"fn main() uses [Console] { print("hi") }"#);
+    let errs = check_err(r#"fn main() -> () uses [Console] { print("hi") }"#);
     assert!(
         errs.iter().any(|e| e.contains("undefined variable")),
         "expected undefined variable error for standalone print, got: {errs:?}"
@@ -2563,7 +2477,7 @@ fn builtin_tail_returns_option_list() {
 
 #[test]
 fn builtin_char_at_returns_option() {
-    // Bug A7: char_at should return Option[String]
+    // Bug A7: char_at should return Option[Str]
     check_ok(r#"fn f() -> Option[Str] { char_at("abc", 0) }"#);
 }
 
@@ -2583,7 +2497,8 @@ fn builtin_int_to_char_type_checks() {
 fn test_foreign_fn_typechecks() {
     check_ok(
         r#"
-        foreign fn read_file(path: Str) -> Str uses [FileRead]
+        @foreign
+        fn read_file(path: Str) -> Str uses [FileRead];
         "#,
     );
 }
@@ -2592,9 +2507,142 @@ fn test_foreign_fn_typechecks() {
 fn test_foreign_fn_callable_signature() {
     check_ok(
         r#"
-        foreign fn add(a: I64, b: I64) -> I64
+        @foreign
+        fn add(a: I64, b: I64) -> I64;
         fn main() -> I64 { add(1, 2) }
         "#,
+    );
+}
+
+#[test]
+fn foreign_attribute_rejects_function_body() {
+    let errors = check_err_with_codes(
+        r#"
+        @foreign
+        fn add(a: I64, b: I64) -> I64 { a + b }
+        "#,
+    );
+    assert!(
+        errors.iter().any(|(code, _)| *code == ErrorCode::M0602),
+        "expected M0602, got: {errors:?}"
+    );
+}
+
+#[test]
+fn export_c_attribute_accepts_public_function_body() {
+    check_ok(
+        r#"
+        @export("C")
+        pub fn score(raw: I64) -> I64 { raw }
+        "#,
+    );
+}
+
+#[test]
+fn export_attribute_rejects_unsupported_abi() {
+    let errors = check_err_with_codes(
+        r#"
+        @export("wasm")
+        pub fn score(raw: I64) -> I64 { raw }
+        "#,
+    );
+    assert!(
+        errors.iter().any(|(code, _)| *code == ErrorCode::M0603),
+        "expected M0603, got: {errors:?}"
+    );
+}
+
+#[test]
+fn export_attribute_requires_public_function_body() {
+    let errors = check_err_with_codes(
+        r#"
+        @export("C")
+        fn score(raw: I64) -> I64;
+        "#,
+    );
+    assert!(
+        errors.iter().any(|(code, _)| *code == ErrorCode::M0601),
+        "expected M0601, got: {errors:?}"
+    );
+}
+
+#[test]
+fn foreign_attribute_rejects_unsupported_target() {
+    let errors = check_err_with_codes(
+        r#"
+        @foreign
+        struct Host {}
+        "#,
+    );
+    assert!(
+        errors.iter().any(|(code, _)| *code == ErrorCode::M0601),
+        "expected M0601, got: {errors:?}"
+    );
+}
+
+#[test]
+fn foreign_opaque_type_is_available_in_signatures() {
+    check_ok(
+        r#"
+        @foreign
+        type Map[K, V];
+        fn keep(map: Map[Str, I64]) -> Map[Str, I64] { map }
+        "#,
+    );
+}
+
+#[test]
+fn bodyless_type_requires_foreign_attribute() {
+    let errors = check_err_with_codes("type Map[K, V];");
+    assert!(
+        errors.iter().any(|(code, message)| {
+            *code == ErrorCode::M0601 && message.contains("must be marked `@foreign`")
+        }),
+        "expected M0601, got: {errors:?}"
+    );
+}
+
+#[test]
+fn foreign_opaque_type_rejects_linkage_arguments() {
+    let errors = check_err_with_codes(
+        r#"
+        @foreign("host")
+        type Map[K, V];
+        "#,
+    );
+    assert!(
+        errors.iter().any(|(code, message)| {
+            *code == ErrorCode::M0601 && message.contains("do not accept linkage arguments")
+        }),
+        "expected M0601, got: {errors:?}"
+    );
+}
+
+#[test]
+fn generic_type_alias_instantiates_type_parameters() {
+    check_ok(
+        r#"
+        struct Pair[A, B] { first: A, second: B }
+        type PairOf[T] = Pair[T, T]
+        fn first(pair: PairOf[I64]) -> I64 { pair.first }
+        "#,
+    );
+}
+
+#[test]
+fn generic_type_alias_rejects_wrong_type_argument_count() {
+    let errors = check_err_with_codes(
+        r#"
+        struct Pair[A, B] { first: A, second: B }
+        type PairOf[T] = Pair[T, T]
+        fn first(pair: PairOf[I64, Str]) -> I64 { pair.first }
+        "#,
+    );
+    assert!(
+        errors.iter().any(|(code, message)| {
+            *code == ErrorCode::E0002 && message.contains("expects 1 type arguments, got 2")
+        }),
+        "expected E0002, got: {errors:?}"
     );
 }
 
@@ -2605,9 +2653,9 @@ fn test_perform_requires_effect() {
     let errs = check_err(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
-        fn main() {
+        fn main() -> () {
             perform Console.println("hello")
         }
         "#,
@@ -2624,9 +2672,9 @@ fn test_perform_with_effect_ok() {
     check_ok(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
-        fn main() uses [Console] {
+        fn main() -> () uses [Console] {
             perform Console.println("hello")
         }
         "#,
@@ -2640,9 +2688,9 @@ fn test_handle_provides_effect() {
     check_ok(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
-        fn main() {
+        fn main() -> () {
             handle {
                 perform Console.println("hello")
             } with {
@@ -2657,14 +2705,15 @@ fn test_handle_provides_effect() {
 fn test_perform_requires_declared_effect_interface() {
     let errs = check_err(
         r#"
-        fn main() uses [Console] {
+        fn main() -> () uses [Console] {
             perform Console.println("hello")
         }
         "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("unknown effect `Console`")),
-        "expected unknown effect error, got: {errs:?}"
+        errs.iter()
+            .any(|e| e.contains("effect `Console` has no visible operation protocol")),
+        "expected missing effect protocol error, got: {errs:?}"
     );
 }
 
@@ -2673,9 +2722,9 @@ fn test_handle_effect_does_not_escape_scope() {
     let errs = check_err(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
-        fn main() {
+        fn main() -> () {
             handle {
                 perform Console.println("inside")
             } with {
@@ -2697,7 +2746,7 @@ fn test_perform_uses_declared_effect_return_type() {
     check_ok(
         r#"
         effect Console {
-            fn read_line() -> Str
+            fn read_line() -> Str;
         }
         fn main() -> Str uses [Console] {
             perform Console.read_line()
@@ -2711,9 +2760,9 @@ fn test_perform_checks_declared_effect_argument_types() {
     let errs = check_err(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
-        fn main() uses [Console] {
+        fn main() -> () uses [Console] {
             perform Console.println(42)
         }
         "#,
@@ -2731,7 +2780,7 @@ fn test_handle_result_flows_into_surrounding_expression() {
     check_ok(
         r#"
         effect Math {
-            fn double(x: I64) -> I64
+            fn double(x: I64) -> I64;
         }
         fn main() -> I64 {
             let doubled = handle {
@@ -2750,7 +2799,7 @@ fn test_handle_arm_matches_declared_effect_return_type() {
     let errs = check_err(
         r#"
         effect Math {
-            fn double(x: I64) -> I64
+            fn double(x: I64) -> I64;
         }
         fn main() -> I64 {
             handle {
@@ -2772,7 +2821,7 @@ fn test_handle_arm_checks_declared_effect_arity() {
     let errs = check_err(
         r#"
         effect Math {
-            fn double(x: I64) -> I64
+            fn double(x: I64) -> I64;
         }
         fn main() -> I64 {
             handle {
@@ -2795,10 +2844,10 @@ fn test_named_handler_payload_and_self_typecheck() {
     check_ok(
         r#"
         effect Math {
-            fn double(x: I64) -> I64
+            fn double(x: I64) -> I64;
         }
-        handler Math as DoubleMath(multiplier: I64) {
-            fn double(x: I64) -> I64 { x * self.multiplier }
+        handler DoubleMath for Math {
+            fn Math.double(x: I64) -> I64 { x * self.multiplier }
         }
         fn main() -> I64 {
             handle {
@@ -2816,10 +2865,10 @@ fn test_named_handler_payload_checks_field_types() {
     let errs = check_err(
         r#"
         effect Math {
-            fn double(x: I64) -> I64
+            fn double(x: I64) -> I64;
         }
-        handler Math as DoubleMath(multiplier: I64) {
-            fn double(x: I64) -> I64 { x * self.multiplier }
+        handler DoubleMath for Math {
+            fn Math.double(x: I64) -> I64 { x * self.multiplier }
         }
         fn main() -> I64 {
             handle {
@@ -2843,10 +2892,10 @@ fn test_named_and_inline_duplicate_binding_errors() {
     let errs = check_err(
         r#"
         effect Math {
-            fn double(x: I64) -> I64
+            fn double(x: I64) -> I64;
         }
-        handler Math as DoubleMath(multiplier: I64) {
-            fn double(x: I64) -> I64 { x * self.multiplier }
+        handler DoubleMath for Math {
+            fn Math.double(x: I64) -> I64 { x * self.multiplier }
         }
         fn main() -> I64 {
             handle {
@@ -2870,7 +2919,7 @@ fn test_named_and_inline_duplicate_binding_errors() {
 #[test]
 fn test_or_pattern_same_bindings() {
     check_ok(
-        r#"type Shape { Circle(I64), Square(I64) }
+        r#"enum Shape { Circle(I64), Square(I64) }
         fn size(s: Shape) -> I64 {
             match s {
                 Circle(x) | Square(x) => x,
@@ -2882,7 +2931,7 @@ fn test_or_pattern_same_bindings() {
 #[test]
 fn test_or_pattern_different_bindings_error() {
     let errs = check_err_with_codes(
-        r#"type Shape { Circle(I64), Square(I64) }
+        r#"enum Shape { Circle(I64), Square(I64) }
         fn size(s: Shape) -> I64 {
             match s {
                 Circle(x) | Square(y) => 0,
@@ -2898,7 +2947,7 @@ fn test_or_pattern_different_bindings_error() {
 #[test]
 fn test_or_pattern_different_types_error() {
     let errs = check_err(
-        r#"type Value { IntVal(I64), StrVal(Str) }
+        r#"enum Value { IntVal(I64), StrVal(Str) }
         fn show(v: Value) -> I64 {
             match v {
                 IntVal(x) | StrVal(x) => 0,
@@ -2914,7 +2963,7 @@ fn test_or_pattern_different_types_error() {
 #[test]
 fn test_or_pattern_no_bindings() {
     check_ok(
-        r#"type Color { Red, Blue, Green }
+        r#"enum Color { Red, Blue, Green }
         fn is_warm(c: Color) -> Bool {
             match c {
                 Red | Blue => true,
@@ -2924,54 +2973,31 @@ fn test_or_pattern_no_bindings() {
     );
 }
 
-// ── ErrorSet in Ty::Fn tests ────────────────────────────────────────
+// ── First-class outcome type tests ──────────────────────────────────
 
 #[test]
-fn test_fn_type_with_error_set() {
-    let errors: ErrorSet = ["MyError".to_string()].into_iter().collect();
-    let ty = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), errors.clone());
-    match &ty {
-        Ty::Fn(_, _, _, err_set) => assert_eq!(*err_set, errors),
-        _ => panic!("expected Ty::Fn"),
-    }
-}
-
-#[test]
-fn test_fn_type_empty_error_set() {
-    let ty = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), ErrorSet::new());
-    match &ty {
-        Ty::Fn(_, _, _, err_set) => assert!(err_set.is_empty()),
-        _ => panic!("expected Ty::Fn"),
-    }
-}
-
-#[test]
-fn test_error_set_display_empty() {
+fn test_fn_type_with_outcome_return() {
     let ty = Ty::Fn(
-        vec![Ty::I64],
-        Box::new(Ty::Str),
+        vec![],
+        Box::new(Ty::Outcome(
+            Box::new(Ty::I64),
+            Box::new(Ty::Named("MyError".into())),
+        )),
         EffectSet::new(),
-        ErrorSet::new(),
     );
+    assert_eq!(ty.to_string(), "() -> I64 ! MyError");
+}
+
+#[test]
+fn test_fn_type_without_outcome_display() {
+    let ty = Ty::Fn(vec![Ty::I64], Box::new(Ty::Str), EffectSet::new());
     let display = format!("{ty}");
     assert_eq!(display, "(I64) -> Str");
     assert!(!display.contains('!'));
 }
 
 #[test]
-fn test_error_set_display_with_errors() {
-    let mut errors = ErrorSet::new();
-    errors.insert("FileNotFound".to_string());
-    errors.insert("PermissionDenied".to_string());
-    let ty = Ty::Fn(vec![Ty::Str], Box::new(Ty::Str), EffectSet::new(), errors);
-    let display = format!("{ty}");
-    // BTreeSet sorts alphabetically
-    assert!(display.contains("! FileNotFound | PermissionDenied"));
-}
-
-#[test]
-fn test_error_set_propagation() {
-    // Using `?` to propagate errors from a caller that doesn't declare them
+fn test_outcome_propagation_requires_boundary() {
     let src = r#"
         fn risky() -> I64 ! MyError {
             42
@@ -2981,7 +3007,7 @@ fn test_error_set_propagation() {
         }
     "#;
     let errs = check_err(src);
-    let has_missing_error = errs.iter().any(|e| e.contains("missing errors"));
+    let has_missing_error = errs.iter().any(|e| e.contains("outcome return type"));
     assert!(
         has_missing_error,
         "expected missing-errors diagnostic, got: {errs:?}"
@@ -3019,8 +3045,8 @@ fn refined_types_different_predicates_not_equal() {
 }
 
 #[test]
-fn test_error_set_propagation_declared() {
-    // Using `?` from a caller that declares the errors should be OK
+fn test_outcome_propagation_declared() {
+    // Using `?` from a caller with the same outcome failure type is valid.
     check_ok(
         r#"
         fn risky() -> I64 ! MyError {
@@ -3034,46 +3060,41 @@ fn test_error_set_propagation_declared() {
 }
 
 #[test]
-fn throw_requires_declared_error_set() {
-    let errs = check_err(
+fn fail_constructs_an_outcome() {
+    check_ok(
         r#"
         struct MyError {}
-        fn fail() -> I64 {
-            throw MyError {}
+        fn fail_now() -> I64 ! MyError {
+            fail MyError {}
         }
     "#,
-    );
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("requires declaring an error set")),
-        "expected throw-without-declaration diagnostic, got: {errs:?}"
     );
 }
 
 #[test]
-fn throw_named_error_must_be_declared() {
+fn fail_payload_must_match_the_declared_failure_type() {
     let errs = check_err(
         r#"
         struct IoError {}
         struct ParseError {}
-        fn fail() -> I64 ! IoError {
-            throw ParseError {}
+        fn fail_now() -> I64 ! IoError {
+            fail ParseError {}
         }
     "#,
     );
     assert!(
         errs.iter().any(|e| e.contains("ParseError")),
-        "expected throw-name mismatch diagnostic, got: {errs:?}"
+        "expected outcome failure mismatch diagnostic, got: {errs:?}"
     );
 }
 
 #[test]
-fn throw_named_error_declared_ok() {
+fn fail_branch_lifts_plain_success_into_an_outcome() {
     check_ok(
         r#"
         struct MyError {}
-        fn fail() -> I64 ! MyError {
-            throw MyError {}
+        fn parse(ok: Bool) -> I64 ! MyError {
+            if ok { 42 } else { fail MyError {} }
         }
     "#,
     );
@@ -3108,12 +3129,11 @@ fn refined_types_identical_are_equal() {
 }
 
 #[test]
-fn test_fn_type_equality_with_error_set() {
-    let mut errors = ErrorSet::new();
-    errors.insert("E1".to_string());
-    let ty1 = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), errors.clone());
-    let ty2 = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), errors);
-    let ty3 = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new(), ErrorSet::new());
+fn test_fn_type_equality_with_outcome() {
+    let outcome = Ty::Outcome(Box::new(Ty::I64), Box::new(Ty::Named("E1".into())));
+    let ty1 = Ty::Fn(vec![], Box::new(outcome.clone()), EffectSet::new());
+    let ty2 = Ty::Fn(vec![], Box::new(outcome), EffectSet::new());
+    let ty3 = Ty::Fn(vec![], Box::new(Ty::I64), EffectSet::new());
     assert_eq!(ty1, ty2);
     assert_ne!(ty1, ty3);
 }
@@ -3149,12 +3169,11 @@ fn refined_types_different_var_names_not_equal() {
 
 #[test]
 fn ty_fold_replaces_int_with_float_in_nested_type() {
-    // Fn([I64, Tuple([I64, Bool])], I64, {}, {}) → Fn([F64, Tuple([F64, Bool])], F64, {}, {})
+    // Fn([I64, Tuple([I64, Bool])], I64, {}) -> Fn([F64, Tuple([F64, Bool])], F64, {})
     let ty = Ty::Fn(
         vec![Ty::I64, Ty::Tuple(vec![Ty::I64, Ty::Bool])],
         Box::new(Ty::I64),
         EffectSet::new(),
-        ErrorSet::new(),
     );
     let folded = ty.fold(&mut |t| match t {
         Ty::I64 => Ty::F64,
@@ -3164,7 +3183,6 @@ fn ty_fold_replaces_int_with_float_in_nested_type() {
         vec![Ty::F64, Ty::Tuple(vec![Ty::F64, Ty::Bool])],
         Box::new(Ty::F64),
         EffectSet::new(),
-        ErrorSet::new(),
     );
     assert_eq!(folded, expected);
 }
@@ -3189,12 +3207,11 @@ fn ty_visit_collects_named_types() {
             Ty::Named("Foo".into()),
             Ty::Tuple(vec![Ty::Named("Bar".into()), Ty::I64]),
         ],
-        Box::new(Ty::App(
-            "Result".into(),
-            vec![Ty::Named("Baz".into()), Ty::Str],
+        Box::new(Ty::Outcome(
+            Box::new(Ty::Named("Baz".into())),
+            Box::new(Ty::Str),
         )),
         EffectSet::new(),
-        ErrorSet::new(),
     );
     let mut names = Vec::new();
     ty.visit(&mut |t| {
@@ -3299,7 +3316,7 @@ fn struct_duplicate_field_is_error() {
 fn exhaustive_parameterized_type_match() {
     // Non-parameterized Option works; the Ty::App path is tested below
     check_ok(
-        r#"type Option { Some(I64), None }
+        r#"enum Option { Some(I64), None }
         fn unwrap_or(opt: Option, default: I64) -> I64 {
             match opt {
                 Some(v) => v,
@@ -3312,7 +3329,7 @@ fn exhaustive_parameterized_type_match() {
 #[test]
 fn non_exhaustive_parameterized_type_match() {
     let errs = check_err(
-        r#"type Option { Some(I64), None }
+        r#"enum Option { Some(I64), None }
         fn unwrap(opt: Option) -> I64 {
             match opt {
                 Some(v) => v,
@@ -3334,19 +3351,19 @@ fn non_exhaustive_parameterized_type_match() {
 /// a parameterised type and then match on it.
 #[test]
 fn non_exhaustive_app_type_match() {
-    // Result[T, E] with two variants, matched on Result[I64, String].
-    // The checker resolves fn return type to Ty::App("Result", [I64, String]).
+    // Choice[T, E] has two variants and is matched as Choice[I64, Str].
+    // The checker resolves the function parameter to Ty::App("Choice", [I64, Str]).
     let errs = check_err(
-        r#"type Result[T, E] { Ok(T), Err(E) }
-        fn get_ok(r: Result[I64, Str]) -> I64 {
+        r#"enum Choice[T, E] { Present(T), Missing(E) }
+        fn get_present(r: Choice[I64, Str]) -> I64 {
             match r {
-                Ok(v) => v,
+                Present(v) => v,
             }
         }"#,
     );
     assert!(
         errs.iter().any(|e| e.contains("non-exhaustive")),
-        "should report non-exhaustive match on Result[I64, Str], got: {errs:?}"
+        "should report non-exhaustive match on Choice[I64, Str], got: {errs:?}"
     );
 }
 
@@ -3359,7 +3376,7 @@ fn return_type_mismatch_errors() {
     assert!(!errs.is_empty(), "should report return type mismatch");
 }
 
-// ── len accepts both List and String ────────────────────────────────────
+// ── len accepts both List and Str ───────────────────────────────────────
 
 #[test]
 fn len_on_list() {
@@ -3377,8 +3394,8 @@ fn len_on_string() {
 fn trait_keyword_definition_and_impl() {
     check_ok(
         r#"
-        trait Display[T] {
-            fn show(self: T) -> Str
+        trait Display {
+            fn show(self) -> Str;
         }
         struct Point { x: I64, y: I64 }
         impl Display for Point {
@@ -3392,8 +3409,8 @@ fn trait_keyword_definition_and_impl() {
 fn trait_keyword_missing_method_error() {
     let errs = check_err(
         r#"
-        trait Display[T] {
-            fn show(self: T) -> Str
+        trait Display {
+            fn show(self) -> Str;
         }
         struct Point { x: I64, y: I64 }
         impl Display for Point {
@@ -3407,35 +3424,35 @@ fn trait_keyword_missing_method_error() {
 fn where_bound_single_trait_is_enforced() {
     check_ok(
         r#"
-        trait Display[T] {
-            fn show(self: T) -> Str
+        trait Display {
+            fn show(self) -> Str;
         }
         struct Point { x: I64, y: I64 }
         impl Display for Point {
             fn show(self: Point) -> Str { "point" }
         }
-        fn render(x: T) -> Str where T: Display { "ok" }
+        fn render[T: Display](x: T) -> Str { "ok" }
         fn run() -> Str { render(Point { x: 1, y: 2 }) }
     "#,
     );
 }
 
 #[test]
-fn where_bound_reports_unsatisfied_trait() {
+fn generic_bound_reports_unsatisfied_trait() {
     let errs = check_err_with_codes(
         r#"
-        trait Display[T] {
-            fn show(self: T) -> Str
+        trait Display {
+            fn show(self) -> Str;
         }
-        fn render(x: T) -> Str where T: Display { "ok" }
+        fn render[T: Display](x: T) -> Str { "ok" }
         fn run() -> Str { render(1) }
     "#,
     );
     assert!(
         errs.iter().any(|(code, msg)| {
-            *code == ErrorCode::E0403 && msg.contains("does not satisfy where bound `T: Display`")
+            *code == ErrorCode::E0403 && msg.contains("does not satisfy generic bound `T: Display`")
         }),
-        "expected E0403 for unsatisfied where bound, got: {errs:?}"
+        "expected E0403 for unsatisfied generic bound, got: {errs:?}"
     );
 }
 
@@ -3446,19 +3463,19 @@ fn effect_definition_parses() {
     check_ok(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
     "#,
     );
 }
 
 #[test]
-fn effect_alias_parses() {
-    // Effect alias is parsed and registered; components are validated in the
-    // second typeck pass.  A bare alias with no function body produces no error.
+fn effect_surface_parses() {
+    // Surface declarations are parsed independently from atomic effect
+    // protocols. Components are validated during type checking.
     let module = parse(
         r#"
-        effect IO = Console | FileRead | FileWrite
+        surface IO = [Console, FileRead, FileWrite]
     "#,
     )
     .unwrap();
@@ -3466,19 +3483,19 @@ fn effect_alias_parses() {
 }
 
 #[test]
-fn effect_alias_same_module_expands() {
-    // `uses [MyIO]` should expand to the Console + FileRead components defined
-    // by the alias in the same module — no effect errors expected.
+fn effect_surface_same_module_expands() {
+    // `uses MyIO` expands to the Console + FileRead atomic effects declared by
+    // the named surface in the same module.
     check_ok(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
         effect FileRead {
-            fn read(path: Str) -> Str
+            fn read(path: Str) -> Str;
         }
-        effect MyIO = Console | FileRead
-        fn greet() -> () uses [MyIO] {
+        surface MyIO = [Console, FileRead]
+        fn greet() -> () uses MyIO {
             perform Console.println("hello");
         }
     "#,
@@ -3486,18 +3503,73 @@ fn effect_alias_same_module_expands() {
 }
 
 #[test]
-fn effect_alias_unknown_component_rejected() {
-    // Referencing a non-existent effect inside an alias definition should
-    // produce a C0002 diagnostic.
+fn generic_effect_surface_accepts_explicit_type_arguments() {
+    check_ok(
+        r#"
+        effect State[T] {
+            fn get() -> T;
+        }
+        surface I64State = State[I64]
+        fn inspect() -> () uses State[I64] { () }
+    "#,
+    );
+}
+
+#[test]
+fn generic_effect_surface_rejects_wrong_type_argument_count() {
     let errs = check_err(
         r#"
-        effect BadAlias = NonExistentEffect
+        effect State[T] {
+            fn get() -> T;
+        }
+        surface MissingArgument = State
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|error| error.contains("expects 1 type arguments, got 0")),
+        "expected generic surface arity diagnostic, got: {errs:?}"
+    );
+}
+
+#[test]
+fn effect_surface_unknown_component_rejected() {
+    // Referencing a non-existent effect inside a surface declaration should
+    // produce a F0002 diagnostic.
+    let errs = check_err(
+        r#"
+        surface BadSurface = [NonExistentEffect]
     "#,
     );
     assert!(
         errs.iter().any(|e| e.contains("NonExistentEffect")),
         "expected error mentioning NonExistentEffect, got: {:?}",
         errs
+    );
+}
+
+#[test]
+fn uses_unknown_surface_or_effect_rejected() {
+    let errs = check_err("fn run() -> () uses MissingSurface { return }");
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("unknown effect or surface `MissingSurface`")),
+        "expected unknown surface error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn effect_surface_cycle_rejected() {
+    let errs = check_err(
+        r#"
+        surface A = [B]
+        surface B = [A]
+    "#,
+    );
+    assert!(
+        errs.iter()
+            .any(|e| e.contains("contains a recursive expansion")),
+        "expected recursive surface error, got: {errs:?}"
     );
 }
 
@@ -3508,10 +3580,10 @@ fn handler_definition_parses() {
     check_ok(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
         handler MockConsole for Console {
-            fn println(msg: Str) -> () { return }
+            fn Console.println(msg: Str) -> () { return }
         }
     "#,
     );
@@ -3522,7 +3594,7 @@ fn handler_unknown_effect_error() {
     let errs = check_err(
         r#"
         handler MockConsole for UnknownEffect {
-            fn println(msg: Str) -> () { 0 }
+            fn UnknownEffect.println(msg: Str) -> () { 0 }
         }
     "#,
     );
@@ -3534,10 +3606,10 @@ fn handler_return_type_mismatch_error() {
     let errs = check_err(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
+            fn println(msg: Str) -> ();
         }
         handler MockConsole for Console {
-            fn println(msg: Str) -> () { 0 }
+            fn Console.println(msg: Str) -> () { 0 }
         }
     "#,
     );
@@ -3550,11 +3622,11 @@ fn handler_missing_operation_error() {
     let errs = check_err(
         r#"
         effect Console {
-            fn println(msg: Str) -> ()
-            fn read_line() -> Str
+            fn println(msg: Str) -> ();
+            fn read_line() -> Str;
         }
         handler MockConsole for Console {
-            fn println(msg: Str) -> () { return }
+            fn Console.println(msg: Str) -> () { return }
         }
     "#,
     );
@@ -3574,15 +3646,15 @@ fn fn_named_example_still_works() {
     );
 }
 
-// ── Spec clause type checking ───────────────────────────────────────────
+// ── Intent signature property checking ──────────────────────────────────
 
 #[test]
-fn spec_examples_type_check() {
+fn properties_zero_arg_predicate_type_checks() {
     check_ok(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "basic": add(2, 3) == 5
+        properties {
+            basic(): add(2, 3) == 5
         }
         {
             a + b
@@ -3592,12 +3664,12 @@ fn spec_examples_type_check() {
 }
 
 #[test]
-fn spec_block_example_type_checks() {
+fn properties_block_predicate_type_checks() {
     check_ok(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "block" {
+        properties {
+            block(): {
                 let sum = add(2, 3);
                 sum == 5
             }
@@ -3610,12 +3682,12 @@ fn spec_block_example_type_checks() {
 }
 
 #[test]
-fn spec_property_type_checks() {
+fn properties_parameterized_predicate_type_checks() {
     check_ok(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            property "left_identity": |a: I64, b: I64 when self == 0| a
+        properties {
+            left_identity(a: I64, b: I64): add(0, b) == b
         }
         {
             a + b
@@ -3625,12 +3697,12 @@ fn spec_property_type_checks() {
 }
 
 #[test]
-fn spec_property_refinement_param_type_checks() {
+fn properties_refinement_param_type_checks() {
     check_ok(
         r#"
         fn abs(x: I64) -> I64
-        spec {
-            property "non_negative_identity": |x: I64 when self >= 0| x
+        properties {
+            non_negative_identity(x: I64 when self >= 0): x >= 0
         }
         {
             if x < 0 { 0 - x } else { x }
@@ -3640,13 +3712,13 @@ fn spec_property_refinement_param_type_checks() {
 }
 
 #[test]
-fn spec_full_clause_type_checks() {
+fn properties_multiple_predicates_type_check() {
     check_ok(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "identity":     add(0, 42) == 42
-            property "left_identity": |a: I64, b: I64 when self == 0| a
+        properties {
+            concrete(): add(0, 42) == 42
+            left_identity(a: I64, b: I64): add(0, b) == b
         }
         {
             a + b
@@ -3656,12 +3728,12 @@ fn spec_full_clause_type_checks() {
 }
 
 #[test]
-fn spec_example_must_be_bool() {
+fn property_predicate_must_be_bool() {
     let errs = check_err(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            example "wrong": add(1, 2)
+        properties {
+            wrong(): add(1, 2)
         }
         {
             a + b
@@ -3669,18 +3741,18 @@ fn spec_example_must_be_bool() {
     "#,
     );
     assert!(
-        errs.iter().any(|e| e.contains("spec example")),
-        "expected spec example type error, got: {errs:?}"
+        errs.iter().any(|e| e.contains("property `wrong`")),
+        "expected property Bool type error, got: {errs:?}"
     );
 }
 
 #[test]
-fn spec_property_must_be_lambda() {
+fn property_predicate_reports_unknown_bindings() {
     let errs = check_err(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            property "bad": add(1, 2) == 3
+        properties {
+            bad(): missing_name
         }
         {
             a + b
@@ -3688,15 +3760,53 @@ fn spec_property_must_be_lambda() {
     "#,
     );
     assert!(
-        errs.iter()
-            .any(|e| e.contains("spec property") && e.contains("lambda")),
-        "expected spec property lambda error, got: {errs:?}"
+        errs.iter().any(|e| e.contains("undefined variable")),
+        "expected undefined binding error, got: {errs:?}"
     );
 }
 
 #[test]
-fn spec_property_lambda_must_return_function_result_type() {
-    let errs = check_err(
+fn property_parameters_introduce_local_bindings() {
+    check_ok(
+        r#"
+        fn add(a: I64, b: I64) -> I64
+        properties {
+            ordered_pair(x: I64, y: I64): x <= y || y <= x
+        }
+        {
+            a + b
+        }
+    "#,
+    );
+}
+
+#[test]
+fn removed_spec_clause_is_rejected_by_parser() {
+    let errs = parse(
+        r#"
+        fn add(a: I64, b: I64) -> I64
+        spec {
+            example "basic": add(1, 2) == 3
+        }
+        {
+            a + b
+        }
+    "#,
+    )
+    .expect_err("spec clause should be rejected");
+    assert!(
+        errs.iter().any(|error| {
+            error
+                .message
+                .contains("use `properties { name(params): expr }`")
+        }),
+        "unexpected parse errors: {errs:?}"
+    );
+}
+
+#[test]
+fn removed_spec_property_lambda_is_rejected_by_parser() {
+    let errs = parse(
         r#"
         fn add(a: I64, b: I64) -> I64
         spec {
@@ -3706,63 +3816,121 @@ fn spec_property_lambda_must_return_function_result_type() {
             a + b
         }
     "#,
-    );
+    )
+    .expect_err("spec property syntax should be rejected");
     assert!(
-        errs.iter().any(|e| e.contains("spec property")),
-        "expected spec property return-type error, got: {errs:?}"
+        errs.iter().any(|error| {
+            error
+                .message
+                .contains("use `properties { name(params): expr }`")
+        }),
+        "unexpected parse errors: {errs:?}"
     );
 }
 
 #[test]
-fn spec_property_lambda_must_match_function_arity() {
-    let errs = check_err(
+fn properties_do_not_require_function_arity() {
+    check_ok(
         r#"
         fn add(a: I64, b: I64) -> I64
-        spec {
-            property "bad": |a: I64| a
+        properties {
+            unary_shape(a: I64): a == a
         }
         {
             a + b
         }
     "#,
     );
-    assert!(
-        errs.iter()
-            .any(|e| e.contains("spec property") && e.contains("parameter")),
-        "expected spec property arity error, got: {errs:?}"
-    );
 }
 
 #[test]
-fn spec_property_param_must_match_input_or_subset() {
-    let errs = check_err(
+fn properties_can_describe_independent_inputs() {
+    check_ok(
         r#"
-        fn abs(x: I64) -> I64
-        spec {
-            property "bad": |x: Bool| x
+        fn add(a: I64, b: I64) -> I64
+        properties {
+            independent(x: Bool): x || !x
         }
         {
-            if x < 0 { 0 - x } else { x }
+            a + b
         }
     "#,
     );
-    assert!(
-        errs.iter().any(|e| e.contains("refinement subset")),
-        "expected spec property input compatibility error, got: {errs:?}"
-    );
 }
 
 #[test]
-fn spec_empty_clause_ok() {
+fn properties_empty_clause_ok() {
     check_ok(
         r#"
         fn f() -> I64
-        spec {
+        properties {
         }
         {
             42
         }
     "#,
+    );
+}
+
+// ── Intent signature properties and budgets ──────────────────────────────
+
+#[test]
+fn intent_signature_properties_type_check_as_bool_predicates() {
+    check_ok(
+        r#"
+        fn add(a: I64, b: I64) -> I64 { a + b }
+        fn checked() -> I64
+        properties {
+            concrete(): add(1, 2) == 3
+            commutative(a: I64, b: I64): add(a, b) == add(b, a)
+        }
+        {
+            0
+        }
+    "#,
+    );
+}
+
+#[test]
+fn intent_signature_property_predicate_must_be_bool() {
+    let errs = check_err(
+        r#"
+        fn f() -> I64
+        properties {
+            bad(): 1
+        }
+        {
+            1
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|e| e.contains("property `bad`")),
+        "expected property bool type error, got: {errs:?}"
+    );
+}
+
+#[test]
+fn intent_signature_budget_violations_are_reported_as_b_codes() {
+    let errs = check_err_with_codes(
+        r#"
+        fn f(x: I64) -> I64
+        budget {
+            branches: 1
+            holes: 0
+        }
+        {
+            if x == 0 { ?zero } else { ?nonzero }
+        }
+    "#,
+    );
+    assert!(
+        errs.iter().any(|(code, _)| *code == ErrorCode::B0101),
+        "expected branch budget error, got: {errs:?}"
+    );
+    assert!(
+        errs.iter().any(|(code, _)| *code == ErrorCode::B0202),
+        "expected hole budget error, got: {errs:?}"
     );
 }
 

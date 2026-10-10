@@ -694,28 +694,22 @@ fn analyze_module(module: &AstModule) -> Result<ModulePlan<'_>, NativeError> {
                         "generic functions are not supported",
                     ));
                 }
-                if def.where_clause.is_some() {
-                    return Err(NativeError::for_function(
-                        &def.name,
-                        "`where` clauses are not supported",
-                    ));
-                }
                 if def.is_foreign {
                     return Err(NativeError::for_function(
                         &def.name,
-                        "`foreign fn` is not supported",
+                        "`@foreign` functions are not supported by the native backend",
                     ));
                 }
-                if !def.errors.is_empty() {
+                if matches!(def.return_type, Some(TypeExpr::Outcome(_, _))) {
                     return Err(NativeError::for_function(
                         &def.name,
-                        "checked errors are not supported",
+                        "outcome values are not supported",
                     ));
                 }
                 if def
                     .uses_clause
                     .as_ref()
-                    .is_some_and(|uses| !uses.resources.is_empty())
+                    .is_some_and(|uses| !uses.surface.is_empty())
                 {
                     return Err(NativeError::for_function(
                         &def.name,
@@ -754,7 +748,7 @@ fn analyze_module(module: &AstModule) -> Result<ModulePlan<'_>, NativeError> {
                     "top-level constants are not supported by the experimental scalar backend",
                 ));
             }
-            Item::StructDef(_) | Item::TypeDef(_) | Item::Alias(_) => {
+            Item::StructDef(_) | Item::TypeDef(_) | Item::Alias(_) | Item::OpaqueType(_) => {
                 return Err(NativeError::unsupported(
                     "aggregate and alias declarations are not supported by the experimental scalar backend",
                 ));
@@ -810,6 +804,7 @@ fn validate_expr(
         Expr::IntLit(_) => Ok(NativeType::I64),
         Expr::SuffixedIntLit(_, suffix) => native_type_from_integer_suffix(function, suffix),
         Expr::BoolLit(_) => Ok(NativeType::Bool),
+        Expr::Unit => Ok(NativeType::Unit),
         Expr::Var(name) => scopes
             .iter()
             .rev()
@@ -1141,6 +1136,7 @@ fn compile_expr<M: Module>(
             value: builder.ins().iconst(types::I64, i64::from(*value)),
             ty: NativeType::Bool,
         }),
+        Expr::Unit => Ok(unit_value(builder)),
         Expr::Var(name) => scopes
             .iter()
             .rev()

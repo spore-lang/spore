@@ -10,9 +10,9 @@ pub use compiler::{
     CheckFailure, CheckReport, CompileOutput, Diagnostic as CompilerDiagnostic,
     DiagnosticSeverity as CompilerDiagnosticSeverity, build_native_object,
     build_project_native_object, call_native, check_files, check_project, check_project_verbose,
-    check_verbose, compile, compile_diagnostics as compile_legacy_diagnostics, compile_files,
-    compile_project, format, hole_summary, holes, holes_report, query_hole_report, run, run_native,
-    run_project, run_project_with_outcome, test_specs, test_specs_project,
+    check_verbose, compile, compile_diagnostics, compile_files, compile_project, format,
+    hole_summary, holes, holes_report, query_hole_report, run, run_native, run_project,
+    run_project_with_outcome, test_properties, test_properties_files, test_properties_project,
 };
 pub use diagnostics::{
     SourceCheckFailure, SourceCheckReport, check_source_file, diagnostics_for_type_errors,
@@ -23,11 +23,12 @@ pub use project::{
     ResolvedPlatformContract, ResolvedProjectTarget, load_project_manifest,
     resolve_default_project_target, resolve_project_target_by_path,
 };
-pub use sporec_codegen::{ProjectRunOutcome, SpecKind, SpecResult};
+pub use sporec_codegen::{ProjectRunOutcome, PropertyResult};
 pub use sporec_diagnostics::{
-    Diagnostic, DiagnosticRange, HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson,
-    HoleCostBudgetJson, HoleDependencyEdgeJson, HoleDependencyGraphJson, HoleDependencyKind,
-    HoleErrorClusterJson, HoleInfoJson, HoleLocationJson, HoleReportJson, HoleSummary,
+    Diagnostic, DiagnosticRange, HoleBudgetConstraintJson, HoleBudgetContextJson,
+    HoleBudgetObservationJson, HoleCandidateJson, HoleCandidateRankingJson, HoleConfidenceJson,
+    HoleDependencyEdgeJson, HoleDependencyGraphJson, HoleDependencyKind, HoleErrorClusterJson,
+    HoleInfoJson, HoleLocationJson, HolePropertyContextJson, HoleReportJson, HoleSummary,
     HoleTypeInferenceJson, JsonReport as DiagnosticJsonReport, LspDiagnostic,
     LspDiagnosticRelatedInformation, LspLocation, LspPosition, LspRange,
     Position as DiagnosticPosition, RelatedDiagnostic as DiagnosticRelated,
@@ -36,3 +37,4 @@ pub use sporec_diagnostics::{
     SourceSpan, lsp_diagnostic_for_source, lsp_diagnostics_for_source, render_diagnostic,
     render_diagnostic_to_string,
 };
+pub use sporec_typeck::error::{ErrorCode, all_error_codes};

@@ -1,7 +1,99 @@
 use super::*;
 
+fn valid_foreign_args(attribute: &Attribute) -> bool {
+    let mut provider_seen = false;
+    let mut name_seen = false;
+    attribute.args.iter().all(|arg| match arg {
+        AttrArg::Positional(AttrValue::Str(_)) if !provider_seen => {
+            provider_seen = true;
+            true
+        }
+        AttrArg::Named {
+            name,
+            value: AttrValue::Str(_),
+        } if name == "name" && !name_seen => {
+            name_seen = true;
+            true
+        }
+        _ => false,
+    })
+}
+
+fn valid_export_c_abi(attribute: &Attribute) -> bool {
+    matches!(
+        attribute.args.as_slice(),
+        [AttrArg::Positional(AttrValue::Str(abi))] if abi == "C"
+    )
+}
+
+fn type_expr_name_and_args(ty: &TypeExpr) -> Option<(&str, &[TypeExpr])> {
+    match ty {
+        TypeExpr::Named(name) => Some((name, &[])),
+        TypeExpr::Generic(name, args) => Some((name, args)),
+        _ => None,
+    }
+}
+
 impl Checker {
-    pub(super) fn register_item(&mut self, item: &Item) {
+    fn register_impl_methods(
+        &mut self,
+        impl_def: &ImplDef,
+        owner_type: &TypeExpr,
+        trait_name: Option<&str>,
+    ) {
+        let owner = self.resolve_type(owner_type);
+        let self_mapping = HashMap::from([("Self".to_string(), owner.clone())]);
+
+        for method in &impl_def.methods {
+            let params = method
+                .params
+                .iter()
+                .map(|param| {
+                    let resolved = self.resolve_type(&param.ty);
+                    self.instantiate_ty(&resolved, &self_mapping)
+                })
+                .collect();
+            let return_type = method
+                .return_type
+                .as_ref()
+                .map(|ty| self.resolve_type(ty))
+                .map(|ty| self.instantiate_ty(&ty, &self_mapping))
+                .unwrap_or(Ty::Unit);
+            let required_effects = self.declared_effects(method.uses_clause.as_ref());
+            let mut type_params = impl_def.type_params.clone();
+            type_params.extend(method.type_params.iter().cloned());
+            type_params.sort();
+            type_params.dedup();
+            let mut generic_bounds = impl_def
+                .type_param_bounds
+                .iter()
+                .chain(&method.type_param_bounds)
+                .map(|constraint| (constraint.type_var.clone(), constraint.bound.clone()))
+                .collect::<Vec<_>>();
+            generic_bounds.sort();
+            generic_bounds.dedup();
+
+            self.registry
+                .methods
+                .entry(method.name.clone())
+                .or_default()
+                .push(MethodInfo {
+                    owner: owner.clone(),
+                    trait_name: trait_name.map(str::to_string),
+                    type_params,
+                    generic_bounds,
+                    params,
+                    return_type,
+                    required_effects,
+                    has_receiver: method
+                        .params
+                        .first()
+                        .is_some_and(|param| param.name == "self"),
+                });
+        }
+    }
+
+    pub(crate) fn register_item(&mut self, item: &Item) {
         match item {
             Item::Function(f) => {
                 let mut signature_holes = HashMap::new();
@@ -23,14 +115,8 @@ impl Checker {
                 self.registry
                     .functions
                     .insert(f.name.clone(), (param_tys, ret_ty, effects));
-                if !f.errors.is_empty() {
-                    let error_set = crate::types::declared_error_set(&f.errors);
-                    self.registry.fn_errors.insert(f.name.clone(), error_set);
-                }
                 let mut type_params = f.type_params.clone();
-                if let Some(wc) = &f.where_clause {
-                    type_params.extend(wc.constraints.iter().map(|c| c.type_var.clone()));
-                }
+                type_params.extend(f.type_param_bounds.iter().map(|c| c.type_var.clone()));
                 type_params.sort();
                 type_params.dedup();
                 if !type_params.is_empty() {
@@ -38,16 +124,15 @@ impl Checker {
                         .fn_type_params
                         .insert(f.name.clone(), type_params);
                 }
-                if let Some(wc) = &f.where_clause
-                    && !wc.constraints.is_empty()
-                {
-                    self.registry.fn_where_bounds.insert(
-                        f.name.clone(),
-                        wc.constraints
-                            .iter()
-                            .map(|c| (c.type_var.clone(), c.bound.clone()))
-                            .collect(),
-                    );
+                let generic_bounds = f
+                    .type_param_bounds
+                    .iter()
+                    .map(|c| (c.type_var.clone(), c.bound.clone()))
+                    .collect::<Vec<_>>();
+                if !generic_bounds.is_empty() {
+                    self.registry
+                        .fn_generic_bounds
+                        .insert(f.name.clone(), generic_bounds);
                 }
             }
             Item::StructDef(s) => {
@@ -115,38 +200,64 @@ impl Checker {
                 }
             }
             Item::ImplDef(impl_def) => {
-                if !self.registry.interfaces.contains_key(&impl_def.trait_name) {
+                let Some(target_type) = &impl_def.target_type else {
+                    let owner_type = &impl_def.interface_type;
+                    self.register_impl_methods(impl_def, owner_type, None);
+                    return;
+                };
+                let Some((trait_name, _)) = type_expr_name_and_args(&impl_def.interface_type)
+                else {
                     self.err(
-                        ErrorCode::C0002,
-                        format!("unknown trait `{}`", impl_def.trait_name),
+                        ErrorCode::E0001,
+                        "trait position in an impl declaration must name a trait".into(),
                     );
                     return;
+                };
+                if !self.registry.interfaces.contains_key(trait_name) {
+                    self.err(ErrorCode::F0002, format!("unknown trait `{trait_name}`"));
+                    return;
                 }
+                let Some((target_name, _)) = type_expr_name_and_args(target_type) else {
+                    return;
+                };
+                self.register_impl_methods(impl_def, target_type, Some(trait_name));
+                let self_ty = self.resolve_type(target_type);
+                let self_mapping = HashMap::from([("Self".to_string(), self_ty)]);
                 let methods: Vec<(String, Vec<Ty>, Ty)> = impl_def
                     .methods
                     .iter()
                     .map(|m| {
-                        let param_tys: Vec<Ty> =
-                            m.params.iter().map(|p| self.resolve_type(&p.ty)).collect();
+                        let param_tys: Vec<Ty> = m
+                            .params
+                            .iter()
+                            .map(|p| {
+                                let resolved = self.resolve_type(&p.ty);
+                                self.instantiate_ty(&resolved, &self_mapping)
+                            })
+                            .collect();
                         let ret_ty = m
                             .return_type
                             .as_ref()
                             .map(|t| self.resolve_type(t))
+                            .map(|ty| self.instantiate_ty(&ty, &self_mapping))
                             .unwrap_or(Ty::Unit);
                         (m.name.clone(), param_tys, ret_ty)
                     })
                     .collect();
-                self.registry.impls.insert(
-                    (impl_def.trait_name.clone(), impl_def.target_type.clone()),
-                    methods,
-                );
+                self.registry
+                    .impls
+                    .insert((trait_name.to_string(), target_name.to_string()), methods);
             }
             Item::Import(_) | Item::Const(_) => {}
-            Item::EffectAlias(ea) => {
-                for component in &ea.effects {
-                    self.hierarchy
-                        .add_implies(ea.name.clone(), component.clone());
-                }
+            Item::SurfaceDef(surface) => {
+                self.registry.surfaces.insert(surface.name.clone());
+                self.registry
+                    .surface_type_params
+                    .insert(surface.name.clone(), surface.type_params.clone());
+                self.hierarchy.add_surface(
+                    surface.name.clone(),
+                    surface.surface.names().into_iter().map(str::to_string),
+                );
             }
             Item::TraitDef(td) => {
                 let methods: Vec<(String, Vec<Ty>, Ty)> = td
@@ -168,6 +279,10 @@ impl Checker {
                     .insert(td.name.clone(), (td.type_params.clone(), methods));
             }
             Item::EffectDef(ed) => {
+                self.registry.effects.insert(ed.name.clone());
+                self.registry
+                    .effect_type_params
+                    .insert(ed.name.clone(), ed.type_params.clone());
                 let methods: Vec<(String, Vec<Ty>, Ty)> = ed
                     .operations
                     .iter()
@@ -190,19 +305,13 @@ impl Checker {
                 let handled_effects =
                     self.hierarchy
                         .expand(&crate::effect_set::EffectSet::from_names(
-                            hd.handles_clause.effects.iter().cloned(),
+                            hd.surface.names().into_iter().map(str::to_string),
                         ));
-                let uses_effects = self.declared_effects(hd.uses_clause.as_ref());
-                let fields: Vec<(String, Ty)> = hd
-                    .fields
-                    .iter()
-                    .map(|field| (field.name.clone(), self.resolve_type(&field.ty)))
-                    .collect();
                 let mut methods = HashMap::new();
                 for handler_impl in &hd.impls {
-                    if !self.registry.interfaces.contains_key(&handler_impl.effect) {
+                    if !self.registry.effects.contains(&handler_impl.effect) {
                         self.err(
-                            ErrorCode::C0002,
+                            ErrorCode::F0002,
                             format!("unknown effect `{}`", handler_impl.effect),
                         );
                         continue;
@@ -231,20 +340,32 @@ impl Checker {
                     hd.name.clone(),
                     HandlerInfo {
                         handled_effects,
-                        uses_effects,
-                        fields: fields.clone(),
+                        uses_effects: EffectSet::new(),
+                        fields: Vec::new(),
                         methods,
                     },
                 );
                 self.registry
                     .structs
-                    .insert(handler_self_type_name(&hd.name), fields);
+                    .insert(handler_self_type_name(&hd.name), Vec::new());
             }
             Item::Alias(alias_def) => {
                 let resolved = self.resolve_type(&alias_def.target);
+                if alias_def.type_params.is_empty() {
+                    self.registry
+                        .type_aliases
+                        .insert(alias_def.name.clone(), resolved);
+                } else {
+                    self.registry.generic_type_aliases.insert(
+                        alias_def.name.clone(),
+                        (alias_def.type_params.clone(), resolved),
+                    );
+                }
+            }
+            Item::OpaqueType(type_def) => {
                 self.registry
-                    .type_aliases
-                    .insert(alias_def.name.clone(), resolved);
+                    .opaque_types
+                    .insert(type_def.name.clone(), type_def.type_params.clone());
             }
         }
     }
@@ -252,33 +373,268 @@ impl Checker {
     pub(crate) fn declared_effects(&self, uses_clause: Option<&UsesClause>) -> EffectSet {
         uses_clause
             .map(|uc| {
-                let raw = crate::effect_set::EffectSet::from_names(uc.resources.iter().cloned());
+                let raw = crate::effect_set::EffectSet::from_names(
+                    uc.surface.names().into_iter().map(str::to_string),
+                );
                 self.hierarchy.expand(&raw)
             })
             .unwrap_or_default()
     }
 
+    fn check_surface_expr(&mut self, surface: &SurfaceExpr, owner: &str) {
+        for reference in surface.references() {
+            self.check_surface_ref(reference, owner);
+        }
+    }
+
+    fn check_surface_ref(&mut self, reference: &SurfaceRef, owner: &str) {
+        let type_params = if self.registry.effects.contains(&reference.name) {
+            self.registry
+                .effect_type_params
+                .get(&reference.name)
+                .cloned()
+                .unwrap_or_default()
+        } else if self.registry.surfaces.contains(&reference.name) {
+            self.registry
+                .surface_type_params
+                .get(&reference.name)
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            self.err(
+                ErrorCode::F0002,
+                format!(
+                    "{owner} references unknown effect or surface `{}`",
+                    reference.name
+                ),
+            );
+            return;
+        };
+        if type_params.len() != reference.type_args.len() {
+            self.err(
+                ErrorCode::E0401,
+                format!(
+                    "effect surface reference `{}` expects {} type arguments, got {}",
+                    reference.name,
+                    type_params.len(),
+                    reference.type_args.len()
+                ),
+            );
+        }
+        for type_arg in &reference.type_args {
+            let _ = self.resolve_type(type_arg);
+        }
+    }
+
     // ── Checking (second pass) ──────────────────────────────────────
 
     pub(super) fn check_item(&mut self, item: &Item) {
+        self.check_non_function_attributes(item);
         match item {
             Item::Function(f) => self.check_fn(f),
             Item::ImplDef(impl_def) => self.check_impl(impl_def),
             Item::HandlerDef(handler_def) => self.check_handler(handler_def),
-            Item::EffectAlias(ea) => {
-                for component in &ea.effects {
-                    if !self.registry.interfaces.contains_key(component) {
-                        self.err(
-                            ErrorCode::C0002,
-                            format!(
-                                "effect alias `{}` references unknown effect `{}`",
-                                ea.name, component
-                            ),
-                        );
-                    }
+            Item::SurfaceDef(surface) => {
+                self.check_surface_expr(&surface.surface, &format!("surface `{}`", surface.name));
+                if self.hierarchy.has_cycle(&surface.name) {
+                    self.err(
+                        ErrorCode::F0002,
+                        format!("surface `{}` contains a recursive expansion", surface.name),
+                    );
                 }
             }
             _ => {}
+        }
+    }
+
+    fn check_non_function_attributes(&mut self, item: &Item) {
+        if let Item::OpaqueType(type_def) = item {
+            self.check_opaque_type_attributes(type_def);
+            return;
+        }
+        let (kind, attributes) = match item {
+            Item::Function(_) => return,
+            Item::Const(item) => ("const declaration", &item.attributes),
+            Item::StructDef(item) => ("struct declaration", &item.attributes),
+            Item::TypeDef(item) => ("enum declaration", &item.attributes),
+            Item::ImplDef(item) => ("impl declaration", &item.attributes),
+            Item::Import(_) => return,
+            Item::Alias(item) => ("type alias", &item.attributes),
+            Item::TraitDef(item) => ("trait declaration", &item.attributes),
+            Item::EffectDef(item) => ("effect declaration", &item.attributes),
+            Item::SurfaceDef(item) => ("surface declaration", &item.attributes),
+            Item::HandlerDef(item) => ("handler declaration", &item.attributes),
+            Item::OpaqueType(_) => unreachable!(),
+        };
+        for attribute in attributes {
+            if attribute.name == "foreign" || attribute.name == "export" {
+                self.attribute_error(
+                    ErrorCode::M0601,
+                    attribute,
+                    format!("`@{}` is not valid on a {kind}", attribute.name),
+                );
+            } else {
+                self.attribute_error(
+                    ErrorCode::M0601,
+                    attribute,
+                    format!("unsupported attribute `@{}`", attribute.name),
+                );
+            }
+        }
+    }
+
+    fn check_opaque_type_attributes(&mut self, type_def: &OpaqueTypeDef) {
+        let foreign_attributes = type_def
+            .attributes
+            .iter()
+            .filter(|attribute| attribute.name == "foreign")
+            .collect::<Vec<_>>();
+
+        for attribute in &type_def.attributes {
+            if attribute.name != "foreign" {
+                self.attribute_error(
+                    ErrorCode::M0601,
+                    attribute,
+                    format!(
+                        "unsupported attribute `@{}` on opaque type `{}`",
+                        attribute.name, type_def.name
+                    ),
+                );
+            }
+        }
+
+        if foreign_attributes.is_empty() {
+            self.err(
+                ErrorCode::M0601,
+                format!(
+                    "bodyless type `{}` must be marked `@foreign` or replaced with a type alias",
+                    type_def.name
+                ),
+            );
+            return;
+        }
+
+        if foreign_attributes.len() > 1 {
+            self.attribute_error(
+                ErrorCode::M0601,
+                foreign_attributes[1],
+                format!(
+                    "opaque type `{}` declares `@foreign` more than once",
+                    type_def.name
+                ),
+            );
+        }
+
+        for attribute in foreign_attributes {
+            if !attribute.args.is_empty() {
+                self.attribute_error(
+                    ErrorCode::M0601,
+                    attribute,
+                    "`@foreign` opaque type declarations do not accept linkage arguments".into(),
+                );
+            }
+        }
+    }
+
+    fn check_fn_attributes(&mut self, function: &FnDef) {
+        for attribute in &function.attributes {
+            if attribute.name != "foreign" && attribute.name != "export" {
+                self.attribute_error(
+                    ErrorCode::M0601,
+                    attribute,
+                    format!("unsupported attribute `@{}`", attribute.name),
+                );
+            }
+        }
+        let foreign_attributes = function
+            .attributes
+            .iter()
+            .filter(|attribute| attribute.name == "foreign")
+            .collect::<Vec<_>>();
+        let export_attributes = function
+            .attributes
+            .iter()
+            .filter(|attribute| attribute.name == "export")
+            .collect::<Vec<_>>();
+
+        if foreign_attributes.len() > 1 {
+            self.attribute_error(
+                ErrorCode::M0601,
+                foreign_attributes[1],
+                format!(
+                    "function `{}` declares `@foreign` more than once",
+                    function.name
+                ),
+            );
+        }
+        for attribute in &foreign_attributes {
+            if !valid_foreign_args(attribute) {
+                self.attribute_error(
+                    ErrorCode::M0601,
+                    attribute,
+                    "`@foreign` accepts an optional provider string and optional `name = \"...\"`"
+                        .into(),
+                );
+            }
+            if function.body.is_some() {
+                self.attribute_error(
+                    ErrorCode::M0602,
+                    attribute,
+                    format!(
+                        "`@foreign` function `{}` must be a bodyless declaration ending with `;`",
+                        function.name
+                    ),
+                );
+            }
+        }
+
+        if export_attributes.len() > 1 {
+            self.attribute_error(
+                ErrorCode::M0601,
+                export_attributes[1],
+                format!(
+                    "function `{}` declares `@export` more than once",
+                    function.name
+                ),
+            );
+        }
+        for attribute in &export_attributes {
+            if !valid_export_c_abi(attribute) {
+                self.attribute_error(
+                    ErrorCode::M0603,
+                    attribute,
+                    "`@export` currently supports only `@export(\"C\")`".into(),
+                );
+            }
+            if !matches!(&function.visibility, Visibility::Pub) || function.body.is_none() {
+                self.attribute_error(
+                    ErrorCode::M0601,
+                    attribute,
+                    format!(
+                        "`@export` function `{}` must be public and have a body",
+                        function.name
+                    ),
+                );
+            }
+        }
+
+        if !foreign_attributes.is_empty() && !export_attributes.is_empty() {
+            self.attribute_error(
+                ErrorCode::M0601,
+                export_attributes[0],
+                format!(
+                    "function `{}` cannot declare both `@foreign` and `@export`",
+                    function.name
+                ),
+            );
+        }
+    }
+
+    fn attribute_error(&mut self, code: ErrorCode, attribute: &Attribute, message: String) {
+        if let Some(span) = attribute.span {
+            self.err_at(code, message, span);
+        } else {
+            self.err(code, message);
         }
     }
 
@@ -335,12 +691,16 @@ impl Checker {
                 let impl_params: Vec<Ty> = method
                     .params
                     .iter()
-                    .map(|p| self.resolve_type(&p.ty))
+                    .map(|p| {
+                        let resolved = self.resolve_type(&p.ty);
+                        self.instantiate_ty(&resolved, type_mapping)
+                    })
                     .collect();
                 let impl_ret = method
                     .return_type
                     .as_ref()
                     .map(|t| self.resolve_type(t))
+                    .map(|ty| self.instantiate_ty(&ty, type_mapping))
                     .unwrap_or(Ty::Unit);
 
                 if expected_params.len() != impl_params.len() {
@@ -392,38 +752,64 @@ impl Checker {
     }
 
     pub(super) fn check_impl(&mut self, impl_def: &ImplDef) {
-        let Some((_trait_type_params, trait_methods)) =
-            self.registry.interfaces.get(&impl_def.trait_name).cloned()
+        for constraint in &impl_def.type_param_bounds {
+            if !self.registry.interfaces.contains_key(&constraint.bound) {
+                self.err(
+                    ErrorCode::E0403,
+                    format!(
+                        "unknown trait bound `{}` in impl type parameter `{}`",
+                        constraint.bound, constraint.type_var
+                    ),
+                );
+            }
+        }
+
+        let Some(target_type) = &impl_def.target_type else {
+            let self_ty = self.resolve_type(&impl_def.interface_type);
+            let extra_bindings = vec![("self".to_string(), self_ty)];
+            for method in &impl_def.methods {
+                let _ =
+                    self.check_fn_with_extra_bindings(method, &extra_bindings, &EffectSet::new());
+            }
+            return;
+        };
+        let Some((trait_name, trait_args)) = type_expr_name_and_args(&impl_def.interface_type)
+        else {
+            return;
+        };
+        let Some((trait_type_params, trait_methods)) =
+            self.registry.interfaces.get(trait_name).cloned()
         else {
             return;
         };
 
-        let trait_type_params = _trait_type_params;
-        let type_mapping: HashMap<String, Ty> = if trait_type_params.is_empty() {
-            HashMap::new()
-        } else if !impl_def.type_args.is_empty() {
-            trait_type_params
-                .iter()
-                .zip(impl_def.type_args.iter())
-                .map(|(param, arg)| (param.clone(), self.resolve_type(arg)))
-                .collect()
-        } else if trait_type_params.len() == 1 {
-            let mut m = HashMap::new();
-            m.insert(
-                trait_type_params[0].clone(),
-                self.resolve_type(&TypeExpr::Named(impl_def.target_type.clone())),
+        if trait_type_params.len() != trait_args.len() {
+            self.err(
+                ErrorCode::E0401,
+                format!(
+                    "trait `{trait_name}` expects {} type arguments, got {}",
+                    trait_type_params.len(),
+                    trait_args.len()
+                ),
             );
-            m
-        } else {
-            HashMap::new()
-        };
+            return;
+        }
+
+        let mut type_mapping: HashMap<String, Ty> = trait_type_params
+            .iter()
+            .zip(trait_args.iter())
+            .map(|(param, arg)| (param.clone(), self.resolve_type(arg)))
+            .collect();
+        let self_ty = self.resolve_type(target_type);
+        type_mapping.insert("Self".into(), self_ty.clone());
+        let extra_bindings = vec![("self".to_string(), self_ty)];
 
         let impl_label = format!(
-            "impl `{}` for `{}`",
-            impl_def.trait_name, impl_def.target_type
+            "impl `{trait_name}` for `{}`",
+            self.resolve_type(target_type)
         );
         self.check_contract_impl(
-            &impl_def.trait_name,
+            trait_name,
             &trait_methods,
             &impl_def.methods,
             &impl_label,
@@ -431,29 +817,24 @@ impl Checker {
             "trait",
             impl_def.span,
             &type_mapping,
-            &[],
+            &extra_bindings,
             &EffectSet::new(),
         );
     }
 
     pub(super) fn check_handler(&mut self, handler_def: &HandlerDef) {
-        let declared_handles = crate::effect_set::EffectSet::from_names(
-            handler_def.handles_clause.effects.iter().cloned(),
+        self.check_surface_expr(
+            &handler_def.surface,
+            &format!("handler `{}` target surface", handler_def.name),
         );
-        let handler_uses = self.declared_effects(handler_def.uses_clause.as_ref());
-        let mut seen_declared = HashSet::new();
-        for effect in &handler_def.handles_clause.effects {
-            if !seen_declared.insert(effect.clone()) {
-                self.err(
-                    ErrorCode::E0014,
-                    format!(
-                        "handler `{}` declares duplicate handled effect `{effect}`",
-                        handler_def.name
-                    ),
-                );
-            }
-            if !self.registry.interfaces.contains_key(effect) {
-                self.err(ErrorCode::C0002, format!("unknown effect `{effect}`"));
+        let declared_handles = self
+            .hierarchy
+            .expand(&crate::effect_set::EffectSet::from_names(
+                handler_def.surface.names().into_iter().map(str::to_string),
+            ));
+        for effect in declared_handles.iter() {
+            if !self.registry.effects.contains(effect) {
+                self.err(ErrorCode::F0002, format!("unknown effect `{effect}`"));
             }
         }
 
@@ -475,7 +856,7 @@ impl Checker {
                 self.err(
                     ErrorCode::E0014,
                     format!(
-                        "handler `{}` implements effect `{}` but does not declare it in `handles [...]`",
+                        "handler `{}` implements effect `{}` outside its target surface",
                         handler_def.name, handler_impl.effect
                     ),
                 );
@@ -500,21 +881,12 @@ impl Checker {
                 handler_impl.span.or(handler_def.span),
                 &HashMap::new(),
                 &extra_bindings,
-                &handler_uses,
+                &EffectSet::new(),
             );
-            let leaked_effects = observed_effects.difference(&handler_uses);
-            if !leaked_effects.is_empty() {
-                self.err(
-                    ErrorCode::C0001,
-                    format!(
-                        "handler `{}` impl for effect `{}` leaks undeclared effects {}; add them to the handler `uses [...]` clause",
-                        handler_def.name, handler_impl.effect, leaked_effects
-                    ),
-                );
-            }
+            let _ = observed_effects;
         }
 
-        for effect in &handler_def.handles_clause.effects {
+        for effect in declared_handles.iter() {
             if !handler_def
                 .impls
                 .iter()
@@ -529,6 +901,16 @@ impl Checker {
                 );
             }
         }
+
+        let inferred_fields = self
+            .registry
+            .structs
+            .get(&handler_self_type_name(&handler_def.name))
+            .cloned()
+            .unwrap_or_default();
+        if let Some(info) = self.registry.handlers.get_mut(&handler_def.name) {
+            info.fields = inferred_fields;
+        }
     }
 
     pub(super) fn check_fn(&mut self, f: &FnDef) {
@@ -541,36 +923,49 @@ impl Checker {
         extra_bindings: &[(String, Ty)],
         inherited_effects: &EffectSet,
     ) -> EffectSet {
+        self.check_fn_attributes(f);
         self.concurrency.enter_function(&f.name);
+        if let Some(uses_clause) = &f.uses_clause {
+            self.check_surface_expr(
+                &uses_clause.surface,
+                &format!("function `{}` `uses` clause", f.name),
+            );
+        }
         let declared_effects =
             inherited_effects.union(&self.declared_effects(f.uses_clause.as_ref()));
         let prev_effects = std::mem::replace(&mut self.current_effects, declared_effects);
 
-        let prev_errors = std::mem::replace(
-            &mut self.current_errors,
-            crate::types::declared_error_set(&f.errors),
-        );
-
         let prev_function = std::mem::replace(&mut self.current_function, f.name.clone());
-        let (declared_param_tys, declared_ret) = self
-            .registry
-            .functions
-            .get(&f.name)
-            .map(|(params, ret, _)| (params.clone(), ret.clone()))
-            .unwrap_or_else(|| {
-                (
-                    f.params.iter().map(|p| self.resolve_type(&p.ty)).collect(),
-                    f.return_type
-                        .as_ref()
-                        .map(|t| self.resolve_type(t))
-                        .unwrap_or(Ty::Unit),
-                )
-            });
+        let (declared_param_tys, declared_ret) = if extra_bindings.is_empty() {
+            self.registry
+                .functions
+                .get(&f.name)
+                .map(|(params, ret, _)| (params.clone(), ret.clone()))
+                .unwrap_or_else(|| {
+                    (
+                        f.params.iter().map(|p| self.resolve_type(&p.ty)).collect(),
+                        f.return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type(t))
+                            .unwrap_or(Ty::Unit),
+                    )
+                })
+        } else {
+            (
+                f.params.iter().map(|p| self.resolve_type(&p.ty)).collect(),
+                f.return_type
+                    .as_ref()
+                    .map(|t| self.resolve_type(t))
+                    .unwrap_or(Ty::Unit),
+            )
+        };
         let prev_expected = self.expected_return_type.take();
         self.expected_return_type = Some(declared_ret.clone());
-        let prev_hole_allows = self.current_hole_allows.take();
-        self.current_hole_allows = f.hole_allows.clone();
-
+        let prev_outcome_failure = self.current_outcome_failure.take();
+        self.current_outcome_failure = match &declared_ret {
+            Ty::Outcome(_, failure) => Some((**failure).clone()),
+            _ => None,
+        };
         self.env.push_scope();
 
         for (param, ty) in f.params.iter().zip(declared_param_tys.iter().cloned()) {
@@ -587,114 +982,34 @@ impl Checker {
             observed_effects = self.pop_effect_observer();
         }
 
-        if let Some(spec) = &f.spec_clause {
-            self.check_spec_clause(spec, &f.name, &declared_param_tys, &declared_ret);
+        if let Some(properties) = &f.properties_clause {
+            self.check_properties_clause(properties, &f.name);
         }
 
         self.env.pop_scope();
         self.current_effects = prev_effects;
-        self.current_errors = prev_errors;
+        self.current_outcome_failure = prev_outcome_failure;
         self.current_function = prev_function;
         self.expected_return_type = prev_expected;
-        self.current_hole_allows = prev_hole_allows;
         self.concurrency.leave_function(&f.name);
         observed_effects
     }
 
-    /// Type-check a `spec { ... }` clause attached to a function.
-    fn spec_property_param_compatible(&self, property_param: &Ty, function_param: &Ty) -> bool {
-        let property_param = self.apply_subst(property_param);
-        let function_param = self.apply_subst(function_param);
-
-        if property_param == function_param {
-            return true;
-        }
-
-        match (&property_param, &function_param) {
-            // A property may narrow an unrefined function parameter into a
-            // refinement-based input subset that shares the same base type.
-            (Ty::Refined(property_base, _, _), function_param)
-                if !matches!(function_param, Ty::Refined(_, _, _)) =>
-            {
-                self.apply_subst(property_base.as_ref()) == function_param.clone()
+    pub(super) fn check_properties_clause(&mut self, properties: &PropertiesClause, fn_name: &str) {
+        for property in &properties.items {
+            self.env.push_scope();
+            for param in &property.params {
+                let ty = self.resolve_type(&param.ty);
+                self.env.define(param.name.clone(), ty);
             }
-            _ => false,
-        }
-    }
-
-    pub(super) fn check_spec_clause(
-        &mut self,
-        spec: &SpecClause,
-        fn_name: &str,
-        fn_params: &[Ty],
-        fn_ret: &Ty,
-    ) {
-        use crate::types::Ty;
-
-        for item in &spec.items {
-            match item {
-                SpecItem::Example(ex) => {
-                    let ty = self.check_expr(&ex.body);
-                    let ty = self.apply_subst(&ty);
-                    self.unify(
-                        &Ty::Bool,
-                        &ty,
-                        &format!("spec example \"{}\" in `{fn_name}`", ex.label),
-                    );
-                }
-                SpecItem::Property(prop) => {
-                    let ty = self.check_expr(&prop.predicate);
-                    let ty = self.apply_subst(&ty);
-                    match &ty {
-                        Ty::Fn(params, ret, _, _) => {
-                            if params.len() != fn_params.len() {
-                                self.err(
-                                    ErrorCode::E0001,
-                                    format!(
-                                        "spec property \"{}\" in `{fn_name}` must take {} parameter(s), got {}",
-                                        prop.label,
-                                        fn_params.len(),
-                                        params.len()
-                                    ),
-                                );
-                                continue;
-                            }
-
-                            for (idx, (prop_param, fn_param)) in
-                                params.iter().zip(fn_params.iter()).enumerate()
-                            {
-                                if !self.spec_property_param_compatible(prop_param, fn_param) {
-                                    self.err(
-                                        ErrorCode::E0001,
-                                        format!(
-                                            "spec property \"{}\" in `{fn_name}` parameter {} must match the function input type or a refinement subset of it; expected `{}`, got `{}`",
-                                            prop.label,
-                                            idx + 1,
-                                            fn_param,
-                                            prop_param
-                                        ),
-                                    );
-                                }
-                            }
-
-                            self.unify(
-                                fn_ret,
-                                ret,
-                                &format!("spec property \"{}\" in `{fn_name}`", prop.label),
-                            );
-                        }
-                        _ => {
-                            self.err(
-                                ErrorCode::E0301,
-                                format!(
-                                    "spec property \"{}\" in `{fn_name}` must be a lambda, found {ty:?}",
-                                    prop.label
-                                ),
-                            );
-                        }
-                    }
-                }
-            }
+            let ty = self.check_expr(&property.predicate);
+            let ty = self.apply_subst(&ty);
+            self.unify(
+                &Ty::Bool,
+                &ty,
+                &format!("property `{}` in `{fn_name}`", property.name),
+            );
+            self.env.pop_scope();
         }
     }
 }

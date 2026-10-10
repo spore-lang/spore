@@ -2,14 +2,14 @@
 
 **A compiled, general-purpose programming language where the function signature is the single source of truth for intent — built for human–Agent collaborative development.**
 
-Spore treats every function signature as a complete specification: input/output types, error sets, required effects, computational cost budgets, and `spec` assertions live in one place and are verified by the compiler. Programs with `?holes` compile successfully, making "partially-implemented" a normal working state and giving humans and Agents a shared, structured collaboration surface (`HoleReport`).
+Spore treats every function signature as a complete specification: input/output types, first-class outcomes, required effects, realization-shape budgets, and `properties` live in one place and are verified by the compiler. Programs with `?holes` compile successfully, making "partially-implemented" a normal working state and giving humans and Agents a shared, structured collaboration surface (`HoleReport`).
 
 ## Key Features
 
-- **Signatures as the single source of truth** — `where` / `uses` / `cost` / `spec` clauses carry constraints, required effects, cost budgets, and behavior assertions in one place; no scattered docs or stubs to keep in sync.
+- **Signatures as the single source of truth** — inline bounds plus `uses` / `budget` / `properties` clauses carry constraints, required effects, realization-shape budgets, and behavior assertions in one place; no scattered docs or stubs to keep in sync.
 - **Hole system as a collaboration protocol** — `?name` partial functions are first-class; the compiler emits the same structured context for humans and Agents to fill in dependency order.
 - **Effect system** — IO effects are declared on signatures and verified at compile time; all IO flows through Platform-provided effect handlers, keeping application code pure.
-- **Cost model** — 4-dimension cost vectors (`compute`, `alloc`, `io`, `parallel`) checked against compile-time budgets.
+- **Budget model** — named realization-shape budgets such as `branches`, `nesting`, `parallelism`, and `holes` checked against source shape.
 - **Content-addressed modules** — dual signature/implementation hashes drive incremental compilation and caching; no semver, no diamond dependencies. `spore lock` ships the first local content-hash lock/store slice (registry distribution is roadmap).
 - **Structured concurrency** — `parallel_scope` / `spawn` / `Channel` / `select` with cancellation propagation; no async coloring.
 - **Expression-based** — everything is an expression; recursion and higher-order functions replace loops.
@@ -43,9 +43,9 @@ spore --version
 
 - Modules come only from file paths; there is no `module ...` header.
 - Effect checks live on function signatures and package/Platform boundaries only; source files have no module-level `uses` carrier.
-- Stable generic bounds use a single comma-separated clause: `where T: Trait, U: Trait`.
-- Effect operations use explicit `effect` declarations plus `perform Effect.op(...)`; reusable unions use `effect Name = A | B`.
-- Error sets are checked contracts: `throw expr` must match the current `! E1 | E2`, calling a throwing function requires compatible caller errors, and `?` is propagation sugar.
+- Generic bounds live inline on type parameters: `fn show[T: Display](value: T) -> Str`.
+- Effect operations use explicit `effect` declarations plus `perform Effect.op(...)`; reusable effect sets use `surface Name = [EffectA, EffectB]`.
+- Outcomes are first-class values: `A ! E` represents either a successful `A` or a failed `E`, `fail expr` constructs a failure, and postfix `?` propagates a failure through an enclosing outcome-returning function.
 - Current implementation primitives are fixed-width only: `I8`/`I16`/`I32`/`I64`, `U8`/`U16`/`U32`/`U64`, `F32`/`F64`, `Bool`, `Str`, `Never`, and `()`. `Int` and `Float` are not built-in aliases.
 - The live structured-concurrency surface includes `parallel_scope { ... }`, `spawn { ... }`, postfix `task.await`, `Channel.new[...]`, and `select { ... timeout(...) => ... }`.
 
@@ -63,7 +63,7 @@ For single-file exploration:
 ```bash
 cargo run --bin spore -- run examples/demo.sp   # run standalone file (no Platform)
 cargo run --bin spore -- check examples/demo.sp # type-check standalone file
-cargo run --bin spore -- test examples/demo.sp  # validate spec examples in file
+cargo run --bin spore -- test examples/demo.sp  # validate properties in file
 ```
 
 For manifest-backed projects, the first local content-addressed lock/store slice
@@ -143,7 +143,7 @@ See [`examples/demo.sp`](examples/demo.sp) for a standalone example file.
 ```spore
 struct Point { x: I32, y: I32 }
 
-type Shape {
+enum Shape {
     Circle(I32),
     Rect(I32, I32),
 }
@@ -167,35 +167,36 @@ fn compute() -> I32 {
 }
 ```
 
-### Required Effects, Costs, and Error Sets
+### Required Effects, Budgets, Properties, and Outcomes
 
 These annotations are part of the function signature — the compiler verifies
-required effects, cost budgets, checked error contracts, and explicit effect
-surfaces at call boundaries. `throw expr` must be covered by the current
-function's `! E1 | E2`, calling a throwing function requires a compatible
-caller signature, and `?` is sugar for
-that propagation rule.
+required effects, named budgets, first-class outcome types, and explicit effect
+surfaces at call boundaries. `A ! E` is an ordinary type with successful value
+`A` and failure value `E`; `fail expr` constructs the failure case, and postfix
+`?` propagates that case through an enclosing outcome-returning function.
+Multiple failure cases are represented by an ordinary `enum`.
 
-The parser accepts `where`, `uses`, `cost`, and `spec` clauses in any order.
-Documentation examples use the canonical order: `where`, `uses`, `cost`, `spec`,
-and stable `where` syntax is a single comma-separated clause such as
-`where T: Trait, U: Trait`. Active cost syntax is the fixed-order vector
-`cost [compute, alloc, io, parallel]`; each slot currently uses the minimal
-subset only: integer constants, parameter variables, or linear `O(n)` terms.
-Old scalar `cost <= expr`, `log`/`max`/`min`, and richer algebraic terms are
-deferred. Functions marked `@unbounded` are still contagious and skip body
-budget verification, but they must declare an expected vector with the same
-`cost [compute, alloc, io, parallel]` syntax so callers and docs preserve an
-explicit cost intent.
+Documentation examples use the intent signature order: `uses`, `budget`, then
+`properties`. Budgets are named integer bounds on realization shape, not Big-O
+or machine-resource slots. Properties are executable Bool predicates attached
+to the signature.
 
 ```spore
-effect NetConnect {
-    fn fetch(url: Str) -> Str ! NetError | Timeout
+enum FetchError {
+    Network,
+    Timeout,
 }
 
-fn fetch(url: Str) -> Str ! NetError | Timeout
+effect NetConnect {
+    fn fetch(url: Str) -> Str ! FetchError;
+}
+
+fn fetch(url: Str) -> Str ! FetchError
     uses [NetConnect]
-    cost [1, 0, 1, 0]
+    budget { calls: 1 }
+    properties {
+        input_has_length(url: Str): len(url) >= 0
+    }
 {
     perform NetConnect.fetch(url)
 }
@@ -204,9 +205,12 @@ fn fetch(url: Str) -> Str ! NetError | Timeout
 ### Parallel Fetch
 
 ```spore
-fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! NetError | Timeout
+fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! FetchError
     uses [NetConnect, Spawn]
-    cost [O(n), O(n), n, n]
+    budget {
+        parallelism: 4
+        nesting: 3
+    }
 {
     parallel_scope {
         urls |> map(|url| spawn { fetch(url) })
@@ -217,8 +221,7 @@ fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! NetError | Timeout
 
 > This is part of the live structured-concurrency surface: the parser,
 > typechecker, and interpreter all cover the current `parallel_scope` / `spawn`
-> / `await` / `select` subset. Until richer cost-slot terms land, examples use
-> explicit parameters such as `n` instead of projections like `urls.len`.
+> / `await` / `select` subset. Budget examples use named source-shape fields.
 > The same active-docs target also uses `Channel.new[...]` and
 > `select { msg from rx => ..., timeout(5.seconds) => ... }`.
 
@@ -226,7 +229,7 @@ fn fetch_all(urls: List[Str], n: I32) -> List[Str] ! NetError | Timeout
 
 ```spore
 trait Display[T] {
-    fn show(self: T) -> Str
+    fn show(self: T) -> Str;
 }
 
 impl Display for Point {
@@ -254,8 +257,8 @@ Today this is intentionally small and truthful to the live implementation:
 - `spore.merge` provides list-backed unique merge helpers plus a `Merge[T]` trait
 - `spore.order` layers small helpers over the current prelude `Ordering`
 - `spore.laws` hosts executable law-oriented helpers such as
-  `canonical_members_i32` and `sum3_left_assoc_i32`, expressed with ordinary
-  `spec { example ... property ... }` clauses
+  `canonical_members_i32` and `sum3_left_assoc_i32`, expressed as ordinary
+  functions plus `properties` where behavior is part of public intent
 
 `spore.laws` does **not** add trusted optimizer rules or new `law` syntax yet.
 It gives you reusable helpers plus patterns you can copy into your own APIs
@@ -266,9 +269,10 @@ with existing surface syntax:
 import spore.combine
 
 fn sum3(a: I32, b: I32, c: I32) -> I32
-spec {
-    property "associative": |a: I32, b: I32, c: I32|
-        combine_pair(a, combine_pair(b, c, |x: I32, y: I32| x + y), |x: I32, y: I32| x + y)
+properties {
+    associative(a: I32, b: I32, c: I32):
+        combine_pair(a, combine_pair(b, c, |x: I32, y: I32| x + y), |x: I32, y: I32| x + y) ==
+        combine_pair(combine_pair(a, b, |x: I32, y: I32| x + y), c, |x: I32, y: I32| x + y)
 }
 {
     combine_pair(combine_pair(a, b, |x: I32, y: I32| x + y), c, |x: I32, y: I32| x + y)
@@ -290,11 +294,11 @@ fn total(a: I32, b: I32, c: I32) -> I32 {
 ```
 
 That is the current model for law tooling: executable helpers, reusable
-stdlib examples, and documented `spec` patterns — not a new core proof system.
+stdlib examples, and documented `properties` patterns — not a new core proof system.
 
-Older shipped stdlib helpers still live on the prelude or legacy root-module
-surface (`math`, `set`, `dict`, ...); this new `spore.*` naming is the current
-targeted first slice, not a full rename of every shipped module yet.
+Some shipped stdlib helpers still live on the prelude or root-module surface
+(`math`, `set`, `dict`, ...); this new `spore.*` naming is the current targeted
+first slice, not a full rename of every shipped module yet.
 
 ## Architecture
 
@@ -302,10 +306,10 @@ targeted first slice, not a full rename of every shipped module yet.
 sporec (stateless compiler CLI / product)
 └── sporec-driver    Host-side compiler driver crate
     ├── sporec-parser     Source text -> AST
-    ├── sporec-typeck     Type checking, effect & cost analysis
+    ├── sporec-typeck     Type checking, effect & budget analysis
     │   ├── hir          HIR with pipe desugaring
     │   ├── effect sets  Effect-set algebra (∪/∩/hierarchy)
-    │   ├── cost         4D cost vectors + cost checker
+    │   ├── budget       Realization-shape budget checker
     │   ├── hole         Hole dependency graph + topological ordering
     │   ├── sig_hash     BLAKE3 256-bit signature hashing
     │   ├── incremental  Incremental compilation DB
@@ -323,13 +327,17 @@ spore (stateful codebase manager — handles IO / project workflow)
 
 ## Project Status
 
-**Compiler infrastructure implemented.** Parser is feature-complete for the syntax spec. Type checker covers unification, pattern exhaustiveness, trait conformance, error set checking, cost analysis, and the current structured-concurrency subset. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, try-operator support, and the current structured-concurrency runtime.
+**Compiler infrastructure implemented.** Parser is feature-complete for the current syntax target. Type checker covers unification, pattern exhaustiveness, trait conformance, first-class outcome checking, budget analysis, and the current structured-concurrency subset. Interpreter is a PoC tree-walking evaluator with enum constructors, 30+ builtin functions (list/string/math/IO), method-style dispatch, outcome propagation, and the current structured-concurrency runtime.
 
 Native build support is experimental: the current backend emits object files for
 the supported scalar/object subset and rejects unsupported language features
 explicitly. General native compilation remains future work.
 
-See [SPARK.md](SPARK.md) for the project vision and design direction. Topic-level normative proposals live in the sibling [`spore-evolution`](https://github.com/spore-lang/spore-evolution/tree/main/seps) repo under `seps/`.
+See [SPARK.md](SPARK.md) for the project vision and design direction.
+[ROADMAP.md](ROADMAP.md) tracks implementation work by system area. Topic-level
+normative proposals live in the sibling
+[`spore-evolution`](https://github.com/spore-lang/spore-evolution/tree/main/seps)
+repo under `seps/`.
 
 ## Packaging
 
@@ -386,11 +394,13 @@ Rust 1.95+ toolchain.
 
 ### Canonical design docs
 
-| Document                                           | Description                                           |
-| -------------------------------------------------- | ----------------------------------------------------- |
-| [SPARK.md](SPARK.md)                               | Project vision, design direction, and core principles |
-| [docs/specs/README.md](docs/specs/README.md)       | Redirect for the retired per-topic spec drafts        |
-| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts              |
+| Document                                                                       | Description                                                              |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| [SPARK.md](SPARK.md)                                                           | Project vision, design direction, and core principles                    |
+| [ROADMAP.md](ROADMAP.md)                                                       | Implementation roadmap aligned with the active SEP set                   |
+| [docs/decisions/syntax.md](docs/decisions/syntax.md)                           | Current surface-syntax decisions and intentionally rejected source forms |
+| [Spore syntax reference](https://docs.spore-lang.dev/zh/reference/syntax/)     | Chinese syntax reference maintained on the public docs site              |
+| [docs/research/cross-language-notes.md](docs/research/cross-language-notes.md) | Durable cross-language research notes that still shape Spore             |
 
 ### SEP mapping
 
@@ -399,7 +409,7 @@ Detailed topic proposals now live in [`spore-evolution/seps/`](https://github.co
 - [`SEP-0001-core-syntax.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0001-core-syntax.md)
 - [`SEP-0002-type-system.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0002-type-system.md)
 - [`SEP-0003-effect-system.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0003-effect-system.md)
-- [`SEP-0004-cost-analysis.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0004-cost-analysis.md)
+- [`SEP-0004 realization-shape budgets`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0004-cost-analysis.md)
 - [`SEP-0005-hole-system.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0005-hole-system.md)
 - [`SEP-0006-compiler-architecture.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0006-compiler-architecture.md)
 - [`SEP-0007-concurrency-model.md`](https://github.com/spore-lang/spore-evolution/blob/main/seps/SEP-0007-concurrency-model.md)

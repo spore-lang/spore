@@ -1,4 +1,5 @@
 mod check;
+mod explain;
 mod format;
 mod holes;
 mod lock;
@@ -7,6 +8,7 @@ mod scaffold;
 mod watch;
 
 pub(crate) use check::{exec_check, exec_test};
+pub(crate) use explain::exec_explain;
 pub(crate) use format::exec_format;
 pub(crate) use holes::exec_holes;
 pub(crate) use lock::exec_lock;

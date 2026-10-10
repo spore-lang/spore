@@ -75,6 +75,7 @@ fn native_backend_matches_interpreter_for_scalar_main_programs() {
             noop();
         }
         "#,
+        "fn main() -> () { () }",
         r#"
         fn gt_zero(n: I64) -> Bool { n > 0 }
 

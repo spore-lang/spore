@@ -9,7 +9,7 @@ impl Checker {
         let missing = find_missing_set_items(callee_effects, &self.current_effects);
         if !missing.is_empty() {
             self.err(
-                ErrorCode::C0001,
+                ErrorCode::F0001,
                 format!(
                     "missing effects [{}]: caller does not declare them",
                     missing.join(", ")
@@ -17,60 +17,61 @@ impl Checker {
             );
         }
     }
+}
 
-    /// Verify that the current function's error set is a superset of the callee's.
-    pub(super) fn check_error_propagation(&mut self, callee_errors: &ErrorSet) {
-        let missing = crate::types::missing_errors(callee_errors, &self.current_errors);
-        if !missing.is_empty() {
-            self.err(
-                ErrorCode::E0012,
-                format!(
-                    "missing errors [{}] in `?`: caller does not declare them in its error set",
-                    missing.join(", ")
-                ),
-            );
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn checker_with_effects(effects: Vec<&str>) -> Checker {
+        let mut c = Checker::new();
+        c.current_function = "test_fn".into();
+        for e in effects {
+            c.current_effects.insert(e.into());
         }
+        c
     }
 
-    pub(super) fn check_throw_coverage(&mut self, thrown_expr: &Expr) {
-        if self.current_errors.is_empty() {
-            self.err(
-                ErrorCode::E0012,
-                format!(
-                    "`throw` in `{}` requires declaring an error set with `! E`",
-                    self.current_function
-                ),
-            );
-            return;
-        }
+    // ── check_effect_propagation ────────────────────────────────────
 
-        let Some(thrown_name) = self.infer_thrown_error_name(thrown_expr) else {
-            return;
-        };
-        if !self.current_errors.contains(&thrown_name) {
-            self.err(
-                ErrorCode::E0012,
-                format!(
-                    "thrown error `{thrown_name}` is not declared in `{}` error set",
-                    self.current_function
-                ),
-            );
-        }
+    #[test]
+    fn effect_propagation_ok_when_covered() {
+        let mut c = checker_with_effects(vec!["IO", "NetConnect"]);
+        c.check_effect_propagation(&{
+            let mut s = EffectSet::new();
+            s.insert("IO".into());
+            s
+        });
+        assert!(c.errors.is_empty());
     }
 
-    pub(super) fn infer_thrown_error_name(&self, expr: &Expr) -> Option<String> {
-        pub(super) fn looks_like_error_name(name: &str) -> bool {
-            name.chars().next().is_some_and(char::is_uppercase)
-        }
+    #[test]
+    fn effect_propagation_fails_when_missing() {
+        let mut c = checker_with_effects(vec!["NetConnect"]);
+        c.check_effect_propagation(&{
+            let mut s = EffectSet::new();
+            s.insert("IO".into());
+            s
+        });
+        assert_eq!(c.errors.len(), 1);
+        assert!(c.errors[0].message.contains("IO"));
+    }
 
-        match expr {
-            Expr::Var(name) if looks_like_error_name(name) => Some(name.clone()),
-            Expr::Call(callee, _) => match callee.as_ref() {
-                Expr::Var(name) if looks_like_error_name(name) => Some(name.clone()),
-                _ => None,
-            },
-            Expr::StructLit(name, _) if looks_like_error_name(name) => Some(name.clone()),
-            _ => None,
-        }
+    #[test]
+    fn effect_propagation_empty_callee_ok() {
+        let mut c = checker_with_effects(vec![]);
+        c.check_effect_propagation(&EffectSet::new());
+        assert!(c.errors.is_empty());
+    }
+
+    #[test]
+    fn effect_propagation_multiple_missing() {
+        let mut c = checker_with_effects(vec![]);
+        let mut required = EffectSet::new();
+        required.insert("IO".into());
+        required.insert("NetConnect".into());
+        c.check_effect_propagation(&required);
+        assert_eq!(c.errors.len(), 1);
+        assert!(c.errors[0].message.contains("IO"));
+        assert!(c.errors[0].message.contains("NetConnect"));
     }
 }

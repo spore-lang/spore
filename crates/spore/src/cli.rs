@@ -28,6 +28,11 @@ pub(crate) enum Cmd {
     Holes {
         file: String,
     },
+    Explain {
+        list: bool,
+        json: bool,
+        query: Option<String>,
+    },
     Lock {
         check: bool,
         path: Option<String>,
@@ -63,7 +68,7 @@ fn cmd_run_parser() -> impl Parser<Cmd> {
 
 fn cmd_check_parser() -> impl Parser<Cmd> {
     let verbose = long("verbose")
-        .help("Show detailed type inference and cost info")
+        .help("Show detailed type inference, effect, hole, and budget info")
         .switch();
     let json = json_flag();
     let deny_warnings = long("deny-warnings")
@@ -85,7 +90,7 @@ fn cmd_check_parser() -> impl Parser<Cmd> {
 
 fn cmd_test_parser() -> impl Parser<Cmd> {
     let verbose = long("verbose")
-        .help("Show detailed type inference and cost info")
+        .help("Show detailed property validation info")
         .switch();
     let json = json_flag();
     let deny_warnings = long("deny-warnings")
@@ -101,7 +106,7 @@ fn cmd_test_parser() -> impl Parser<Cmd> {
         files,
     })
     .to_options()
-    .descr("Execute spec examples and properties in .sp files. Accepts files, directories, or no args (uses current directory).")
+    .descr("Validate properties in .sp files. Accepts files, directories, or no args (uses current directory).")
     .command("test")
 }
 
@@ -136,6 +141,20 @@ fn cmd_holes_parser() -> impl Parser<Cmd> {
         .to_options()
         .descr("Show hole report (JSON)")
         .command("holes")
+}
+
+fn cmd_explain_parser() -> impl Parser<Cmd> {
+    let json = json_flag();
+    let list = long("list")
+        .help("List available Spore concept ids")
+        .switch();
+    let query = positional::<String>("QUERY")
+        .help("Concept id, surface name, alias, or diagnostic code")
+        .optional();
+    construct!(Cmd::Explain { list, json, query })
+        .to_options()
+        .descr("Explain a Spore language concept or diagnostic code")
+        .command("explain")
 }
 
 fn cmd_lock_parser() -> impl Parser<Cmd> {
@@ -202,6 +221,7 @@ pub(crate) fn cli() -> OptionParser<Cmd> {
         cmd_test_parser(),
         cmd_format_parser(),
         cmd_holes_parser(),
+        cmd_explain_parser(),
         cmd_lock_parser(),
         cmd_build_parser(),
         cmd_watch_parser(),

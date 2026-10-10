@@ -6,6 +6,23 @@ use super::Parser;
 
 impl Parser {
     pub(super) fn parse_type_expr(&mut self) -> Result<TypeExpr, ParseError> {
+        let base = self.parse_refined_type_expr()?;
+        if self.at(&Token::Bang) {
+            self.advance();
+            let failure = self.parse_refined_type_expr()?;
+            if self.at(&Token::Bang) {
+                return Err(self.error(
+                    "outcome types cannot be chained without parentheses; write `(A ! E) ! F` or `A ! (E ! F)`"
+                        .into(),
+                ));
+            }
+            Ok(TypeExpr::Outcome(Box::new(base), Box::new(failure)))
+        } else {
+            Ok(base)
+        }
+    }
+
+    fn parse_refined_type_expr(&mut self) -> Result<TypeExpr, ParseError> {
         let base = self.parse_type_expr_base()?;
         if self.at(&Token::When) {
             self.advance();
@@ -53,18 +70,9 @@ impl Parser {
                 if self.at(&Token::Arrow) {
                     self.advance();
                     let ret = self.parse_type_expr()?;
-                    let errors = if self.at(&Token::Bang) {
-                        self.advance();
-                        let mut errs = vec![self.parse_type_expr()?];
-                        while self.at(&Token::Pipe) {
-                            self.advance();
-                            errs.push(self.parse_type_expr()?);
-                        }
-                        errs
-                    } else {
-                        vec![]
-                    };
-                    Ok(TypeExpr::Function(types, Box::new(ret), errors))
+                    Ok(TypeExpr::Function(types, Box::new(ret)))
+                } else if types.len() == 1 {
+                    Ok(types.into_iter().next().expect("single grouped type"))
                 } else {
                     Ok(TypeExpr::Tuple(types))
                 }

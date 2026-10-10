@@ -67,7 +67,11 @@ pub(super) fn named_function_closure(name: &str, func: &FnDef) -> Value {
         body: func
             .body
             .clone()
-            .unwrap_or(Expr::Hole(Some(name.to_string()), None, None, None)),
+            .unwrap_or(Expr::Hole(Some(name.to_string()), None, None)),
         env: BTreeMap::new(),
+        outcome_return: matches!(
+            func.return_type,
+            Some(sporec_parser::ast::TypeExpr::Outcome(_, _))
+        ),
     })
 }

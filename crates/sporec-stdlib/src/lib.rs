@@ -5,7 +5,7 @@ pub struct StdlibModule {
     pub source: &'static str,
 }
 
-static MODULES: [StdlibModule; 11] = [
+static MODULES: [StdlibModule; 12] = [
     StdlibModule {
         logical_name: "prelude",
         file_name: "prelude.sp",
@@ -60,6 +60,11 @@ static MODULES: [StdlibModule; 11] = [
         logical_name: "spore.laws",
         file_name: "spore/laws.sp",
         source: include_str!("../../../stdlib/spore/laws.sp"),
+    },
+    StdlibModule {
+        logical_name: "spore.outcome",
+        file_name: "spore/outcome.sp",
+        source: include_str!("../../../stdlib/spore/outcome.sp"),
     },
 ];
 

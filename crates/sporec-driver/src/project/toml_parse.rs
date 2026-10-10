@@ -111,7 +111,7 @@ pub fn load_project_manifest(root: &Path) -> Result<ProjectManifest, String> {
             }
             Section::Platform if key == "handles" => {
                 return Err(format!(
-                    "unsupported legacy key `[platform].handles` in `{}`; rename it to `[platform].handled-effects`",
+                    "unsupported key `[platform].handles` in `{}`; use `[platform].handled-effects`",
                     manifest_path.display()
                 ));
             }

@@ -25,6 +25,14 @@ impl Parser {
                 self.advance();
                 Ok(Pattern::Wildcard)
             }
+            Token::Ident(name) if name == "ok" => {
+                self.advance();
+                Ok(Pattern::OutcomeOk(Box::new(self.parse_single_pattern()?)))
+            }
+            Token::Fail => {
+                self.advance();
+                Ok(Pattern::OutcomeFail(Box::new(self.parse_single_pattern()?)))
+            }
             Token::Ident(name) => {
                 self.advance();
                 if self.at(&Token::LParen) {

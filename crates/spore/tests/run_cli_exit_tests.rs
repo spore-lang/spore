@@ -144,6 +144,52 @@ fn help_output_does_not_panic() {
         &["init", "--help"],
         "Initialize Spore project in current directory",
     );
+    assert_help_succeeds(
+        &["explain", "--help"],
+        "Explain a Spore language concept or diagnostic code",
+    );
+}
+
+#[test]
+fn explain_concept_json_returns_concept_doc() {
+    let output = spore_cmd()
+        .args(["explain", "budget", "--json"])
+        .output()
+        .expect("run spore explain");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = stdout_json_lines(&output)
+        .into_iter()
+        .next()
+        .expect("one json object");
+    assert_eq!(json["id"], "budget");
+    assert_eq!(json["related_seps"], serde_json::json!(["SEP-0004"]));
+}
+
+#[test]
+fn explain_diagnostic_json_links_concepts() {
+    let output = spore_cmd()
+        .args(["explain", "B0101", "--json"])
+        .output()
+        .expect("run spore explain diagnostic");
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json = stdout_json_lines(&output)
+        .into_iter()
+        .next()
+        .expect("one json object");
+    assert_eq!(json["code"], "B0101");
+    assert_eq!(json["concept_refs"], serde_json::json!(["budget"]));
 }
 
 #[test]
@@ -239,7 +285,7 @@ fn standalone_build_writes_native_object_file() {
 }
 
 #[test]
-fn stdlib_spec_suite_passes_via_cli() {
+fn stdlib_property_suite_passes_via_cli() {
     let stdlib = repo_root().join("stdlib");
     let files = [
         "math.sp",
@@ -255,7 +301,7 @@ fn stdlib_spec_suite_passes_via_cli() {
         cmd.arg(stdlib.join(file));
     }
 
-    let output = cmd.output().expect("run spore test for stdlib specs");
+    let output = cmd.output().expect("run spore test for stdlib properties");
 
     assert!(
         output.status.success(),
@@ -266,7 +312,7 @@ fn stdlib_spec_suite_passes_via_cli() {
     let reports = stdout_json_lines(&output);
     let (summary, events) = reports
         .split_last()
-        .expect("stdlib spec run should emit a summary JSON line");
+        .expect("stdlib property run should emit a summary JSON line");
     assert!(
         events.iter().all(|event| event["severity"] == "warning"),
         "non-warning event before summary: {reports:?}"
@@ -276,7 +322,7 @@ fn stdlib_spec_suite_passes_via_cli() {
     assert_eq!(json["failed"].as_u64(), Some(0));
     assert!(
         json["passed"].as_u64().is_some_and(|passed| passed >= 100),
-        "expected stdlib spec coverage, got: {json}"
+        "expected stdlib property coverage, got: {json}"
     );
 }
 
@@ -461,7 +507,8 @@ fn project_basic_cli_exit_returns_requested_code_without_printing_value() {
     project.write(
         "vendor/basic-cli/src/basic_cli/cmd.sp",
         r#"
-        pub foreign fn exit(code: U8) -> Never uses [Exit]
+        @foreign
+        pub fn exit(code: U8) -> Never uses [Exit];
         "#,
     );
     let entry = project.write(
@@ -528,7 +575,8 @@ fn project_test_reuses_project_aware_import_resolution() {
     project.write(
         "src/basic_cli/stdout.sp",
         r#"
-        pub foreign fn println(s: Str) -> () uses [Console]
+        @foreign
+        pub fn println(s: Str) -> () uses [Console];
         "#,
     );
     project.write(
@@ -555,8 +603,8 @@ fn project_test_reuses_project_aware_import_resolution() {
         import basic_cli.stdout as stdout
 
         fn local_identity(x: I64) -> I64
-        spec {
-            example "basic": local_identity(42) == 42
+        properties {
+            basic(): local_identity(42) == 42
         }
         {
             x
@@ -582,14 +630,14 @@ fn project_test_reuses_project_aware_import_resolution() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("1 specs passed"),
+        String::from_utf8_lossy(&output.stderr).contains("1 properties passed"),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
 }
 
 #[test]
-fn project_test_runs_specs_in_imported_embedded_law_modules() {
+fn project_test_runs_properties_in_imported_embedded_law_modules() {
     let project = TempProject::new();
     project.write(
         "spore.toml",
@@ -632,7 +680,7 @@ fn project_test_runs_specs_in_imported_embedded_law_modules() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("specs passed"),
+        String::from_utf8_lossy(&output.stderr).contains("properties passed"),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );

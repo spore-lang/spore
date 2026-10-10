@@ -5,7 +5,7 @@
 //! - Comparisons: `<, <=, ==, !=, >=, >`
 //! - Arithmetic: `+, -, *`
 //! - Boolean connectives: `&&, ||, !`
-//! - String `.len()` method
+//! - Str `.len()` method
 
 use sporec_parser::ast::{BinOp, Expr, UnaryOp};
 
@@ -159,11 +159,11 @@ fn eval_binop(l: &ConstValue, op: &BinOp, r: &ConstValue) -> Result<ConstValue, 
             BinOp::Ne => Ok(ConstValue::Bool(*a != *b)),
             _ => Err(format!("unsupported op `{op:?}` on Bool")),
         },
-        // String comparisons
+        // Str comparisons
         (ConstValue::Str(a), ConstValue::Str(b)) => match op {
             BinOp::Eq => Ok(ConstValue::Bool(*a == *b)),
             BinOp::Ne => Ok(ConstValue::Bool(*a != *b)),
-            _ => Err(format!("unsupported op `{op:?}` on String")),
+            _ => Err(format!("unsupported op `{op:?}` on Str")),
         },
         _ => Err(format!(
             "type mismatch in refinement: cannot apply `{op:?}` to {} and {}",
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn test_string_len() {
+    fn test_str_len() {
         // self.len() > 0
         let len_call = Expr::Call(
             Box::new(Expr::FieldAccess(Box::new(var_expr("self")), "len".into())),

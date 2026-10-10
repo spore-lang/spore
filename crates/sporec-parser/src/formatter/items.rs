@@ -1,41 +1,23 @@
 use crate::ast::*;
 
-use super::Formatter;
+use super::{Formatter, escape_str};
 
 impl<'a> Formatter<'a> {
     pub(super) fn fmt_fn_def(&mut self, f: &FnDef) {
+        self.fmt_attributes(&f.attributes);
         self.write_indent();
-        if f.is_unbounded {
-            self.write("@unbounded\n");
-            self.write_indent();
-        }
-        if let Some(allows) = &f.hole_allows {
-            self.write("@allows[");
-            self.write(&allows.join(", "));
-            self.write("]\n");
-            self.write_indent();
-        }
         self.fmt_visibility(&f.visibility);
-        if f.is_foreign {
-            self.write("foreign ");
-        }
         self.write("fn ");
         self.write(&f.name);
 
-        if !f.type_params.is_empty() {
-            self.write("[");
-            self.write(&f.type_params.join(", "));
-            self.write("]");
-        }
+        self.fmt_type_params_with_inline_bounds(&f.type_params, &f.type_param_bounds);
 
         self.write("(");
         for (i, p) in f.params.iter().enumerate() {
             if i > 0 {
                 self.write(", ");
             }
-            self.write(&p.name);
-            self.write(": ");
-            self.fmt_type_expr(&p.ty);
+            self.fmt_param(p);
         }
         self.write(")");
 
@@ -44,49 +26,32 @@ impl<'a> Formatter<'a> {
             self.fmt_type_expr(ret);
         }
 
-        if !f.errors.is_empty() {
-            self.write(" ! ");
-            for (i, e) in f.errors.iter().enumerate() {
-                if i > 0 {
-                    self.write(" | ");
-                }
-                self.fmt_type_expr(e);
-            }
-        }
-
-        if let Some(wc) = &f.where_clause {
-            self.fmt_where_clause(wc);
-        }
-
         if let Some(uc) = &f.uses_clause {
             self.write(" ");
             self.fmt_uses_clause(uc);
         }
 
-        if let Some(cc) = &f.cost_clause {
-            self.write(" cost [");
-            self.fmt_cost_expr(&cc.compute);
-            self.write(", ");
-            self.fmt_cost_expr(&cc.alloc);
-            self.write(", ");
-            self.fmt_cost_expr(&cc.io);
-            self.write(", ");
-            self.fmt_cost_expr(&cc.parallel);
-            self.write("]");
-        }
-
-        if let Some(sc) = &f.spec_clause {
+        if let Some(bc) = &f.budget_clause {
             self.newline();
             self.write_indent();
-            self.fmt_spec_clause(sc);
+            self.fmt_budget_clause(bc);
         }
+
+        if let Some(pc) = &f.properties_clause {
+            self.newline();
+            self.write_indent();
+            self.fmt_properties_clause(pc);
+        }
+
+        let has_block_clause = f.budget_clause.is_some() || f.properties_clause.is_some();
 
         match &f.body {
             None => {
+                self.write(";");
                 self.newline();
             }
             Some(body) => {
-                if f.spec_clause.is_some() {
+                if has_block_clause {
                     self.newline();
                     self.write_indent();
                 } else {
@@ -98,13 +63,23 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    pub(super) fn fmt_spec_clause(&mut self, spec: &SpecClause) {
-        self.write("spec {");
+    fn fmt_param(&mut self, param: &Param) {
+        self.write(&param.name);
+        if param.name != "self" || !matches!(&param.ty, TypeExpr::Named(name) if name == "Self") {
+            self.write(": ");
+            self.fmt_type_expr(&param.ty);
+        }
+    }
+
+    pub(super) fn fmt_budget_clause(&mut self, budget: &BudgetClause) {
+        self.write("budget {");
         self.newline();
         self.indent += 1;
-        for item in &spec.items {
+        for item in &budget.items {
             self.write_indent();
-            self.fmt_spec_item(item);
+            self.write(&item.field);
+            self.write(": ");
+            self.write(&item.limit.to_string());
             self.newline();
         }
         self.indent -= 1;
@@ -112,33 +87,33 @@ impl<'a> Formatter<'a> {
         self.write("}");
     }
 
-    pub(super) fn fmt_spec_item(&mut self, item: &SpecItem) {
-        match item {
-            SpecItem::Example(ex) => {
-                self.write("example \"");
-                self.write(&ex.label);
-                self.write("\"");
-                match ex.body.as_ref() {
-                    Expr::Block(..) => {
-                        self.write(" ");
-                        self.fmt_expr(ex.body.as_ref());
-                    }
-                    _ => {
-                        self.write(": ");
-                        self.fmt_expr(ex.body.as_ref());
-                    }
+    pub(super) fn fmt_properties_clause(&mut self, properties: &PropertiesClause) {
+        self.write("properties {");
+        self.newline();
+        self.indent += 1;
+        for item in &properties.items {
+            self.write_indent();
+            self.write(&item.name);
+            self.write("(");
+            for (idx, param) in item.params.iter().enumerate() {
+                if idx > 0 {
+                    self.write(", ");
                 }
+                self.write(&param.name);
+                self.write(": ");
+                self.fmt_type_expr(&param.ty);
             }
-            SpecItem::Property(prop) => {
-                self.write("property \"");
-                self.write(&prop.label);
-                self.write("\": ");
-                self.fmt_expr(prop.predicate.as_ref());
-            }
+            self.write("): ");
+            self.fmt_expr(item.predicate.as_ref());
+            self.newline();
         }
+        self.indent -= 1;
+        self.write_indent();
+        self.write("}");
     }
 
     pub(super) fn fmt_const(&mut self, c: &ConstDef) {
+        self.fmt_attributes(&c.attributes);
         self.write_indent();
         self.fmt_visibility(&c.visibility);
         self.write("const ");
@@ -151,6 +126,7 @@ impl<'a> Formatter<'a> {
     }
 
     pub(super) fn fmt_struct_def(&mut self, s: &StructDef) {
+        self.fmt_attributes(&s.attributes);
         self.write_indent();
         self.fmt_visibility(&s.visibility);
         self.write("struct ");
@@ -199,9 +175,10 @@ impl<'a> Formatter<'a> {
     }
 
     pub(super) fn fmt_type_def(&mut self, t: &TypeDef) {
+        self.fmt_attributes(&t.attributes);
         self.write_indent();
         self.fmt_visibility(&t.visibility);
-        self.write("type ");
+        self.write("enum ");
         self.write(&t.name);
 
         if !t.type_params.is_empty() {
@@ -263,15 +240,12 @@ impl<'a> Formatter<'a> {
     }
 
     pub(super) fn fmt_trait_def(&mut self, t: &TraitDef) {
+        self.fmt_attributes(&t.attributes);
         self.write_indent();
         self.fmt_visibility(&t.visibility);
         self.write("trait ");
         self.write(&t.name);
-        if !t.type_params.is_empty() {
-            self.write("[");
-            self.write(&t.type_params.join(", "));
-            self.write("]");
-        }
+        self.fmt_type_params_with_inline_bounds(&t.type_params, &t.type_param_bounds);
         self.write(" {");
         self.newline();
         self.indent += 1;
@@ -291,9 +265,7 @@ impl<'a> Formatter<'a> {
             self.newline();
         }
         for m in &t.methods {
-            self.write_indent();
             self.fmt_fn_def(m);
-            self.newline();
         }
         self.indent -= 1;
         self.write_indent();
@@ -302,17 +274,17 @@ impl<'a> Formatter<'a> {
     }
 
     pub(super) fn fmt_effect_def(&mut self, e: &EffectDef) {
+        self.fmt_attributes(&e.attributes);
         self.write_indent();
         self.fmt_visibility(&e.visibility);
         self.write("effect ");
         self.write(&e.name);
+        self.fmt_type_params_with_inline_bounds(&e.type_params, &e.type_param_bounds);
         self.write(" {");
         self.newline();
         self.indent += 1;
         for op in &e.operations {
-            self.write_indent();
             self.fmt_fn_def(op);
-            self.newline();
         }
         self.indent -= 1;
         self.write_indent();
@@ -320,56 +292,39 @@ impl<'a> Formatter<'a> {
         self.newline();
     }
 
-    pub(super) fn fmt_effect_alias(&mut self, ea: &EffectAlias) {
+    pub(super) fn fmt_surface_def(&mut self, surface: &SurfaceDef) {
+        self.fmt_attributes(&surface.attributes);
         self.write_indent();
-        self.fmt_visibility(&ea.visibility);
-        self.write("effect ");
-        self.write(&ea.name);
+        self.fmt_visibility(&surface.visibility);
+        self.write("surface ");
+        self.write(&surface.name);
+        self.fmt_type_params_with_inline_bounds(&surface.type_params, &surface.type_param_bounds);
         self.write(" = ");
-        self.write(&ea.effects.join(" | "));
+        self.fmt_surface_expr(&surface.surface);
         self.newline();
     }
 
     pub(super) fn fmt_handler_def(&mut self, h: &HandlerDef) {
+        self.fmt_attributes(&h.attributes);
         self.write_indent();
+        self.fmt_visibility(&h.visibility);
         self.write("handler ");
         self.write(&h.name);
-        if !h.fields.is_empty() {
-            self.write("(");
-            for (idx, field) in h.fields.iter().enumerate() {
-                if idx > 0 {
-                    self.write(", ");
-                }
-                self.write(&field.name);
-                self.write(": ");
-                self.fmt_type_expr(&field.ty);
-            }
-            self.write(")");
-        }
-        self.write(" handles [");
-        self.write(&h.handles_clause.effects.join(", "));
-        self.write("]");
-        if let Some(uses_clause) = &h.uses_clause {
-            self.write(" ");
-            self.fmt_uses_clause(uses_clause);
-        }
+        self.write(" for ");
+        self.fmt_surface_expr(&h.surface);
         self.write(" {");
         self.newline();
         self.indent += 1;
         for handler_impl in &h.impls {
-            self.write_indent();
-            self.write("impl ");
-            self.write(&handler_impl.effect);
-            self.write(" {");
-            self.newline();
-            self.indent += 1;
             for method in &handler_impl.methods {
-                self.fmt_fn_def(method);
+                self.fmt_attributes(&method.attributes);
+                self.write_indent();
+                self.write("fn ");
+                self.write(&handler_impl.effect);
+                self.write(".");
+                self.write(&method.name);
+                self.fmt_fn_def_tail(method);
             }
-            self.indent -= 1;
-            self.write_indent();
-            self.write("}");
-            self.newline();
         }
         self.indent -= 1;
         self.write_indent();
@@ -377,24 +332,47 @@ impl<'a> Formatter<'a> {
         self.newline();
     }
 
+    fn fmt_fn_def_tail(&mut self, f: &FnDef) {
+        self.fmt_type_params_with_inline_bounds(&f.type_params, &f.type_param_bounds);
+        self.write("(");
+        for (idx, param) in f.params.iter().enumerate() {
+            if idx > 0 {
+                self.write(", ");
+            }
+            self.fmt_param(param);
+        }
+        self.write(")");
+        if let Some(return_type) = &f.return_type {
+            self.write(" -> ");
+            self.fmt_type_expr(return_type);
+        }
+        if let Some(uses_clause) = &f.uses_clause {
+            self.write(" ");
+            self.fmt_uses_clause(uses_clause);
+        }
+        match &f.body {
+            Some(body) => {
+                self.write(" ");
+                self.fmt_body(body);
+            }
+            None => self.write(";"),
+        }
+        self.newline();
+    }
+
     pub(super) fn fmt_impl_def(&mut self, i: &ImplDef) {
+        self.fmt_attributes(&i.attributes);
         self.write_indent();
         self.write("impl ");
-        self.write(&i.trait_name);
-
-        if !i.type_args.is_empty() {
-            self.write("[");
-            for (idx, ta) in i.type_args.iter().enumerate() {
-                if idx > 0 {
-                    self.write(", ");
-                }
-                self.fmt_type_expr(ta);
-            }
-            self.write("]");
+        self.fmt_type_params_with_inline_bounds(&i.type_params, &i.type_param_bounds);
+        if !i.type_params.is_empty() {
+            self.write(" ");
         }
-
-        self.write(" for ");
-        self.write(&i.target_type);
+        self.fmt_type_expr(&i.interface_type);
+        if let Some(target_type) = &i.target_type {
+            self.write(" for ");
+            self.fmt_type_expr(target_type);
+        }
         self.write(" {");
         self.newline();
         self.indent += 1;
@@ -431,100 +409,134 @@ impl<'a> Formatter<'a> {
     }
 
     pub(super) fn fmt_alias(&mut self, a: &AliasDef) {
+        self.fmt_attributes(&a.attributes);
         self.write_indent();
         self.fmt_visibility(&a.visibility);
-        self.write("alias ");
+        self.write("type ");
         self.write(&a.name);
+        if !a.type_params.is_empty() {
+            self.write("[");
+            self.write(&a.type_params.join(", "));
+            self.write("]");
+        }
         self.write(" = ");
         self.fmt_type_expr(&a.target);
         self.newline();
     }
 
-    pub(super) fn fmt_where_clause(&mut self, wc: &WhereClause) {
-        self.write(" where ");
-        for (i, c) in wc.constraints.iter().enumerate() {
-            if i > 0 {
+    pub(super) fn fmt_opaque_type(&mut self, t: &OpaqueTypeDef) {
+        self.fmt_attributes(&t.attributes);
+        self.write_indent();
+        self.fmt_visibility(&t.visibility);
+        self.write("type ");
+        self.write(&t.name);
+        if !t.type_params.is_empty() {
+            self.write("[");
+            self.write(&t.type_params.join(", "));
+            self.write("]");
+        }
+        self.write(";");
+        self.newline();
+    }
+
+    fn fmt_type_params_with_inline_bounds(
+        &mut self,
+        type_params: &[String],
+        bounds: &[TypeConstraint],
+    ) {
+        if type_params.is_empty() {
+            return;
+        }
+
+        self.write("[");
+        for (idx, type_param) in type_params.iter().enumerate() {
+            if idx > 0 {
                 self.write(", ");
             }
-            self.write(&c.type_var);
-            self.write(": ");
-            self.write(&c.bound);
+            self.write(type_param);
+            let param_bounds = bounds
+                .iter()
+                .filter(|constraint| constraint.type_var == *type_param)
+                .map(|constraint| constraint.bound.as_str())
+                .collect::<Vec<_>>();
+            if !param_bounds.is_empty() {
+                self.write(": ");
+                self.write(&param_bounds.join(" + "));
+            }
+        }
+        self.write("]");
+    }
+
+    fn fmt_attributes(&mut self, attributes: &[Attribute]) {
+        for attribute in attributes {
+            self.write_indent();
+            self.write("@");
+            self.write(&attribute.name);
+            if !attribute.args.is_empty() {
+                self.write("(");
+                for (idx, arg) in attribute.args.iter().enumerate() {
+                    if idx > 0 {
+                        self.write(", ");
+                    }
+                    match arg {
+                        AttrArg::Positional(value) => self.fmt_attr_value(value),
+                        AttrArg::Named { name, value } => {
+                            self.write(name);
+                            self.write(" = ");
+                            self.fmt_attr_value(value);
+                        }
+                    }
+                }
+                self.write(")");
+            }
+            self.newline();
         }
     }
 
-    pub(super) fn fmt_cost_expr(&mut self, ce: &CostExpr) {
-        self.fmt_cost_expr_prec(ce, 0);
-    }
-
-    fn fmt_cost_expr_prec(&mut self, ce: &CostExpr, parent_prec: u8) {
-        let prec = match ce {
-            CostExpr::Add(_, _) => 1,
-            CostExpr::Mul(_, _) => 2,
-            CostExpr::Literal(_)
-            | CostExpr::Var(_)
-            | CostExpr::Linear(_)
-            | CostExpr::Log(_)
-            | CostExpr::Max(_, _)
-            | CostExpr::Min(_, _)
-            | CostExpr::Span(_, _) => 4,
-        };
-        let needs_parens = prec < parent_prec;
-        if needs_parens {
-            self.write("(");
-        }
-        match ce {
-            CostExpr::Literal(n) => self.write(&n.to_string()),
-            CostExpr::Var(v) => self.write(v),
-            CostExpr::Linear(v) => {
-                self.write("O(");
-                self.write(v);
-                self.write(")");
+    fn fmt_attr_value(&mut self, value: &AttrValue) {
+        match value {
+            AttrValue::Ident(value) => self.write(value),
+            AttrValue::Str(value) => {
+                self.write("\"");
+                self.write(&escape_str(value));
+                self.write("\"");
             }
-            CostExpr::Add(lhs, rhs) => {
-                self.fmt_cost_expr_prec(lhs, prec);
-                self.write(" + ");
-                self.fmt_cost_expr_prec(rhs, prec);
-            }
-            CostExpr::Mul(lhs, rhs) => {
-                self.fmt_cost_expr_prec(lhs, prec);
-                self.write(" * ");
-                self.fmt_cost_expr_prec(rhs, prec);
-            }
-            CostExpr::Log(expr) => {
-                self.write("log(");
-                self.fmt_cost_expr_prec(expr, 0);
-                self.write(")");
-            }
-            CostExpr::Max(lhs, rhs) => {
-                self.write("max(");
-                self.fmt_cost_expr_prec(lhs, 0);
-                self.write(", ");
-                self.fmt_cost_expr_prec(rhs, 0);
-                self.write(")");
-            }
-            CostExpr::Min(lhs, rhs) => {
-                self.write("min(");
-                self.fmt_cost_expr_prec(lhs, 0);
-                self.write(", ");
-                self.fmt_cost_expr_prec(rhs, 0);
-                self.write(")");
-            }
-            CostExpr::Span(lhs, rhs) => {
-                self.write("span(");
-                self.fmt_cost_expr_prec(lhs, 0);
-                self.write(", ");
-                self.fmt_cost_expr_prec(rhs, 0);
-                self.write(")");
-            }
-        }
-        if needs_parens {
-            self.write(")");
+            AttrValue::Int(value) => self.write(&value.to_string()),
         }
     }
 
     pub(super) fn fmt_uses_clause(&mut self, uc: &UsesClause) {
-        self.write("uses [");
-        self.write(&uc.resources.join(", "));
-        self.write("]");
+        self.write("uses ");
+        self.fmt_surface_expr(&uc.surface);
+    }
+
+    fn fmt_surface_expr(&mut self, surface: &SurfaceExpr) {
+        match surface {
+            SurfaceExpr::Named(reference) => self.fmt_surface_ref(reference),
+            SurfaceExpr::Set(references) => {
+                self.write("[");
+                for (idx, reference) in references.iter().enumerate() {
+                    if idx > 0 {
+                        self.write(", ");
+                    }
+                    self.fmt_surface_ref(reference);
+                }
+                self.write("]");
+            }
+        }
+    }
+
+    fn fmt_surface_ref(&mut self, reference: &SurfaceRef) {
+        self.write(&reference.name);
+        if !reference.type_args.is_empty() {
+            self.write("[");
+            for (idx, type_arg) in reference.type_args.iter().enumerate() {
+                if idx > 0 {
+                    self.write(", ");
+                }
+                self.fmt_type_expr(type_arg);
+            }
+            self.write("]");
+        }
     }
 }

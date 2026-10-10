@@ -61,18 +61,18 @@ fn resolve_prelude_type(te: &TypeExpr, mapping: &HashMap<String, Ty>) -> Ty {
                 )
             }
         }
-        TypeExpr::Function(params, ret, error_exprs) => {
-            let errors = crate::types::declared_error_set(error_exprs);
-            Ty::Fn(
-                params
-                    .iter()
-                    .map(|param| resolve_prelude_type(param, mapping))
-                    .collect(),
-                Box::new(resolve_prelude_type(ret, mapping)),
-                EffectSet::new(),
-                errors,
-            )
-        }
+        TypeExpr::Function(params, ret) => Ty::Fn(
+            params
+                .iter()
+                .map(|param| resolve_prelude_type(param, mapping))
+                .collect(),
+            Box::new(resolve_prelude_type(ret, mapping)),
+            EffectSet::new(),
+        ),
+        TypeExpr::Outcome(success, failure) => Ty::Outcome(
+            Box::new(resolve_prelude_type(success, mapping)),
+            Box::new(resolve_prelude_type(failure, mapping)),
+        ),
         TypeExpr::Refinement(base, var_name, pred_expr) => Ty::Refined(
             Box::new(resolve_prelude_type(base, mapping)),
             var_name.clone(),
@@ -96,9 +96,7 @@ pub(super) fn build_prelude_interface() -> ModuleInterface {
         match item {
             Item::Function(f) => {
                 let mut type_params = f.type_params.clone();
-                if let Some(wc) = &f.where_clause {
-                    type_params.extend(wc.constraints.iter().map(|c| c.type_var.clone()));
-                }
+                type_params.extend(f.type_param_bounds.iter().map(|c| c.type_var.clone()));
                 type_params.sort();
                 type_params.dedup();
                 let mapping = prelude_type_mapping(&type_params);
@@ -117,22 +115,17 @@ pub(super) fn build_prelude_interface() -> ModuleInterface {
                     f.name.clone(),
                     checker.declared_effects(f.uses_clause.as_ref()),
                 );
-                if !f.errors.is_empty() {
-                    let error_set = crate::types::declared_error_set(&f.errors);
-                    iface.function_errors.insert(f.name.clone(), error_set);
-                }
                 let mut fn_type_params = f.type_params.clone();
-                if let Some(wc) = &f.where_clause {
-                    fn_type_params.extend(wc.constraints.iter().map(|c| c.type_var.clone()));
-                    if !wc.constraints.is_empty() {
-                        iface.function_where_bounds.insert(
-                            f.name.clone(),
-                            wc.constraints
-                                .iter()
-                                .map(|c| (c.type_var.clone(), c.bound.clone()))
-                                .collect(),
-                        );
-                    }
+                fn_type_params.extend(f.type_param_bounds.iter().map(|c| c.type_var.clone()));
+                let generic_bounds = f
+                    .type_param_bounds
+                    .iter()
+                    .map(|c| (c.type_var.clone(), c.bound.clone()))
+                    .collect::<Vec<_>>();
+                if !generic_bounds.is_empty() {
+                    iface
+                        .function_generic_bounds
+                        .insert(f.name.clone(), generic_bounds);
                 }
                 fn_type_params.sort();
                 fn_type_params.dedup();
@@ -182,24 +175,31 @@ pub(super) fn build_prelude_interface() -> ModuleInterface {
                 iface.types.insert(t.name.clone(), variants);
                 iface.set_visibility(&t.name, SymbolVisibility::from(&t.visibility));
             }
+            Item::OpaqueType(t) => {
+                iface
+                    .opaque_types
+                    .insert(t.name.clone(), t.type_params.clone());
+                iface.set_visibility(&t.name, SymbolVisibility::from(&t.visibility));
+            }
+            Item::Alias(alias) => {
+                let mapping = prelude_type_mapping(&alias.type_params);
+                let target = resolve_prelude_type(&alias.target, &mapping);
+                if alias.type_params.is_empty() {
+                    iface.type_aliases.insert(alias.name.clone(), target);
+                } else {
+                    iface
+                        .generic_type_aliases
+                        .insert(alias.name.clone(), (alias.type_params.clone(), target));
+                }
+                iface.set_visibility(&alias.name, SymbolVisibility::from(&alias.visibility));
+            }
             Item::Const(_)
             | Item::ImplDef(_)
             | Item::Import(_)
-            | Item::Alias(_)
             | Item::TraitDef(_)
             | Item::EffectDef(_)
-            | Item::EffectAlias(_) => {}
+            | Item::SurfaceDef(_) => {}
             Item::HandlerDef(handler) => {
-                let fields = handler
-                    .fields
-                    .iter()
-                    .map(|field| {
-                        (
-                            field.name.clone(),
-                            resolve_prelude_type(&field.ty, &HashMap::new()),
-                        )
-                    })
-                    .collect();
                 let mut methods = HashMap::new();
                 for handler_impl in &handler.impls {
                     let impl_methods = handler_impl
@@ -225,19 +225,14 @@ pub(super) fn build_prelude_interface() -> ModuleInterface {
                     handler.name.clone(),
                     HandlerInfo {
                         handled_effects: EffectSet::from_names(
-                            handler.handles_clause.effects.iter().cloned(),
+                            handler.surface.names().into_iter().map(str::to_string),
                         ),
-                        uses_effects: EffectSet::from_names(
-                            handler
-                                .uses_clause
-                                .as_ref()
-                                .map(|uses| uses.resources.clone())
-                                .unwrap_or_default(),
-                        ),
-                        fields,
+                        uses_effects: EffectSet::new(),
+                        fields: Vec::new(),
                         methods,
                     },
                 );
+                iface.set_visibility(&handler.name, SymbolVisibility::from(&handler.visibility));
             }
         }
     }
