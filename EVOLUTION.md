@@ -2,126 +2,113 @@
 
 ## 初始意图
 
-软件开发的核心工作是"表达意图"——告诉编译器、队友和 AI 你要什么。然而绝大多数语言把"意图"散落在类型签名、文档注释、测试用例和口头约定之间，无法被统一验证。
+软件开发的核心工作是表达意图，但类型签名、文档、测试和口头约定常常各说一部分。
+Spore 希望把意图作为一等公民，让函数签名携带蓝图，hole 表达尚未完成的部分，
+填洞后形成可执行程序。开发者先写签名与类型，编译器验证骨架，再按依赖顺序逐洞实现；
+人和 Agent 通过同一份自包含 HoleReport 协作。
 
-Spore（孢子）从一个类比出发：一粒孢子携带完整蓝图，在适宜环境中发育为有机体。Spore 程序也是如此——函数签名即完整蓝图，hole 是萌芽态，填满 hole 后成为可执行的有机体。
+[2026-03-30 的初始设计](https://github.com/spore-lang/spore/commit/243ebe1b2351bedfde9bd234231756596f655e27)已确定以下方向：
 
-这意味着：开发者先写签名、再编译骨架、最后按依赖顺序逐洞填充。编译器在每一步都能给出结构化反馈，人和 Agent 以同一份 HoleReport 作为协作界面。
+- 构建编译型通用语言，让输入、输出、错误、副作用与代价意图进入可检查的签名。
+- 带 hole 的部分程序可以编译、分析与模拟，不把未完成状态当成类型错误或可执行成果。
+- 无状态编译器 sporec 与有状态 Codebase Manager spore 分工，诊断同时服务人和机器。
+- 以接口 hash 和实现 hash 区分兼容性与缓存；内容寻址取代 semver，不同 hash 可共存，
+  模块图禁止循环依赖。
+- 采用四维计算代价、结构化并发与消息传递；不引入 async/await 着色或共享可变状态。
+- Rust bootstrap，先考虑 Cranelift，后续再评估 LLVM；纯计算组件逐步自举。
 
-## 2026-10-03
+设计参考 Agda 的 hole、Idris 的 elaboration、Unison 的内容寻址、Elm 的诊断和
+Roc 的 Platform。面向希望先固定意图再实现的开发者、需要精确上下文的 Agent，
+以及对副作用和计算预算敏感的场景。
+
+类型表达力优先用泛型、关联类型和 GAT 覆盖，避免 HKT 损害签名可读性。
+不追求 Rust 式所有权/借用检查器、自定义操作符或独立 MIR；成功的标志是开发者写完
+签名即可得到骨架反馈，Agent 能据 HoleReport 填洞，接口不变的实现修改无需级联重检。
+
+## 2026-04-13
 
 ### 触发
 
-按用户要求，将项目方向记录从 SPARK.md 迁移至 Zendev evolution 文档格式。
+诊断、handler、Platform 和 native backend 需要共同的边界，避免每个功能形成自己的语言合同。
 
 ### 变化
 
-EVOLUTION.md 成为后续演进记录入口。以下保留迁移前 SPARK.md 的全部内容（仅调整标题层级并将元数据置于 YAML 代码块），包括决策、历史、现状及未完成目标。历史修订未逐日拆解；所记日期仍按原文保留，不补写缺失的触发与理由。原始 [SPARK.md](SPARK.md) 保留至迁移复核完成。
+以共享 Diagnostic IR 作为终端、JSON 和 LSP 的事实源；无明确下一步时不伪造 help。
+Handler 采用词法作用域、one-shot、non-resumable 语义，优先证明可实现的边界。
+Platform 是提供 IO handler 的普通包，也是唯一 FFI 表面；项目入口选择与 startup contract
+分开，每个项目绑定一个 Platform。
 
-```yaml
-description: 以意图为一等公民的编译型通用编程语言——签名携带完整规范，hole 驱动人机协作
-owner: spore-lang
-created: 2026-03-30
-updated: 2026-05-05
-inspired_by:
-  - Roc — Platform 系统、纯函数式应用架构
-  - Elm — 禁止循环依赖、极简设计哲学
-  - Unison — 内容寻址代码管理
-  - Rust — 类型系统表达力、代数 effect 方向
-  - Koka — effect handler 语义参考
-```
+Cranelift 先做单模块、纯标量 skeleton，不一次接管完整运行时。
+HostValue、ADT、Option、Result 的布局冻结前不扩展 aggregate ABI；Platform host model
+泛化前不推进 foreign fn 与 effect lowering。
 
-#### 起源
-
-软件开发的核心工作是"表达意图"——告诉编译器、队友和 AI 你要什么。然而绝大多数语言把"意图"散落在类型签名、文档注释、测试用例和口头约定之间，无法被统一验证。
-
-Spore（孢子）从一个类比出发：一粒孢子携带完整蓝图，在适宜环境中发育为有机体。Spore 程序也是如此——函数签名即完整蓝图，hole 是萌芽态，填满 hole 后成为可执行的有机体。
-
-这意味着：开发者先写签名、再编译骨架、最后按依赖顺序逐洞填充。编译器在每一步都能给出结构化反馈，人和 Agent 以同一份 HoleReport 作为协作界面。
-
-#### 产品/设计目标
-
-Spore 是一门编译型、通用目的的编程语言，目标是让**签名成为唯一的规范来源**。
-
-- 一个函数签名同时承载输入/输出类型、错误集、effect 声明、计算代价预算和 spec 断言——不需要在别处重复表达。
-- 带 hole 的程序合法编译，编译器为每个 hole 输出自包含的上下文报告，使"部分完成"成为正常的工作状态而非错误。
-- 编译器输出同时面向人和机器：同一份 Diagnostic IR 投影为终端文本、JSON 和 LSP 事件。
-- 模块以内容 hash 标识，无版本号，无钻石依赖冲突。
-
-#### 目标用户
-
-- 希望在编码前先固化意图的开发者——先写签名与类型，再逐步实现。
-- 使用 AI Agent 辅助编程的团队——Agent 通过 HoleReport 获取精确上下文，完成结构化填洞。
-- 对副作用和计算代价敏感的场景——effect 和 cost 在签名层面显式声明并编译期验证。
-
-#### 核心原则
-
-1. **签名是重力中心** — 输入/输出、错误集、effect、代价预算、spec 全部在签名声明，函数体可以为空。
-2. **Hole 是协作点而非错误** — 带 hole 的程序编译成功；hole 是人、Agent、团队之间结构化协作的接口。
-3. **先架构后细节** — 自顶向下：先定签名与类型，编译器验证骨架，再按依赖顺序填洞。
-4. **编译器是文档助手** — 所有输出同时提供人类可读文本与机器可读 JSON，共享同一份 Diagnostic IR。
-5. **显式的 effect 与代价** — 每个副作用必须声明，每个计算代价可被编译期验证。从签名就能完整评估一个函数的影响。
-6. **内容寻址取代版本号** — 签名 hash 决定接口兼容性，实现 hash 决定缓存，无 semver，无钻石依赖冲突。
-
-#### 能力地图（方向性）
-
-- **函数签名即规范**：`where` / `uses` / `cost` / `spec` 四个子句覆盖约束、effect、代价和行为断言。
-- **Hole 系统**：`?name` 语法；编译器按依赖图排序推荐填洞顺序；HoleReport 包含类型、可见绑定、可用 effect、代价预算、候选函数。
-- **Effect 系统**：内置 atomic effect（Console / FileRead / NetConnect 等）+ 自定义 effect 接口 + 聚合别名；`handle ... with ...` 词法作用域 handler。
-- **代价模型**：四维向量 `[compute, alloc, io, parallel]`；编译期抽象解释验证 ≤ 声明上界。
-- **内容寻址模块**：双 hash（sig hash / impl hash）驱动增量编译与缓存；禁止循环依赖。
-- **Platform 系统**：语言级概念，以普通包形态提供全部 IO effect handler；应用代码保持纯净；Platform 是唯一 FFI 表面。
-- **结构化并发**：`Spawn` 作为 effect，无 async/await 着色；`Channel[T]` 消息传递，无共享可变状态。
-- **双格式诊断**：Diagnostic IR 投影为默认文本 / `--json` / LSP adapter；统一错误码族（E / W / C / K / H / M）。
-- **编译器工具链**：`sporec`（无状态编译器）+ `spore`（有状态 Codebase Manager：依赖、lock、缓存、watch）。
-
-#### 成功信号
-
-- Agent 读取 HoleReport 后能在无额外对话的情况下正确填洞。
-- 开发者写完签名即可编译，获得骨架验证反馈。
-- 签名变更时编译器精确报告受影响的下游模块——改实现不改接口的修改不触发级联。
-- `spore watch` 保存后秒级反馈，增量编译只重检 hash 变化的模块。
-
-#### 生态关系
-
-- **SEP 规范**：详细语义存放于 `spore-evolution/seps/`（SEP-0001 ~ SEP-0009），SPARK.md 只保留方向性描述。
-- **Backend**：Cranelift 为主（纯 Rust、快编译、原生 WASM）；LLVM 作为未来可选高性能后端。
-- **实现语言**：Rust（edition 2024，MSRV 1.95）；自举路线为纯计算组件逐步用 Spore 重写。
-
-#### 什么不是本项目要做的（Non-goals）
-
-- **所有权 / 借用检查器** — 不引入 Rust 式生命周期系统。
-- **HKT** — 用 generics + traits + 关联类型 + GAT 覆盖，不引入 higher-kinded types。
-- **Async/await 着色** — 并发通过 `Spawn` effect 建模，不设专门的 async 语法。
-- **自定义操作符** — 管道 `|>` 是唯一特殊操作符。
-- **Comptime** — const generics + 细化类型 + 代价模型已足够，不引入编译期求值宏。
-- **独立 MIR** — 无 borrow checker，不需要 CFG 级中间表示。
-- **Semver** — 内容寻址 hash 取代语义版本号。
-- **循环依赖** — 模块图必须无环。
-
-#### 已考虑的替代方案 & 理由
-
-| 方向 | 替代方案 | 选择 & 理由 |
-|---|---|---|
-| 版本管理 | Semver | 内容 hash 消除版本兼容猜测；不同 hash 直接共存，钻石依赖不冲突 |
-| 泛型表达力 | HKT | 实际需求由 GAT + 关联类型覆盖；HKT 引入的类型层复杂度与"签名可读"原则冲突 |
-| 中间表示 | 独立 MIR（CFG-based） | 无 borrow checker，hash + 依赖图已覆盖增量缓存，额外 IR 无收益 |
-| 并发模型 | Async/await | effect 系统天然统一同步与异步；着色问题在 Spore 不存在 |
-| Effect handler | 可恢复 continuation | 先实现 one-shot non-resumable handler，降低运行时复杂度 |
-| 循环引用 | 允许并做拓扑延迟 | Elm 证明了禁止循环依赖带来的架构清晰度；编译器可更自由地并行与缓存 |
-
-#### 开放问题
-
-- Cranelift backend 当前只覆盖单模块纯标量程序；`HostValue` / ADT / `Option` / `Result` 的数据布局何时冻结？
-- `foreign fn` 与 effect lowering 需等 Platform host model 泛化后再推进——如何界定 skeleton 阶段边界？
-- 细化类型 L1 层（抽象解释传播）的工程化路径尚未确定。
-- `with_cost_limit` 等运行时代价收敛机制暂未进入表面语法。
-
-#### 修订记录
-
-- 2026-03-30：初稿（作为 `docs/DESIGN.md`）。
-- 2026-05-05：迁移至 `SPARK.md`，重组为 SPARK 格式，精简实现细节至方向性描述。
+相关决策见
+[诊断合同](https://github.com/spore-lang/spore/pull/82)、
+[handler 语义](https://github.com/spore-lang/spore/pull/91)、
+[Platform 定义](https://github.com/spore-lang/spore/pull/92)和
+[backend 里程碑](https://github.com/spore-lang/spore/pull/93)。
 
 ### 理由
 
-采用 [Zendev evolution 的记录约定](https://github.com/zendev-lab/zendev/pull/50)，使初始意图与后续变化有清楚的维护入口，同时保留来源供复核。未来方向变化应按真实日期追加触发、变化、理由，同日合并，并运行 `zendev evolution check`；本次迁移本身不改变项目目标或完成状态。
+先冻结共用合同和最小 native 对照切片，可以将语言语义、数据布局与宿主运行时分开验证，避免用尚未落地的全量后端承诺掩盖不确定性。
+
+## 2026-04-24
+
+### 触发
+
+早期 capability 与 trait 混用，以及 property 表达式的含义，需要统一到可检查的 effect 与行为规范。
+
+### 变化
+
+统一使用 effect / uses / perform，trait 约束与 effect system 在类型层分离。
+函数签名以 where / uses / cost / spec 承载约束、副作用、四维预算和行为断言。
+Property 返回受限输入上的期望值，由测试基础设施与实际返回值比较。
+
+Cranelift 作为实验性纯标量 backend 接入，复杂数据、foreign、effect 和 package runtime
+继续受到 skeleton 边界限制，不作静默回退。
+
+见 [effect 术语统一](https://github.com/spore-lang/spore/pull/114)、
+[property 语义](https://github.com/spore-lang/spore/pull/116)与
+[实验后端](https://github.com/spore-lang/spore/pull/115)。
+
+### 理由
+
+显式且统一的语义能同时服务用户、类型检查与 Agent。行为规范表达期望结果，避免让同一 spec 在文档、测试和编译器中产生不同解释。
+
+## 2026-05-16
+
+### 触发
+
+effect、错误集、代价和 laws 都需要组合与检查，为它们各造一套规则会增加实现和规范之间的分歧。
+
+### 变化
+
+将这些对象视为可组合、可规范化、可检查的语义，复用合成、合并、顺序和规则检查。
+工程侧采用 spore.combine / spore.merge / spore.order / spore.laws 组织，不新增用户可见的
+std.algebra 表面。目标覆盖 handler discharge、错误集等价与 checked residual budget。
+
+见 [组合语义设计](https://github.com/spore-lang/spore/pull/140)。
+
+### 理由
+
+组合机制首先服务工程实现与规范对齐，避免为了内部共性扩张表面语言。细化类型 L1 的工程化路径和运行时代价收敛仍待解决，with_cost_limit 不因此成为可用表面语法。
+
+## 2026-05-17
+
+### 触发
+
+HoleReport 需要携带更完整的 effect、residual context 和拒绝原因，同时让现有消费者继续依赖清楚的协议谱系。
+
+### 变化
+
+扩展现有 v0.x HoleReport，而不是另起协议命名。
+报告继续提供类型、可见绑定、可用 effect、预算、候选函数和约束，协作遵循
+DISCOVER → ANALYZE → PROPOSE → VERIFY → ACCEPT/REJECT，拒绝必须返回结构化原因。
+
+详细语义由 [SEP 规范](https://github.com/spore-lang/spore-evolution/tree/main/seps)维护；
+实际语法和工具行为以本仓库 [README](README.md)、编译器与测试为准。
+见 [HoleReport 扩展](https://github.com/spore-lang/spore/pull/145)。
+
+### 理由
+
+沿着已有协议扩展上下文，才能让人和 Agent 使用同一协作界面。单 hole 原子修改后重新验证，比让自由文本或过时实现快照承担合同更可靠。
