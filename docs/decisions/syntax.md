@@ -1,6 +1,6 @@
 # 语法规范决策记录
 
-以下决策已最终确定，所有文档和实现必须遵守。主设计文档见 [`../../SPARK.md`](../../SPARK.md)，完整规范见 `spore-evolution/seps/SEP-0001-core-syntax.md`。
+以下决策已最终确定，所有文档和实现必须遵守。主设计文档见 [`../../EVOLUTION.md`](../../EVOLUTION.md)，完整规范见 `spore-evolution/seps/SEP-0001-core-syntax.md`。
 
 ## 结构与关键字
 

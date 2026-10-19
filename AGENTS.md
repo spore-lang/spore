@@ -50,3 +50,7 @@ Report vulnerabilities **privately** via [`SECURITY.md`](./SECURITY.md)
 - Use [`.github/pull_request_template.md`](./.github/pull_request_template.md)
   (`Summary`, `Validation`, `Notes`).
 - In the PR, state what changed, what was validated, and what was not verified.
+
+## Project evolution
+
+[EVOLUTION.md](EVOLUTION.md) preserves the project origin and changes in direction. Append real dates with `### 触发`, `### 变化`, and `### 理由`, consolidate same-day entries, and run `zendev evolution check` after editing. Historical status does not replace current implementation or acceptance evidence.

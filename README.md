@@ -329,7 +329,7 @@ Native build support is experimental: the current backend emits object files for
 the supported scalar/object subset and rejects unsupported language features
 explicitly. General native compilation remains future work.
 
-See [SPARK.md](SPARK.md) for the project vision and design direction. Topic-level normative proposals live in the sibling [`spore-evolution`](https://github.com/spore-lang/spore-evolution/tree/main/seps) repo under `seps/`.
+See [EVOLUTION.md](EVOLUTION.md) for the project vision and design direction. Topic-level normative proposals live in the sibling [`spore-evolution`](https://github.com/spore-lang/spore-evolution/tree/main/seps) repo under `seps/`.
 
 ## Packaging
 
@@ -388,7 +388,7 @@ Rust 1.95+ toolchain.
 
 | Document                                             | Description                                           |
 | ---------------------------------------------------- | ----------------------------------------------------- |
-| [SPARK.md](SPARK.md)                                 | Project vision, design direction, and core principles |
+| [EVOLUTION.md](EVOLUTION.md)                         | Project vision, design direction, and core principles |
 | [docs/decisions/syntax.md](docs/decisions/syntax.md) | Finalized syntax decisions                            |
 
 ### SEP mapping
