@@ -15,4 +15,4 @@ codegen = "codegen"
 THIR = "THIR"
 
 [files]
-extend-exclude = ["docs/research/"]
+extend-exclude = [".agents/notes/research/"]

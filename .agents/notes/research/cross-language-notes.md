@@ -1,6 +1,6 @@
 # 跨语言调研沉淀
 
-从 Agda / Idris / Unison / Elm / Roc / Rust / Zig / Gleam / Pharo 等语言调研中提取的、仍然影响 Spore 方向的持久结论。主设计文档见 [`../../EVOLUTION.md`](../../EVOLUTION.md)。
+从 Agda / Idris / Unison / Elm / Roc / Rust / Zig / Gleam / Pharo 等语言调研中提取的、仍然影响 Spore 方向的持久结论。主设计文档见 [`../../../EVOLUTION.md`](../../../EVOLUTION.md)。
 
 ## 思想来源
 
