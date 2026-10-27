@@ -1,6 +1,6 @@
 use crate::ast::*;
 
-use super::Formatter;
+use super::{Formatter, escape_str};
 
 impl<'a> Formatter<'a> {
     pub(super) fn fmt_fn_def(&mut self, f: &FnDef) {
@@ -116,7 +116,7 @@ impl<'a> Formatter<'a> {
         match item {
             SpecItem::Example(ex) => {
                 self.write("example \"");
-                self.write(&ex.label);
+                self.write(&escape_str(&ex.label));
                 self.write("\"");
                 match ex.body.as_ref() {
                     Expr::Block(..) => {
@@ -131,7 +131,7 @@ impl<'a> Formatter<'a> {
             }
             SpecItem::Property(prop) => {
                 self.write("property \"");
-                self.write(&prop.label);
+                self.write(&escape_str(&prop.label));
                 self.write("\": ");
                 self.fmt_expr(prop.predicate.as_ref());
             }

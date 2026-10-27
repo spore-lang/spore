@@ -207,7 +207,10 @@ impl<'a> Lexer<'a> {
         let mut errors = Vec::new();
 
         loop {
-            self.skip_whitespace_and_comments();
+            if let Err(error) = self.skip_whitespace_and_comments() {
+                errors.push(error);
+                break;
+            }
             if self.pos >= self.source.len() {
                 tokens.push(Spanned::new(Token::Eof, Span::point(self.pos)));
                 break;
@@ -256,7 +259,7 @@ impl<'a> Lexer<'a> {
 
     // ── whitespace / comments ───────────────────────────────────────────
 
-    fn skip_whitespace_and_comments(&mut self) {
+    fn skip_whitespace_and_comments(&mut self) -> Result<(), LexError> {
         loop {
             // whitespace — count newlines to detect blank lines
             let ws_start = self.pos;
@@ -298,16 +301,22 @@ impl<'a> Lexer<'a> {
                 let start = self.pos;
                 self.pos += 2;
                 let mut depth = 1u32;
-                while self.pos + 1 < self.bytes.len() && depth > 0 {
-                    if self.bytes[self.pos] == b'/' && self.bytes[self.pos + 1] == b'*' {
+                while self.pos < self.bytes.len() && depth > 0 {
+                    if self.peek() == Some(b'/') && self.peek2() == Some(b'*') {
                         depth += 1;
                         self.pos += 2;
-                    } else if self.bytes[self.pos] == b'*' && self.bytes[self.pos + 1] == b'/' {
+                    } else if self.peek() == Some(b'*') && self.peek2() == Some(b'/') {
                         depth -= 1;
                         self.pos += 2;
                     } else {
                         self.pos += 1;
                     }
+                }
+                if depth > 0 {
+                    return Err(LexError {
+                        message: "unterminated block comment".into(),
+                        span: Span::new(start, self.pos),
+                    });
                 }
                 let text = self.source[start..self.pos].to_string();
                 self.comments.push(Comment {
@@ -318,7 +327,7 @@ impl<'a> Lexer<'a> {
                 });
                 continue;
             }
-            break;
+            return Ok(());
         }
     }
 

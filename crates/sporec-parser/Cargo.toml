@@ -7,6 +7,12 @@ description = "Spore language parser (source text → AST)"
 repository.workspace = true
 license.workspace = true
 
+[[bench]]
+harness = false
+name = "source"
+
 [dev-dependencies]
+criterion = { package = "codspeed-criterion-compat", version = "=6.0.0" }
 insta = { workspace = true }
+proptest.workspace = true
 sporec-typeck = { path = "../sporec-typeck" }

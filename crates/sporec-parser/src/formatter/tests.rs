@@ -319,3 +319,32 @@ fn test_trailing_comment_after_last_item() {
     let out = roundtrip(src);
     assert!(out.contains("// end of file"));
 }
+
+#[test]
+fn spec_error_propagation_and_escaped_labels_roundtrip() {
+    let source = r#"fn d() spec {
+        example "quoted \"label\"": value?
+        property "path \\ next": |x: I64| x
+    }"#;
+    let original = parse(source).unwrap();
+    let formatted = format_module(&original);
+    let reparsed = parse(&formatted).unwrap();
+    let (Item::Function(before), Item::Function(after)) = (&original.items[0], &reparsed.items[0])
+    else {
+        panic!("expected function");
+    };
+    let before_items = &before.spec_clause.as_ref().unwrap().items;
+    let after_items = &after.spec_clause.as_ref().unwrap().items;
+    let (SpecItem::Example(before), SpecItem::Example(after)) = (&before_items[0], &after_items[0])
+    else {
+        panic!("expected example");
+    };
+    assert_eq!(before.label, after.label);
+    assert_eq!(before.body, after.body);
+    assert!(matches!(after.body.as_ref(), Expr::Try(_)));
+    let SpecItem::Property(property) = &after_items[1] else {
+        panic!("expected property");
+    };
+    assert_eq!(property.label, "path \\ next");
+    assert_eq!(format_module(&reparsed), formatted);
+}

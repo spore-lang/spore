@@ -298,7 +298,7 @@ targeted first slice, not a full rename of every shipped module yet.
 
 ## Architecture
 
-```
+```text
 sporec (stateless compiler CLI / product)
 └── sporec-driver    Host-side compiler driver crate
     ├── sporec-parser     Source text -> AST
@@ -355,6 +355,9 @@ CI, and `just msrv`.
 
 ## Development
 
+See [quality checks](docs/quality-checks.md) for dependency, fuzz, mutation, coverage,
+performance and cloud-analysis boundaries.
+
 ### Local hooks
 
 ```bash
@@ -389,8 +392,8 @@ Rust 1.95+ toolchain.
 | Document                                           | Description                                           |
 | -------------------------------------------------- | ----------------------------------------------------- |
 | [EVOLUTION.md](EVOLUTION.md)                               | Project vision, design direction, and core principles |
-| [docs/specs/README.md](docs/specs/README.md)       | Redirect for the retired per-topic spec drafts        |
-| [docs/research/README.md](docs/research/README.md) | Redirect for the retired research drafts              |
+| [docs/decisions/syntax.md](docs/decisions/syntax.md)       | Syntax decisions retained with implementation        |
+| [docs/research/cross-language-notes.md](docs/research/cross-language-notes.md) | Historical cross-language research notes              |
 
 ### SEP mapping
 
