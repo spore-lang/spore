@@ -28,10 +28,10 @@ Use the repository `justfile` entry points and report what actually ran:
 
 - `just format` — format Justfile and Rust sources
 - `just check` — `cargo fmt --check` and Clippy (`-D warnings`)
-- `just pre-commit` — run prek hooks on all files
+- `just check` — run prek hooks on all files
 - `cargo test --all` — full compiler/test suite when behavior changes
 
-Coverage recipes (`just cov`, `just cov-open`) and MSRV (`just msrv`) are
+Coverage recipes (`just coverage`, `cargo llvm-cov --html --open`) and MSRV (`cargo +1.95 check --all-targets --locked`) are
 optional when relevant; do not claim they ran unless they did.
 
 ## Security

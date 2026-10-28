@@ -337,8 +337,8 @@ The `spore` CLI is packaged from `crates/spore` via `maturin` so it can be
 built and published as a PyPI binary package.
 
 ```bash
-just package-cli        # build a wheel into dist/
-just package-cli-sdist  # build a source distribution into dist/
+just build        # build a wheel into dist/
+uvx maturin==1.12.6 sdist --out dist  # build a source distribution into dist/
 ```
 
 GitHub Actions builds wheel artifacts for Linux x86_64, macOS x86_64, macOS
@@ -351,7 +351,7 @@ release is still blocked until that GitHub `pypi` environment and the matching
 PyPI trusted publisher configuration are in place.
 
 The current MSRV is Rust 1.95, matching `Cargo.toml`, `rust-toolchain.toml`,
-CI, and `just msrv`.
+CI, and `cargo +1.95 check --all-targets --locked`.
 
 ## Development
 
@@ -361,8 +361,8 @@ performance and cloud-analysis boundaries.
 ### Local hooks
 
 ```bash
-just pre-commit-install  # install pre-commit + commit-msg hooks via prek
-just pre-commit          # run the configured hooks on all files
+uvx prek install --prepare-hooks  # install pre-commit + commit-msg hooks via prek
+just check          # run the configured hooks on all files
 ```
 
 In this repository, the local Spore hooks intentionally focus on the canonical example surface under `examples/`. The reusable published hooks below are for arbitrary `.sp` files in downstream repos.

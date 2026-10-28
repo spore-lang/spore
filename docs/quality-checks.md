@@ -1,6 +1,6 @@
 # Quality checks
 
-Run deterministic checks with `just check` and `just pre-commit`. Both leave source
+Run deterministic checks with `just check`. It leaves source
 files unchanged. Use `just format` for Rust/Justfile repair and `spore format` for
 explicit Spore source formatting. The published `spore-format` consumer hook retains
 its existing repair behavior; this repository's CI hook passes `--check`.
@@ -8,16 +8,16 @@ its existing repair behavior; this repository's CI hook passes `--check`.
 | Entry point | Evidence produced |
 | --- | --- |
 | `cargo test --all --locked` | Compiler, CLI, integration and documentation tests |
-| `just cov` | Workspace LLVM coverage in `lcov.info`, followed by doctests |
-| `just msrv` | Rust 1.95 all-targets compilation |
-| `just quality` | cargo-machete, cargo-deny advisories and license inventory |
-| `just mutation` | Effect-set propagation mutants with caught, missed and unviable outcomes |
-| `just fuzz` | Seeded UTF-8 parser/formatter checks with AddressSanitizer for 60 seconds |
-| `just sanitizer` | Native scalar ABI, arithmetic errors and object emission under host AddressSanitizer |
+| `just coverage` | Workspace LLVM coverage in `lcov.info`, followed by doctests |
+| `cargo +1.95 check --all-targets --locked` | Rust 1.95 all-targets compilation |
+| `Rust Dependency Review in CI - Static Checks` | cargo-machete, cargo-deny advisories and license inventory |
+| `Mutation Fuzz and Native Sanitizer in CI - Tests` | Effect-set propagation mutants with caught, missed and unviable outcomes |
+| `Mutation Fuzz and Native Sanitizer in CI - Tests` | Seeded UTF-8 parser/formatter checks with AddressSanitizer for 60 seconds |
+| `Mutation Fuzz and Native Sanitizer in CI - Tests` | Native scalar ABI, arithmetic errors and object emission under host AddressSanitizer |
 | `just benchmark` | Local wall-clock measurements of lexing, parsing and formatting 128 functions |
-| `just reports` | jscpd and Lizard inventories without new score thresholds |
-| `just links` | External HTTPS link results |
-| `just package-cli` / `just package-cli-sdist` | Wheel and source distributions; CI installs and invokes both |
+| `Structure History and External Links in CI - Static Checks` | jscpd and Lizard inventories without new score thresholds |
+| `Structure History and External Links in CI - Static Checks` | External HTTPS link results |
+| `just build` / `uvx maturin==1.12.6 sdist --out dist` | Wheel and source distributions; CI installs and invokes both |
 | `uvx prek==0.5.7 run gitleaks-history --hook-stage manual --all-files` | Full Git history scan after creating `reports/` |
 
 ## Tool ownership

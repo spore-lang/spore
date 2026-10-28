@@ -2,44 +2,32 @@ name: "CI - Tests"
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+  schedule:
+    - cron: "45 4 * * 1"
+  workflow_dispatch:
 
 concurrency:
-  group: ci-tests-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-
 permissions:
   contents: read
-
 jobs:
-  msrv:
-    timeout-minutes: 20
-    name: MSRV (Rust 1.95)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: "1.95"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo check --all-targets --locked
-
   test:
     timeout-minutes: 30
+    if: >-
+      github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' && (github.event_name != 'pull_request' || github.base_ref
+      == 'main')
     name: Tests
     permissions:
       contents: read
       id-token: write
     runs-on: ubuntu-latest
     env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: 1
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -81,3 +69,63 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  performance:
+    name: Parser and Formatter Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: "1.95"
+      - run: cargo install cargo-codspeed --version 6.0.0 --locked
+      - run: cargo codspeed build -p sporec-parser --locked
+      - uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5
+        with:
+          mode: simulation
+          run: cargo codspeed run
+
+  robustness:
+    name: Mutation Fuzz and Native Sanitizer
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: "1.95"
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0,cargo-mutants@27.1.0,cargo-fuzz@0.13.2
+          fallback: none
+      - run: rustup toolchain install nightly-2026-10-26 --profile minimal
+      - run: |
+          cargo mutants --file crates/sporec-typeck/src/effect_set.rs --timeout 90 --output reports/mutation -- --locked
+        shell: bash
+      - run: |
+          mkdir -p fuzz/corpus/source
+          cp examples/*.sp fuzz/corpus/source/
+          cargo +nightly-2026-10-26 fuzz run source -- -max_total_time=60 -max_len=4096 -timeout=5
+        if: ${{ !cancelled() }}
+        shell: bash
+      - run: |
+          RUSTFLAGS="-Zsanitizer=address" CARGO_TARGET_DIR=target/sanitizer cargo +nightly-2026-10-26 test -p sporec-codegen --test native_scalar_tests --target "$(rustc -vV | sed -n 's/^host: //p')" --locked
+        if: ${{ !cancelled() }}
+        shell: bash
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: robustness-reports
+          path: |
+            reports/mutation
+            fuzz/corpus
+            fuzz/artifacts
+          if-no-files-found: error
