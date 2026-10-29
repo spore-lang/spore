@@ -11,12 +11,12 @@ its existing repair behavior; this repository's CI hook passes `--check`.
 | `just coverage` | Workspace LLVM coverage in `lcov.info`, followed by doctests |
 | `cargo +1.95 check --all-targets --locked` | Rust 1.95 all-targets compilation |
 | `Rust Dependency Review in CI - Static Checks` | cargo-machete, cargo-deny advisories and license inventory |
-| `Mutation Fuzz and Native Sanitizer in CI - Tests` | Effect-set propagation mutants with caught, missed and unviable outcomes |
-| `Mutation Fuzz and Native Sanitizer in CI - Tests` | Seeded UTF-8 parser/formatter checks with AddressSanitizer for 60 seconds |
-| `Mutation Fuzz and Native Sanitizer in CI - Tests` | Native scalar ABI, arithmetic errors and object emission under host AddressSanitizer |
+| `Mutation Fuzz and Native Sanitizer in CE - Quality` | Effect-set propagation mutants with caught, missed and unviable outcomes |
+| `Mutation Fuzz and Native Sanitizer in CE - Quality` | Seeded UTF-8 parser/formatter checks with AddressSanitizer for 60 seconds |
+| `Mutation Fuzz and Native Sanitizer in CE - Quality` | Native scalar ABI, arithmetic errors and object emission under host AddressSanitizer |
 | `just benchmark` | Local wall-clock measurements of lexing, parsing and formatting 128 functions |
-| `Structure History and External Links in CI - Static Checks` | jscpd and Lizard inventories without new score thresholds |
-| `Structure History and External Links in CI - Static Checks` | External HTTPS link results |
+| `Structure History and External Links in CE - Quality` | jscpd and Lizard inventories without new score thresholds |
+| `Structure History and External Links in CE - Quality` | External HTTPS link results |
 | `just build` / `uvx maturin==1.12.6 sdist --out dist` | Wheel and source distributions; CI installs and invokes both |
 | `uvx prek==0.5.7 run gitleaks-history --hook-stage manual --all-files` | Full Git history scan after creating `reports/` |
 
@@ -61,8 +61,10 @@ OSV retain their full inventories; no advisory suppression is added.
 
 ## CI and services
 
-Deterministic checks run on pull requests. Mutation, fuzz, sanitizer, structure, links
-and history have weekly and manual runs. Parser/formatter benchmarks also run on PRs.
+Deterministic CI checks run on pull requests. The independent
+[CE - Quality](../.github/workflows/ce-quality.yml) workflow runs mutation, fuzz,
+sanitizer, structure, links and history checks weekly and on manual dispatch.
+Parser/formatter benchmarks retain both their CI and CE runs.
 Their CodSpeed build and local smoke execution are distinct from hosted measurement.
 
 Coverage is saved as an artifact before Codecov and Sonar uploads. Codecov uses GitHub
