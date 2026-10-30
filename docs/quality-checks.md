@@ -28,7 +28,7 @@ rule keeps shell command text out of the effect handler's structured process arg
 path. Both rules have accepted and rejected fixtures. Gitleaks checks the working tree
 and runs a separate history scan.
 
-jactionlint 2.3.0 runs offline locally with ShellCheck and Pyflakes. Its strict online
+jactionlint 2.3.0 runs offline locally with ShellCheck and Ruff. Its strict online
 workflow runs only on trusted `main`, records completed lookups and fails on unavailable
 queries. zizmor remains enabled because the negated bot-gate control exposes a detection
 gap in jactionlint. CI references, permissions and timeout budgets are explicit.
