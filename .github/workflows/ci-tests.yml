@@ -1,12 +1,14 @@
 name: "CI - Tests"
 
 on:
-  push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
+  merge_group:
+    branches:
+      - main
+    types:
+      - checks_requested
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
@@ -65,7 +67,6 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-    if: github.event_name != 'pull_request' || github.base_ref == 'main'
   performance:
     name: Parser and Formatter Benchmarks
     runs-on: ubuntu-latest

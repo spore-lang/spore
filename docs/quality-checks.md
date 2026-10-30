@@ -29,7 +29,7 @@ path. Both rules have accepted and rejected fixtures. Gitleaks checks the workin
 and runs a separate history scan.
 
 jactionlint 2.3.0 runs offline locally with ShellCheck and Ruff. Its strict online
-workflow runs only on trusted `main`, records completed lookups and fails on unavailable
+audit runs in CE on trusted `main`, records completed lookups and fails on unavailable
 queries. zizmor remains enabled because the negated bot-gate control exposes a detection
 gap in jactionlint. CI references, permissions and timeout budgets are explicit.
 
@@ -61,7 +61,9 @@ OSV retain their full inventories; no advisory suppression is added.
 
 ## CI and services
 
-Deterministic CI checks run on pull requests. The independent
+Deterministic CI checks run on pull requests and merge groups targeting `main`.
+A push after merging does not repeat these checks. Release tags still build and
+publish their own artifacts. The independent
 [CE - Quality](../.github/workflows/ce-quality.yml) workflow runs mutation, fuzz,
 sanitizer, structure, links and history checks weekly and on manual dispatch.
 Parser/formatter benchmarks retain both their CI and CE runs.
