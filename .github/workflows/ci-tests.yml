@@ -71,6 +71,8 @@ jobs:
     name: Parser and Formatter Benchmarks
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      CARGO_CODSPEED_VERSION: "6.0.0"
     permissions:
       contents: read
       id-token: write
@@ -81,7 +83,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           toolchain: "1.95"
-      - run: cargo install cargo-codspeed --version 6.0.0 --locked
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: codspeed-${{ env.CARGO_CODSPEED_VERSION }}
+          cache-on-failure: true
+      - run: cargo install cargo-codspeed --version "$CARGO_CODSPEED_VERSION" --locked
       - run: cargo codspeed build -p sporec-parser --locked
       - uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5
         with:
