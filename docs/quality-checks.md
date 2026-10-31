@@ -69,8 +69,10 @@ sanitizer, structure, links and history checks weekly and on manual dispatch.
 Parser/formatter benchmarks retain both their CI and CE runs.
 Their CodSpeed build and local smoke execution are distinct from hosted measurement.
 
-Coverage is saved as an artifact before Codecov and Sonar uploads. Codecov uses GitHub
-OIDC and fails on upload errors. Sonar's Rust configuration imports LCOV and requires
-project access plus `SONAR_TOKEN`. CodeQL analyzes Rust and Actions with Rust's supported
-`none` build mode. Check the current commit's service result before claiming integration;
-a configuration file or successful upload is not a completed analysis.
+Coverage is saved as an artifact before the Codecov upload. Codecov uses GitHub
+OIDC and fails on upload errors. SonarQube Cloud uses automatic analysis with the
+scope in `.sonarcloud.properties`; CI and CE do not run SonarScanner or use
+`SONAR_TOKEN`. Automatic analysis covers supported workflow and quality-tool files,
+does not support Rust source, and does not ingest LCOV. CodeQL continues to analyze
+Rust and Actions with Rust's supported `none` build mode. Check the current commit's
+service result before claiming integration; configuration is not a completed analysis.
