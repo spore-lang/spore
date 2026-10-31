@@ -185,8 +185,9 @@ impl<'a> Formatter<'a> {
                 self.fmt_block(stmts, trailing.as_deref());
             }
             Expr::Try(expr) => {
-                self.write("try ");
+                self.write("(");
                 self.fmt_expr(expr);
+                self.write(")?");
             }
             Expr::Hole(name, ty, allows, _) => {
                 self.write("?");

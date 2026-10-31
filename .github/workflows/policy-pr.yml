@@ -2,25 +2,36 @@ name: Policy - PR
 
 on:
   pull_request:
+    branches:
+      - main
     types: [opened, edited, reopened, synchronize]
+  merge_group:
+    branches:
+      - main
+    types:
+      - checks_requested
 
 permissions:
   contents: read
   pull-requests: read
 
 concurrency:
-  group: policy-pr-${{ github.event.pull_request.number }}
+  group: policy-pr-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   pr-message:
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 10
     name: PR message
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
 
       - name: Check PR title
-        uses: zrr1999/zendev/actions/validate-title@v0.0.5
+        uses: zrr1999/zendev/actions/validate-title@60faebf29a0467d06cfb3df79ec0e039ae1f2048 # v0.0.5
         with:
           text: ${{ github.event.pull_request.title }}
 

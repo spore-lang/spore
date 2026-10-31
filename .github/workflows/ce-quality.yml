@@ -1,0 +1,174 @@
+name: CE - Quality
+on:
+  schedule:
+    - cron: 45 4 * * 1
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  dependencies:
+    name: Rust Dependency Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: "1.95"
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0,cargo-machete@0.9.2,cargo-deny@0.20.2
+          fallback: none
+      - run: |
+          cargo machete
+          cargo deny check advisories
+          mkdir -p reports
+          cargo deny list --format json > reports/rust-licenses.json
+        shell: bash
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: rust-licenses
+          path: reports/rust-licenses.json
+          if-no-files-found: error
+
+  vulnerabilities:
+    name: Dependency Vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        with:
+          scan-args: |-
+            --lockfile=Cargo.lock
+            --lockfile=fuzz/Cargo.lock
+
+  hygiene:
+    name: Structure History and External Links
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.5"
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0
+          fallback: none
+      - run: |
+          mkdir -p reports
+          npx --yes jscpd@5.4.2
+          uvx lizard==1.24.3 -X --ignore_warnings -1 crates > reports/complexity.xml
+        shell: bash
+      - run: |
+          mkdir -p reports
+          git ls-files -z '*.md' | xargs -0 uvx --from lychee-bin==0.24.2 lychee --no-progress --scheme https --format json --output reports/links.json
+        if: ${{ !cancelled() }}
+        shell: bash
+      - run: uvx prek==0.5.7 run gitleaks-history --hook-stage manual --all-files
+        if: ${{ !cancelled() }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: hygiene-reports
+          path: reports/
+          if-no-files-found: error
+
+  workflow-audit:
+    name: Online Workflow Audit
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.5"
+      - name: Verify action references and provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uvx --with shellcheck-py==0.11.0.1 --with ruff==0.17.3 jactionlint==2.3.0 --online=strict
+          --online-report=workflow-audit.json --shellcheck=shellcheck --ruff=ruff
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: workflow-audit
+          path: workflow-audit.json
+          if-no-files-found: error
+  performance:
+    name: Parser and Formatter Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: "1.95"
+      - run: cargo install cargo-codspeed --version 6.0.0 --locked
+      - run: cargo codspeed build -p sporec-parser --locked
+      - uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5
+        with:
+          mode: simulation
+          run: cargo codspeed run
+
+  robustness:
+    name: Mutation Fuzz and Native Sanitizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: "1.95"
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.59.0,cargo-mutants@27.1.0,cargo-fuzz@0.13.2
+          fallback: none
+      - run: rustup toolchain install nightly-2026-10-26 --profile minimal
+      - run: |
+          cargo mutants --file crates/sporec-typeck/src/effect_set.rs --timeout 90 --output reports/mutation -- --locked
+        shell: bash
+      - run: |
+          mkdir -p fuzz/corpus/source
+          cp examples/*.sp fuzz/corpus/source/
+          cargo +nightly-2026-10-26 fuzz run source -- -max_total_time=60 -max_len=4096 -timeout=5
+        if: ${{ !cancelled() }}
+        shell: bash
+      - run: |
+          RUSTFLAGS="-Zsanitizer=address" CARGO_TARGET_DIR=target/sanitizer cargo +nightly-2026-10-26 test -p sporec-codegen --test native_scalar_tests --target "$(rustc -vV | sed -n 's/^host: //p')" --locked
+        if: ${{ !cancelled() }}
+        shell: bash
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: robustness-reports
+          path: |
+            reports/mutation
+            fuzz/corpus
+            fuzz/artifacts
+          if-no-files-found: error

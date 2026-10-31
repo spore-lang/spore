@@ -2,11 +2,15 @@ name: "CD - Publish"
 
 on:
   push:
-    branches: [main]
     tags:
       - "v*"
   pull_request:
     branches: [main]
+  merge_group:
+    branches:
+      - main
+    types:
+      - checks_requested
 
 concurrency:
   group: cd-publish-${{ github.ref }}
@@ -21,6 +25,7 @@ env:
 
 jobs:
   build-wheel:
+    timeout-minutes: 30
     name: wheel (${{ matrix.label }})
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -40,20 +45,21 @@ jobs:
             runner: windows-latest
             artifact: wheel-windows-x86_64
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: "1.95"
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-wheel-${{ matrix.label }}
 
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           maturin-version: v1.12.6
           rust-toolchain: "1.95"
@@ -82,30 +88,32 @@ jobs:
           uv tool run --from "$wheel_path" spore test "$repo_root/examples/demo.sp"
 
       - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: spore-${{ matrix.artifact }}
           path: dist/*.whl
           if-no-files-found: error
 
   build-sdist:
+    timeout-minutes: 20
     name: sdist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: "1.95"
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: release-sdist
 
       - name: Build sdist
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           maturin-version: v1.12.6
           rust-toolchain: "1.95"
@@ -121,13 +129,14 @@ jobs:
           uv tool run --from "$sdist_path" spore test "$repo_root/examples/demo.sp"
 
       - name: Upload sdist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: spore-sdist
           path: dist/*.tar.gz
           if-no-files-found: error
 
   publish:
+    timeout-minutes: 15
     name: publish
     runs-on: ubuntu-latest
     needs:
@@ -141,10 +150,14 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: false
       - name: Download release artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           pattern: spore-*
           path: dist
@@ -155,6 +168,7 @@ jobs:
         run: uv publish dist/*
 
   github-release:
+    timeout-minutes: 10
     name: github-release
     runs-on: ubuntu-latest
     needs:
@@ -165,15 +179,19 @@ jobs:
       contents: write
     steps:
       - name: Download release artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
           pattern: spore-*
           path: dist
           merge-multiple: true
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
-          files: |
-            dist/*.whl
-            dist/*.tar.gz
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/*.whl dist/*.tar.gz --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/*.whl dist/*.tar.gz --verify-tag --generate-notes
+          fi

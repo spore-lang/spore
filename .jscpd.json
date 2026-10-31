@@ -1,0 +1,6 @@
+{
+  "path": ["crates"],
+  "ignore": ["**/tests/**", "**/snapshots/**"],
+  "reporters": ["console", "json", "html"],
+  "output": "reports/duplication"
+}

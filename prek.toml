@@ -11,24 +11,32 @@ hooks = [
   { id = "check-json" },
   { id = "check-merge-conflict" },
   { id = "destroyed-symlinks" },
-  { id = "end-of-file-fixer" },
-  { id = "mixed-line-ending" },
-  { id = "trailing-whitespace" },
+  { id = "end-of-file-fixer", args = ["--check"] },
+  { id = "mixed-line-ending", args = ["--fix=no"] },
+  { id = "trailing-whitespace", args = ["--check"] },
 ]
 
 [[repos]]
 repo = "https://github.com/tombi-toml/tombi-pre-commit"
 rev = "v1.9.0"
 hooks = [
-  { id = "tombi-format", exclude = "^Cargo\\.lock$" },
+  { id = "tombi-format", args = ["--check"], exclude = "(^|/)Cargo\\.lock$" },
   { id = "tombi-lint", args = ["--error-on-warnings"] },
 ]
 
 [[repos]]
-repo = "https://github.com/rhysd/actionlint"
-rev = "v1.7.12"
+repo = "local"
 hooks = [
-  { id = "actionlint" },
+  {
+    id = "jactionlint",
+    name = "GitHub Actions correctness and security",
+    entry = "jactionlint --no-online --shellcheck=shellcheck --ruff=ruff",
+    language = "python",
+    additional_dependencies = ["jactionlint==2.3.0", "shellcheck-py==0.11.0.1", "ruff==0.17.3"],
+    pass_filenames = false,
+    files = '^(\.github/|(.*/)?action\.ya?ml$|prek\.toml$)',
+    stages = ["pre-commit"],
+  },
 ]
 
 [[repos]]
@@ -48,8 +56,63 @@ hooks = [
 [[repos]]
 repo = "local"
 hooks = [
-  { id = "cargo-fmt", name = "cargo-fmt", entry = "cargo fmt --all --", language = "system", types = ["rust"], pass_filenames = false },
-  { id = "cargo-clippy", name = "cargo-clippy", entry = "cargo clippy --all-targets -- -D warnings", language = "system", types = ["rust"], pass_filenames = false },
-  { id = "spore-format", name = "spore-format", entry = "cargo run --quiet --bin spore -- format", language = "system", files = "^examples/.*\\.sp$" },
-  { id = "spore-check", name = "spore-check", entry = "cargo run --quiet --bin spore -- check", language = "system", files = "^examples/.*\\.sp$" },
+  { id = "cargo-fmt", name = "cargo-fmt", entry = "cargo fmt --all -- --check", language = "system", types = ["rust"], pass_filenames = false },
+  { id = "cargo-fmt-fuzz", name = "cargo-fmt-fuzz", entry = "cargo fmt --manifest-path fuzz/Cargo.toml -- --check", language = "system", files = "^fuzz/", pass_filenames = false },
+  { id = "cargo-clippy", name = "cargo-clippy", entry = "cargo clippy --all-targets --locked -- -D warnings", language = "system", types = ["rust"], pass_filenames = false },
+  { id = "spore-format", name = "spore-format", entry = "cargo run --quiet --locked --bin spore -- format --check", language = "system", files = "^examples/.*\\.sp$" },
+  { id = "spore-check", name = "spore-check", entry = "cargo run --quiet --locked --bin spore -- check", language = "system", files = "^examples/.*\\.sp$" },
+]
+
+[[repos]]
+repo = "https://github.com/zizmorcore/zizmor-pre-commit"
+rev = "v1.31.1"
+hooks = [
+  { id = "zizmor", args = ["--offline", "--strict-collection", "--min-severity=medium"], stages = ["pre-commit"] },
+]
+
+[[repos]]
+repo = "https://github.com/rvben/rumdl-pre-commit"
+rev = "v0.3.0"
+hooks = [{ id = "rumdl-check", args = ["--config", ".rumdl.toml", "--deny-config-warnings"] }]
+
+[[repos]]
+repo = "https://github.com/python-jsonschema/check-jsonschema"
+rev = "0.38.2"
+hooks = [{ id = "check-renovate" }]
+
+[[repos]]
+repo = "https://github.com/gitleaks/gitleaks"
+rev = "v8.30.1"
+hooks = [
+  { id = "gitleaks", entry = "gitleaks dir . --config .gitleaks.toml --redact --no-banner --log-level warn", always_run = true },
+  { id = "gitleaks", alias = "gitleaks-history", entry = "gitleaks git . --config .gitleaks.toml --redact --no-banner --report-format json --report-path reports/history-secrets.json", always_run = true, stages = ["manual"] },
+]
+
+[[repos]]
+repo = "local"
+hooks = [
+  { id = "ast-grep", name = "Parser IO boundary", entry = "ast-grep scan", language = "python", additional_dependencies = ["ast-grep-cli==0.51.0"], files = "(crates/sporec-parser/src/|quality/ast-grep|sgconfig)", pass_filenames = false },
+  { id = "ast-grep-tests", name = "Parser boundary controls", entry = "ast-grep test --skip-snapshot-tests", language = "python", additional_dependencies = ["ast-grep-cli==0.51.0"], files = "quality/ast-grep", pass_filenames = false },
+]
+
+[[repos]]
+repo = "https://github.com/semgrep/pre-commit"
+rev = "v1.182.1"
+hooks = [
+  { id = "semgrep", name = "Shell execution security", language_version = "python3.13", files = "(crates/|quality/semgrep)", pass_filenames = false, args = ["scan", "--error", "--metrics", "off", "--config", "quality/semgrep", "crates"] },
+  { id = "semgrep", alias = "semgrep-tests", name = "Shell execution controls", language_version = "python3.13", files = "quality/semgrep", pass_filenames = false, args = ["--test", "--metrics", "off", "quality/semgrep"] },
+]
+
+[[repos]]
+repo = "https://github.com/vale-cli/vale"
+rev = "v3.25.1"
+hooks = [
+  { id = "vale", name = "Documentation terminology", types = ["markdown"], require_serial = true },
+]
+
+[[repos]]
+repo = "https://github.com/lycheeverse/lychee"
+rev = "lychee-v0.24.2"
+hooks = [
+  { id = "lychee", name = "Repository Markdown links", files = "\\.md$", args = ["LYCHEE_VERSION=0.24.2", "--offline", "--scheme", "file", "--include-fragments", "--no-progress"] },
 ]

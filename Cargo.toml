@@ -33,7 +33,7 @@ cranelift-frontend = "0.114"
 cranelift-jit = "0.114"
 cranelift-module = "0.114"
 cranelift-native = "0.114"
-object = { version = "0.37.3", features = ["write"] }
+object = { version = "0.37.3", default-features = false, features = ["write"] }
 
 # Error reporting
 ariadne = "0.6"
@@ -58,7 +58,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt"] }
 
 # Testing
 insta = "1"
-# proptest = "1"
+proptest = "=1.11.0"
 
 [profile.dev]
 opt-level = 0

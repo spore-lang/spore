@@ -1,0 +1,7 @@
+[global]
+# Prose uses full paragraphs; source and historical research are not rewritten to a width limit.
+disable = ["MD013", "MD036"]
+exclude = ["target/**", "fuzz/target/**", "reports/**"]
+
+[per-file-ignores]
+".github/pull_request_template.md" = ["MD041"]
