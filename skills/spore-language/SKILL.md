@@ -107,7 +107,7 @@ Zero holes = complete, fully verified program.
 
 A Spore project follows a conventional layout managed by `spore.toml`:
 
-```
+```text
 my-app/
 ├── spore.toml          # project manifest
 ├── src/

@@ -23,3 +23,10 @@
 lcov.info
 *.profraw
 *.profdata
+
+# Quality artifacts and fuzz-generated cases
+/reports/
+/mutants.out*/
+/fuzz/target/
+/fuzz/artifacts/
+/fuzz/corpus/

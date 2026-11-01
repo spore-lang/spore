@@ -1,0 +1,10 @@
+id: parser-io
+valid:
+  - 'fn parse(source: &str) { source.chars().count(); }'
+  - 'use std::collections::BTreeMap;'
+invalid:
+  - 'fn parse(path: &str) { std::fs::read_to_string(path); }'
+  - 'fn parse() { std::env::var("SOURCE"); }'
+  - 'use std::fs;'
+  - 'use std::fs::read_to_string;'
+  - 'fn parse() { std::process::exit(1); }'

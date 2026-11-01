@@ -1,0 +1,16 @@
+id: parser-io
+language: Rust
+severity: error
+message: Parser source transforms text to AST; host IO belongs in the driver and CLI.
+files:
+  - crates/sporec-parser/src/**/*.rs
+ignores:
+  - crates/sporec-parser/src/**/tests.rs
+rule:
+  any:
+    - pattern: std::fs::$METHOD($$$ARGS)
+    - pattern: std::env::$METHOD($$$ARGS)
+    - pattern: std::process::exit($STATUS)
+    - all:
+        - kind: use_declaration
+        - regex: 'use std::(fs|env|process|io)(::|;)'

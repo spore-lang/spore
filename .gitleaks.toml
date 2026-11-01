@@ -1,0 +1,6 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated build, fuzz and quality reports"
+paths = ['(^|/)(target|reports|dist|\.venv|corpus|artifacts)/']

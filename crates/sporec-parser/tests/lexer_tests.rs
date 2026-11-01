@@ -580,3 +580,24 @@ fn test_foreign_keyword() {
         vec![Token::Foreign, Token::Fn, Token::Ident("malloc".into())]
     );
 }
+
+#[test]
+fn unterminated_block_comments_report_the_full_source_span() {
+    for source in ["/*", "/*x", "/*¡", "/*孢子", "/* outer /* nested */"] {
+        let errors = Lexer::new(source)
+            .tokenize()
+            .expect_err("unclosed block comment");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].message, "unterminated block comment");
+        assert_eq!(errors[0].span, Span::new(0, source.len()));
+        assert!(sporec_parser::parse(source).is_err());
+    }
+}
+
+#[test]
+fn unicode_block_comments_leave_following_tokens_intact() {
+    assert_eq!(
+        toks_no_eof("/* 孢子 /* ¡ */ 🌱 */ 42"),
+        vec![Token::Int(42)]
+    );
+}

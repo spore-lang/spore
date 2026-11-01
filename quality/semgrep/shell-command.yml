@@ -1,0 +1,20 @@
+rules:
+  - id: shell-command
+    languages: [rust]
+    severity: ERROR
+    message: Preserve the effect handler's separate executable and argument boundary; do not evaluate command text through a shell.
+    metadata:
+      references:
+        - crates/sporec-codegen/src/effect_handler.rs
+    patterns:
+      - pattern-either:
+          - pattern: Command::new($SHELL).arg($FLAG).arg($COMMAND)
+          - pattern: std::process::Command::new($SHELL).arg($FLAG).arg($COMMAND)
+          - pattern: Command::new($SHELL).args([$FLAG, $COMMAND])
+          - pattern: std::process::Command::new($SHELL).args([$FLAG, $COMMAND])
+      - metavariable-regex:
+          metavariable: $SHELL
+          regex: '"(sh|bash|zsh|cmd|cmd.exe)"'
+      - metavariable-regex:
+          metavariable: $FLAG
+          regex: '"(-c|/C|/c)"'

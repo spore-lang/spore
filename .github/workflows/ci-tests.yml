@@ -1,54 +1,90 @@
 name: "CI - Tests"
 
 on:
-  push:
-    branches: [main]
   pull_request:
-    branches: [main]
+    branches:
+      - main
+  merge_group:
+    branches:
+      - main
+    types:
+      - checks_requested
 
 concurrency:
-  group: ci-tests-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-
+permissions:
+  contents: read
 jobs:
-  msrv:
-    name: MSRV (Rust 1.95)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.95"
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-targets
-
   test:
+    timeout-minutes: 30
     name: Tests
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: 1
     steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: "1.95"
           components: llvm-tools
-      - uses: Swatinem/rust-cache@v2
-      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-llvm-cov@0.9.1
+          fallback: none
 
       - name: Run tests with coverage
-        run: cargo llvm-cov test --lcov --output-path lcov.info -- --no-capture
+        run: cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
 
       - name: Run doc tests
-        run: cargo test --doc --all-features
+        run: cargo test --workspace --locked --doc --all-features
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: rust-coverage
+          path: lcov.info
+          if-no-files-found: error
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
+          disable_search: true
           files: lcov.info
-          fail_ci_if_error: false
+          fail_ci_if_error: true
+
+  performance:
+    name: Parser and Formatter Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CARGO_CODSPEED_VERSION: "6.0.0"
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: "1.95"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: codspeed-${{ env.CARGO_CODSPEED_VERSION }}
+          cache-on-failure: true
+      - run: cargo install cargo-codspeed --version "$CARGO_CODSPEED_VERSION" --locked
+      - run: cargo codspeed build -p sporec-parser --locked
+      - uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5
+        with:
+          mode: simulation
+          run: cargo codspeed run

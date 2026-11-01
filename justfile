@@ -1,57 +1,40 @@
-# List all available commands
+# List developer commands.
 default:
     @just --list
 
-# Install
+# Install the CLI and Git hooks.
 install:
-    uvx prek install --prepare-hooks
-    uvx maturin develop
+    uvx --isolated prek install --prepare-hooks
+    uvx maturin==1.12.6 develop
 
-# Build a platform wheel for the packaged CLI into dist/
-package-cli:
-    uvx maturin build --release --locked --out dist
+# Build the wheel and source distribution.
+build:
+    uvx maturin==1.12.6 build --release --locked --out dist
+    uvx maturin==1.12.6 sdist --out dist
 
-# Build a source distribution for the packaged CLI into dist/
-package-cli-sdist:
-    uvx maturin sdist --out dist
-
-# Format all code
+# Format Justfile and Rust sources.
 format:
     just --fmt --unstable
     cargo fmt
 
-# Run all static checks (fmt check + clippy)
+# Run the read-only repository gate.
 check:
-    cargo fmt --all -- --check
-    cargo clippy --all-targets -- -D warnings
+    uvx --isolated prek run --all-files
 
-# Run tests with coverage (requires cargo-llvm-cov)
-cov:
-    cargo llvm-cov test --lcov --output-path lcov.info -- --no-capture
+# Run the compiler and documentation tests.
+test:
+    cargo test --workspace --locked --all-features
 
-# Open coverage HTML report
-cov-open:
-    cargo llvm-cov test --html -- --no-capture
-    open target/llvm-cov/html/index.html || xdg-open target/llvm-cov/html/index.html
+# Collect LLVM coverage and run doctests.
+coverage:
+    cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
+    cargo test --workspace --locked --doc --all-features
 
-# MSRV check
-msrv:
-    cargo +1.95 check --all-targets
+# Measure the parser and formatter locally.
+benchmark:
+    cargo bench -p sporec-parser --bench source --locked
 
-# Clean build artifacts
+# Remove local build artifacts.
 clean:
     cargo clean
     rm -f lcov.info
-
-# Run pre-commit on all files
-pre-commit:
-    uvx prek run --all-files
-
-# Display project information
-info:
-    @echo "=== Spore ==="
-    @echo "Rust: $(rustc --version)"
-    @echo "Cargo: $(cargo --version)"
-    @echo ""
-    @echo "Workspace members:"
-    @cargo metadata --no-deps --format-version 1 2>/dev/null | jq -r '.packages[].name' 2>/dev/null || echo "  (install jq for detailed info)"
