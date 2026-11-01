@@ -73,15 +73,15 @@ jobs:
           fallback: none
       - run: |
           mkdir -p reports
-          npx --yes jscpd@5.4.2
-          uvx lizard==1.24.3 -X --ignore_warnings -1 crates > reports/complexity.xml
+          npx --yes --ignore-scripts jscpd@5.4.2
+          uvx --no-build lizard==1.24.3 -X --ignore_warnings -1 crates > reports/complexity.xml
         shell: bash
       - run: |
           mkdir -p reports
-          git ls-files -z '*.md' | xargs -0 uvx --from lychee-bin==0.24.2 lychee --no-progress --scheme https --format json --output reports/links.json
+          git ls-files -z '*.md' | xargs -0 uvx --no-build --from lychee-bin==0.24.2 lychee --no-progress --scheme https --format json --output reports/links.json
         if: ${{ !cancelled() }}
         shell: bash
-      - run: uvx prek==0.5.7 run gitleaks-history --hook-stage manual --all-files
+      - run: uvx --no-build prek==0.5.7 run gitleaks-history --hook-stage manual --all-files
         if: ${{ !cancelled() }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
@@ -105,7 +105,7 @@ jobs:
       - name: Verify action references and provenance
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx --with shellcheck-py==0.11.0.1 --with ruff==0.17.3 jactionlint==2.3.0 --online=strict
+        run: uvx --no-build --with shellcheck-py==0.11.0.1 --with ruff==0.17.3 jactionlint==2.3.0 --online=strict
           --online-report=workflow-audit.json --shellcheck=shellcheck --ruff=ruff
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
