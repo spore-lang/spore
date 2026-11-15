@@ -39,6 +39,8 @@ uv tool install spore-lang
 spore --version
 ```
 
+Current Spec also defines [independent impl relations](docs/decisions/impl-relations.md). That target and its ownership obligations are separate from the bootstrap syntax supported below.
+
 ## Canonical Surface Syntax
 
 - Modules come only from file paths; there is no `module ...` header.
