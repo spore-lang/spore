@@ -8,6 +8,8 @@ description: >
 
 # Spore Language Skill
 
+For the current Spec relation target, read [impl relations](../../docs/decisions/impl-relations.md). Its `impl A <: B;` and completion bodies require ownership, completeness and coherence checks; they are not the bootstrap compiler's existing `impl Trait for Type`. Do not claim compiler support from Spec grammar acceptance.
+
 ## Mission
 
 Spore is a language where **programmer intent is explicit, verifiable, and collaborative**.

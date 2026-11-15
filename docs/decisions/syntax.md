@@ -2,6 +2,8 @@
 
 以下决策已最终确定，所有文档和实现必须遵守。主设计文档见 [`../../EVOLUTION.md`](../../EVOLUTION.md)，完整规范见 `spore-evolution/seps/SEP-0001-core-syntax.md`。
 
+本文描述现有 bootstrap 编译器的语法。当前 Spec 的独立关联使用 `impl A <: B;`，详见 [关联声明边界](impl-relations.md)；本表不表示编译器已支持该目标。
+
 ## 结构与关键字
 
 | # | 决策 | 说明 |
